@@ -44,7 +44,9 @@ interface AddressingModeFieldProps {
  * dialog, Deployment Templates, and the platform deploy wizard. Supporting text makes the
  * operational consequence available before selection, and disabled template-owned values remain
  * readable instead of collapsing into a terse segmented control. `helperText` carries the caller's
- * context, such as why a mode was suggested.
+ * context, such as a template owning the value. A risk of the selected mode, like Automatic on a
+ * subnet without provisioner DHCP, is a separate `SiteDhcpAddressingWarning` rather than helper
+ * text, so it reads as a warning and not as a note.
  */
 export function AddressingModeField({
   value,

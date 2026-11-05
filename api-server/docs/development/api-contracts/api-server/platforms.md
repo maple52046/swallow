@@ -378,7 +378,9 @@ types):
 accepts the rest of that OS Deployment intent for the provisioned targets: `templateId`, write-only
 `userData` (`mode` `inherit`, `replace`, or `omit`, with `value`), and `network.subnetId`,
 `network.defaultGateway`, and per-target `network.assignments` (`serverId`, `interfaceId`,
-`subnetId`, `ipAddress`). `settings` takes `imageId` and the deploy mode exactly as an OS
+`subnetId`, `ipAddress`). A `network` without `mode` keeps the Deployment Template's mode, or
+Automatic without a template, exactly as an OS Deployment does, and its other fields still apply.
+`settings` takes `imageId` and the deploy mode exactly as an OS
 Deployment does: `deployTarget` (`"disk"` | `"ram"`), where an unknown value is a
 `400 validation_error`.
 
@@ -480,8 +482,28 @@ The members infer one of these supported topologies:
 Two control-plane assignments and even control-plane counts are rejected. Every topology
 must supply workload capacity. Pod and service ranges may not cover target addresses.
 `apiVip` is required only for high availability; standalone and non-HA multi-node
-deployments omit `apiVip` and `apiVipPrefix` and use the initial control-plane Server
-address as the API endpoint. An HA virtual IP may not equal a selected Server address.
+deployments omit `apiVip` and `apiVipPrefix` (sending either is a `validation_error` in either
+machine preparation mode) and use the initial control-plane Server's address after the deployment
+as the API endpoint, the `apiEndpoint` of the Platform's Integration. An initial control plane that
+is already `deployed` is reused and keeps its observed address, whatever the network mode. One that
+`provision_os` provisions with `static` addressing gets its assignment's `ipAddress`, which is then
+required. One provisioned with `automatic` or `dhcp` addressing gets its address only from the
+provisioner, so its address before provisioning is not used: the endpoint is its address once
+provisioned, read by the install automation. `network.mode` is compared case-insensitively, as
+the provisioner reads it. When `network` names no `mode` and the Deployment Template's mode is
+`static`, the Server still gets its assignment's `ipAddress`, but the endpoint is resolved as for
+`automatic`: it is the Server's address once provisioned, read by the install automation, and the
+acceptance checks below skip that Server, which `install-platform` checks instead. An HA virtual IP
+may not equal a selected Server address.
+
+The pod and service range checks and the virtual IP check above run at acceptance on the addresses
+the targets will have after the deployment: the observed addresses of reused Servers and the static
+assignments of provisioned ones. The addresses a Server provisioned with `automatic` or `dhcp`
+addressing had before are not checked, since they do not predict its new one. `install-platform`
+then checks every node's address before any node joins the cluster and fails with
+`ansible_failed`, its output naming the node with
+`[node_address_in_cluster_network]` (inside the pod or service range) or
+`[api_vip_is_node_address]` (equal to the HA virtual IP).
 
 For HA, swallow reads from the provisioner the IPv4 subnet of each control-plane Server's
 boot interface (or, for a Server the deploy provisions, the subnet its network assignment
@@ -1392,6 +1414,22 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 
 ## Compatibility Notes
 
+- Since 2026-11-05 a `provision_os` deploy whose `machinePreparation.network` has no `mode` passes
+  its `subnetId`, `defaultGateway`, and `assignments` to the OS deployment and keeps the Deployment
+  Template's mode, or Automatic without a template (see [Create A Platform](#create-a-platform)).
+  Before, such a `network` was dropped whole: its interface, subnet, and static IP choices were
+  ignored, and a Static template was refused for missing static IPs. This is a bug fix; a request
+  that names `mode` is unaffected, and the request and response shapes are unchanged.
+- Since 2026-11-05 a non-HA Kubernetes deployment whose `provision_os` provisions the initial
+  control plane with `automatic` or `dhcp` addressing records the address that Server has once
+  provisioned as the Integration's `apiEndpoint`. It used to record the address observed before
+  provisioning, which the provisioner may change, and the Integration could not reach the cluster.
+  This is a bug fix; the request and response shapes are unchanged. The same day the
+  acceptance-time address checks skip the old addresses of such Servers (`install-platform` checks
+  them once provisioned), a `static` mode is read case-insensitively, a reused `deployed` initial
+  control plane under `static` keeps its observed address instead of being refused for a missing
+  assignment, and `apiVip` or `apiVipPrefix` on a non-HA `provision_os` deployment is a
+  `validation_error` as this contract says, where it used to be ignored.
 - Since 2026-11-05 `DELETE /platforms/{id}` uninstalls a Platform whose deployment runs or failed
   (`202` with the uninstall's plan) instead of deleting the record at once (`204`) and leaving what
   the deployment installed on the hosts; this makes the implementation do what this contract said,

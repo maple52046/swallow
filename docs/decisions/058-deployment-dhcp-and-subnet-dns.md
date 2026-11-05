@@ -30,8 +30,8 @@ allocators can hand out the same address, and the site's gateway and DNS options
   - `automatic` (the default): the provisioner allocates and records a stable address. It is
     realized by the provider's auto-assign (MAAS `AUTO`), not by raw DHCP.
   - `dhcp`: the network's own DHCP server assigns the address, gateway, and DNS (MAAS link mode
-    `DHCP`). It is for subnets whose DHCP the provisioner does not serve, and is not another name
-    for `automatic`.
+    `DHCP`). It is the user's explicit choice for subnets whose DHCP the provisioner does not
+    serve, and is not another name for `automatic`.
   - `static`: the user chooses each Server's address (MAAS link mode `STATIC`).
 - **DNS follows the link mode.** `automatic` and `static` deployments take the subnet's Subnet DNS
   servers, or the provisioner's own DNS when that list is empty; `dhcp` deployments take DNS from
@@ -40,8 +40,11 @@ allocators can hand out the same address, and the site's gateway and DNS options
   [decision 071](071-provisioner-realized-desired-state.md) (provisioner-realized desired state)
   decides.
 - **Network inspection suggests a mode; the user decides.** An explicit static binding on the boot
-  NIC suggests `static`, a subnet without provisioner DHCP suggests `dhcp`, and otherwise
-  `automatic`. The suggestion is never authoritative.
+  NIC suggests `static`; otherwise the suggestion is `automatic`, also on a subnet without
+  provisioner DHCP. For such a subnet swallow shows a visible warning instead: `automatic` may
+  hand out an address the site DHCP pool also uses, and `dhcp` lets the site DHCP server assign
+  the address. The suggestion is never authoritative, and swallow never switches to `dhcp` by
+  itself.
 - **The provider adapter is an anticorruption layer.** Provider vocabulary (MAAS `AUTO` and
   `LINK_UP`, link ids, operation names) stays in the adapter, as
   [decision 070](070-core-providers-and-extensions.md) (core, provider adapters, and extension
@@ -73,6 +76,11 @@ allocators can hand out the same address, and the site's gateway and DNS options
   and DNS the site DHCP server knows nothing about.
 - **Let `automatic` switch to DHCP by itself on subnets the provisioner does not serve DHCP for:**
   rejected by the user in favor of an explicit mode the user sees and can override.
+- **Suggest `dhcp` for subnets without provisioner DHCP** (the earlier suggestion rule, which the
+  Deploy OS dialog and the Platform wizard preselected): replaced on 2026-11-05 by the
+  user's decision that `automatic` is always the preselected mode. The conflict with the site
+  DHCP pool that the `dhcp` suggestion guarded against is now a visible warning, and choosing
+  `dhcp` stays with the user.
 - **Continuously reconcile every NIC:** rejected — changing a deployed host's network can interrupt
   running workloads without a user action.
 
@@ -81,6 +89,9 @@ allocators can hand out the same address, and the site's gateway and DNS options
 - `automatic` gives a stable, provisioner-recorded address that swallow shows right after
   deployment. It consumes a static IP from the subnet's non-dynamic space, so the subnet needs
   static space; the dynamic range stays for enlistment and commissioning.
+- On a subnet without provisioner DHCP, a deployment left on `automatic` may receive an address
+  the site DHCP pool also hands out. swallow warns but does not prevent it; the user switches to
+  `dhcp` when the site DHCP server should assign the address.
 - With `dhcp` on a site-DHCP network the provisioner receives no lease. The address swallow shows is
   the one MAAS last observed for the interface, and SSH-based automation after deployment depends
   on it.
@@ -94,3 +105,4 @@ allocators can hand out the same address, and the site's gateway and DNS options
 - 2026-09-06: decision 058 renamed the default `automatic`, realized it by provider auto-assign (MAAS `AUTO`), and kept `dhcp` only as a deprecated alias.
 - 2026-10-13: decision 058 made `dhcp` a separate mode again for networks whose DHCP the provisioner does not serve, and had swallow write Subnet DNS through to the provisioner.
 - 2026-11-02: merged decision 058 into this ADR; the body states the current decision.
+- 2026-11-05: network inspection no longer suggests `dhcp` for a subnet without provisioner DHCP; `automatic` stays the suggestion and clients warn about the site DHCP pool, per the user's decision that `automatic` is always preselected.

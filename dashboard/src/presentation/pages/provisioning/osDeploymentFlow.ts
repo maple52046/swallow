@@ -5,6 +5,8 @@ import type {
   DeploymentNetworkMode,
   DeploymentUserDataMode,
   DeployTarget,
+  NetworkSubnet,
+  NetworkTarget,
 } from '@/domain/provisioning/types'
 import type { Server } from '@/domain/server/types'
 import type { OSImage } from '@/domain/site/types'
@@ -76,23 +78,53 @@ export function defaultDeployTargetForImage(image: OSImage | undefined): DeployT
  * The addressing mode a deployment batch starts from, derived from the backend's per-target
  * suggestions (contract provisioning.md, Network Inspection); the user can change it. One
  * mode applies to the whole batch, so Static wins when any target has an explicit static binding
- * (its address must be kept), DHCP only when every target suggests it (all sit on a subnet whose
- * DHCP the provisioner does not serve), and Automatic otherwise, including for no targets.
+ * (its address must be kept), and Automatic is preselected otherwise, including for no targets.
+ *
+ * DHCP is never preselected, not even for a suggestion that says `dhcp`: on a subnet whose DHCP
+ * the provisioner does not serve the user is warned instead (see `siteDhcpConflictSubnets`) and
+ * chooses DHCP explicitly (decision 058).
  */
 export function suggestedBatchNetworkMode(
   suggestions: readonly DeploymentNetworkMode[],
 ): DeploymentNetworkMode {
-  if (suggestions.includes('static')) return 'static'
-  if (suggestions.length > 0 && suggestions.every((mode) => mode === 'dhcp')) return 'dhcp'
-  return 'automatic'
+  return suggestions.includes('static') ? 'static' : 'automatic'
+}
+
+/** The NIC and subnet a deployment form currently assigns to one target Server. */
+interface TargetSubnetChoice {
+  readonly interfaceId: string
+  readonly subnetId: string
 }
 
 /**
- * Helper text under the addressing mode when the batch suggestion is DHCP, so the user sees
- * why it was chosen and what Automatic would do instead on that network (decision 058).
+ * Lists the distinct subnets a batch would deploy with Automatic addressing although the
+ * provisioner serves no DHCP on them (`provisionerDhcp` false, contract provisioning.md, Network
+ * Inspection). Provider auto-assign does not know a site DHCP server's pool, so on these subnets
+ * Automatic may hand out an address the site also leases; a non-empty result is what the
+ * Deploy OS dialog and the Platform wizard show `SiteDhcpAddressingWarning` for (decision 058).
+ *
+ * The subnet is resolved through each target's currently chosen NIC, so a per-target subnet
+ * override counts and the suggestion does not. Targets without a chosen subnet, targets missing
+ * from `assignments`, and every mode other than Automatic yield nothing: DHCP lets the site DHCP
+ * server assign the address, and Static addresses are the user's own choice. Order follows the
+ * first target that uses each subnet.
  */
-export const SITE_DHCP_SUGGESTION_TEXT =
-  'DHCP is suggested because the provisioner runs no DHCP on these Servers\u2019 subnet: the site DHCP server assigns their address, gateway, and DNS. Automatic would assign an address the site DHCP server does not know about.'
+export function siteDhcpConflictSubnets(
+  mode: DeploymentNetworkMode,
+  targets: readonly NetworkTarget[],
+  assignments: Readonly<Record<string, TargetSubnetChoice | undefined>>,
+): NetworkSubnet[] {
+  if (mode !== 'automatic') return []
+  const subnets = new Map<string, NetworkSubnet>()
+  for (const target of targets) {
+    const assignment = assignments[target.serverId]
+    if (!assignment?.subnetId) continue
+    const iface = target.network.interfaces.find((candidate) => candidate.id === assignment.interfaceId)
+    const subnet = iface?.availableSubnets.find((candidate) => candidate.id === assignment.subnetId)
+    if (subnet && !subnet.provisionerDhcp && !subnets.has(subnet.id)) subnets.set(subnet.id, subnet)
+  }
+  return [...subnets.values()]
+}
 
 /** Maps shared UI state to the standalone provisioning operation contract. */
 export function toDeployServersInput(

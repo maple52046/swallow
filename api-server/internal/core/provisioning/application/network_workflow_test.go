@@ -404,7 +404,9 @@ func workflowNetwork(machineID string, ambiguous bool) *provisioningdomain.Machi
 }
 
 // siteDHCPNetwork is one boot NIC on a subnet whose DHCP the provisioner does not serve, as on
-// a Boot ISO network; linked says whether the NIC already has a link there.
+// a Boot ISO network; linked says whether the NIC already has a link there. The suggestion must
+// stay Automatic on it (decision 058): the conflict with the site's DHCP pool is the client's
+// warning, and DHCP is the user's choice.
 func siteDHCPNetwork(linked bool) *provisioningdomain.MachineNetwork {
 	iface := provisioningdomain.NetworkInterface{
 		ID: "nic-site", Name: "enp1s0", Boot: true,
@@ -437,19 +439,19 @@ func TestSuggestNetworkUsesStaticBindingOrAutomaticFallback(t *testing.T) {
 			},
 		},
 		{
-			name:    "linked subnet without provisioner DHCP suggests dhcp",
+			name:    "linked subnet without provisioner DHCP stays automatic",
 			network: siteDHCPNetwork(true),
 			want: NetworkSuggestion{
-				Mode:        provisioningdomain.DeploymentNetworkDHCP,
+				Mode:        provisioningdomain.DeploymentNetworkAutomatic,
 				InterfaceID: "nic-site",
 				SubnetID:    "subnet-site",
 			},
 		},
 		{
-			name:    "sole managed subnet without provisioner DHCP suggests dhcp",
+			name:    "sole managed subnet without provisioner DHCP stays automatic",
 			network: siteDHCPNetwork(false),
 			want: NetworkSuggestion{
-				Mode:        provisioningdomain.DeploymentNetworkDHCP,
+				Mode:        provisioningdomain.DeploymentNetworkAutomatic,
 				InterfaceID: "nic-site",
 				SubnetID:    "subnet-site",
 			},
@@ -481,6 +483,23 @@ func TestSuggestNetworkUsesStaticBindingOrAutomaticFallback(t *testing.T) {
 				SubnetID:       "subnet-a",
 				IPAddress:      "192.0.2.42",
 				DefaultGateway: true,
+			},
+		},
+		{
+			name: "explicit static binding on a subnet without provisioner DHCP stays static",
+			network: func() *provisioningdomain.MachineNetwork {
+				network := siteDHCPNetwork(false)
+				network.Interfaces[0].Links = []provisioningdomain.NetworkLink{{
+					ID: "link-site", State: provisioningdomain.NetworkStateStatic,
+					ProviderMode: "STATIC", SubnetID: "subnet-site", IPAddress: "10.140.168.40",
+				}}
+				return network
+			}(),
+			want: NetworkSuggestion{
+				Mode:        provisioningdomain.DeploymentNetworkStatic,
+				InterfaceID: "nic-site",
+				SubnetID:    "subnet-site",
+				IPAddress:   "10.140.168.40",
 			},
 		},
 	}
@@ -663,6 +682,78 @@ func TestResolveOperationInputFreezesTemplateIntent(t *testing.T) {
 	}
 	if len(provider.configureRequests) != 0 || len(provider.deployRequests) != 0 {
 		t.Fatal("resolving durable intent performed provider writes")
+	}
+}
+
+// TestResolveOperationInputKeepsTemplateModeWhenNetworkOmitsIt guards a request whose network
+// intent has no mode, as a Platform's provision_os sends when it only adds per-target assignments:
+// the mode stays the Template's, or Automatic without one, and the frozen intent records that
+// resolved mode. An explicit mode still replaces the Template's.
+func TestResolveOperationInputKeepsTemplateModeWhenNetworkOmitsIt(t *testing.T) {
+	tests := []struct {
+		name         string
+		templateMode provisioningdomain.DeploymentNetworkMode // empty deploys without a Template
+		network      DeploymentNetworkInput
+		wantMode     string
+		wantIP       string
+	}{
+		{
+			name:         "static template keeps static and takes the request's static IP",
+			templateMode: provisioningdomain.DeploymentNetworkStatic,
+			network: DeploymentNetworkInput{
+				Assignments: []DeploymentNetworkAssignmentInput{{ServerID: "a", IPAddress: "192.0.2.40"}},
+			},
+			wantMode: "static",
+			wantIP:   "192.0.2.40",
+		},
+		{
+			name:         "blank mode keeps a dhcp template",
+			templateMode: provisioningdomain.DeploymentNetworkDHCP,
+			network:      DeploymentNetworkInput{Mode: "  "},
+			wantMode:     "dhcp",
+		},
+		{
+			name:         "explicit mode replaces the template's",
+			templateMode: provisioningdomain.DeploymentNetworkDHCP,
+			network:      DeploymentNetworkInput{Mode: "Automatic"},
+			wantMode:     "automatic",
+		},
+		{
+			name:     "no template resolves to automatic",
+			network:  DeploymentNetworkInput{SubnetID: "subnet-a"},
+			wantMode: "automatic",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			base, _ := setupNetworkWorkflow(1)
+			imageID := "ubuntu/noble"
+			input := DeployServersInput{ServerIDs: []string{"a"}, Network: &tc.network}
+			templates := &networkWorkflowTemplateRepo{}
+			if tc.templateMode != "" {
+				templates.template = &provisioningdomain.DeploymentTemplate{
+					ID: "template-a", IntegrationID: "provider-a", ImageID: imageID, NetworkMode: tc.templateMode,
+				}
+				input.TemplateID = "template-a"
+			} else {
+				input.Settings.ImageID = &imageID
+			}
+			uc := NewDeployServersUseCase(base.servers, templates, base.providers, nil, &stubDeploymentKeys{})
+
+			frozen, _, err := uc.ResolveOperationInput(context.Background(), input)
+			if err != nil {
+				t.Fatalf("ResolveOperationInput(network %+v) error = %v", tc.network, err)
+			}
+			if frozen.Network == nil || len(frozen.Network.Assignments) != 1 {
+				t.Fatalf("ResolveOperationInput(network %+v) network = %#v, want one frozen assignment", tc.network, frozen.Network)
+			}
+			if got := frozen.Network.Mode; got != tc.wantMode {
+				t.Errorf("ResolveOperationInput(network %+v) mode = %q, want %q", tc.network, got, tc.wantMode)
+			}
+			if got := frozen.Network.Assignments[0].IPAddress; got != tc.wantIP {
+				t.Errorf("ResolveOperationInput(network %+v) ipAddress = %q, want %q", tc.network, got, tc.wantIP)
+			}
+		})
 	}
 }
 

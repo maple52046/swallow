@@ -10944,7 +10944,7 @@ components:
         name:
           type: string
         provisionerDhcp:
-          description: True when the provisioner itself serves DHCP on the subnet; false means any DHCP there is the site's.
+          description: True when the provisioner itself serves DHCP on the subnet; false means any DHCP there is the site's, where `automatic` addressing may conflict with the site DHCP pool and clients warn.
           type: boolean
       required:
         - id
@@ -10964,6 +10964,7 @@ components:
         ipAddress:
           type: string
         mode:
+          description: '`static` for an explicit Static binding on the boot NIC, otherwise `automatic`, also on a subnet whose `provisionerDhcp` is false; swallow does not suggest `dhcp`.'
           enum:
             - automatic
             - dhcp
@@ -11100,7 +11101,7 @@ components:
         - serverId
       type: object
     OsDeploymentNetworkIntent:
-      description: Deployment network intent; a missing object means `automatic`. Each target uses its boot NIC unless an assignment overrides it.
+      description: Deployment network intent. Without a template, a missing object or `mode` means `automatic`; with one, a missing object takes the template's network intent and a missing `mode` keeps the template's mode. Each target uses its boot NIC unless an assignment overrides it.
       properties:
         assignments:
           items:
@@ -11951,7 +11952,7 @@ components:
             - provision_os
           type: string
         network:
-          description: The OS deployment network intent; missing resolves to `automatic`.
+          description: The OS deployment network intent; a missing object or `mode` takes the Deployment Template's, or `automatic` without one.
           properties:
             assignments:
               items:

@@ -93,6 +93,17 @@ export interface DeployStep {
   content: ReactNode
 }
 
+/**
+ * The static IPv4 address, by Server id, that the shell's OS preparation gives each Server the
+ * deploy provisions while the effective network mode (a selected Deployment Template's, otherwise
+ * the user's choice) is `static`: what the request submits as that Server's
+ * `machinePreparation.network.assignments[].ipAddress`. A Server is absent when it is reused, when
+ * the mode is automatic or DHCP (the provisioner picks its address during the deploy), or while the
+ * OS networking step holds no valid IPv4 address for it. A module reads it to show an address the
+ * deploy will use before the deploy, for example the Kubernetes API endpoint.
+ */
+export type DeployStaticAddresses = Readonly<Record<string, string>>
+
 /** What the deploy wizard shell hands a Platform module's deploy form. */
 export interface PlatformDeployContext {
   platformName: string
@@ -159,12 +170,15 @@ export interface PlatformDeployForm {
   selectedServerIds: string[]
   featureContext: PlatformDeployFeatureContext
   features: { title: string; content: ReactNode; valid: boolean; blockedReason?: string }
-  /** Steps after OS preparation, for example Kubernetes networking. */
-  extraSteps: (selected: Server[]) => DeployStep[]
+  /**
+   * Steps after OS preparation, for example Kubernetes networking. They come after the OS step, so
+   * `staticAddresses` already holds what that step assigns.
+   */
+  extraSteps: (selected: Server[], staticAddresses: DeployStaticAddresses) => DeployStep[]
   /** Review cards before the shared Features and OS cards; `shared` holds what the shell owns. */
   reviewGroups: (shared: { name: string; site: string; preparationSummary: string }) => DeployReviewGroup[]
-  /** Review cards after the OS card. */
-  reviewGroupsAfterOS: (selected: Server[]) => DeployReviewGroup[]
+  /** Review cards after the OS card; `staticAddresses` as for `extraSteps`. */
+  reviewGroupsAfterOS: (selected: Server[], staticAddresses: DeployStaticAddresses) => DeployReviewGroup[]
   /** A warning about the resolved OS deploy mode, shown at OS installation and again at review. */
   deployModeNotice: (ephemeral: boolean) => ReactNode
   /** The type's fields of the deploy request: settings and the member assignments. */

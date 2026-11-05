@@ -42,11 +42,12 @@ import { AddressingModeField } from './AddressingModeField'
 import { NetworkAssignmentsEditor } from './NetworkAssignmentsEditor'
 import { DeployTargetField } from './DeployTargetField'
 import { OSImageSelectionStep } from './OSImageSelectionStep'
+import { SiteDhcpAddressingWarning } from './SiteDhcpAddressingWarning'
 import { UnsupportedDeployModeWarning } from './UnsupportedDeployModeWarning'
 import {
   defaultDeployTargetForImage,
   osImageSupportsDeployTarget,
-  SITE_DHCP_SUGGESTION_TEXT,
+  siteDhcpConflictSubnets,
   suggestedBatchNetworkMode,
   toDeployServersInput,
   type OSDeploymentConfiguration,
@@ -391,10 +392,12 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
   const networkInspection = inspectionState.status === 'ready'
     ? inspectionState.inspection
     : null
-  // The DHCP explanation follows the backend's suggestion rather than the current choice, so it
-  // stays visible as a warning when the user switches a site-DHCP batch to Automatic.
-  const siteDhcpSuggested = networkInspection !== null &&
-    suggestedBatchNetworkMode(networkInspection.targets.map((target) => target.suggestion.mode)) === 'dhcp'
+  // Automatic stays preselected on subnets without provisioner DHCP (decision 058). The warning
+  // follows the mode and the subnets currently assigned, so it tracks a per-target subnet change
+  // and goes away once the user picks DHCP or Static.
+  const siteDhcpSubnets = networkInspection
+    ? siteDhcpConflictSubnets(effectiveNetworkMode, networkInspection.targets, networkAssignments)
+    : []
   const assignedStaticIPs = selectedServers
     .map((server) => networkAssignments[server.id]?.ipAddress.trim() ?? '')
     .filter(Boolean)
@@ -872,7 +875,6 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
         <div className="sw-deploy-config-grid">
           <AddressingModeField
             value={effectiveNetworkMode}
-            helperText={siteDhcpSuggested ? SITE_DHCP_SUGGESTION_TEXT : undefined}
             onChange={(mode) => {
               markDirty()
               setNetworkMode(mode)
@@ -891,6 +893,7 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
             </Checkbox>
           )}
         </div>
+        {siteDhcpSubnets.length > 0 && <SiteDhcpAddressingWarning subnets={siteDhcpSubnets} />}
         {!networkAssignmentsValid && (
           <Alert status="warning" title="Complete every network assignment">
             Select a NIC and subnet for each Server. Static mode also requires a unique IPv4 address per target.

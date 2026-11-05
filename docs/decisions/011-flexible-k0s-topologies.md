@@ -28,8 +28,11 @@ at least three. A control-plane role assignment may opt into running workloads w
 changing its Node Role; worker assignments always supply workload capacity.
 
 Only high availability configures keepalived and requires an API virtual IP. A
-one-control-plane deployment uses that Server's observed address as the stable API
-endpoint. Existing requests remain compatible because the new workload co-location flag
+one-control-plane deployment uses that Server's address after the deployment as the API
+endpoint: the observed address of a Server it reuses, the static address of one it provisions
+with static addressing, and, for automatic or DHCP addressing, the address the automation reaches
+it on once it is provisioned, because the address it had before provisioning does not predict
+that one. Existing requests remain compatible because the new workload co-location flag
 defaults to false and existing HA VIP fields retain their behavior.
 
 Role assignment and topology validation stay in the Cluster application use case. The
@@ -60,3 +63,4 @@ before submission. API and playbook compatibility remain additive for existing H
 ## Revision history
 
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
+- 2026-11-05: a one-control-plane endpoint is the Server's address after the deployment, not the address observed before a provisioning that may change it.

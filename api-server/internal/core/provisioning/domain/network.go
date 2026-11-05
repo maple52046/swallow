@@ -97,7 +97,9 @@ type NetworkSubnet struct {
 	GatewayAddress string
 	Managed        bool
 	// ProvisionerDHCP reports that the provisioner itself serves DHCP on the subnet. False
-	// means any DHCP there is the site's, which is when deployment suggests the DHCP mode.
+	// means any DHCP there is the site's: Automatic addressing may then hand out an address the
+	// site's DHCP pool also uses, which clients warn about while the user decides whether to
+	// deploy with DHCP instead (decision 058). It never changes the suggested mode.
 	ProvisionerDHCP bool
 	// DNSServers is the subnet's Subnet DNS in the provider's order, canonical IP strings;
 	// empty when the subnet has none and the provisioner's own DNS applies (decision 058).

@@ -626,7 +626,9 @@ spec:
 
 To install the AMD GPU Operator with the platform, add `gpuOperator` to the settings.
 `gpuStackOwner` is then derived and can be left out. This `platform-k8s-gpu.yaml` is the file
-of a lab run: three Servers get a fresh OS by DHCP on their boot interface, all are control
+of a lab run: three Servers get a fresh OS with Automatic addressing on their boot interface
+(`mode: dhcp` instead lets the site DHCP server assign the addresses on a subnet whose DHCP the
+provisioner does not serve), all are control
 plane and workload nodes, and the operator runs in Device Plugin mode on every node its Node
 Feature Discovery marks as an AMD GPU node. `apiVipPrefix` may be left out: it then takes the
 prefix of the control plane's subnet (here `/23`), the only prefix the deploy accepts.
@@ -655,7 +657,7 @@ spec:
       imageId: ubuntu-24.04-rocm-10.0.0-gfx942-rdc-clock-index-fix-amdgpu31.50-maasga146-20261015
       deployTarget: disk
     network:
-      mode: dhcp
+      mode: automatic
       assignments:   # each Server's boot interface and subnet, from `swallow servers get`
         - { serverId: srva, interfaceId: "131", subnetId: "1" }
         - { serverId: srvb, interfaceId: "132", subnetId: "1" }

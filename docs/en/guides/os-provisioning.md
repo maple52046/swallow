@@ -305,11 +305,15 @@ deployment chooses one of three addressing modes:
 
 - **Automatic** requests provider auto-assignment: MAAS allocates and records a
   fixed address. It does not invent a separate swallow address allocator.
+  Automatic is preselected for every deployment unless the boot NIC already has
+  an explicit Static address.
 - **DHCP** leaves the address, gateway, and DNS to the network's own DHCP
-  server. Use it on networks whose DHCP the provisioner does not serve, such as
-  Servers that boot through a Boot ISO: there, Automatic would hand out an
-  address the site DHCP server does not know about. The Deploy OS dialog
-  suggests DHCP for such subnets and says why.
+  server. Choose it on networks whose DHCP the provisioner does not serve, such
+  as Servers that boot through a Boot ISO: there, Automatic may hand out an
+  address the site DHCP server does not know about and may also lease to
+  another machine. When a chosen subnet has no provisioner DHCP and Automatic
+  is selected, the Deploy OS dialog and the Platform deploy wizard show a
+  warning that says so; switching to DHCP is your choice.
 - **Static** uses an address you choose for every Server.
 
 Automatic and Static deployments take their DNS servers from the subnet's

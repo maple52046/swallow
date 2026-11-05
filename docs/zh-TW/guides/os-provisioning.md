@@ -261,11 +261,13 @@ Network configuration 讀寫 provider-owned interface 與 link。部署時從三
 addressing mode 擇一：
 
 - **Automatic** 要求 provider auto-assignment：由 MAAS 分配並記錄固定位址，不是由
-  swallow 另建 address allocator。
-- **DHCP** 由網路自己的 DHCP server 指派位址、gateway 與 DNS。適用於 DHCP 不是由
-  provisioner 提供的網路，例如透過 Boot ISO 開機的 Server：在這類網路上，Automatic
-  會配出站點 DHCP server 不知道的位址。Deploy OS 對話框會對這類 subnet 建議 DHCP
-  並說明原因。
+  swallow 另建 address allocator。除非 boot NIC 已有明確的 Static 位址，每次部署都
+  預選 Automatic。
+- **DHCP** 由網路自己的 DHCP server 指派位址、gateway 與 DNS。DHCP 不是由
+  provisioner 提供的網路可選用它，例如透過 Boot ISO 開機的 Server：在這類網路上，
+  Automatic 可能配出站點 DHCP server 不知道、也可能租給另一台機器的位址。所選
+  subnet 沒有 provisioner DHCP 且選擇 Automatic 時，Deploy OS 對話框與 Platform
+  部署精靈會顯示警告說明這點；是否改用 DHCP 由你決定。
 - **Static** 使用你為每台 Server 指定的位址。
 
 Automatic 與 Static 部署的 DNS servers 來自 subnet 的 **Subnet DNS**；subnet 沒有設定時

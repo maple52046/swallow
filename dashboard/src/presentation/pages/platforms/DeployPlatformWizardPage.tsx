@@ -37,11 +37,12 @@ import { AddressingModeField } from '@/presentation/pages/provisioning/Addressin
 import { NetworkAssignmentsEditor } from '@/presentation/pages/provisioning/NetworkAssignmentsEditor'
 import { DeployTargetField } from '@/presentation/pages/provisioning/DeployTargetField'
 import { OSImageSelectionStep } from '@/presentation/pages/provisioning/OSImageSelectionStep'
+import { SiteDhcpAddressingWarning } from '@/presentation/pages/provisioning/SiteDhcpAddressingWarning'
 import { UnsupportedDeployModeWarning } from '@/presentation/pages/provisioning/UnsupportedDeployModeWarning'
 import {
   defaultDeployTargetForImage,
   osImageSupportsDeployTarget,
-  SITE_DHCP_SUGGESTION_TEXT,
+  siteDhcpConflictSubnets,
   suggestedBatchNetworkMode,
   toPlatformMachinePreparation,
   type OSDeploymentConfiguration,
@@ -351,8 +352,6 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
   const machinesValid =
     form.machines.valid &&
     (!needsProvisioning || (!provisionerConflict && Boolean(integrationId)))
-  const extraSteps = form.extraSteps(selectedServers)
-  const extraStepsValid = extraSteps.every((step) => step.canProceed)
 
   // OS images are per-provisioner; (re)load them whenever the derived provisioner changes.
   useEffect(() => {
@@ -425,11 +424,13 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
   // Review the same resolved mode that deployment submits, including a template-owned setting.
   const osDeploymentModeLabel = effectiveEphemeral ? 'Ephemeral (memory-backed)' : 'Persistent (disk-backed)'
   const effectiveNetworkMode = selectedTemplate?.network.mode ?? networkMode
-  // Explains a DHCP suggestion from the backend (decision 058) whatever the current choice, so it also
-  // warns a user who switches a site-DHCP batch back to Automatic.
-  const siteDhcpSuggested = networkInspection !== null &&
-    suggestedBatchNetworkMode(networkInspection.targets.map((target) => target.suggestion.mode)) === 'dhcp'
   const inspectedTargetKey = networkInspection?.targets.map((target) => target.serverId).sort().join(',') ?? ''
+  // Automatic stays preselected on subnets without provisioner DHCP (decision 058); the warning
+  // follows the resolved mode, a template's included, and the subnets currently assigned. An
+  // inspection of a previous selection is ignored until the current one arrives.
+  const siteDhcpSubnets = networkInspection && inspectedTargetKey === preparationTargetKey
+    ? siteDhcpConflictSubnets(effectiveNetworkMode, networkInspection.targets, networkAssignments)
+    : []
   const networkAssignmentsValid =
     !needsProvisioning ||
     (networkInspection !== null &&
@@ -441,6 +442,18 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
         if (!assignment?.interfaceId || !assignment.subnetId || !selectedInterface?.availableSubnets.some((subnet) => subnet.id === assignment.subnetId)) return false
         return effectiveNetworkMode !== 'static' || validIPv4Address(assignment.ipAddress)
       }))
+  // The static address of each provisioned Server, trimmed as deploy() submits it, so the module's
+  // steps after OS preparation and its review show the address the deploy will use. Only valid
+  // addresses are passed (modules/types.ts DeployStaticAddresses).
+  const staticAddresses: Record<string, string> = {}
+  if (effectiveNetworkMode === 'static') {
+    for (const server of readySelectedServers) {
+      const ipAddress = networkAssignments[server.id]?.ipAddress.trim() ?? ''
+      if (validIPv4Address(ipAddress)) staticAddresses[server.id] = ipAddress
+    }
+  }
+  const extraSteps = form.extraSteps(selectedServers, staticAddresses)
+  const extraStepsValid = extraSteps.every((step) => step.canProceed)
   const osImageValid =
     !needsProvisioning ||
     Boolean(integrationId && effectiveImageId && !provisioningLoading && !provisioningError)
@@ -892,7 +905,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
                     disabled={Boolean(selectedTemplate)}
                     helperText={selectedTemplate
                       ? 'The selected template owns the addressing intent for machine preparation.'
-                      : siteDhcpSuggested ? SITE_DHCP_SUGGESTION_TEXT : undefined}
+                      : undefined}
                     onChange={(mode) => {
                       setNetworkMode(mode)
                       if (mode !== 'static') setDefaultGateway(false)
@@ -912,6 +925,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
                     </Field.Root>
                   )}
                 </div>
+                {siteDhcpSubnets.length > 0 && <SiteDhcpAddressingWarning subnets={siteDhcpSubnets} />}
                 {!networkInspection && !provisioningLoading && <Alert status="warning" title="Select machines to inspect their network interfaces" />}
                 {networkInspection && !networkAssignmentsValid && (
                   <Alert status="warning" title="Complete every network assignment">
@@ -997,7 +1011,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
       ...(needsProvisioning
         ? [{ title: 'Operating system', stepId: 'deploy-server-preparation', items: osReviewItems }]
         : []),
-      ...form.reviewGroupsAfterOS(selectedServers),
+      ...form.reviewGroupsAfterOS(selectedServers, staticAddresses),
     ]
 
     steps.push({

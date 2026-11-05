@@ -16,6 +16,11 @@ const networkInspectionWorkers = 4
 
 // NetworkSuggestion is swallow's non-authoritative deployment default derived
 // from live provider state. Empty identifiers mean user input is required.
+//
+// Mode is Static when the boot NIC carries explicit Static links and Automatic
+// otherwise; it is never DHCP. Choosing the site's DHCP over auto-assign on a
+// subnet the provisioner serves no DHCP for is the user's decision, prompted by
+// the client's warning rather than by this suggestion (decision 058).
 type NetworkSuggestion struct {
 	Mode           provisioningdomain.DeploymentNetworkMode
 	InterfaceID    string
@@ -325,9 +330,12 @@ func networkDisabledReason(server *serverdomain.Server) string {
 // suggestNetwork derives the non-authoritative deployment default for one Server from its live
 // network (provisioning.md, Network Inspection). The boot NIC is preferred; one explicit Static
 // link is preserved as Static intent. Otherwise the subnet is the NIC's one linked subnet or its
-// sole managed one, and the mode is DHCP when the provisioner serves no DHCP on that subnet —
-// auto-assign there would allocate without knowing the site's DHCP pool (decision 058) — and
-// Automatic everywhere else, including when no subnet could be chosen.
+// sole managed one, and the mode is Automatic, including when no subnet could be chosen.
+//
+// Automatic is kept on a subnet whose DHCP the provisioner does not serve too, although
+// auto-assign there allocates without knowing the site's DHCP pool: the subnet's
+// ProvisionerDHCP flag travels with the inspection so the client can warn about that conflict
+// and the user can choose DHCP (decision 058). Do not switch the mode here.
 func suggestNetwork(network *provisioningdomain.MachineNetwork) NetworkSuggestion {
 	suggestion := NetworkSuggestion{Mode: provisioningdomain.DeploymentNetworkAutomatic}
 	var selected *provisioningdomain.NetworkInterface
@@ -373,7 +381,7 @@ func suggestNetwork(network *provisioningdomain.MachineNetwork) NetworkSuggestio
 		for subnetID := range subnets {
 			suggestion.SubnetID = subnetID
 		}
-		return withSiteDHCPMode(suggestion, selected)
+		return suggestion
 	}
 	managed := ""
 	for _, subnet := range selected.AvailableSubnets {
@@ -386,21 +394,6 @@ func suggestNetwork(network *provisioningdomain.MachineNetwork) NetworkSuggestio
 		managed = subnet.ID
 	}
 	suggestion.SubnetID = managed
-	return withSiteDHCPMode(suggestion, selected)
-}
-
-// withSiteDHCPMode switches a non-Static suggestion to DHCP when its subnet is one the selected
-// NIC can use and the provisioner serves no DHCP on it. A subnet missing from the NIC's available
-// subnets is unknown, so the suggestion stays Automatic rather than guessing.
-func withSiteDHCPMode(suggestion NetworkSuggestion, iface *provisioningdomain.NetworkInterface) NetworkSuggestion {
-	if suggestion.SubnetID == "" {
-		return suggestion
-	}
-	for _, subnet := range iface.AvailableSubnets {
-		if subnet.ID == suggestion.SubnetID && !subnet.ProvisionerDHCP {
-			suggestion.Mode = provisioningdomain.DeploymentNetworkDHCP
-		}
-	}
 	return suggestion
 }
 

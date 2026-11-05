@@ -100,10 +100,18 @@ deploy use case 由它推導 [Kubernetes Topology](glossaries/terms/kubernetes-t
 
 - control-plane 為 1 台或至少 3 台的奇數（2 台與偶數拒絕），且至少一台 Server 跑 workload。`runWorkloads` 只是
   placement，不改 Node Role：observed membership 維持封閉的 `control-plane | worker`。
-- pod／service CIDR 不得涵蓋任何 target 的位址；HA 的 VIP 不得等於 target 位址（子網規則見 §2.3 的 HA VIP 契約）。
+- pod／service CIDR 不得涵蓋任何 target 的位址；HA 的 VIP 不得等於 target 位址（子網規則見 §2.3 的 HA VIP 契約）。受理時
+  只檢查部署後的位址：沿用的 `deployed` Server 用 observed 位址，本次以 static provision 的用它的 static 位址；以
+  automatic 或 dhcp provision 的 Server 在 provision 前的位址不代表之後的位址，略過不查。`k0s_host_preflight` 在任何節點
+  建立叢集前，以每台的 `ansible_host` 再檢查一次，任一台不符就停下全部節點（`[node_address_in_cluster_network]`、
+  `[api_vip_is_node_address]`）。
 - 只有 HA 設定 keepalived 並需要 `apiVip`：k0s control plane load balancing（keepalived VRRP VIP）加 node-local load
-  balancing（`EnvoyProxy`），不用外部 load balancer；VRRP 密碼是 sealed secret（§4.3）。單一 control-plane 以該 Server
-  的 observed 位址為 API endpoint，不建立 VIP。Dashboard 在送出前標示非 HA 拓樸沒有 control-plane failover。
+  balancing（`EnvoyProxy`），不用外部 load balancer；VRRP 密碼是 sealed secret（§4.3）。單一 control-plane 不建立 VIP，
+  API endpoint 是該 Server 部署後的位址：沿用的 `deployed` Server 用 observed 位址（不分 network mode）；本次以 static
+  provision 的用它的 static 位址（缺少時拒絕）；以 automatic 或 dhcp provision 的 Server 在 provision 完成前不知道位址，
+  `swallow_k0s_api_address` 為空字串，playbook 在執行時改用 initial controller 的 inventory 位址（`ansible_host`，provision
+  後已更新）。請求沒有 `network.mode`、由 Static template 決定 mode 時也這樣解析：Server 仍取得 assignment 的
+  static 位址，但受理時不知道 template 的 mode，位址檢查略過它，由 `k0s_host_preflight` 在執行時檢查。Dashboard 在送出前標示非 HA 拓樸沒有 control-plane failover。
 - 角色由 server-side 組成 trusted vars（§4.2），user 的變數無法影響哪台成為 controller。controller 預設為
   dedicated（不帶 `--enable-worker`，不註冊成 Kubernetes node）；`runWorkloads` 的 controller 以
   `--enable-worker --no-taints` 安裝。其他 controller 以 k0s controller join token 加入，token 帶 CA material，
@@ -588,7 +596,7 @@ client/user **不可偽造**（user 只能提供非 `swallow_` 前綴的變數�
   | `swallow_k0s_version` | k0s 版本 |
   | `swallow_k0s_pod_cidr` / `swallow_k0s_service_cidr` | 網路 CIDR |
   | `swallow_k0s_high_availability` | 是否 HA |
-  | `swallow_k0s_api_address` | API endpoint |
+  | `swallow_k0s_api_address` | API endpoint；空字串表示部署前不知道位址，由 playbook 在執行時取 initial controller 的 `ansible_host`（§2） |
   | `swallow_k0s_api_vip` / `swallow_k0s_api_vip_prefix` | HA VIP 與遮罩 |
   | `swallow_k0s_platform_name` | Platform 名稱 |
   | `swallow_k0s_roles` | `{serverId: "control-plane"｜"worker"}` |

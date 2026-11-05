@@ -629,13 +629,21 @@ func nodeSubnet(interfaces []provisioningdomain.NetworkInterface, assignment pla
 	return netip.Prefix{}, false
 }
 
+// platformProvisioningInput translates a Platform's machine preparation into the provisioning
+// contract's OS deployment request for serverIDs, the targets the deploy provisions; validation and
+// the ensure-os plan both use it, so they see the same request. The network intent is forwarded
+// whenever the preparation carries any of it (a mode, a subnet, a default gateway, or per-target
+// assignments), even without a mode: the provisioning preflight then keeps the Deployment
+// Template's mode, or Automatic without one, so values a Template cannot hold, such as a Static
+// Template's per-target IPs, still reach the provisioner. A preparation with no network field sends
+// no network intent and takes the Template's whole intent, or Automatic.
 func platformProvisioningInput(preparation platformdomain.MachinePreparation, serverIDs []string) provisioningapp.DeployServersInput {
 	input := provisioningapp.DeployServersInput{
 		ServerIDs: append([]string(nil), serverIDs...), TemplateID: preparation.TemplateID,
 		Settings: provisioningapp.DeploymentSettingsInput{ImageID: optionalStringPointer(preparation.ImageID), Ephemeral: preparation.Ephemeral},
 		UserData: provisioningapp.DeploymentUserDataInput{Mode: preparation.UserDataMode, Value: preparation.UserData},
 	}
-	if preparation.NetworkMode != "" {
+	if preparation.NetworkMode != "" || preparation.SubnetID != "" || preparation.DefaultGateway || len(preparation.Assignments) > 0 {
 		input.Network = &provisioningapp.DeploymentNetworkInput{
 			Mode: preparation.NetworkMode, SubnetID: preparation.SubnetID,
 			DefaultGateway: preparation.DefaultGateway,

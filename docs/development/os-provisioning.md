@@ -271,12 +271,17 @@ Network Inspection 與 Multi-Server Deployment。
 
 規則：
 
-- 空值視為 `automatic`；未知值是 `400`；keep-current 不是有效意圖。`dhcp` 是獨立模式，不是 `automatic` 的別名。
+- 沒有 template 時，沒有 `network` 或 mode 為空視為 `automatic`；有 template 時，沒有 `network` 沿用 template 的整份
+  網路意圖，`network` 沒有 mode 則沿用 template 的 mode，其餘欄位照請求套用。未知值是 `400`；keep-current 不是有效
+  意圖。`dhcp` 是獨立模式，不是 `automatic` 的別名。
 - `defaultGateway` 與每台的 `ipAddress` 只對 `static` 有效。template 可帶 mode、subnet、gateway，但不帶 NIC id
   或 static IP。
 - 每台 target 預設用 boot NIC（只有一張 NIC 時用它），可覆寫 `interfaceId` 與 `subnetId`；subnet 依序取：該台指定、
   整批共用、建議值（NIC 唯一已連結的 subnet，或唯一的 managed subnet）。所選 subnet 上有多個 link 時拒絕，請
   user 先在 Server Network 解除其中一個。
+- `automatic` 在每個 subnet 都是預設，包括沒有 provisioner DHCP 的 subnet；swallow 不會自行改成 `dhcp`。在那種
+  subnet 上 `AUTO` 不知道 site DHCP 的位址池，可能配出它也會發出的位址，所以只顯示警告（§6.2），`dhcp` 由 user
+  明確選擇。
 - 在 site DHCP 的網路上用 `dhcp` 部署時，MAAS 收不到該 machine 的 lease：swallow 顯示的是 MAAS 最後觀察到的
   介面位址，部署後以 SSH 進行的 automation 依賴它。
 
@@ -286,9 +291,13 @@ Network Inspection 與 Multi-Server Deployment。
 
 1. boot NIC 上恰好一個明確的 Static link → 建議 `static`，沿用其 subnet、IP 與 gateway。多個 Static link 視為
    模糊，需要 user 輸入。
-2. 否則取唯一已連結的 subnet 或唯一 compatible managed subnet；該 subnet 沒有 provisioner DHCP（`provisionerDhcp`
-   為 false，MAAS：VLAN 的 DHCP 關閉）時建議 `dhcp`，否則 `automatic`。
+2. 否則取唯一已連結的 subnet 或唯一 compatible managed subnet，建議 `automatic`。
 3. 有多個 compatible subnet 時回報 `network_selection_required` 並建議 `automatic`，不默默替 user 選。
+
+建議永遠不是 `dhcp`，所選 subnet 沒有 provisioner DHCP（`provisionerDhcp` 為 false，MAAS：VLAN 的 DHCP 關閉）時也
+一樣。這時 consumer（Deploy OS 對話框、Platform 部署精靈）仍預選 `automatic`，並在 mode 為 `automatic` 時顯示可見的
+警告：`automatic` 可能配出 site DHCP 位址池也會發出的位址，改選 `dhcp` 則由 site 的 DHCP server 指派位址、gateway 與
+DNS。是否改選由 user 決定。
 
 觀察到的 NIC 狀態（`dhcp`、`static`、`link_only`、`unconfigured`、`provider_managed`、`unknown`）只供顯示；MAAS 的
 `AUTO` 觀察為 `provider_managed`、`LINK_UP` 為 `link_only`，provider 原值只作診斷，不可當作可寫入的意圖送回。
@@ -329,11 +338,9 @@ Network Inspection 與 Multi-Server Deployment。
 而 subnet 的 dynamic range 依慣例是 enlistment／commissioning 用的短期池，所以 `automatic` 改由 `AUTO` 實現，位址
 穩定且 provider 一定知道。但在 DHCP 由 site 而非 provisioner 提供的網路上（例如經 Boot ISO 開機的 Server），`AUTO`
 不知道 site DHCP 的位址池，兩個分配者可能發出同一個位址，也會忽略 site 的 gateway 與 DNS，因此 `dhcp` 重新成為一個
-明確、可被 user 覆寫的模式，由 network inspection 建議。DNS 跟著 link mode 走，所以 per-subnet 的 DNS 設定沿用
-provisioner 自己的設定而不由 swallow 產生 cloud-init。見
-decision 058、
-decision 058、
-decision 058。
+明確的模式。它不由 network inspection 建議：依 user 2026-11-05 的決定，`automatic` 一律是預選的模式，沒有
+provisioner DHCP 的 subnet 只帶出衝突警告，改不改用 `dhcp` 由 user 決定。DNS 跟著 link mode 走，所以 per-subnet 的
+DNS 設定沿用 provisioner 自己的設定而不由 swallow 產生 cloud-init。見 decision 058。
 
 ---
 
@@ -645,6 +652,7 @@ decision 033。
 | Server 列表的 Deployment 欄（先讀 provider 軸） | `src/presentation/pages/servers/serverListPresentation.ts` |
 | OS Images 的驗證狀態 | `src/presentation/pages/provisioning/osImageListPresentation.ts`、`src/presentation/pages/provisioning/useOSImageVerificationActivity.ts` |
 | OS Image 上傳對話框 | `src/presentation/pages/provisioning/UploadImageDialog.tsx` |
+| 部署 addressing mode 的預選與 site DHCP 警告 | `src/presentation/pages/provisioning/osDeploymentFlow.ts`、`src/presentation/pages/provisioning/SiteDhcpAddressingWarning.tsx` |
 | Integration 設定頁（HTTP proxy、Subnet DNS 分頁） | `src/presentation/pages/infrastructure/IntegrationSettingsPage.tsx` |
 
 ---

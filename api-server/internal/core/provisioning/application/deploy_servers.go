@@ -328,14 +328,17 @@ func (uc *DeployServersUseCase) preflight(
 		return nil, deploymentTargetConflict(targets.diskIssues[0])
 	}
 	if input.Network != nil {
-		networkMode = provisioningdomain.DeploymentNetworkMode(
-			strings.ToLower(strings.TrimSpace(input.Network.Mode)),
-		)
+		// An omitted mode keeps the Template's mode (Automatic without one): a request that only
+		// adds what a Template cannot hold, such as the per-target static IPs of a Static Template,
+		// must not reset the Template's addressing to Automatic.
+		if requested := strings.ToLower(strings.TrimSpace(input.Network.Mode)); requested != "" {
+			networkMode = provisioningdomain.DeploymentNetworkMode(requested)
+		}
 		subnetID = strings.TrimSpace(input.Network.SubnetID)
 		defaultGateway = input.Network.DefaultGateway
 	}
-	// Normalize folds an empty value into Automatic, so downstream code and the provider
-	// adapter only ever see automatic, dhcp, or static.
+	// Normalize folds an empty value (a Template stored without network intent) into Automatic,
+	// so downstream code and the provider adapter only ever see automatic, dhcp, or static.
 	normalizedMode, ok := provisioningdomain.NormalizeDeploymentNetworkMode(string(networkMode))
 	if !ok {
 		return nil, fmt.Errorf(

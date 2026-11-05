@@ -257,7 +257,9 @@ type DeployPlatformResult struct {
 }
 
 // validatedDeployment keeps provider observations out of the domain DeploymentSpec while
-// carrying the resolved API address from preflight into trusted playbook variables. slurmSpec
+// carrying the resolved API address from preflight into trusted playbook variables; an empty
+// apiAddress means the initial control plane's address is known only once the deploy has
+// provisioned it, and the playbook reads it from that controller's inventory in the run. slurmSpec
 // carries the normalized Slurm intent (defaults applied) when the deployment is a Slurm one;
 // spec/apiAddress are the Kubernetes equivalents.
 type validatedDeployment struct {
@@ -860,8 +862,10 @@ func isNFSURL(value string) bool {
 }
 
 // validate resolves and checks topology, targets, members' roots, and networks before any record
-// exists. It returns a normalized spec, an API address derived from either the HA VIP or the
-// initial control-plane Server observation, and whether the members share a memory-backed root.
+// exists. It returns a normalized spec, the API address (the HA VIP, or the initial control plane's
+// address after the deploy, empty when only the run learns it; see
+// deploymentAPIAddressForPreparation), and whether the members share a memory-backed root. The
+// network checks read the addresses the nodes will have after the deploy (predictedNodeAddresses).
 func (s *DeployService) validate(ctx context.Context, input DeployPlatformInput) (validatedDeployment, error) {
 	var invalid validatedDeployment
 	spec := input.Spec
@@ -939,9 +943,11 @@ func (s *DeployService) validate(ctx context.Context, input DeployPlatformInput)
 	}
 
 	// Node addresses must remain outside platform networks. In HA, the VIP must also be
-	// unassigned so keepalived can claim it without conflicting with a Server address.
+	// unassigned so keepalived can claim it without conflicting with a Server address. Only the
+	// addresses the nodes will have after the deploy are known here; the playbook checks the
+	// rest in the run.
 	for _, server := range targets {
-		for _, raw := range server.Observed.Addresses {
+		for _, raw := range predictedNodeAddresses(server, preparation) {
 			addr, err := netip.ParseAddr(raw)
 			if err != nil {
 				continue
@@ -1501,31 +1507,108 @@ func generateVRRPPassword() (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
+// deploymentAPIAddressForPreparation resolves the API endpoint for the way the deploy prepares its
+// targets. HA always uses the VIP and existing_os the initial control plane's observed address
+// (deploymentAPIAddress). A non-HA provision_os endpoint is the address the initial control plane
+// has after this deploy:
+//
+//   - already deployed, it is reused as-is, so its observed address stays and is the endpoint
+//     whatever the network mode;
+//   - provisioned with static addressing, it is its static assignment, which must be valid;
+//   - provisioned with automatic or dhcp addressing, it is unknown until the provisioner has
+//     deployed the Server: the address observed before (a lease, or an earlier deployment's
+//     address) does not predict the new one. The endpoint is then empty, and the playbook falls
+//     back to the initial controller's inventory address in the run, which provisioning refreshed.
+//
+// An empty endpoint is the playbook contract's "resolve at execution time", never a refusal. The
+// non-HA refusal of apiVip and apiVipPrefix holds in every mode. Errors wrap ErrInvalidDeployment.
 func deploymentAPIAddressForPreparation(spec platformdomain.DeploymentSpec, targets []*serverdomain.Server, preparation platformdomain.MachinePreparation) (string, netip.Addr, error) {
 	if preparation.Mode != platformdomain.MachinePreparationProvisionOS || spec.HighlyAvailable() {
 		return deploymentAPIAddress(spec, targets)
 	}
+	if strings.TrimSpace(spec.APIVIP) != "" || spec.APIVIPPrefix != 0 {
+		return "", netip.Addr{}, fmt.Errorf("%w: apiVip and apiVipPrefix are only valid for high availability", platformdomain.ErrInvalidDeployment)
+	}
 	initialID := spec.ControlPlaneServerIDs()[0]
-	if preparation.NetworkMode == "static" {
-		for _, assignment := range preparation.Assignments {
-			if assignment.ServerID != initialID {
-				continue
-			}
-			address, err := netip.ParseAddr(strings.TrimSpace(assignment.IPAddress))
-			if err != nil {
-				return "", netip.Addr{}, fmt.Errorf("%w: initial control-plane static IP is invalid", platformdomain.ErrInvalidDeployment)
-			}
-			return address.String(), netip.Addr{}, nil
+	var initial *serverdomain.Server
+	for _, server := range targets {
+		if server.ID == initialID {
+			initial = server
+			break
 		}
-		return "", netip.Addr{}, fmt.Errorf("%w: initial control-plane static IP is required", platformdomain.ErrInvalidDeployment)
 	}
-	address, vip, err := deploymentAPIAddress(spec, targets)
-	if err == nil {
-		return address, vip, nil
+	switch {
+	case initial == nil:
+		return "", netip.Addr{}, fmt.Errorf("%w: initial control-plane Server was not resolved", platformdomain.ErrInvalidDeployment)
+	case !provisionedByDeployment(initial, preparation):
+		return deploymentAPIAddress(spec, targets)
+	case !staticAddressing(preparation):
+		return "", netip.Addr{}, nil
 	}
-	// Automatic and DHCP addresses are learned after MAAS completes. The playbook resolves the
-	// initial control-plane inventory address at execution time.
-	return "", netip.Addr{}, nil
+	for _, assignment := range preparation.Assignments {
+		if assignment.ServerID != initialID {
+			continue
+		}
+		address, err := netip.ParseAddr(strings.TrimSpace(assignment.IPAddress))
+		if err != nil {
+			return "", netip.Addr{}, fmt.Errorf("%w: initial control-plane static IP is invalid", platformdomain.ErrInvalidDeployment)
+		}
+		return address.String(), netip.Addr{}, nil
+	}
+	return "", netip.Addr{}, fmt.Errorf("%w: initial control-plane static IP is required", platformdomain.ErrInvalidDeployment)
+}
+
+// staticNetworkMode is the machinePreparation.network.mode (the provisioning contract's network
+// intent) in which the request chooses each provisioned Server's address.
+const staticNetworkMode = "static"
+
+// staticAddressing reports whether a provision_os deploy gives the Servers it provisions the static
+// addresses its request assigns. The mode is read as the provisioning preflight reads it, trimmed
+// and case-insensitive, so "Static" is static here too. Every other mode leaves the address to be
+// learned after provisioning: automatic (also an omitted mode) and dhcp; a value outside the
+// three is refused by the provisioning preflight of the Ready targets.
+//
+// An omitted mode with a Deployment Template takes the Template's mode, which this layer cannot
+// read, so a static Template counts as not static here. That is safe: the API address is then
+// resolved in the run and k0s_host_preflight checks every node's address there; only the
+// acceptance-time checks of those addresses are lost. A Template never holds static IPs
+// (provisioning.md), so its static mode needs the request's per-target assignments anyway.
+func staticAddressing(preparation platformdomain.MachinePreparation) bool {
+	return strings.EqualFold(strings.TrimSpace(preparation.NetworkMode), staticNetworkMode)
+}
+
+// provisionedByDeployment reports whether the deploy provisions server before installing the
+// Platform. In provision_os every target that is not already deployed is provisioned and a deployed
+// one is reused as-is (decision 072), the split the launcher plans the ensure-os Job with;
+// existing_os provisions nothing. The observed state of a Server this reports true for describes
+// the machine before provisioning, not the node it becomes.
+func provisionedByDeployment(server *serverdomain.Server, preparation platformdomain.MachinePreparation) bool {
+	if preparation.Mode != platformdomain.MachinePreparationProvisionOS {
+		return false
+	}
+	return server.Provisioning == nil || server.Provisioning.State != "deployed"
+}
+
+// predictedNodeAddresses returns the addresses target will have after the deploy, which acceptance
+// checks against the pod and service networks and the HA VIP. A Server the deploy does not provision
+// keeps its observed addresses. One it provisions with static addressing gets its assignment's
+// address. One it provisions with automatic or dhcp addressing has no predictable address, since
+// the observed ones predate provisioning and the new one may differ, so none is returned and
+// k0s_host_preflight checks the address the run reaches it on instead. Entries may be unparsable;
+// the caller skips them.
+func predictedNodeAddresses(target *serverdomain.Server, preparation platformdomain.MachinePreparation) []string {
+	if !provisionedByDeployment(target, preparation) {
+		return target.Observed.Addresses
+	}
+	if !staticAddressing(preparation) {
+		return nil
+	}
+	for _, assignment := range preparation.Assignments {
+		if assignment.ServerID == target.ID {
+			return []string{strings.TrimSpace(assignment.IPAddress)}
+		}
+	}
+	return nil
 }
 
 // acceleratorLabel is the accelerator's vendor name for a message, or "accelerator" without one.

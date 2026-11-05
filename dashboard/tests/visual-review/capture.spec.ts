@@ -648,6 +648,52 @@ test.describe('Kubernetes deployment studio visual review', () => {
 })
 
 /**
+ * The direct API endpoint of a standalone Kubernetes Platform whose control plane is provisioned:
+ * with Automatic addressing the address is known only after provisioning; with Static it is the
+ * address the user enters (platform-deployment.md §2).
+ */
+test.describe('Kubernetes provisioned endpoint visual review', () => {
+  test('kubernetes-provisioned-endpoint', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    await installApiFixtures(page, { freePlatformCandidates: true, readyServerCount: 1 })
+    await setAppearance(page, appearance)
+
+    await page.goto('/platforms/deploy/kubernetes?site=site-a')
+    await page.getByLabel('Platform name').fill('edge-k0s')
+    const next = page.getByRole('button', { name: 'Next' })
+    await next.click()
+    await page.getByRole('radio', { name: /Standalone/ }).locator('xpath=following-sibling::*[1]').click()
+    await chooseOption(page, 'Role for gpu-node-01', 'Standalone node')
+    await next.click()
+    await next.click()
+    await page.getByRole('radio', { name: 'Ubuntu 24.04 LTS', exact: false }).locator('..').click()
+    await expect(page.getByRole('heading', { name: 'OS networking' })).toBeVisible()
+    await expect(page.getByRole('radio', { name: 'Automatic', exact: true })).toBeChecked()
+    await next.click()
+    await expect(page.getByText("gpu-node-01's address after provisioning, port 6443", { exact: false })).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'kubernetes-provisioned-endpoint-automatic')
+
+    await page.getByRole('button', { name: 'Back' }).click()
+    await page.getByRole('radio', { name: 'Static', exact: true }).locator('xpath=following-sibling::*[1]').click()
+    await page.getByLabel('Static IPv4 address for gpu-node-01').fill('192.168.40.50')
+    await next.click()
+    await expect(page.getByText('192.168.40.50:6443', { exact: false }).first()).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'kubernetes-provisioned-endpoint-static')
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
+    await expect(page.getByText('192.168.40.50:6443 (direct)', { exact: true })).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'kubernetes-provisioned-endpoint-review')
+  })
+})
+
+/**
  * Captures the Device Metrics Exporter paths (decision 066): the Features step with the exporter
  * chosen, the Container runtime card with native OCI and Docker CE, and PMIx, and a Platform whose exporter reports a collapsed GPU
  * identity, which the page must state in words.
@@ -1301,7 +1347,8 @@ test.describe('OS deployment flow visual review', () => {
 
   /**
    * The platform wizard's OS networking step on a site-DHCP network, where the shared addressing
-   * field spans the wizard's form grid with its DHCP suggestion (decision 058).
+   * field spans the wizard's form grid on Automatic and the site DHCP warning follows it
+   * (decision 058).
    */
   test('platform-wizard-site-dhcp-networking', async ({ page }, testInfo) => {
     const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
@@ -1320,13 +1367,17 @@ test.describe('OS deployment flow visual review', () => {
     await page.getByRole('radio', { name: 'Ubuntu 24.04 LTS', exact: false }).locator('..').click()
     await expect(page.getByRole('heading', { name: 'OS installation' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'OS networking' })).toBeVisible()
-    await expect(page.getByRole('radio', { name: 'DHCP', exact: true })).toBeChecked()
+    await expect(page.getByRole('radio', { name: 'Automatic', exact: true })).toBeChecked()
+    await expect(page.getByText('Automatic addressing may conflict with the site DHCP pool', { exact: true })).toBeVisible()
     await prepareCapture(page, appearance)
     if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'platform-wizard-site-dhcp-networking', false)
   })
 
-  /** The Networking step when inspection suggests DHCP for a site-DHCP subnet (decision 058). */
+  /**
+   * The Networking step on a site-DHCP subnet: Automatic stays preselected and the site DHCP
+   * warning sits below the addressing field (decision 058).
+   */
   test('single Server site-dhcp networking', async ({ page }, testInfo) => {
     const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
     await installApiFixtures(page, { readyServerCount: 1, siteDhcpNetworkServerIds: ['srv-1'] })
@@ -1339,7 +1390,8 @@ test.describe('OS deployment flow visual review', () => {
     await dialog.getByRole('button', { name: 'Next' }).click()
     await dialog.getByRole('button', { name: 'Next' }).click()
     await expect(dialog.getByRole('heading', { name: 'Networking', exact: true })).toBeVisible()
-    await expect(dialog.getByRole('radio', { name: 'DHCP', exact: true })).toBeChecked()
+    await expect(dialog.getByRole('radio', { name: 'Automatic', exact: true })).toBeChecked()
+    await expect(dialog.getByText('Automatic addressing may conflict with the site DHCP pool', { exact: true })).toBeVisible()
     await prepareCapture(page, appearance)
     await capture(page, testInfo, 'os-deploy-single-site-dhcp-networking', false)
   })

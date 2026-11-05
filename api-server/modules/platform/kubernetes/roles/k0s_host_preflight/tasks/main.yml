@@ -2,6 +2,58 @@
 # This gate runs against the kernel MAAS actually booted, after the requested k0s binary exists
 # but before any node writes cluster state. Its stdout is retained with the Ansible Step artifacts.
 
+# The deploy API checks the cluster networks and the HA VIP against the node addresses it can
+# predict at acceptance. A Server the deploy provisions with automatic or DHCP addressing gets its
+# address only when it is provisioned, so the two tasks below check every node again, at the
+# address swallow reaches it on in this run (ansible_host). Either failure stops every node, not
+# only the one at fault. The play sets k0s_node_name only after its roles, so messages in this role
+# name a node by its hostname inventory variable, or by its serverId without one.
+
+- name: Refuse a node address inside the pod or service CIDR
+  # Traffic to an address inside either network is routed into the cluster, away from the node.
+  # Only IPv4 addresses and CIDRs are compared; anything else is left to k0s.
+  any_errors_fatal: true
+  ansible.builtin.fail:
+    msg: >-
+      [node_address_in_cluster_network] {{ hostname | default(inventory_hostname) }}'s address
+      {{ ansible_host }} is inside {{ k0s_pf_covering_networks }}. Choose a pod and a service CIDR
+      outside the nodes' network.
+  vars:
+    k0s_pf_covering_networks: >-
+      {%- macro k0s_pf_ipv4(text) -%}
+      {%- set octets = (text | string | trim).split('.') -%}
+      {%- if octets | length == 4 and octets | map('int') | map('string') | list == octets
+             and octets | map('int') | min >= 0 and octets | map('int') | max <= 255 -%}
+      {{ octets[0] | int * 16777216 + octets[1] | int * 65536 + octets[2] | int * 256 + octets[3] | int }}
+      {%- endif -%}
+      {%- endmacro -%}
+      {%- set node = k0s_pf_ipv4(ansible_host) | trim -%}
+      {%- set covering = [] -%}
+      {%- for label, cidr in [['the pod CIDR', swallow_k0s_pod_cidr], ['the service CIDR', swallow_k0s_service_cidr]] -%}
+      {%- set parts = (cidr | string | trim).split('/') -%}
+      {%- if node and parts | length == 2 and parts[1] | int | string == parts[1]
+             and parts[1] | int >= 0 and parts[1] | int <= 32 -%}
+      {%- set network = k0s_pf_ipv4(parts[0]) | trim -%}
+      {%- set block = 2 ** (32 - parts[1] | int) -%}
+      {%- if network and (node | int) // block == (network | int) // block -%}
+      {%- set _ = covering.append(label ~ ' ' ~ (cidr | string | trim)) -%}
+      {%- endif -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ covering | join(' and ') }}
+  when: k0s_pf_covering_networks | length > 0
+
+- name: Refuse an HA API VIP that is a node's address
+  # keepalived claims the VIP on a control-plane node; a VIP a node already uses takes its traffic.
+  any_errors_fatal: true
+  ansible.builtin.fail:
+    msg: >-
+      [api_vip_is_node_address] the API VIP {{ swallow_k0s_api_vip }} is
+      {{ hostname | default(inventory_hostname) }}'s address. Choose a VIP no node uses.
+  when:
+    - swallow_k0s_high_availability | default(false) | bool
+    - (swallow_k0s_api_vip | default('') | string | trim) == (ansible_host | string | trim)
+
 - name: Read the root filesystem type
   ansible.builtin.command:
     argv:
@@ -164,7 +216,7 @@
   ansible.builtin.fail:
     msg: >-
       The API VIP {{ swallow_k0s_api_vip }}/{{ swallow_k0s_api_vip_prefix }} does not match
-      {{ k0s_node_name }}'s subnet {{ k0s_pf_host_ipv4.network }}/{{ k0s_pf_host_ipv4.prefix }}.
+      {{ hostname | default(inventory_hostname) }}'s subnet {{ k0s_pf_host_ipv4.network }}/{{ k0s_pf_host_ipv4.prefix }}.
       Use a VIP inside that subnet with prefix {{ k0s_pf_host_ipv4.prefix }}.
   vars:
     k0s_pf_vip_octets: "{{ swallow_k0s_api_vip.split('.') | map('int') | list }}"

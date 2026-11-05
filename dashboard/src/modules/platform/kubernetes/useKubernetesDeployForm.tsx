@@ -3,7 +3,7 @@ import { Badge, Field, Heading, HStack, Input, RadioCard, Switch, Text } from '@
 import { validIPv4Address, validIPv4CIDR } from '@/domain/network/ipv4'
 import type { NodeRole, RoleAssignment } from '@/domain/platform/types'
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
-import type { DeployStep, PlatformDeployContext, PlatformDeployForm } from '@/modules/types'
+import type { DeployStaticAddresses, DeployStep, PlatformDeployContext, PlatformDeployForm } from '@/modules/types'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Select } from '@/presentation/components/ui/select'
 import { AdvancedSettings } from '@/presentation/pages/platforms/AdvancedSettings'
@@ -104,9 +104,25 @@ export function useKubernetesDeployForm({ servers, heldBy }: PlatformDeployConte
     validIPv4CIDR(serviceCidr.trim()) &&
     (topology !== 'high-availability' || (validIPv4Address(apiVip.trim()) &&
       (apiVipPrefix.trim() === '' || (Number(apiVipPrefix) >= 1 && Number(apiVipPrefix) <= 32))))
-  const initialControllerAddress = (selected: Server[]) => {
+  // The non-HA Kubernetes API endpoint as the deploy API resolves it (platforms.md "Create A
+  // Platform"): the address the initial control plane, the first selected control-plane Server,
+  // has after the deploy. A deployed Server is reused and keeps its observed address. A Server that
+  // is not deployed yet is provisioned first (the wizard's convergent selection), and its observed
+  // address predates provisioning: with static addressing it gets the address the wizard's OS step
+  // assigns, while automatic and DHCP addressing may give it another one, so it is named by Server
+  // instead (also while the OS step holds no valid static address). Null means no control plane is
+  // selected yet, or a reused one reports no address, which the backend refuses.
+  const directEndpoint = (selected: Server[], staticAddresses: DeployStaticAddresses): string | null => {
     const initialController = selected.find((server) => roles[server.id] === 'control-plane')
-    return initialController ? serverPrimaryAddress(initialController) : null
+    if (!initialController) return null
+    if (initialController.status.provisioning?.state !== 'deployed') {
+      const staticAddress = staticAddresses[initialController.id]
+      return staticAddress
+        ? `${staticAddress}:6443`
+        : `${serverDisplayName(initialController)}'s address after provisioning, port 6443`
+    }
+    const address = serverPrimaryAddress(initialController)
+    return address ? `${address}:6443` : null
   }
 
   const changeTopology = (next: TopologyChoice) => {
@@ -176,7 +192,7 @@ export function useKubernetesDeployForm({ servers, heldBy }: PlatformDeployConte
     ]
   }
 
-  const networkingStep = (selected: Server[]): DeployStep => ({
+  const networkingStep = (selected: Server[], staticAddresses: DeployStaticAddresses): DeployStep => ({
     id: 'deploy-networking',
     name: 'Networking',
     title: 'Platform network',
@@ -203,7 +219,7 @@ export function useKubernetesDeployForm({ servers, heldBy }: PlatformDeployConte
           </Alert>
         ) : (
           <Alert status="warning" title="Direct control-plane endpoint">
-            The Kubernetes API will use {initialControllerAddress(selected) ?? 'the selected control-plane address'}:6443. This topology has no endpoint failover.
+            The Kubernetes API will use {directEndpoint(selected, staticAddresses) ?? 'the selected control-plane address:6443'}. This topology has no endpoint failover.
           </Alert>
         )}
         {topology === 'high-availability' && (
@@ -317,7 +333,7 @@ export function useKubernetesDeployForm({ servers, heldBy }: PlatformDeployConte
       ),
       valid: true,
     },
-    extraSteps: (selected) => [networkingStep(selected)],
+    extraSteps: (selected, staticAddresses) => [networkingStep(selected, staticAddresses)],
     reviewGroups: ({ name, site, preparationSummary }) => [
       {
         title: 'Platform',
@@ -346,7 +362,7 @@ export function useKubernetesDeployForm({ servers, heldBy }: PlatformDeployConte
         ],
       },
     ],
-    reviewGroupsAfterOS: (selected) => [
+    reviewGroupsAfterOS: (selected, staticAddresses) => [
       {
         title: 'Networking',
         stepId: 'deploy-networking',
@@ -357,7 +373,7 @@ export function useKubernetesDeployForm({ servers, heldBy }: PlatformDeployConte
               ? (apiVipPrefix.trim()
                   ? `${apiVip}/${apiVipPrefix} (virtual IP)`
                   : `${apiVip} (virtual IP, machine subnet prefix)`)
-              : `${initialControllerAddress(selected) ?? '-'}:6443 (direct)`,
+              : `${directEndpoint(selected, staticAddresses) ?? '-:6443'} (direct)`,
           },
           { label: 'Pod CIDR', value: podCidr },
           { label: 'Service CIDR', value: serviceCidr },

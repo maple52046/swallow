@@ -360,11 +360,11 @@ A template response contains:
 default `disk`), optional `network`, and optional write-only `userData`. The stored template
 carries the `ephemeral` boolean; `deployTarget` maps onto it (`disk ↔ false`,
 `ram ↔ true`). `network.mode` is `automatic`, `dhcp`, or
-`static` (glossary Network Configuration); missing network intent defaults to Automatic.
-Automatic addressing is realized by provider auto-assign (a stable, provider-recorded
+`static` (glossary Network Configuration); missing network intent defaults to Automatic, on
+every subnet. Automatic addressing is realized by provider auto-assign (a stable, provider-recorded
 address; see [decision 058](../../../../../docs/decisions/058-deployment-dhcp-and-subnet-dns.md) (deployment dhcp and subnet dns));
-DHCP leaves the address, gateway, and DNS to the network's own DHCP server (see
-decision 058). `dhcp` is no
+DHCP leaves the address, gateway, and DNS to the network's own DHCP server and is only ever the
+caller's explicit choice (see decision 058). `dhcp` is no
 longer an alias of `automatic`, and a template stored with `dhcp` reads as DHCP.
 `subnetId` names a live provider subnet and `defaultGateway` defaults to false. A default
 gateway can be requested only for Static intent. It returns `201` and never echoes `userData`.
@@ -451,7 +451,8 @@ from deployment preflight:
 ```
 
 `provisionerDhcp` is true when the provisioner itself serves DHCP on the subnet (MAAS: DHCP
-on for the subnet's VLAN); false means any DHCP there is the site's.
+on for the subnet's VLAN); false means any DHCP there is the site's. It does not change the
+suggestion; clients use it to warn about Automatic addressing on that subnet (below).
 
 Configuration states are `dhcp`, `static`, `link_only`, `unconfigured`,
 `provider_managed`, or `unknown`. Provider-specific values are diagnostic and
@@ -460,9 +461,14 @@ default. One explicit Static link on that NIC is preserved as the suggested
 deployment mode, subnet, IP address, and default-gateway intent. Multiple Static
 links remain ambiguous and require user input. Without an explicit Static
 link, swallow uses an existing linked subnet when unambiguous, or the sole compatible
-managed subnet, and suggests DHCP when that subnet has no provisioner DHCP
-(`provisionerDhcp` false), Automatic otherwise. Multiple compatible subnets produce
-`network_selection_required` instead of a silent choice and suggest Automatic.
+managed subnet, and suggests Automatic. Multiple compatible subnets produce
+`network_selection_required` instead of a silent choice and also suggest Automatic.
+
+The suggestion is never `dhcp`, including on a subnet without provisioner DHCP
+(`provisionerDhcp` false). There provider auto-assign does not know the site DHCP server's
+pool, so Automatic may hand out an address that pool also leases. A client that offers
+Automatic for such a subnet shows a visible warning that says so and that `dhcp` lets the
+site DHCP server assign the address, gateway, and DNS; the user decides (decision 058).
 
 `issues[]` entries carry `serverId`, `code`, and `message`. Codes are
 `network_interface_required` (no boot NIC could be chosen), `network_selection_required`
@@ -578,7 +584,13 @@ cover `POST /deployment-operations` and platform deploys. See
 "Image Verification".
 
 
-Missing `network` resolves to swallow's Automatic default. `network.mode` accepts
+Without a template, a missing `network`, or a `network` without `mode`, resolves to swallow's
+Automatic default on every subnet, including one without provisioner DHCP; swallow never switches a
+deployment to `dhcp` by itself (see [Network Inspection](#network-inspection)). With a template, a
+missing `network` takes the template's network intent, and a `network` without `mode` keeps the
+template's mode while its `subnetId`, `defaultGateway`, and `assignments` apply as sent, so a
+request can add the per-target static IPs a Static template cannot hold. The Workflow freezes the
+resolved mode, so a later template change does not alter it. `network.mode` accepts
 `automatic`, `dhcp`, or `static`; keep-current is not valid intent. Automatic is realized
 by the provider's auto-assign capability, so the deployed address is stable and always
 provider-recorded; its DNS servers are the subnet's Subnet DNS
@@ -990,6 +1002,20 @@ answers `200`, and the same message is recorded as the Integration's last sync e
 unknown Integration is `404 not_found` and a non-provisioner Integration `400 validation_error`.
 
 ## Compatibility Notes
+
+On 2026-11-05 a deployment with a template whose `network` has no `mode` began keeping the
+template's mode, as [Multi-Server Deployment](#multi-server-deployment) says. It used to resolve to
+Automatic whatever the template's mode, so a DHCP or Static template was deployed as Automatic, and
+per-target static IPs sent for a Static template were refused as valid only for Static. This is a
+bug fix: a request that names `mode`, or sends no `network`, is unaffected, and the request and
+response shapes are unchanged.
+
+On 2026-11-05 network inspection stopped suggesting `dhcp` for a subnet without provisioner
+DHCP (`provisionerDhcp` false): `suggestion.mode` is now `static` for an explicit Static
+binding on the boot NIC and `automatic` otherwise, and clients warn about the site DHCP pool
+instead of preselecting DHCP (decision 058). Request and response shapes are unchanged, and
+`suggestion.mode` keeps its `automatic | dhcp | static` enum; a client that adopted the
+suggestion now starts such a deployment on Automatic.
 
 On 2026-11-05 (breaking, with no alias) the single multipart `POST /images` upload was replaced
 by `POST /image-uploads`, which takes the same fields as JSON plus the content's `sizeBytes` and

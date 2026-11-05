@@ -223,8 +223,9 @@ export type ManualNetworkMode = "dhcp" | "static" | "link_only";
 
 /**
  * A provisioner subnet a NIC can use, read live from network inspection. `provisionerDhcp` is
- * whether the provisioner itself serves DHCP there; when false any DHCP on it is the site's,
- * which is why the backend suggests `dhcp` deployments on it.
+ * whether the provisioner itself serves DHCP there; when false any DHCP on it is the site's, so
+ * Automatic addressing may conflict with the site DHCP pool and the deployment forms warn about
+ * it (`siteDhcpConflictSubnets`). The backend never suggests `dhcp` because of it.
  */
 export interface NetworkSubnet {
   id: string;

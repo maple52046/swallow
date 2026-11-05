@@ -731,7 +731,10 @@ export interface FixtureOptions {
    * does: the spec is stored, and the controller then reports requires_attention.
    */
   httpProxyWriteForbidden?: boolean
-  /** Servers whose inspected subnet has no provisioner DHCP, so the API suggests `dhcp` (decision 058). */
+  /**
+   * Servers whose inspected subnet has no provisioner DHCP (`provisionerDhcp` false). The API
+   * still suggests `automatic` there; the dashboard warns about the site DHCP pool (decision 058).
+   */
   siteDhcpNetworkServerIds?: string[]
   /**
    * Provisioner subnets with their Subnet DNS by Integration id (decision 058). Omitted
@@ -1587,8 +1590,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     const interfaceId = `nic-${server.id}`
     const linkId = `link-${server.id}`
     const hasStaticBinding = options.staticNetworkServerIds?.includes(server.id) ?? false
-    // A site-DHCP Server's subnet has no provisioner DHCP, which is when the API suggests `dhcp`
-    // (provisioning.md, Network Inspection); every other non-static Server suggests `automatic`.
+    // A site-DHCP Server's subnet has no provisioner DHCP; like every other non-static Server it is
+    // suggested `automatic`, never `dhcp` (provisioning.md, Network Inspection).
     const siteDhcp = options.siteDhcpNetworkServerIds?.includes(server.id) ?? false
     const subnetName = options.networkSubnetName ?? 'lab-network'
     return [server.id, {
@@ -1597,7 +1600,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       disabledReason: server.status.provisioning.locked
         ? 'Unlock the Server before changing network configuration.'
         : server.status.provisioning.state === 'ready' ? '' : 'Network configuration can only be changed while the Server is Ready.',
-      suggestion: { mode: hasStaticBinding ? 'static' : siteDhcp ? 'dhcp' : 'automatic', interfaceId, subnetId: 'subnet-a', ipAddress: hasStaticBinding ? server.status.addresses[0] ?? '' : '', defaultGateway: hasStaticBinding },
+      suggestion: { mode: hasStaticBinding ? 'static' : 'automatic', interfaceId, subnetId: 'subnet-a', ipAddress: hasStaticBinding ? server.status.addresses[0] ?? '' : '', defaultGateway: hasStaticBinding },
       network: {
         interfaces: [{
           id: interfaceId,
@@ -2754,7 +2757,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         name: String(body.name),
         description: String(body.description ?? ''),
         imageId: String(body.imageId),
-        network: body.network ?? { mode: 'dhcp', defaultGateway: false },
+        network: body.network ?? { mode: 'automatic', defaultGateway: false },
         ephemeral: body.deployTarget === 'ram',
         hasUserData: Boolean(body.userData),
         createdAt: now,

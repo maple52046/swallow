@@ -267,6 +267,38 @@ func TestNetworkTargetResponseIncludesDeploymentSuggestion(t *testing.T) {
 	}
 }
 
+// On a subnet whose DHCP the provisioner does not serve the suggestion stays Automatic, and the
+// response still says so per subnet: clients warn from provisionerDhcp, not from the suggested
+// mode (provisioning.md, Network Inspection; decision 058).
+func TestNetworkTargetResponseReportsSiteDHCPSubnetBesideAutomaticSuggestion(t *testing.T) {
+	response := toNetworkTargetResponse(application.NetworkTarget{
+		ServerID: "server-1",
+		Suggestion: application.NetworkSuggestion{
+			Mode:        provisioningdomain.DeploymentNetworkAutomatic,
+			InterfaceID: "interface-1",
+			SubnetID:    "subnet-site",
+		},
+		Network: &provisioningdomain.MachineNetwork{
+			Interfaces: []provisioningdomain.NetworkInterface{{
+				ID: "interface-1", Name: "enp1s0", Boot: true,
+				AvailableSubnets: []provisioningdomain.NetworkSubnet{{
+					ID: "subnet-site", Name: "site", CIDR: "10.140.168.0/23", Managed: true, ProvisionerDHCP: false,
+				}},
+			}},
+		},
+	})
+
+	if response.Suggestion.Mode != "automatic" || response.Suggestion.SubnetID != "subnet-site" {
+		t.Errorf("suggestion = %#v, want automatic on subnet-site", response.Suggestion)
+	}
+	if len(response.Network.Interfaces) != 1 || len(response.Network.Interfaces[0].AvailableSubnets) != 1 {
+		t.Fatalf("network = %#v, want one interface with one available subnet", response.Network)
+	}
+	if subnet := response.Network.Interfaces[0].AvailableSubnets[0]; subnet.ID != "subnet-site" || subnet.ProvisionerDHCP {
+		t.Errorf("available subnet = %#v, want subnet-site with provisionerDhcp false", subnet)
+	}
+}
+
 func TestDeploymentNetworkInputPreservesStaticIntent(t *testing.T) {
 	input, ok := deployServersInput(deployServersRequest{
 		Network: &deploymentNetworkRequest{

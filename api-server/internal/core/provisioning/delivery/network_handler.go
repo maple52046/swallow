@@ -27,7 +27,9 @@ type networkSuggestionResponse struct {
 }
 
 // networkSubnetResponse is one entry of a NIC's availableSubnets (provisioning.md, Network
-// Inspection). provisionerDhcp tells the Dashboard why a DHCP suggestion was made.
+// Inspection). provisionerDhcp false is what clients warn from: Automatic addressing there may
+// hand out an address the site's DHCP pool also uses, and DHCP is the user's alternative
+// (decision 058). The suggestion itself never switches to DHCP.
 type networkSubnetResponse struct {
 	ID              string `json:"id"`
 	Name            string `json:"name"`

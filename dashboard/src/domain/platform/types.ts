@@ -356,7 +356,9 @@ export interface RoleAssignment {
  * A request to deploy a k0s platform onto already-deployed servers. Optional CIDRs fall
  * back to backend defaults. `apiVip` is required only when role
  * assignments infer a highly available control plane; one-control-plane deployments use
- * that Server's observed address.
+ * that Server's address after the deploy: the observed address of a reused deployed Server,
+ * the static address of one provisioned with static addressing, and for automatic or DHCP
+ * addressing the address it gets when provisioned, which its address before does not predict.
  */
 export interface PlatformMachinePreparation {
   mode: "existing_os" | "provision_os";
@@ -437,7 +439,8 @@ export interface GPUDriverSettings {
  * A request to deploy a platform onto Ready or already-deployed servers. `type` selects the
  * platform: "kubernetes" (default) reads the k0s fields; "slurm" reads `slurm`. Optional CIDRs
  * fall back to backend defaults. `apiVip` is required only when role assignments infer a highly
- * available control plane; one-control-plane deployments use that Server's observed address.
+ * available control plane; one-control-plane deployments use that Server's address after the
+ * deploy (its observed address only when it is already deployed and reused).
  * `gpuOperator` installs the AMD GPU Operator with a Kubernetes deploy; `gpuStackOwner` is then
  * derived by the backend and may be omitted. `containerRuntime` installs Docker CE or Podman on
  * every compute and login node, and `omnistat` installs Omnistat; `deviceMetricsExporter` installs

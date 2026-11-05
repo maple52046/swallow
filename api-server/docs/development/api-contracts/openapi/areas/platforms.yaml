@@ -1933,7 +1933,9 @@ components:
               description: The user data for `replace`; never echoed.
         network:
           type: object
-          description: The OS deployment network intent; missing resolves to `automatic`.
+          description: >-
+            The OS deployment network intent; a missing object or `mode` takes the Deployment
+            Template's, or `automatic` without one.
           properties:
             mode:
               type: string

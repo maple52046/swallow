@@ -601,7 +601,8 @@ spec:
 ```
 
 要在建立平台時一併安裝 AMD GPU Operator，就在 settings 加上 `gpuOperator`，`gpuStackOwner` 會自動推導，可以不寫。
-下面的 `platform-k8s-gpu.yaml` 是一次實機測試用的檔案：三台 Server 在開機網卡上以 DHCP 重新安裝 OS，三台都是
+下面的 `platform-k8s-gpu.yaml` 是一次實機測試用的檔案：三台 Server 在開機網卡上以 Automatic 定址重新安裝 OS
+（若 subnet 的 DHCP 不是由 provisioner 提供，改寫 `mode: dhcp` 即由站點的 DHCP server 指派位址），三台都是
 control plane 也跑 workload，operator 以 Device Plugin 模式納管 Node Feature Discovery 判定為 AMD GPU 節點的所有節點。`apiVipPrefix`
 可以不寫，會採用 control plane 子網的 prefix（這裡是 `/23`），部署也只接受這個值。
 
@@ -629,7 +630,7 @@ spec:
       imageId: ubuntu-24.04-rocm-10.0.0-gfx942-rdc-clock-index-fix-amdgpu31.50-maasga146-20261015
       deployTarget: disk
     network:
-      mode: dhcp
+      mode: automatic
       assignments:   # 每台 Server 的開機網卡與子網，可從 `swallow servers get` 取得
         - { serverId: srva, interfaceId: "131", subnetId: "1" }
         - { serverId: srvb, interfaceId: "132", subnetId: "1" }

@@ -5054,7 +5054,7 @@ export interface components {
             id: string;
             managed: boolean;
             name: string;
-            /** @description True when the provisioner itself serves DHCP on the subnet; false means any DHCP there is the site's. */
+            /** @description True when the provisioner itself serves DHCP on the subnet; false means any DHCP there is the site's, where `automatic` addressing may conflict with the site DHCP pool and clients warn. */
             provisionerDhcp: boolean;
         };
         /** @description The suggested deployment intent; empty ids mean user input is required. */
@@ -5062,7 +5062,10 @@ export interface components {
             defaultGateway: boolean;
             interfaceId: string;
             ipAddress: string;
-            /** @enum {string} */
+            /**
+             * @description `static` for an explicit Static binding on the boot NIC, otherwise `automatic`, also on a subnet whose `provisionerDhcp` is false; swallow does not suggest `dhcp`.
+             * @enum {string}
+             */
             mode: "automatic" | "dhcp" | "static";
             subnetId: string;
         };
@@ -5123,7 +5126,7 @@ export interface components {
             serverId: string;
             subnetId?: string;
         };
-        /** @description Deployment network intent; a missing object means `automatic`. Each target uses its boot NIC unless an assignment overrides it. */
+        /** @description Deployment network intent. Without a template, a missing object or `mode` means `automatic`; with one, a missing object takes the template's network intent and a missing `mode` keeps the template's mode. Each target uses its boot NIC unless an assignment overrides it. */
         OsDeploymentNetworkIntent: {
             assignments?: components["schemas"]["OsDeploymentNetworkAssignment"][];
             /** @description Valid only for `static`. */
@@ -5494,7 +5497,7 @@ export interface components {
              * @enum {string}
              */
             mode: "existing_os" | "provision_os";
-            /** @description The OS deployment network intent; missing resolves to `automatic`. */
+            /** @description The OS deployment network intent; a missing object or `mode` takes the Deployment Template's, or `automatic` without one. */
             network?: {
                 assignments?: {
                     interfaceId?: string;

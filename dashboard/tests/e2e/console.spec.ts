@@ -2416,6 +2416,9 @@ test.describe('user interactions', () => {
     await expect(dialog.getByRole('heading', { name: 'Installation', exact: true })).toBeVisible()
     await dialog.getByRole('button', { name: 'Next' }).click()
     await expect(dialog.getByRole('heading', { name: 'Networking', exact: true })).toBeVisible()
+    // Subnets the provisioner serves DHCP on start on Automatic without the site DHCP warning.
+    await expect(dialog.getByRole('radio', { name: 'Automatic' })).toBeChecked()
+    await expect(dialog.getByText('Automatic addressing may conflict with the site DHCP pool')).toHaveCount(0)
     await dialog.getByRole('radio', { name: 'Static' }).locator('..').click()
 
     const next = dialog.getByRole('button', { name: 'Next' })
@@ -2444,10 +2447,10 @@ test.describe('user interactions', () => {
     await expect(page.getByRole('table', { name: 'Servers' })).toBeVisible()
   })
 
-  // decision 058: on a subnet whose DHCP the provisioner does not serve, network inspection suggests
-  // DHCP; the dialog starts there, says why, keeps the warning if the user picks Automatic, and
-  // sends `dhcp` without addresses.
-  test('a site-DHCP subnet starts the deployment on DHCP and explains the suggestion', async ({ page }) => {
+  // decision 058: on a subnet whose DHCP the provisioner does not serve, the dialog still starts on
+  // Automatic and warns, naming the subnet, that it may conflict with the site DHCP pool. The
+  // warning follows the mode, and a user who picks DHCP sends `dhcp` without addresses.
+  test('a site-DHCP subnet keeps Automatic preselected and warns about the site DHCP pool', async ({ page }) => {
     let deploymentRequest: Record<string, unknown> | undefined
     await page.unroute('**/api/v1/**')
     await installApiFixtures(page, {
@@ -2465,13 +2468,22 @@ test.describe('user interactions', () => {
     await dialog.getByRole('button', { name: 'Next' }).click()
     await expect(dialog.getByRole('heading', { name: 'Networking', exact: true })).toBeVisible()
 
-    await expect(dialog.getByRole('radio', { name: 'DHCP' })).toBeChecked()
-    const explanation = dialog.getByText(/DHCP is suggested because the provisioner runs no DHCP/)
-    await expect(explanation).toBeVisible()
+    await expect(dialog.getByRole('radio', { name: 'Automatic' })).toBeChecked()
+    const warning = dialog.getByText('Automatic addressing may conflict with the site DHCP pool', { exact: true })
+    await expect(warning).toBeVisible()
+    await expect(dialog.getByText(/The provisioner runs no DHCP on lab-network \(192\.168\.40\.0\/24\)/)).toBeVisible()
+    await expect(dialog.getByText(/Choose DHCP to let the site DHCP server assign the address/)).toBeVisible()
     await expect(dialog.getByLabel(/^Static IPv4 address for/)).toHaveCount(0)
-    await dialog.getByRole('radio', { name: 'Automatic' }).locator('..').click()
-    await expect(explanation).toBeVisible()
+    // The warning never blocks: Automatic remains a valid choice.
+    await expect(dialog.getByRole('button', { name: 'Next' })).toBeEnabled()
+
     await dialog.getByRole('radio', { name: 'DHCP' }).locator('..').click()
+    await expect(dialog.getByRole('radio', { name: 'DHCP' })).toBeChecked()
+    await expect(warning).toHaveCount(0)
+    await dialog.getByRole('radio', { name: 'Automatic' }).locator('..').click()
+    await expect(warning).toBeVisible()
+    await dialog.getByRole('radio', { name: 'DHCP' }).locator('..').click()
+    await expect(warning).toHaveCount(0)
 
     await dialog.getByRole('button', { name: 'Next' }).click()
     const review = dialog.getByRole('table', { name: 'Deployment review targets' })
@@ -2485,6 +2497,48 @@ test.describe('user interactions', () => {
         { serverId: 'srv-1', interfaceId: 'nic-srv-1', subnetId: 'subnet-a' },
         { serverId: 'srv-2', interfaceId: 'nic-srv-2', subnetId: 'subnet-a' },
       ],
+    })
+  })
+
+  // decision 058: the Platform wizard's OS networking also keeps Automatic preselected on a
+  // site-DHCP subnet and warns without blocking; a user who keeps Automatic submits it.
+  test('Platform wizard keeps Automatic on a site-DHCP subnet and warns without blocking', async ({ page }) => {
+    let deployBody: Record<string, unknown> | undefined
+    await page.unroute('**/api/v1/**')
+    await installApiFixtures(page, {
+      freePlatformCandidates: true,
+      readyServerCount: 2,
+      siteDhcpNetworkServerIds: ['srv-1', 'srv-2'],
+      onPlatformDeploymentRequest: (body) => { deployBody = body },
+    })
+    await page.goto('/platforms/deploy/slurm?site=site-a')
+    await page.getByLabel('Platform name').fill('site-dhcp-slurm')
+    const next = page.getByRole('button', { name: 'Next' })
+    await next.click()
+    await page.getByRole('checkbox', { name: 'Run slurmctld on gpu-node-01' }).locator('..').click()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-01' }).locator('..').click()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Slurm features' })).toBeVisible()
+    await next.click()
+    await chooseOSImage(page, 'Ubuntu 24.04 LTS')
+    await expect(page.getByRole('heading', { name: 'OS networking' })).toBeVisible()
+
+    await expect(page.getByRole('radio', { name: 'Automatic', exact: true })).toBeChecked()
+    const warning = page.getByText('Automatic addressing may conflict with the site DHCP pool', { exact: true })
+    await expect(warning).toBeVisible()
+    await page.getByRole('radio', { name: 'DHCP', exact: true }).locator('..').click()
+    await expect(warning).toHaveCount(0)
+    await page.getByRole('radio', { name: 'Automatic', exact: true }).locator('..').click()
+    await expect(warning).toBeVisible()
+    await expect(next).toBeEnabled()
+    await next.click()
+
+    await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
+    await page.getByRole('button', { name: 'Deploy Slurm Platform' }).click()
+    await expect.poll(() => deployBody).toBeDefined()
+    expect(deployBody).toMatchObject({
+      machinePreparation: { mode: 'provision_os', network: { mode: 'automatic' } },
     })
   })
 

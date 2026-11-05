@@ -234,7 +234,7 @@ func TestConfigureNetworkLinkRejectsDefaultGatewayForDHCPBeforeProviderRead(t *t
 }
 
 // The subnet catalog reports whether MAAS serves a subnet's DHCP — on its VLAN or relayed to it —
-// and the subnet's DNS servers, which drive the DHCP suggestion and Subnet DNS (decision 058).
+// and the subnet's DNS servers, which drive the site DHCP warning and Subnet DNS (decision 058).
 func TestListNetworkSubnetsReportsProvisionerDHCPAndDNS(t *testing.T) {
 	fake := newFakeMAAS(t)
 	fake.respond("GET "+apiPrefix+"/subnets/{$}", http.StatusOK, `[
