@@ -16,6 +16,10 @@ tmp_dir = "/tmp/air"
   stop_on_error = false
   send_interrupt = true
   kill_delay = "2s"
+  # An instance Air failed to stop (a rebuild during a failing build, a graceful stop that outlives
+  # kill_delay) keeps running beside the new one: a worker or executor keeps its controller leases
+  # and task polling with the old code, and an api-server keeps the port. End every instance first.
+  pre_cmd = ["pkill -x swallow-api; sleep 2; pkill -9 -x swallow-api; true"]
 
 [log]
   time = true
