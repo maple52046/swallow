@@ -325,9 +325,9 @@ test.describe('user interactions', () => {
     await expect(table.getByRole('columnheader', { name: 'MAC address' })).toHaveCount(0)
 
     const firstRow = table.getByRole('row').filter({ hasText: 'gpu-node-01' }).first()
-    await expect(firstRow).toContainText('AMD MI300X')
-    await expect(firstRow).toContainText('64 cores')
-    await expect(firstRow).toContainText('RAM 512 GiB')
+    await expect(firstRow.getByRole('group', { name: 'CPU: AMD, 64 cores' }).locator('.sw-server-hardware-value > span')).toHaveText(['AMD', '64 cores'])
+    await expect(firstRow.getByRole('group', { name: 'RAM: 512 GiB' }).locator('.sw-server-hardware-value > span')).toHaveText(['512 GiB'])
+    await expect(firstRow.getByRole('group', { name: 'GPU: AMD, 8 GPUs' }).locator('.sw-server-hardware-value > span')).toHaveText(['AMD', '8 GPUs'])
     await expect(firstRow.getByText('rack-a', { exact: true })).toBeVisible()
     await expect(firstRow.getByText('accelerators', { exact: true })).toBeVisible()
     const identity = firstRow.locator('.sw-server-col--identity')

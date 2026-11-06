@@ -15,6 +15,7 @@ const visualCases = [
   { name: 'overview-alerts-unavailable', path: '/?site=site-a', heading: 'Overview', authenticated: true, representative: false },
   { name: 'overview-without-alerts', path: '/?site=site-a', heading: 'Overview', authenticated: true, representative: false },
   { name: 'servers', path: '/servers?site=site-a', heading: 'Servers', authenticated: true, representative: true },
+  { name: 'servers-hardware', path: '/servers?site=site-a&includeAbsent=true', heading: 'Servers', authenticated: true, representative: false },
   { name: 'platform-list', path: '/platforms?site=site-a', heading: 'Platforms', authenticated: true, representative: false },
   { name: 'workflow-list', path: '/workflows?site=site-a', heading: 'Workflows', authenticated: true, representative: false },
   { name: 'change-plans', path: '/change-plans?site=site-a', heading: 'Change Plans', authenticated: true, representative: false },
@@ -145,6 +146,9 @@ test.describe('dashboard visual review', () => {
               serverHealth: { 'srv-1': 'not_applicable' as const, 'srv-3': 'unknown' as const },
             }
           : {}),
+        ...(visualCase.name === 'servers-hardware'
+          ? { displayOnlyServerIds: ['srv-2'], cpuOnlyServerIds: ['srv-3'] }
+          : {}),
         ...(visualCase.name.startsWith('monitoring')
           ? { serverHealth: { 'srv-2': 'unknown' as const, 'srv-3': 'not_applicable' as const } }
           : {}),
@@ -241,6 +245,17 @@ test.describe('dashboard visual review', () => {
       }
       if (visualCase.name === 'platform-detail-kubernetes-single-credential') {
         await expect(page.getByText('Cluster credentials are not separated yet')).toBeVisible()
+      }
+      if (visualCase.name === 'servers-hardware') {
+        const mobile = testInfo.project.name.startsWith('mobile-')
+        const serverSurface = (name: string) => (
+          mobile
+            ? page.getByRole('article').filter({ hasText: name })
+            : page.getByRole('table', { name: 'Servers' }).getByRole('row').filter({ hasText: name }).first()
+        )
+        await expect(serverSurface('gpu-node-01').getByRole('group', { name: 'GPU: AMD, 8 GPUs' })).toBeVisible()
+        await expect(serverSurface('gpu-node-02').getByRole('group', { name: /^GPU:/ })).toHaveCount(0)
+        await expect(serverSurface('gpu-node-04').locator('.sw-server-hardware-summary')).toHaveText('Not reported')
       }
       // Plan cards are titled by name once the Platform and Server reads answer; the expired plan's
       // deleted Platform keeps its id.

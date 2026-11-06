@@ -12,15 +12,6 @@ export function serverGPUsByKind(server: Server, kind: GPUKind): ServerGPU[] {
   return server.status.gpus.filter((gpu) => gpu.kind === kind)
 }
 
-/**
- * Chooses the inventory represented by the compact Server List: compute accelerators when any
- * exist, otherwise display controllers. An empty Server stays CPU-only.
- */
-export function preferredServerGPUs(server: Server): ServerGPU[] {
-  const compute = serverGPUsByKind(server, 'compute')
-  return compute.length > 0 ? compute : serverGPUsByKind(server, 'display')
-}
-
 /** Physical device count across already-selected GPU Inventory groups. */
 export function gpuInventoryCount(gpus: readonly ServerGPU[]): number {
   return gpus.reduce((total, gpu) => total + gpu.count, 0)

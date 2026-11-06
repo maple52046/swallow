@@ -1639,7 +1639,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   for (const serverId of options.genericComputeServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
     if (server) server.status.gpus = [
-      { vendor: 'AMD', model: 'AMD GPU', count: 8, kind: 'compute' },
+      // MAAS reports the PCI vendor name, not a brand.
+      { vendor: 'Advanced Micro Devices, Inc. [AMD/ATI]', model: 'AMD GPU', count: 8, kind: 'compute' },
       { vendor: 'ASPEED Technology, Inc.', model: 'ASPEED Graphics Family', count: 1, kind: 'display' },
     ]
   }

@@ -171,7 +171,7 @@ test('fleet overview, discovery search, quick lenses, and contextual actions sta
   const absent = table.getByRole('row').filter({ hasText: 'gpu-node-04' })
   await expect(absent).toBeVisible()
   await expect(absent.locator('.sw-server-hardware-summary')).toHaveText('Not reported')
-  await expect(absent.locator('.sw-server-hardware-capacity')).toHaveCount(0)
+  await expect(absent.locator('.sw-server-hardware-entry')).toHaveCount(0)
   await expect(absent.getByText('Unknown', { exact: true })).toBeVisible()
   const addTags = absent.getByRole('button', { name: 'Add tags to gpu-node-04' })
   await expect(addTags).toHaveText('Add tags')
@@ -283,11 +283,13 @@ test('in-progress rows stay still while the status spinner keeps moving with red
 test('hardware facets, deterministic grouping, sorting, and URL fallback are shareable', async ({ page }) => {
   await installApiFixtures(page, {
     multiGpuServerIds: ['srv-3'],
+    displayOnlyServerIds: ['srv-2'],
     extraTags: { 'srv-1': ['east'] },
   })
   await page.goto('/servers?site=site-a')
 
   await page.getByRole('button', { name: /Filters/ }).click()
+  await expect(page.getByRole('checkbox', { name: /ASPEED Technology/ })).toHaveCount(0)
   await page.getByRole('checkbox', { name: 'NVIDIA (1)' }).locator('..').click()
   await page.keyboard.press('Escape')
   await expect(page).toHaveURL(/gpuVendor=NVIDIA/)
@@ -296,16 +298,17 @@ test('hardware facets, deterministic grouping, sorting, and URL fallback are sha
   await expect(table.getByText('gpu-node-01', { exact: true })).toHaveCount(0)
   const mixedGpuRow = table.getByRole('row').filter({ hasText: 'gpu-node-03' })
   const mixedGpuSummary = mixedGpuRow.locator('.sw-server-hardware-gpu')
-  await expect(mixedGpuSummary).toHaveText('AMD MI300X')
+  await expect(mixedGpuSummary.locator('.sw-server-hardware-value > span')).toHaveText(['AMD + NVIDIA', '12 GPUs'])
   await mixedGpuSummary.hover()
   await expect(page.getByRole('tooltip')).toHaveText('8 × AMD MI300X + 4 × NVIDIA H100')
 
   await page.goto('/servers?site=site-a&gpu=present&architecture=amd64%2Fgeneric&systemVendor=Supermicro&systemProduct=AS-8125GS-TNHR&zone=rack-a&pool=accelerators&tag=east&tag=production&membership=assigned&health=up')
   await expect(table.getByText('gpu-node-01', { exact: true })).toBeVisible()
-  await expect(table.getByText('gpu-node-02', { exact: true })).toBeVisible()
+  await expect(table.getByText('gpu-node-02', { exact: true })).toHaveCount(0)
   await expect(table.getByText('gpu-node-03', { exact: true })).toHaveCount(0)
 
   await page.goto('/servers?site=site-a&gpu=none')
+  await expect(table.getByText('gpu-node-02', { exact: true })).toBeVisible()
   await expect(table.getByText('gpu-node-04', { exact: true })).toBeVisible()
   await expect(table.getByText('gpu-node-01', { exact: true })).toHaveCount(0)
 
@@ -358,88 +361,51 @@ test('provisioner sync shows only when a Server is out of sync and filters throu
   await expect(page).toHaveURL('/servers?site=site-a')
 })
 
-test('GPU summaries prefer compute capacity and Server detail separates display controllers', async ({ page }) => {
+test('hardware summary shows icon facts for reported capacity and excludes display controllers', async ({ page }) => {
   await installApiFixtures(page, { displayOnlyServerIds: ['srv-2'], cpuOnlyServerIds: ['srv-3'] })
   await page.goto('/servers?site=site-a')
 
   const table = page.getByRole('table', { name: 'Servers' })
   const computeRow = table.getByRole('row').filter({ hasText: 'gpu-node-01' }).first()
-  const computeSummary = computeRow.locator('.sw-server-hardware-gpu')
-  await expect(computeSummary).toHaveText('AMD MI300X')
-  await computeSummary.focus()
+  const computeCPU = computeRow.getByRole('group', { name: 'CPU: AMD, 64 cores' })
+  const computeRAM = computeRow.getByRole('group', { name: 'RAM: 512 GiB' })
+  const computeGPU = computeRow.getByRole('group', { name: 'GPU: AMD, 8 GPUs' })
+  await expect(computeRow.locator('.sw-server-hardware-entry')).toHaveCount(3)
+  expect(await computeRow.locator('.sw-server-hardware-entry').evaluateAll((entries) => (
+    entries.map((entry) => entry.getAttribute('aria-label'))
+  ))).toEqual(['CPU: AMD, 64 cores', 'RAM: 512 GiB', 'GPU: AMD, 8 GPUs'])
+  await expect(computeCPU.locator('.sw-server-hardware-value > span')).toHaveText(['AMD', '64 cores'])
+  await expect(computeRAM.locator('.sw-server-hardware-value > span')).toHaveText(['512 GiB'])
+  await expect(computeGPU.locator('.sw-server-hardware-value > span')).toHaveText(['AMD', '8 GPUs'])
+  for (const entry of [computeCPU, computeRAM, computeGPU]) {
+    await expect(entry.locator('svg')).toHaveCount(1)
+    await expect(entry.locator('svg')).toHaveAttribute('aria-hidden', 'true')
+  }
+
+  await computeGPU.focus()
   await expect(page.getByRole('tooltip', { name: '8 × AMD MI300X', exact: true })).toBeVisible()
-  const cpuModel = computeRow.locator('.sw-server-hardware-cpu')
-  await expect(cpuModel).toHaveText('AMD EPYC 9554')
-  await cpuModel.hover()
+  await computeCPU.hover()
   await expect(page.getByRole('tooltip', { name: 'AMD EPYC 9554', exact: true })).toBeVisible()
 
   const displayRow = table.getByRole('row').filter({ hasText: 'gpu-node-02' }).first()
-  const displaySummary = displayRow.locator('.sw-server-hardware-gpu')
-  await expect(displaySummary).toHaveText('ASPEED Technology, Inc. ASPEED Graphics Family')
-  await displaySummary.hover()
-  await expect(page.getByRole('tooltip', { name: '1 × ASPEED Technology, Inc. ASPEED Graphics Family', exact: true })).toBeVisible()
+  await expect(displayRow.getByRole('group', { name: /^GPU:/ })).toHaveCount(0)
+  await expect(displayRow.getByRole('group', { name: 'CPU: AMD, 64 cores' })).toBeVisible()
+  await expect(displayRow.getByRole('group', { name: 'RAM: 512 GiB' })).toBeVisible()
 
   const cpuOnlyRow = table.getByRole('row').filter({ hasText: 'gpu-node-03' }).first()
-  await expect(cpuOnlyRow.locator('.sw-server-hardware-gpu')).toHaveCount(0)
-  await expect(cpuOnlyRow.locator('.sw-server-hardware-cpu')).toHaveText('AMD EPYC 9554')
-  await expect(cpuOnlyRow.locator('.sw-server-hardware-fact--primary .sw-server-hardware-cpu')).toHaveText('AMD EPYC 9554')
-  await expect(cpuOnlyRow.locator('.sw-server-hardware-label')).toHaveText('CPU')
-  await expect(cpuOnlyRow.locator('.sw-server-hardware-capacity > span')).toHaveText(['64 cores', 'RAM 512 GiB'])
-  await expect(cpuOnlyRow.locator('.sw-server-hardware-capacity strong')).toHaveText(['64', '512 GiB'])
-
-  const [primaryStyle, secondaryStyle] = await Promise.all([
-    computeSummary.evaluate((element) => {
-      const style = getComputedStyle(element)
-      return { fontSize: style.fontSize, fontWeight: style.fontWeight }
-    }),
-    cpuModel.evaluate((element) => {
-      const style = getComputedStyle(element)
-      return { fontSize: style.fontSize, fontWeight: style.fontWeight }
-    }),
-  ])
-  expect(Number(primaryStyle.fontWeight)).toBeGreaterThan(Number(secondaryStyle.fontWeight))
-  expect(Number.parseFloat(primaryStyle.fontSize)).toBeGreaterThan(Number.parseFloat(secondaryStyle.fontSize))
-  await expect(computeRow.locator('.sw-server-hardware-fact--primary')).toHaveCount(1)
-  await expect(computeRow.locator('.sw-server-hardware-label')).toHaveText('GPU')
+  await expect(cpuOnlyRow.getByRole('group', { name: /^GPU:/ })).toHaveCount(0)
+  await expect(cpuOnlyRow.getByRole('group', { name: 'CPU: AMD, 64 cores' })).toBeVisible()
+  await expect(cpuOnlyRow.getByRole('group', { name: 'RAM: 512 GiB' })).toBeVisible()
   await expect(computeRow.locator('.sw-server-network-label')).toHaveText(['IP', 'MAC'])
-  const tagStyles = await Promise.all([
-    computeRow.locator('.sw-server-hardware-label').evaluate((label) => {
-      const style = getComputedStyle(label)
-      return { width: style.width, height: style.height, fontSize: style.fontSize, borderRadius: style.borderRadius }
-    }),
-    cpuOnlyRow.locator('.sw-server-hardware-label').evaluate((label) => {
-      const style = getComputedStyle(label)
-      return { width: style.width, height: style.height, fontSize: style.fontSize, borderRadius: style.borderRadius }
-    }),
-    computeRow.locator('.sw-server-network-label').nth(0).evaluate((label) => {
-      const style = getComputedStyle(label)
-      return { width: style.width, height: style.height, fontSize: style.fontSize, borderRadius: style.borderRadius }
-    }),
-    computeRow.locator('.sw-server-network-label').nth(1).evaluate((label) => {
-      const style = getComputedStyle(label)
-      return { width: style.width, height: style.height, fontSize: style.fontSize, borderRadius: style.borderRadius }
-    }),
-  ])
-  for (const style of tagStyles.slice(1)) expect(style).toEqual(tagStyles[0])
-  expect(tagStyles[0].borderRadius).toBe('0px')
-  await expect(computeRow.locator('.sw-server-hardware-fact').first()).toHaveCSS('display', 'flex')
-  const [summaryBox, capacityBox] = await Promise.all([
-    computeRow.locator('.sw-server-hardware-summary').boundingBox(),
-    computeRow.locator('.sw-server-hardware-capacity strong').first().boundingBox(),
-  ])
-  expect(summaryBox).not.toBeNull()
-  expect(capacityBox).not.toBeNull()
-  expect(Math.abs((summaryBox?.x ?? 0) - (capacityBox?.x ?? 0))).toBeLessThanOrEqual(1)
-  const [secondaryBox, capacityLineBox] = await Promise.all([
-    cpuModel.boundingBox(),
-    computeRow.locator('.sw-server-hardware-capacity').boundingBox(),
-  ])
-  expect(secondaryBox).not.toBeNull()
-  expect(capacityLineBox).not.toBeNull()
-  expect((capacityLineBox?.y ?? 0) - ((secondaryBox?.y ?? 0) + (secondaryBox?.height ?? 0))).toBeLessThanOrEqual(2)
+  await expect(computeRow.locator('.sw-server-hardware-icon').first()).toHaveCSS('width', '24px')
   const rowBox = await computeRow.boundingBox()
   expect(rowBox).not.toBeNull()
   expect(rowBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(82)
+
+  await page.goto('/servers?site=site-a&includeAbsent=true')
+  const unreportedRow = table.getByRole('row').filter({ hasText: 'gpu-node-04' }).first()
+  await expect(unreportedRow.locator('.sw-server-hardware-summary')).toHaveText('Not reported')
+  await expect(unreportedRow.locator('.sw-server-hardware-entry')).toHaveCount(0)
 
   await page.goto('/servers/srv-1/summary?site=site-a')
   const capacity = page.getByRole('heading', { name: 'Capacity', exact: true }).locator('xpath=../../..')
@@ -455,7 +421,7 @@ test('GPU summaries prefer compute capacity and Server detail separates display 
   await expect(hardwareProfile).toContainText('Display GPUs')
 })
 
-test('generic and opaque provider GPU names remain complete with exact tooltip detail', async ({ page }) => {
+test('generic compute names retain exact tooltip detail while display-only inventory stays hidden', async ({ page }) => {
   await installApiFixtures(page, {
     genericComputeServerIds: ['srv-1'],
     displayOnlyServerIds: ['srv-2'],
@@ -466,18 +432,16 @@ test('generic and opaque provider GPU names remain complete with exact tooltip d
   const table = page.getByRole('table', { name: 'Servers' })
   const genericCompute = table.getByRole('row').filter({ hasText: 'gpu-node-01' }).first()
   const genericSummary = genericCompute.locator('.sw-server-hardware-gpu')
-  await expect(genericSummary).toHaveText('AMD GPU')
+  // The PCI vendor name shortens to its brand; the tooltip keeps the provider's full text.
+  await expect(genericSummary.locator('.sw-server-hardware-value > span')).toHaveText(['AMD', '8 GPUs'])
   await genericSummary.focus()
-  await expect(page.getByRole('tooltip', { name: '8 × AMD AMD GPU', exact: true })).toBeVisible()
+  await expect(page.getByRole('tooltip', { name: '8 × Advanced Micro Devices, Inc. [AMD/ATI] AMD GPU', exact: true })).toBeVisible()
 
   const aspeedDisplay = table.getByRole('row').filter({ hasText: 'gpu-node-02' }).first()
-  await expect(aspeedDisplay.locator('.sw-server-hardware-gpu')).toHaveText('ASPEED Technology, Inc. ASPEED Graphics Family')
+  await expect(aspeedDisplay.locator('.sw-server-hardware-gpu')).toHaveCount(0)
 
   const cirrusDisplay = table.getByRole('row').filter({ hasText: 'gpu-node-03' }).first()
-  const cirrusSummary = cirrusDisplay.locator('.sw-server-hardware-gpu')
-  await expect(cirrusSummary).toHaveText('Cirrus Logic GD 5446')
-  await cirrusSummary.hover()
-  await expect(page.getByRole('tooltip', { name: '1 × Cirrus Logic GD 5446', exact: true })).toBeVisible()
+  await expect(cirrusDisplay.locator('.sw-server-hardware-gpu')).toHaveCount(0)
 })
 test('display preferences migrate once while grouping and sorting preserve selection', async ({ page }) => {
   await page.addInitScript(() => {
@@ -745,14 +709,10 @@ test('mobile cards preserve operational and hardware facts without horizontal ov
   await expect(page.getByRole('article').filter({ hasText: 'gpu-node-03' }).getByTestId('server-sync-badge')).toHaveText('Drift detected')
 
   const card = page.getByRole('article').filter({ hasText: 'gpu-node-01' })
-  await expect(card.locator('.sw-server-hardware-purpose')).toHaveCount(0)
-  await expect(card.locator('.sw-server-hardware-gpu')).toHaveText('AMD MI300X')
-  await expect(card.locator('.sw-server-hardware-fact--primary .sw-server-hardware-gpu')).toHaveCount(1)
-  await expect(card.locator('.sw-server-hardware-cpu')).toHaveText('AMD EPYC 9554')
-  const capacity = card.locator('.sw-server-hardware-capacity')
-  await expect(card.locator('.sw-server-hardware-label')).toHaveText('GPU')
-  await expect(capacity.locator(':scope > span')).toHaveText(['64 cores', 'RAM 512 GiB'])
-  await expect(capacity.locator('strong')).toHaveText(['64', '512 GiB'])
+  await expect(card.getByRole('group', { name: 'CPU: AMD, 64 cores' }).locator('.sw-server-hardware-value > span')).toHaveText(['AMD', '64 cores'])
+  await expect(card.getByRole('group', { name: 'RAM: 512 GiB' }).locator('.sw-server-hardware-value > span')).toHaveText(['512 GiB'])
+  await expect(card.getByRole('group', { name: 'GPU: AMD, 8 GPUs' }).locator('.sw-server-hardware-value > span')).toHaveText(['AMD', '8 GPUs'])
+  await expect(card.locator('.sw-server-hardware-entry')).toHaveCount(3)
   await expect(card.getByText('Zone', { exact: true })).toBeVisible()
   await expect(card.getByText('rack-a', { exact: true }).first()).toBeVisible()
   await expect(card.getByText('Pool', { exact: true })).toBeVisible()
@@ -856,6 +816,30 @@ test('13-inch layout prioritizes core columns and reveals context when space per
   })
   await expect(providerFailed.locator('.sw-server-col--identity .sw-power-button')).toHaveText('ON')
   await expect(providerFailed.locator('.sw-server-col--identity .sw-power-button svg')).toHaveCount(1)
+  const identityControlGeometry = await providerFailed.locator('.sw-server-col--identity').evaluate((cell) => {
+    const button = cell.querySelector('.sw-power-button')
+    const tag = cell.querySelector('.sw-resource-tag')
+    if (!(button instanceof HTMLElement) || !(tag instanceof HTMLElement)) throw new Error('Identity controls are missing')
+    const sharedHeight = getComputedStyle(document.documentElement).getPropertyValue('--sw-server-identity-control-height').trim()
+    return {
+      buttonHeight: button.getBoundingClientRect().height,
+      tagHeight: tag.getBoundingClientRect().height,
+      buttonContentFits: button.scrollHeight <= button.clientHeight && button.scrollWidth <= button.clientWidth,
+      sharedHeight,
+    }
+  })
+  expect(identityControlGeometry).toEqual({
+    buttonHeight: 24,
+    tagHeight: 24,
+    buttonContentFits: true,
+    sharedHeight: '1.5rem',
+  })
+  const powerButton = providerFailed.locator('.sw-server-col--identity .sw-power-button')
+  await powerButton.focus()
+  expect(await powerButton.evaluate((button) => {
+    const style = getComputedStyle(button)
+    return style.outlineStyle !== 'none' || style.boxShadow !== 'none'
+  })).toBe(true)
   expect(powerPlacement.startGap).toBeLessThanOrEqual(12)
   expect(powerPlacement.interControlGap).toBeGreaterThanOrEqual(0)
   expect(powerPlacement.interControlGap).toBeLessThanOrEqual(8)
@@ -883,21 +867,17 @@ test('13-inch layout prioritizes core columns and reveals context when space per
   await expect(providerFailed).not.toContainText('gpu-node-01.lab.example')
   await expect(providerFailed.getByText('Failed', { exact: true })).toBeVisible()
   const hardwareGeometry = await providerFailed.locator('.sw-server-col--hardware').evaluate((cell) => {
-    const content = cell.querySelector('.sw-server-hardware-gpu')
+    const content = cell.querySelector('.sw-server-hardware-summary')
     if (!(content instanceof HTMLElement)) throw new Error('Hardware summary is missing')
     return {
       cellRight: cell.getBoundingClientRect().right,
       contentRight: content.getBoundingClientRect().right,
-      clientWidth: content.clientWidth,
-      scrollWidth: content.scrollWidth,
-      whiteSpace: getComputedStyle(content).whiteSpace,
     }
   })
-  await expect(providerFailed.locator('.sw-server-hardware-gpu')).toHaveText('ASPEED Technology, Inc. ASPEED Graphics Family')
-  await expect(providerFailed.locator('.sw-server-hardware-cpu')).toHaveText('AMD EPYC 9554')
+  await expect(providerFailed.locator('.sw-server-hardware-gpu')).toHaveCount(0)
+  await expect(providerFailed.getByRole('group', { name: 'CPU: AMD, 64 cores' })).toBeVisible()
+  await expect(providerFailed.getByRole('group', { name: 'RAM: 512 GiB' })).toBeVisible()
   expect(hardwareGeometry.contentRight).toBeLessThanOrEqual(hardwareGeometry.cellRight)
-  expect(hardwareGeometry.scrollWidth).toBeGreaterThan(hardwareGeometry.clientWidth)
-  expect(hardwareGeometry.whiteSpace).toBe('nowrap')
   await expect(providerFailed.getByRole('link', { name: 'Review activity for gpu-node-01' })).toHaveAttribute('href', '/servers/srv-1/activity?site=site-a#activity-provider-events')
   const changing = table.getByRole('row').filter({ hasText: 'gpu-node-03' }).first()
   await expect(changing.getByRole('link', { name: 'View workflow for gpu-node-03' })).toBeVisible()

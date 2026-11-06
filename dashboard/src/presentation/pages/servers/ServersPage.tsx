@@ -24,6 +24,7 @@ import { useApp } from '@/di/AppProvider'
 import { refreshServerProjections } from '@/application/usecases/servers/refreshServerProjections'
 import { INSPECT_HARDWARE_WORKFLOW_KIND } from '@/domain/operation/types'
 import type { Integration, Site } from '@/domain/site/types'
+import { serverGPUsByKind } from '@/domain/server/gpu'
 import type { HealthState, ReleaseServerInput, Server } from '@/domain/server/types'
 import { serverDisplayName, serverPrimaryAddress } from '@/domain/server/types'
 import { PageHeader } from '@/presentation/components/PageHeader'
@@ -47,6 +48,7 @@ import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Select } from '@/presentation/components/ui/select'
 import { DebouncedSearchInput } from '@/presentation/components/ui/debounced-search-input'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
+import { ServerHardwareSummary } from '@/presentation/components/ServerHardwareSummary'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { usePlatformNames } from '@/presentation/hooks/usePlatformNames'
@@ -81,7 +83,6 @@ import {
   serverContextActionPath,
   serverDeploymentCellInputs,
   serverFleetFacts,
-  serverGpuCompactSummary,
   serverGpuProfile,
   serverInventoryGroupValue,
   serverRowTone,
@@ -617,8 +618,10 @@ export function ServersPage() {
 
   const facets = useMemo<ServerFacetOptions>(() => ({
     provisioning: facetOptions(workingSet, (server) => server.status.provisioning ? [server.status.provisioning.state] : [], query.provisioning),
-    gpuVendor: facetOptions(workingSet, (server) => server.status.gpus.map((gpu) => gpu.vendor), query.gpuVendors),
-    gpuModel: facetOptions(workingSet, (server) => server.status.gpus.map((gpu) => gpu.model), query.gpuModels),
+    // GPU facets represent workload accelerator capacity. Display controllers remain inventory
+    // detail, but cannot make a Server GPU-equipped or add misleading accelerator facet values.
+    gpuVendor: facetOptions(workingSet, (server) => serverGPUsByKind(server, 'compute').map((gpu) => gpu.vendor), query.gpuVendors),
+    gpuModel: facetOptions(workingSet, (server) => serverGPUsByKind(server, 'compute').map((gpu) => gpu.model), query.gpuModels),
     architecture: facetOptions(workingSet, (server) => [server.status.architecture || 'unknown'], query.architectures),
     systemVendor: facetOptions(workingSet, (server) => [server.status.systemVendor || 'unknown'], query.systemVendors),
     systemProduct: facetOptions(workingSet, (server) => [server.status.systemProduct || 'unknown'], query.systemProducts),
@@ -1689,69 +1692,6 @@ function TagSummary({ server, onEdit }: { server: Server; onEdit: () => void }) 
   )
 }
 
-/**
- * Dense Hardware summary with exactly one emphasized first fact: the primary GPU when present,
- * otherwise the CPU identity. Exact provider values remain keyboard-accessible through tooltips.
- */
-function ServerHardware({ server }: { server: Server }) {
-  const compactProfile = serverGpuCompactSummary(server)
-  const fullProfile = serverGpuProfile(server)
-  const hasGPU = Boolean(compactProfile)
-  const cpuModel = server.status.cpuModel.trim()
-  const cpuCores = server.status.cpuCores > 0 ? server.status.cpuCores.toLocaleString() : null
-  const memory = server.status.memoryMiB > 0 ? formatQuantity(server.status.memoryMiB, 'GiB', 1024) : null
-  const hasHardwareInventory = hasGPU || Boolean(cpuModel) || Boolean(cpuCores) || Boolean(memory)
-
-  if (!hasHardwareInventory) {
-    return (
-      <div className="sw-server-hardware-summary">
-        <strong className="sw-server-hardware-empty">Not reported</strong>
-      </div>
-    )
-  }
-
-  const gpuSummary = hasGPU ? (
-    <strong
-      className="sw-server-hardware-gpu"
-      tabIndex={0}
-    >
-      {compactProfile}
-    </strong>
-  ) : null
-  const cpuSummary = cpuModel ? (
-    <Tooltip content={cpuModel}>
-      <span className="sw-server-hardware-cpu" tabIndex={0}>
-        {cpuModel}
-      </span>
-    </Tooltip>
-  ) : cpuCores || (!hasGPU && memory) ? (
-    <span className="sw-server-hardware-cpu" data-state="unobserved">Model not reported</span>
-  ) : null
-
-  return (
-    <div className="sw-server-hardware-summary">
-      {gpuSummary && (
-        <div className="sw-server-hardware-fact sw-server-hardware-fact--primary">
-          <span className="sw-server-hardware-label">GPU</span>
-          <Tooltip content={fullProfile}>{gpuSummary}</Tooltip>
-        </div>
-      )}
-      {cpuSummary && (
-        <div className={`sw-server-hardware-fact${hasGPU ? '' : ' sw-server-hardware-fact--primary'}`}>
-          {!hasGPU && <span className="sw-server-hardware-label">CPU</span>}
-          {cpuSummary}
-        </div>
-      )}
-      {(cpuCores || memory) && (
-        <div className="sw-server-hardware-capacity" aria-label="Server capacity">
-          {cpuCores && <span><strong>{cpuCores}</strong> cores</span>}
-          {memory && <span>RAM <strong>{memory}</strong></span>}
-        </div>
-      )}
-    </div>
-  )
-}
-
 function ServerDetailsPanel({ groups }: { groups: readonly DetailFactGroup[] }) {
   return (
     <div className="sw-server-details-panel">
@@ -1808,7 +1748,7 @@ function ServerRow({
         <Table.Cell className="sw-server-col--identity"><ServerIdentity server={server} scopedHref={scopedHref} onEditTags={onEditTags} onOpenPower={() => setPowerDialogOpen(true)} /></Table.Cell>
         <Table.Cell className="sw-server-col--network"><ServerNetworkIdentity server={server} /></Table.Cell>
         <Table.Cell className="sw-server-col--deployment"><ServerDeployment server={server} scopedHref={scopedHref} onDeploy={onDeploy} /></Table.Cell>
-        <Table.Cell className="sw-server-col--hardware"><ServerHardware server={server} /></Table.Cell>
+        <Table.Cell className="sw-server-col--hardware"><ServerHardwareSummary server={server} /></Table.Cell>
         <Table.Cell className="sw-server-col--zone">{textOrDash(server.status.providerZone)}</Table.Cell>
         <Table.Cell className="sw-server-col--pool">{textOrDash(server.status.providerResourcePool)}</Table.Cell>
         <Table.Cell className="sw-server-col--health"><HealthBadge axis={server.status.health} /></Table.Cell>
@@ -1879,7 +1819,7 @@ function ServerMobileCard({
       >
         <ResourceCardField label="Network"><ServerNetworkIdentity server={server} /></ResourceCardField>
         <ResourceCardField label="Deployment"><ServerDeployment server={server} scopedHref={scopedHref} onDeploy={onDeploy} /></ResourceCardField>
-        <ResourceCardField label="Hardware"><ServerHardware server={server} /></ResourceCardField>
+        <ResourceCardField label="Hardware"><ServerHardwareSummary server={server} /></ResourceCardField>
         <ResourceCardField label="Zone">{textOrDash(server.status.providerZone)}</ResourceCardField>
         <ResourceCardField label="Pool">{textOrDash(server.status.providerResourcePool)}</ResourceCardField>
       </ResourceCard>

@@ -132,6 +132,12 @@ console controllers such as ASPEED, Matrox G200, and virtio-gpu. They remain
 visible as hardware but do not inflate accelerator capacity or make a Server
 GPU-eligible.
 
+In the inventory, the **Hardware** column shows the CPU, RAM, and compute GPUs,
+each as an icon with a short fact: the brand and core count, the memory, and the
+GPU brand and count. Hover or focus an entry for the provider's full CPU model or
+GPU models. The **GPU** filter and the GPU vendor and model facets count compute
+GPUs only, so a Server with only a display controller is not GPU-equipped.
+
 The classification preserves the provisioner's complete observation while
 preventing a console controller from being counted as a workload device. An
 unknown provider-reported GPU defaults to compute so a real accelerator is not

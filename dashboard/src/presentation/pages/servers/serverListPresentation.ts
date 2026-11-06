@@ -8,13 +8,10 @@ import {
   type Server,
   type ServerHealthCounts,
 } from '@/domain/server/types'
-import { gpuInventoryCount, preferredServerGPUs } from '@/domain/server/gpu'
+import { gpuInventoryCount, serverGPUsByKind } from '@/domain/server/gpu'
 import { describeConvergence, type ConvergenceSummary } from '@/presentation/components/convergence/convergencePresentation'
 import { resolveDeploymentPhase, type DeploymentPhase } from '@/presentation/components/deploymentPhase'
-import {
-  gpuInventoryCompactSummary,
-  gpuInventoryProfile,
-} from '@/presentation/components/serverGpuPresentation'
+import { gpuInventoryProfile } from '@/presentation/components/serverGpuPresentation'
 import { serverActivityPath, type ServerActivitySection } from './serverActivitySections'
 
 /** Quick operational lens applied before the advanced Server facets. */
@@ -340,29 +337,17 @@ export function serverDeploymentPhase(server: Server): DeploymentPhase {
 }
 
 /**
- * Deterministic profile for the GPU kind represented by the Server List: compute accelerators
- * when present, otherwise display controllers. Classification comes from the API, never tags.
+ * Deterministic compute-accelerator profile represented by the Server List. Display controllers
+ * remain inventory detail and never make a Server GPU-equipped; classification comes from the API.
  */
 export function serverGpuProfile(server: Server): string {
-  const gpus = preferredServerGPUs(server)
+  const gpus = serverGPUsByKind(server, 'compute')
   return gpus.length > 0 ? gpuInventoryProfile(gpus) : 'CPU only'
 }
 
-/**
- * Short GPU inventory label for dense Server rows and cards.
- *
- * Compute inventory outranks display inventory. Within that selected kind, the profile with the
- * largest count is shown using its full vendor/model name. Callers retain `serverGpuProfile` for
- * exact tooltip/detail text and grouping, where hiding the remaining profiles would lose
- * user-visible inventory meaning.
- */
-export function serverGpuCompactSummary(server: Server): string {
-  return gpuInventoryCompactSummary(preferredServerGPUs(server))
-}
-
-/** Physical GPU count represented by the Server List's compute-first inventory selection. */
+/** Physical compute-GPU count represented by the Server List; display controllers count as zero. */
 export function serverGpuCount(server: Server): number {
-  return gpuInventoryCount(preferredServerGPUs(server))
+  return gpuInventoryCount(serverGPUsByKind(server, 'compute'))
 }
 
 /** Stable effective tags; provenance is intentionally unavailable in the current projection. */
@@ -398,10 +383,13 @@ export function matchesServerInventoryQuery(server: Server, query: ServerInvento
   if (query.health !== 'any' && server.status.health.state !== HEALTH_FILTER_STATES[query.health]) return false
   if (query.membership === 'assigned' && server.status.membership === null) return false
   if (query.membership === 'unassigned' && server.status.membership !== null) return false
-  if (query.gpu === 'present' && server.status.gpus.length === 0) return false
-  if (query.gpu === 'none' && server.status.gpus.length > 0) return false
-  if (query.gpuVendors.length > 0 && !server.status.gpus.some((gpu) => query.gpuVendors.includes(gpu.vendor))) return false
-  if (query.gpuModels.length > 0 && !server.status.gpus.some((gpu) => query.gpuModels.includes(gpu.model))) return false
+  // GPU list filters are capacity filters. The API's `kind` owns classification, so a BMC or
+  // local-console display controller cannot make a Server GPU-equipped or satisfy GPU facets.
+  const computeGPUs = serverGPUsByKind(server, 'compute')
+  if (query.gpu === 'present' && computeGPUs.length === 0) return false
+  if (query.gpu === 'none' && computeGPUs.length > 0) return false
+  if (query.gpuVendors.length > 0 && !computeGPUs.some((gpu) => query.gpuVendors.includes(gpu.vendor))) return false
+  if (query.gpuModels.length > 0 && !computeGPUs.some((gpu) => query.gpuModels.includes(gpu.model))) return false
   if (query.architectures.length > 0 && !query.architectures.includes(server.status.architecture || 'unknown')) return false
   if (query.systemVendors.length > 0 && !query.systemVendors.includes(server.status.systemVendor || 'unknown')) return false
   if (query.systemProducts.length > 0 && !query.systemProducts.includes(server.status.systemProduct || 'unknown')) return false

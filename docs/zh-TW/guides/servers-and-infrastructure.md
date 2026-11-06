@@ -117,6 +117,11 @@ virtual-machine console controller，例如 ASPEED、Matrox G200 與 virtio-gpu�
 保留在 hardware inventory 中，但不會膨脹 accelerator capacity，也不會讓 Server
 因此變成 GPU-eligible。
 
+Inventory 的 **Hardware** 欄位以 icon 加上簡短資訊顯示 CPU、RAM 與 compute GPU：
+廠牌與核心數、記憶體容量、GPU 廠牌與數量；hover 或 focus 一個項目可看 provider 回報的
+完整 CPU model 或 GPU model。**GPU** filter 與 GPU vendor、model facet 只計算 compute
+GPU，所以只有 display controller 的 Server 不算有 GPU。
+
 此分類會保留 provisioner 的完整 observation，同時避免把 console controller 當成
 workload device。Provider 回報但無法辨識的 GPU 預設為 compute，避免真正的 accelerator
 被無聲略過。Canonical 定義請見
