@@ -8,7 +8,7 @@ automation stages converge the Server toward the requested result.
 
 ## Prepare an image
 
-Under **OS Images** (right after **Servers** in the sidebar):
+Under **OS Images** (above **Infrastructure** in the sidebar):
 
 1. Select the Site/provisioner catalog.
 2. Use an existing provider image or upload a supported custom image.

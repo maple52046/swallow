@@ -7,19 +7,19 @@ published HTTP API，browser 內只保存 UI preference 與目前 session。
 
 ## 導覽
 
-側邊欄以分隔線把區域分成四段：Overview；Servers、OS Images、Platforms 與 Software；
-Monitoring 與 Activity；Infrastructure。用頁面頂端的按鈕可把側邊欄收合成圖示（這個瀏覽器會記住選擇）；
+側邊欄以分隔線把區域分成四段：Overview；Servers、Platforms 與 Software；
+Monitoring 與 Activity；OS Images 與 Infrastructure。用頁面頂端的按鈕可把側邊欄收合成圖示（這個瀏覽器會記住選擇）；
 滑鼠停在圖示上或以鍵盤聚焦時會顯示名稱。手機上以選單按鈕開啟同一份側邊欄的 drawer。
 
 | 區域 | 用途 |
 | --- | --- |
 | Overview | Site-scoped fleet health、attention items、integration、Platform 與 recent Workflow |
 | Servers | Inventory、Add servers（納管引導）、可分享的 filter view、bulk action、tag、lock，以及包含 Boot Media 的 Server detail |
-| OS Images | 佈署 Server 所用的 OS image：catalog、upload、deploy mode 驗證與 deployment template（分頁 **OS images** 與 **Templates**） |
 | Platforms | Kubernetes／Slurm deployment、lifecycle、settings 與 runtime view |
 | Software | 分類呈現 catalog（Docker CE、Podman、NFS、Prometheus、Grafana、AMD Device Metrics Exporter、Node Exporter）、各 software deployment 與多 Server 安裝 |
 | Monitoring | Fleet health、勾選 Server／Pool／Zone／Platform 的用量圖表、current metrics、選用的 Grafana link，以及（開發中的）alert 與 silence |
 | Activity | 兩個分頁。**Workflows**：durable execution、Job、Task、event、log、cancel、rerun 與 retry。**Change Plans**：Platform 破壞性變更的計畫，包括等待核准或拒絕的 plan、已核准 plan 的紀錄，以及安全開關 |
+| OS Images | 佈署 Server 所用的 OS image：catalog、upload、deploy mode 驗證與 deployment template（分頁 **OS images** 與 **Templates**） |
 | Infrastructure | Site、Integration、Zone、Pool、credential、automation settings、Site 的 local repository（deployment 從哪裡取得 artifact、來源、同步狀態與內容，見[初始設定](initial-setup.md#4-註冊-local-repository)），以及 [Boot ISO](#boot-iso-與-server-boot-media) |
 | SSH keys（account menu） | Deployment key、你的 access keys 及其 provisioner sync 狀態，見 [SSH key](ssh-keys.md) |
 | API keys（account menu） | 讓 script、CI 與 CLI 不需要密碼即可以你的身分呼叫 swallow 的 key，見 [API key](api-keys.md) |

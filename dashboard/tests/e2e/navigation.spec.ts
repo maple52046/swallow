@@ -17,11 +17,11 @@ function desktopNavigation(page: Page) {
   return page.getByTestId('desktop-navigation').getByRole('navigation', { name: 'Primary navigation' })
 }
 
-test('the sidebar lists its sections in one flat list with OS Images after Servers', async ({ page }) => {
+test('the sidebar lists its sections in one flat list with OS Images above Infrastructure', async ({ page }) => {
   await page.goto('/provisioning/images?site=site-a')
   const nav = desktopNavigation(page)
 
-  await expect(nav.getByRole('link')).toHaveText(['Overview', 'Servers', 'OS Images', 'Platforms', 'Software', 'Monitoring', 'Activity', 'Infrastructure'])
+  await expect(nav.getByRole('link')).toHaveText(['Overview', 'Servers', 'Platforms', 'Software', 'Monitoring', 'Activity', 'OS Images', 'Infrastructure'])
   // The rules between the four sections are drawn but hidden from assistive technology, so the
   // list counts only destinations; there is no section label.
   await expect(nav.locator('[role="separator"]')).toHaveCount(3)
@@ -32,7 +32,7 @@ test('the sidebar lists its sections in one flat list with OS Images after Serve
     await expect(nav.getByRole('link', { name: retired })).toHaveCount(0)
   }
 
-  // OS Images is a peer of Servers, not a list nested in its item, and the only current entry.
+  // OS Images is an entry of the flat list, not nested in another item, and the only current entry.
   await expect(nav.getByRole('list')).toHaveCount(1)
   const osImages = nav.getByRole('link', { name: 'OS Images', exact: true })
   await expect(osImages).toHaveAttribute('aria-current', 'page')
@@ -71,7 +71,7 @@ test('the collapsed rail shows every entry as an icon whose tooltip names it', a
   await expect(page.getByRole('tooltip', { name: 'OS Images', exact: true })).toBeVisible()
 
   // Keyboard users reach it in list order and it navigates like any entry.
-  await nav.getByRole('link', { name: 'Servers', exact: true }).focus()
+  await nav.getByRole('link', { name: 'Activity', exact: true }).focus()
   await page.keyboard.press('Tab')
   await expect(osImages).toBeFocused()
   await page.keyboard.press('Enter')
@@ -84,7 +84,7 @@ test('the mobile drawer shows the same sections and closes after choosing an ent
   await page.goto('/?site=site-a')
   await page.getByRole('button', { name: 'Open navigation' }).click()
   const nav = page.getByRole('dialog').getByRole('navigation', { name: 'Primary navigation' })
-  await expect(nav.getByRole('link')).toHaveText(['Overview', 'Servers', 'OS Images', 'Platforms', 'Software', 'Monitoring', 'Activity', 'Infrastructure'])
+  await expect(nav.getByRole('link')).toHaveText(['Overview', 'Servers', 'Platforms', 'Software', 'Monitoring', 'Activity', 'OS Images', 'Infrastructure'])
   await expect(nav.locator('[role="separator"]')).toHaveCount(3)
 
   await nav.getByRole('link', { name: 'OS Images' }).click()

@@ -8,7 +8,7 @@ converge 到 requested result。
 
 ## 準備 image
 
-在 **OS Images**（側邊欄 **Servers** 的下一項）：
+在 **OS Images**（側邊欄 **Infrastructure** 的上一項）：
 
 1. 選擇 Site／provisioner catalog。
 2. 使用既有 provider image，或 upload supported custom image。

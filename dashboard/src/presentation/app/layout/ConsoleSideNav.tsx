@@ -35,14 +35,13 @@ interface NavEntry {
 
 /**
  * Primary destinations in workflow order, in sections the sidebar separates with an unlabelled
- * rule: the Overview; the fleet, the OS images it is deployed with, and what runs on it; what
- * happens to it; the Site wiring.
+ * rule: the Overview; the fleet and what runs on it; what happens to it; what the Site is set up
+ * with, the OS images it deploys and its wiring.
  */
 const NAVIGATION: ReadonlyArray<readonly NavEntry[]> = [
   [{ label: 'Overview', path: '/', icon: LayoutDashboard, activeFor: ['/'] }],
   [
     { label: 'Servers', path: '/servers', icon: Server, activeFor: ['/servers'] },
-    { label: 'OS Images', path: '/provisioning/images', icon: Disc3, activeFor: ['/provisioning'] },
     { label: 'Platforms', path: '/platforms', icon: Boxes, activeFor: ['/platforms'] },
     { label: 'Software', path: '/software', icon: Package, activeFor: ['/software'] },
   ],
@@ -50,7 +49,10 @@ const NAVIGATION: ReadonlyArray<readonly NavEntry[]> = [
     { label: 'Monitoring', path: '/monitoring', icon: ChartLine, activeFor: ['/monitoring'] },
     { label: 'Activity', path: '/workflows', icon: Activity, activeFor: ['/workflows', '/change-plans'] },
   ],
-  [{ label: 'Infrastructure', path: '/infrastructure/sites', icon: Network, activeFor: ['/infrastructure'] }],
+  [
+    { label: 'OS Images', path: '/provisioning/images', icon: Disc3, activeFor: ['/provisioning'] },
+    { label: 'Infrastructure', path: '/infrastructure/sites', icon: Network, activeFor: ['/infrastructure'] },
+  ],
 ]
 
 interface ConsoleSideNavProps {

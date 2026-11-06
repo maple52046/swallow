@@ -9,7 +9,7 @@ current session in the browser.
 ## Navigation
 
 The sidebar groups its areas into four sections separated by lines: Overview;
-Servers, OS Images, Platforms, and Software; Monitoring and Activity; and
+Servers, Platforms, and Software; Monitoring and Activity; and OS Images and
 Infrastructure. Collapse the sidebar to icons with the button at the top of the
 page (this browser remembers the choice); hovering or focusing an icon names it.
 On a phone, the menu button opens the same sidebar as a drawer.
@@ -18,11 +18,11 @@ On a phone, the menu button opens the same sidebar as a drawer.
 | --- | --- |
 | Overview | Site-scoped fleet health, attention items, integrations, Platforms, and recent Workflows |
 | Servers | Inventory, Add servers (enrollment guidance), shareable filter views, bulk actions, tags, locks, and Server details including Boot Media |
-| OS Images | The OS images Servers are deployed with: the catalog, upload, deploy-mode verification, and deployment templates (tabs **OS images** and **Templates**) |
 | Platforms | Kubernetes/Slurm deployment, lifecycle, settings, and runtime views |
 | Software | Grouped catalog (Docker CE, Podman, NFS, Prometheus, Grafana, AMD Device Metrics Exporter, Node Exporter), per-software deployments, and multi-Server installation |
 | Monitoring | Fleet health, usage charts for selected Servers, Pools, Zones, and Platforms, current metrics, optional Grafana links, and (in development) alerts and silences |
 | Activity | Two tabs. **Workflows**: durable execution state, Jobs, Tasks, events, logs, cancel, rerun, and retry. **Change Plans**: plans for destructive Platform changes, the ones waiting for approval or rejection, the record of approved ones, and the safety switch |
+| OS Images | The OS images Servers are deployed with: the catalog, upload, deploy-mode verification, and deployment templates (tabs **OS images** and **Templates**) |
 | Infrastructure | Sites, Integrations, Zones, Pools, credentials, automation settings, the Site's local repository (where deployments fetch artifacts, its sources, sync state, and content; see [Initial setup](initial-setup.md#4-register-the-local-repository)), and [Boot ISOs](#boot-isos-and-server-boot-media) |
 | SSH keys (account menu) | The deployment key, your access keys, and their provisioner sync status — see [SSH keys](ssh-keys.md) |
 | API keys (account menu) | Keys that let scripts, CI, and the CLI call swallow as you without a password — see [API keys](api-keys.md) |
