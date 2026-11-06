@@ -1,9 +1,9 @@
 import { expect, test, type Page } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
-// The console's own navigation: the sidebar's sections and child entry in every layout (expanded
-// rail, icon-only rail, mobile drawer), and the Activity area's tabs. Every request is served by
-// the deterministic fixtures.
+// The console's own navigation: the sidebar's sections in every layout (expanded rail, icon-only
+// rail, mobile drawer), and the Activity area's tabs. Every request is served by the deterministic
+// fixtures.
 
 test.beforeEach(async ({ page }) => {
   await installApiFixtures(page)
@@ -17,7 +17,7 @@ function desktopNavigation(page: Page) {
   return page.getByTestId('desktop-navigation').getByRole('navigation', { name: 'Primary navigation' })
 }
 
-test('the sidebar lists its sections in one list and nests OS Images under Servers', async ({ page }) => {
+test('the sidebar lists its sections in one flat list with OS Images after Servers', async ({ page }) => {
   await page.goto('/provisioning/images?site=site-a')
   const nav = desktopNavigation(page)
 
@@ -32,14 +32,12 @@ test('the sidebar lists its sections in one list and nests OS Images under Serve
     await expect(nav.getByRole('link', { name: retired })).toHaveCount(0)
   }
 
-  // OS Images is a nested list inside the Servers item, one size smaller, and the only current entry.
-  const servers = nav.getByRole('listitem').filter({ has: page.getByRole('link', { name: 'Servers', exact: true }) })
-  const osImages = servers.getByRole('list').getByRole('link', { name: 'OS Images' })
+  // OS Images is a peer of Servers, not a list nested in its item, and the only current entry.
+  await expect(nav.getByRole('list')).toHaveCount(1)
+  const osImages = nav.getByRole('link', { name: 'OS Images', exact: true })
   await expect(osImages).toHaveAttribute('aria-current', 'page')
   await expect(osImages).toHaveAttribute('href', '/provisioning/images?site=site-a')
   await expect(nav.getByRole('link', { name: 'Servers', exact: true })).not.toHaveAttribute('aria-current', 'page')
-  const fontSize = (name: string) => nav.getByRole('link', { name, exact: true }).evaluate((element) => parseFloat(getComputedStyle(element).fontSize))
-  expect(await fontSize('OS Images')).toBeLessThan(await fontSize('Servers'))
 })
 
 test('each sidebar entry is current on its own routes only', async ({ page }) => {
@@ -60,7 +58,7 @@ test('each sidebar entry is current on its own routes only', async ({ page }) =>
   }
 })
 
-test('the collapsed rail keeps the child as a smaller icon whose tooltip names its parent', async ({ page }) => {
+test('the collapsed rail shows every entry as an icon whose tooltip names it', async ({ page }) => {
   await page.goto('/servers?site=site-a')
   const rail = page.getByTestId('desktop-navigation')
   await page.getByRole('button', { name: 'Toggle navigation' }).click()
@@ -69,10 +67,8 @@ test('the collapsed rail keeps the child as a smaller icon whose tooltip names i
   const nav = desktopNavigation(page)
   await expect(nav.getByRole('link')).toHaveText(['', '', '', '', '', '', '', ''])
   const osImages = nav.getByRole('link', { name: 'OS Images', exact: true })
-  const iconWidth = (name: string) => nav.getByRole('link', { name, exact: true }).locator('svg').evaluate((element) => element.getBoundingClientRect().width)
-  expect(await iconWidth('OS Images')).toBeLessThan(await iconWidth('Servers'))
   await osImages.hover()
-  await expect(page.getByRole('tooltip', { name: 'OS Images (Servers)' })).toBeVisible()
+  await expect(page.getByRole('tooltip', { name: 'OS Images', exact: true })).toBeVisible()
 
   // Keyboard users reach it in list order and it navigates like any entry.
   await nav.getByRole('link', { name: 'Servers', exact: true }).focus()
@@ -83,7 +79,7 @@ test('the collapsed rail keeps the child as a smaller icon whose tooltip names i
   await expect(osImages).toHaveAttribute('aria-current', 'page')
 })
 
-test('the mobile drawer shows the same sections and closes after choosing the child', async ({ page }) => {
+test('the mobile drawer shows the same sections and closes after choosing an entry', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/?site=site-a')
   await page.getByRole('button', { name: 'Open navigation' }).click()

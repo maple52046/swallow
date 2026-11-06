@@ -7,16 +7,15 @@ published HTTP API，browser 內只保存 UI preference 與目前 session。
 
 ## 導覽
 
-側邊欄以分隔線把區域分成四段：Overview；Servers（其下為 OS Images）、Platforms 與 Software；
-Monitoring 與 Activity；Infrastructure。OS Images 一律顯示，縮排在 Servers 之下。用頁面頂端的按鈕
-可把側邊欄收合成圖示（這個瀏覽器會記住選擇）；滑鼠停在圖示上或以鍵盤聚焦時會顯示名稱，OS Images
-也會一併標出 Servers。手機上以選單按鈕開啟同一份側邊欄的 drawer。
+側邊欄以分隔線把區域分成四段：Overview；Servers、OS Images、Platforms 與 Software；
+Monitoring 與 Activity；Infrastructure。用頁面頂端的按鈕可把側邊欄收合成圖示（這個瀏覽器會記住選擇）；
+滑鼠停在圖示上或以鍵盤聚焦時會顯示名稱。手機上以選單按鈕開啟同一份側邊欄的 drawer。
 
 | 區域 | 用途 |
 | --- | --- |
 | Overview | Site-scoped fleet health、attention items、integration、Platform 與 recent Workflow |
 | Servers | Inventory、Add servers（納管引導）、可分享的 filter view、bulk action、tag、lock，以及包含 Boot Media 的 Server detail |
-| OS Images（在 Servers 之下） | 佈署 Server 所用的 OS image：catalog、upload、deploy mode 驗證與 deployment template（分頁 **OS images** 與 **Templates**） |
+| OS Images | 佈署 Server 所用的 OS image：catalog、upload、deploy mode 驗證與 deployment template（分頁 **OS images** 與 **Templates**） |
 | Platforms | Kubernetes／Slurm deployment、lifecycle、settings 與 runtime view |
 | Software | 分類呈現 catalog（Docker CE、Podman、NFS、Prometheus、Grafana、AMD Device Metrics Exporter、Node Exporter）、各 software deployment 與多 Server 安裝 |
 | Monitoring | Fleet health、勾選 Server／Pool／Zone／Platform 的用量圖表、current metrics、選用的 Grafana link，以及（開發中的）alert 與 silence |

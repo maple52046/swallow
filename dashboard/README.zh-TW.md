@@ -12,7 +12,7 @@
 | `/login` | Authenticate |
 | `/` | Site-scoped overview 與 attention items |
 | `/servers`、`/servers/:id/*` | Inventory、action、activity、monitoring、containers、network、storage、PCI |
-| `/provisioning/images` | OS Images（側邊欄 Servers 之下）：OS image、upload、delete、verification |
+| `/provisioning/images` | OS Images：OS image、upload、delete、verification |
 | `/provisioning/templates` | OS Images：Deployment Template |
 | `/platforms`、`/platforms/:id` | Kubernetes／Slurm Platform inventory 與 detail |
 | `/platforms/deploy`、`/platforms/settings` | Platform deployment 與 Slurm requirement |

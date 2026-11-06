@@ -12,7 +12,7 @@ consumer of the provider-owned HTTP contract and binds only real API adapters.
 | `/login` | Authenticate |
 | `/` | Site-scoped overview and attention items |
 | `/servers`, `/servers/:id/*` | Inventory, actions, activity, monitoring, containers, network, storage, PCI |
-| `/provisioning/images` | OS Images (under Servers in the sidebar): OS images, upload, delete, and verification |
+| `/provisioning/images` | OS Images: OS images, upload, delete, and verification |
 | `/provisioning/templates` | OS Images: Deployment Templates |
 | `/platforms`, `/platforms/:id` | Kubernetes/Slurm Platform inventory and detail |
 | `/platforms/deploy` | Platform runtime catalog |

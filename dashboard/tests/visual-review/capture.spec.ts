@@ -1915,8 +1915,8 @@ test.describe('Local repository visual review', () => {
 
 /**
  * The sidebar in the layouts the page cases do not show at a readable scale: the expanded rail with
- * the child entry current, the icon-only rail with the child entry's tooltip (desktop only, the
- * rail is hidden on a phone), and the mobile drawer (phone only).
+ * OS Images current, the icon-only rail with its tooltip (desktop only, the rail is hidden on a
+ * phone), and the mobile drawer (phone only).
  */
 test.describe('Console navigation visual review', () => {
   test('sidebar-collapsed-rail @representative', async ({ page }, testInfo) => {
@@ -1934,7 +1934,7 @@ test.describe('Console navigation visual review', () => {
     await capture(page, testInfo, 'sidebar-collapsed-rail', false)
     await rail.screenshot({ path: testInfo.outputPath(`sidebar-collapsed-rail-crop-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide' })
     await rail.getByRole('link', { name: 'OS Images', exact: true }).hover()
-    await expect(page.getByRole('tooltip', { name: 'OS Images (Servers)' })).toBeVisible()
+    await expect(page.getByRole('tooltip', { name: 'OS Images', exact: true })).toBeVisible()
     await page.screenshot({
       path: testInfo.outputPath(`sidebar-collapsed-rail-tooltip-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
       clip: { x: 0, y: 0, width: 420, height: 520 },

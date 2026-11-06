@@ -71,8 +71,8 @@ After a MAAS Integration succeeds, the next reconciliation creates or updates
 Server projections. Users do not create Servers directly.
 
 - Open **Servers** to inspect inventory and staleness.
-- Use **OS Images** (under **Servers**) to inspect images, verify
-  deployability, and create deployment templates.
+- Use **OS Images** to inspect images, verify deployability, and create
+  deployment templates.
 - Use **Activity** to observe durable work (**Workflows**) and approve
   destructive changes (**Change Plans**).
 - Use **Monitoring** after registering Prometheus/Alertmanager.

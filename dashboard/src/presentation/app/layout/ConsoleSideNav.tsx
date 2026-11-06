@@ -1,4 +1,4 @@
-import { Box, Flex, Link as ChakraLink, Separator, Stack, Text, type SystemStyleObject } from '@chakra-ui/react'
+import { Box, Flex, Link as ChakraLink, Separator, Stack, Text } from '@chakra-ui/react'
 import {
   Activity,
   Boxes,
@@ -31,27 +31,18 @@ interface NavEntry {
   activeFor: readonly string[]
   /** In-development feature the destination belongs to; listed only while it is shown. */
   feature?: ExperimentalFeature
-  /**
-   * Sub-areas shown, always expanded, under this entry. Each is its own destination: a child's
-   * routes activate only the child, never its parent.
-   */
-  children?: readonly NavEntry[]
 }
 
 /**
  * Primary destinations in workflow order, in sections the sidebar separates with an unlabelled
- * rule: the Overview; the fleet and what runs on it; what happens to it; the Site wiring.
+ * rule: the Overview; the fleet, the OS images it is deployed with, and what runs on it; what
+ * happens to it; the Site wiring.
  */
 const NAVIGATION: ReadonlyArray<readonly NavEntry[]> = [
   [{ label: 'Overview', path: '/', icon: LayoutDashboard, activeFor: ['/'] }],
   [
-    {
-      label: 'Servers',
-      path: '/servers',
-      icon: Server,
-      activeFor: ['/servers'],
-      children: [{ label: 'OS Images', path: '/provisioning/images', icon: Disc3, activeFor: ['/provisioning'] }],
-    },
+    { label: 'Servers', path: '/servers', icon: Server, activeFor: ['/servers'] },
+    { label: 'OS Images', path: '/provisioning/images', icon: Disc3, activeFor: ['/provisioning'] },
     { label: 'Platforms', path: '/platforms', icon: Boxes, activeFor: ['/platforms'] },
     { label: 'Software', path: '/software', icon: Package, activeFor: ['/software'] },
   ],
@@ -78,8 +69,6 @@ function isEntryActive(entry: NavEntry, pathname: string): boolean {
 
 interface NavLinkProps {
   entry: NavEntry
-  /** The entry this one is listed under; set only for a child entry. */
-  parent?: NavEntry
   active: boolean
   collapsed: boolean
   href: string
@@ -90,14 +79,10 @@ interface NavLinkProps {
  * Accessible router link used by both desktop and mobile navigation.
  *
  * The active marker combines `aria-current`, colour, fill, and a leading rule.
- * Collapsed labels move into a tooltip while the anchor keeps its accessible name;
- * a child's tooltip also names its parent ("OS Images (Servers)"), because the
- * icon-only rail cannot show the indentation that otherwise says so. A child is
- * one size smaller (row, icon, and text) than a top-level entry.
+ * Collapsed labels move into a tooltip while the anchor keeps its accessible name.
  */
-function NavLink({ entry, parent, active, collapsed, href, onNavigate }: NavLinkProps) {
+function NavLink({ entry, active, collapsed, href, onNavigate }: NavLinkProps) {
   const Icon = entry.icon
-  const isChild = parent !== undefined
   const link = (
     <ChakraLink
       asChild
@@ -107,11 +92,11 @@ function NavLink({ entry, parent, active, collapsed, href, onNavigate }: NavLink
       alignItems="center"
       justifyContent={collapsed ? 'center' : 'flex-start'}
       gap="2"
-      minH={isChild ? '8' : '10'}
+      minH="10"
       position="relative"
       rounded="lg"
       px={collapsed ? '0' : '2'}
-      fontSize={isChild ? 'xs' : 'sm'}
+      fontSize="sm"
       fontWeight="medium"
       color={active ? 'brand.fg' : 'fg.muted'}
       bg={active ? 'brand.subtle' : 'transparent'}
@@ -140,13 +125,13 @@ function NavLink({ entry, parent, active, collapsed, href, onNavigate }: NavLink
           display="inline-flex"
           alignItems="center"
           justifyContent="center"
-          w={isChild ? '6' : '7'}
-          h={isChild ? '6' : '7'}
+          w="7"
+          h="7"
           rounded="md"
           bg={active ? 'brand.muted' : 'transparent'}
           flexShrink="0"
         >
-          <Icon size={isChild ? 15 : 17} aria-hidden />
+          <Icon size={17} aria-hidden />
         </Box>
         {!collapsed && <span>{entry.label}</span>}
       </RouterLink>
@@ -154,41 +139,10 @@ function NavLink({ entry, parent, active, collapsed, href, onNavigate }: NavLink
   )
 
   return collapsed ? (
-    <Tooltip content={parent ? `${entry.label} (${parent.label})` : entry.label} positioning={{ placement: 'right' }} showArrow>
+    <Tooltip content={entry.label} positioning={{ placement: 'right' }} showArrow>
       {link}
     </Tooltip>
   ) : link
-}
-
-/**
- * The thin rule from a parent's icon down to its child. Expanded, it is an elbow from the centre
- * of the parent's icon (the link's inline padding plus half its icon box) to the start of the
- * indented child; collapsed, a short stub between the two centred icons. Decorative: the nested
- * list already tells assistive technology that the child belongs to the parent.
- */
-function childConnector(collapsed: boolean): SystemStyleObject {
-  return collapsed
-    ? {
-        content: '""',
-        position: 'absolute',
-        insetInlineStart: '50%',
-        top: '-1.5',
-        h: '2.5',
-        borderInlineStartWidth: '1px',
-        borderColor: 'border',
-      }
-    : {
-        content: '""',
-        position: 'absolute',
-        insetInlineStart: 'calc({spacing.2} + {spacing.7} / 2)',
-        top: '-1.5',
-        bottom: '50%',
-        w: '2.5',
-        borderInlineStartWidth: '1px',
-        borderBottomWidth: '1px',
-        borderColor: 'border',
-        borderBottomStartRadius: 'md',
-      }
 }
 
 /**
@@ -199,9 +153,8 @@ function childConnector(collapsed: boolean): SystemStyleObject {
  * Destinations of in-development features are omitted while they are hidden; their
  * routes are guarded separately, so this only keeps navigation honest.
  *
- * Assistive technology gets one `nav` holding one list: a child entry is a nested list
- * inside its parent's item, and the rules between sections are hidden list items, so
- * they neither count as entries nor split the list.
+ * Assistive technology gets one `nav` holding one flat list: the rules between sections
+ * are hidden list items, so they neither count as entries nor split the list.
  */
 export function ConsoleSideNav({ collapsed, onNavigate }: ConsoleSideNavProps) {
   const location = useLocation()
@@ -241,42 +194,17 @@ export function ConsoleSideNav({ collapsed, onNavigate }: ConsoleSideNavProps) {
                   <Separator />
                 </Box>
               )}
-              {section.map((entry) => {
-                const children = (entry.children ?? []).filter(shown)
-                return (
-                  <Box as="li" key={entry.path}>
-                    <NavLink
-                      entry={entry}
-                      active={isEntryActive(entry, location.pathname)}
-                      collapsed={collapsed}
-                      href={scopedHref(entry.path)}
-                      onNavigate={onNavigate}
-                    />
-                    {children.length > 0 && (
-                      <Stack as="ul" gap="1" mt="1">
-                        {children.map((child) => (
-                          <Box
-                            as="li"
-                            key={child.path}
-                            position="relative"
-                            ps={collapsed ? '0' : '9'}
-                            _before={childConnector(collapsed)}
-                          >
-                            <NavLink
-                              entry={child}
-                              parent={entry}
-                              active={isEntryActive(child, location.pathname)}
-                              collapsed={collapsed}
-                              href={scopedHref(child.path)}
-                              onNavigate={onNavigate}
-                            />
-                          </Box>
-                        ))}
-                      </Stack>
-                    )}
-                  </Box>
-                )
-              })}
+              {section.map((entry) => (
+                <Box as="li" key={entry.path}>
+                  <NavLink
+                    entry={entry}
+                    active={isEntryActive(entry, location.pathname)}
+                    collapsed={collapsed}
+                    href={scopedHref(entry.path)}
+                    onNavigate={onNavigate}
+                  />
+                </Box>
+              ))}
             </Fragment>
           ))}
         </Stack>

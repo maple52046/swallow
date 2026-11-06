@@ -9,18 +9,16 @@ current session in the browser.
 ## Navigation
 
 The sidebar groups its areas into four sections separated by lines: Overview;
-Servers (with OS Images under it), Platforms, and Software; Monitoring and
-Activity; and Infrastructure. OS Images is always shown, indented under
-Servers. Collapse the sidebar to icons with the button at the top of the page
-(this browser remembers the choice); hovering or focusing an icon names it, and
-OS Images also names Servers. On a phone, the menu button opens the same sidebar
-as a drawer.
+Servers, OS Images, Platforms, and Software; Monitoring and Activity; and
+Infrastructure. Collapse the sidebar to icons with the button at the top of the
+page (this browser remembers the choice); hovering or focusing an icon names it.
+On a phone, the menu button opens the same sidebar as a drawer.
 
 | Area | What it is for |
 | --- | --- |
 | Overview | Site-scoped fleet health, attention items, integrations, Platforms, and recent Workflows |
 | Servers | Inventory, Add servers (enrollment guidance), shareable filter views, bulk actions, tags, locks, and Server details including Boot Media |
-| OS Images (under Servers) | The OS images Servers are deployed with: the catalog, upload, deploy-mode verification, and deployment templates (tabs **OS images** and **Templates**) |
+| OS Images | The OS images Servers are deployed with: the catalog, upload, deploy-mode verification, and deployment templates (tabs **OS images** and **Templates**) |
 | Platforms | Kubernetes/Slurm deployment, lifecycle, settings, and runtime views |
 | Software | Grouped catalog (Docker CE, Podman, NFS, Prometheus, Grafana, AMD Device Metrics Exporter, Node Exporter), per-software deployments, and multi-Server installation |
 | Monitoring | Fleet health, usage charts for selected Servers, Pools, Zones, and Platforms, current metrics, optional Grafana links, and (in development) alerts and silences |
