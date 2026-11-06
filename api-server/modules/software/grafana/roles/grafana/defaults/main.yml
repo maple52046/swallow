@@ -2,10 +2,12 @@
 # Grafana Managed Software (decision 063). Intent arrives as trusted swallow_grafana_* vars; the
 # defaults only keep a hand-run play working. Grafana listens on the Server's management address
 # and runs by one of two install methods:
-#   container  the pinned official image, under a Docker Compose project (docker-ce) or a Podman
-#              Quadlet unit (podman); the runtime must already be installed
-#   native     the pinned package from Grafana's official apt or yum repository, configured by a
-#              systemd drop-in
+#   container  the pinned official image from the Site's Local Repository, under a Docker Compose
+#              project (docker-ce) or a Podman Quadlet unit (podman); the runtime must already be
+#              installed
+#   native     the pinned package, configured by a systemd drop-in: on Debian from the Local
+#              Repository's grafana source, on the RHEL family from Grafana's official yum
+#              repository
 # Either way it is read-only by design: anonymous Viewer access, no login form, no basic auth, and
 # no initial admin, so it holds no secret; the datasource and dashboards come only from
 # provisioning.
@@ -46,8 +48,8 @@ grafana_environment:
   GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
   GF_NEWS_NEWS_FEED_ENABLED: "false"
 
-# container method
-grafana_image: "docker.io/grafana/grafana:{{ grafana_version }}"
+# container method: the Local Repository's registry serves each upstream registry under its name.
+grafana_image: "{{ swallow_local_repository.registry }}/docker.io/grafana/grafana:{{ grafana_version }}"
 grafana_container_name: swallow-grafana
 grafana_project: swallow-grafana
 # The Quadlet unit gets its own name so it can never shadow the package's unit.
@@ -61,6 +63,6 @@ grafana_container_dashboards_dir: /var/lib/swallow-dashboards
 grafana_native_unit: grafana-server.service
 grafana_native_user: grafana
 grafana_native_dropin: /etc/systemd/system/grafana-server.service.d/10-swallow.conf
-grafana_apt_key_url: https://apt.grafana.com/gpg.key
-grafana_apt_repo_url: https://apt.grafana.com
+# The Local Repository's deb source the grafana module declares (Grafana's official apt repository).
+grafana_apt_source: grafana
 grafana_rpm_repo_url: https://rpm.grafana.com

@@ -20,11 +20,13 @@ import (
 	"github.com/maple52046/swallow/internal/adapters/executor/temporalworkflow"
 	"github.com/maple52046/swallow/internal/adapters/hostaccess/sshaccess"
 	"github.com/maple52046/swallow/internal/adapters/hypervisor/libvirt"
+	"github.com/maple52046/swallow/internal/adapters/localrepo/pulp"
 	"github.com/maple52046/swallow/internal/adapters/metrics/promstack"
 	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
 	convergencestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/convergence"
 	infrastructurestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/infrastructure"
+	localrepostore "github.com/maple52046/swallow/internal/adapters/store/mongodb/localrepo"
 	"github.com/maple52046/swallow/internal/adapters/store/mongodb/migration"
 	platformstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/platform"
 	provisioningstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/provisioning"
@@ -34,6 +36,7 @@ import (
 	workflowstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/workflow"
 	"github.com/maple52046/swallow/internal/core/convergence"
 	infrastructureapp "github.com/maple52046/swallow/internal/core/infrastructure/application"
+	localrepoapp "github.com/maple52046/swallow/internal/core/localrepo/application"
 	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
 	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
 	serverapp "github.com/maple52046/swallow/internal/core/server/application"
@@ -283,10 +286,15 @@ func RunWorker(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("subnet DNS repo init: %w", err)
 	}
+	// The Local Repository controller converges each Site's repository Integration to what the
+	// modules declare and the Site's spec adds; the Workflows this process accepts read the status it
+	// records to point their hosts there.
+	localRepositories := localrepostore.NewMongoLocalRepositoryRepo(db)
 	platformOps, err := workerPlatformOperations(cfg, db, transactor, modules, workerPlatformDeps{
 		platformService: platformFinalizer, platforms: platforms, servers: servers, operations: operations,
 		workflows: workflows, automation: automationConfigurations, providers: providers,
 		deployments: deployments, software: softwareAssignments, bootISOs: bootISOs, keys: sshKeys,
+		localRepository: localrepoapp.NewResolver(integrations, localRepositories, modules.artifacts),
 	})
 	if err != nil {
 		return err
@@ -317,6 +325,8 @@ func RunWorker(cfg config.APIConfig) error {
 		}),
 		convergence.NewChangePlanExpiryController(changePlans),
 		platformController,
+		localrepoapp.NewController(sites, integrations, localRepositories,
+			pulp.NewRepositoryFactory(integrations, nil), modules.artifacts),
 	}
 	// The Node Exporter controller starts installs on its own, so an installation sharing machines
 	// it was not asked to manage turns it off (config.APIConfig.NodeExporterEnsure).

@@ -288,7 +288,8 @@ Server 的設定（例如 `serverIds` 清單、預先勾好的節點清單）。
   `amdgpu_loader`，Slurm GPU GRES 也用同一份；SSH 起來後才
   `modprobe amdgpu`，`TimeoutStartSec=300`），並以 drop-in 讓 `k0scontroller`／`k0sworker` 排在它之後，再啟動它並等
   `/dev/kfd`。不再納管的節點、卸載 operator、`uninstall-kubernetes` 保留主機時都移除 unit 與 drop-in，但不卸載已載入的 driver。
-- helm 在 `swallow_amd_gpu_operator_controller_id`（初始 controller）上執行：共用 role `helm` 下載固定版本的 helm、核對
+- helm 在 `swallow_amd_gpu_operator_controller_id`（初始 controller）上執行：共用 role `helm` 從 Site 的 Local Repository
+  取得固定版本的 helm（模組宣告的 file artifact）、核對
   SHA-256（放在 `/usr/local/lib/swallow/helm/<version>/`，Kubernetes 的 Platform Grafana 也用同一份），playbook 複製隨發行包附帶的
   chart（`roles/amd_gpu_operator/files/`），以 `/var/lib/k0s/pki/admin.conf` `upgrade --install --wait`。k0s 的 Chart CR
   已否決：卸載時 helm timeout 為 0，chart 的 pre-delete hook 永遠失敗。
@@ -313,9 +314,10 @@ Server 的設定（例如 `serverIds` 清單、預先勾好的節點清單）。
 - 不接管 swallow 沒有安裝的 operator：叢集已有 AMD GPU Operator、`DeviceConfig` 或手動套用的 AMD device plugin／labeller
   時以 `[gpu_operator_unmanaged]` 拒絕。其他失敗碼見 platforms 契約的 "What The Workflow Does"。
 - 支援的版本是 swallow 的 release catalog（chart、DRA driver 版本、固定的 operand image），以
-  `GET /platforms/gpu-operator/releases` 讀取。新增版本＝新增 catalog 項目、隨發行包附帶的 chart archive，以及一次 lab
-  驗證。chart 與 helm checksum 隨發行包；operand image 依固定 tag 從 Docker Hub（`docker.io/rocm/...`）拉取，helm binary
-  於執行時下載。
+  `GET /platforms/gpu-operator/releases` 讀取。新增版本＝新增 catalog 項目、隨發行包附帶的 chart archive、AMD 模組宣告的
+  operand image，以及一次 lab 驗證。chart 與 helm checksum 隨發行包；operand image（`docker.io/rocm/...` 等）以固定 tag
+  宣告在 AMD 模組的 `artifacts.images`，由 k0s 的 containerd 經 Site 的 Local Repository 的 registry mirror 拉取，helm
+  binary 也從 Local Repository 取得（[local-repository.md](local-repository.md) §8）。
 - `gpuStackOwner` 隨功能推導：啟用 operator 即為 `gpu-operator`；swallow 管理 operator 期間（state 不是 `absent`）不能
   改回 `provisioning`。`gpu-operator` 卻沒有 swallow 管理的 operator，表示 operator 由 swallow 以外管理。
 - 監控（[monitoring.md](monitoring.md) §4.2、§5.2）：operator 的 Device Metrics Exporter 為選用（`metricsExporter`），開啟時就是
@@ -379,7 +381,8 @@ Platform spec 的 `settings.monitoringDashboards`（desired，省略或 `null` �
   chart（`roles/k0s_platform_grafana/files/grafana-11.6.1.tgz`，Grafana 12 的最後一條 chart 線；archive 的 SHA-256 在
   `defaults/` 並於執行時核對）`upgrade --install --wait` 成 namespace `swallow-grafana` 的 release `platform-grafana`
   （`--labels swallow-managed=true`）。image 是 Grafana Managed Software 的同一個版本（`docker.io/grafana/grafana:12.4.12`），
-  以 digest 固定；chart 的 `testFramework` 關閉，所以不拉其他 image。
+  以 digest 固定，宣告在 Kubernetes 模組的 `artifacts.images`，由 k0s 的 containerd 經 Local Repository 的 mirror 拉取；
+  chart 的 `testFramework` 關閉，所以不拉其他 image。
 - values（`templates/values.yaml.j2`）：persistence 關閉；anonymous Viewer、無 login form；Service 為 NodePort
   `30300`（只定義在 role 的 `k0s_platform_grafana_node_port`）；admin 帳密在 role 第一次執行時產生、只存在 Secret
   `swallow-grafana-admin`（`admin.existingSecret`），之後沿用；token 以 Secret `swallow-grafana-datasource` 的
@@ -848,7 +851,7 @@ uninstall）；後端取代佔用工作的流程見 [workflow-execution.md](work
 ## 5. 規範：撰寫 platform playbook 的硬規則
 
 新增或修改 platform playbook 時，先遵守[模組撰寫指南](module-authoring.md)的共通規則（§4：冪等、只依賴契約、以
-serverId 為身分、排序留在 playbook、依賴鎖定、不逃出內容根目錄、結果與 secret 走契約、可離線；§5：改套件時暫緩
+serverId 為身分、排序留在 playbook、依賴鎖定、不逃出內容根目錄、結果與 secret 走契約、只從 Local Repository 取得；§5：改套件時暫緩
 OS 的套件維護）、登錄方式（§2）與 role 的解析（§3）。platform 另外要滿足：
 
 1. **契約是 §4**：inventory 是 §4.1、trusted vars 是 §4.2、結果是 §4.4。
@@ -857,7 +860,8 @@ OS 的套件維護）、登錄方式（§2）與 role 的解析（§3）。platf
    兩個 Task。
 4. **只用 `ansible.builtin` 的實例**：Slurm 的 NFS mount 以 fstab、有防護的 `mount` 與 `mountpoint` 驗證實作，不引入
    `ansible.posix`（[decision 023](../decisions/023-slurm-ha-shared-state-provisioning.md)（slurm ha shared state provisioning））。
-5. **release 可離線打包**（air-gap）：避免執行期對外抓取未鎖定的內容。
+5. **執行期不對外抓取**：Helm chart 隨發行包附帶在 role 的 `files/`（例如 `roles/amd_gpu_operator/files/`）；其他
+   artifact 依固定版本宣告在模組的 `artifacts`，從 Site 的 Local Repository 取得（模組撰寫指南 §4 第 8 條）。
 
 ---
 
@@ -948,9 +952,10 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   `workload_export`（`/srv/slurm-workspace`）或 external 的 `workload_source`。GPU、Omnistat、DME、OCI、PMIx 的
   vars 見 §4.2。由 [`deploy_platform.go`](../../api-server/internal/core/platform/application/deploy_platform.go) 的
   `buildSlurmVars` 組裝。
-- **套件來源**：Slurm 官方建議自編 deb/rpm 且 swallow 尚無 local repo，故 `slurm-smd` 套件由
-  **MAAS image 內建**；playbook 只 `dpkg-query` 驗證、不重編/不從 distro 裝 slurm。其他支援
-  軟體（MUNGE、未來 accounting 的 MariaDB）仍可 `apt install`。
+- **套件來源**：Slurm 官方建議自編 deb/rpm，Site 的 Local Repository 鏡像的上游來源都沒有 `slurm-smd`，故
+  `slurm-smd` 套件由 **MAAS image 內建**；playbook 只 `dpkg-query` 驗證、不重編/不從 distro 裝 slurm。其他支援
+  軟體（MUNGE、未來 accounting 的 MariaDB）以 `apt` 從 Local Repository 安裝（Site 的 `ubuntu` 來源，
+  [local-repository.md](local-repository.md) §5.2）。
 - **manifest 與 playbook 名**：`deploy-slurm` 註冊於 `manifest.json`；launcher **硬編** playbook
   名（比照 `uninstall-kubernetes`），因此**不需**站台 `playbookMappings["configure-slurm"]`。
 - **credential（membership，選用）**：Slurm 無 kubeconfig。primary controller 起 `slurmrestd`
@@ -1091,9 +1096,10 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   `swallow_omnistat_scrape_addresses`（launcher 由 `SWALLOW_API_MONITORING_SCRAPE_ADDRESSES` 帶入；沒有設定時在規劃時
   拒絕）；Site 的 Prometheus 在 `omnistat.state` 為 `ready` 時從 http_sd 取得每台 compute member 的 port 8001
   （[monitoring.md](monitoring.md) §5.2）。swallow 從不查詢 Omnistat。`omnistat-query` 經 Platform Grafana 的 datasource
-  proxy 讀取，也就是經閘道讀 Site 的 Prometheus，所以需要 Platform Grafana。Omnistat 與它需要的 Python 套件在執行時依
-  固定版本下載，Grafana 的 container image 依固定 tag 拉取，native method 從上游下載固定版本的 Grafana 套件（安裝方法的
-  細節見 [software-deployment.md](software-deployment.md) §2）。dashboard 的部署精靈預設選 Omnistat；API 只有在請求啟用
+  proxy 讀取，也就是經閘道讀 Site 的 Prometheus，所以需要 Platform Grafana。Omnistat 的 source archive、它需要的 Python
+  套件與 Grafana 的 container image 都依固定版本宣告在模組的 `artifacts`，從 Site 的 Local Repository 取得；native method
+  從 Local Repository 鏡像的 Grafana apt 來源安裝固定版本的 Grafana 套件（安裝方法的細節見
+  [software-deployment.md](software-deployment.md) §2）。dashboard 的部署精靈預設選 Omnistat；API 只有在請求啟用
   時才安裝監控功能。
 - **選用功能：Device Metrics Exporter（decision 066）**：deploy request 帶 `deviceMetricsExporter.enabled`
   時（與 Omnistat 互斥、至少一台 GPU compute，否則 `ErrInvalidDeviceMetricsExporter`），deploy use case 預先指定
@@ -1165,8 +1171,8 @@ Slurm 模組的 `roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、
 `slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、
 `slurm_cluster_credential`、`slurm_job_hooks`）；Device Metrics Exporter：
 [`deploy-device-metrics-exporter.yml`](../../api-server/modules/software/device-metrics-exporter/playbooks/deploy-device-metrics-exporter.yml)
-（standalone 與 Slurm 共用；舊名 `configure-device-metrics-exporter` 為 manifest alias）與共用的 `roles/device_metrics_exporter`（套件 URL／SHA-256 與上游 `config.json` 在 role 內）；Omnistat：[`configure-omnistat.yml`](../../api-server/modules/platform/slurm/playbooks/configure-omnistat.yml)
-與 `roles/omnistat`（上游 tag 壓縮檔 sha256 在 `defaults/main.yml`，swallow 維護的 patch 與依賴 constraints 在 `files/`）。
+（standalone 與 Slurm 共用；舊名 `configure-device-metrics-exporter` 為 manifest alias）與共用的 `roles/device_metrics_exporter`（套件在 Local Repository 的 path／SHA-256 與上游 `config.json` 在 role 內，上游 URL 在模組的 `artifacts`）；Omnistat：[`configure-omnistat.yml`](../../api-server/modules/platform/slurm/playbooks/configure-omnistat.yml)
+與 `roles/omnistat`（上游 tag 壓縮檔在 Local Repository 的 path 與 sha256 在 `defaults/main.yml`，上游 URL 在 Slurm 模組的 `artifacts`，swallow 維護的 patch 與依賴 constraints 在 `files/`）。
 
 **swallow 維護的 Omnistat patch（[decision 064](../decisions/064-upstream-patches-are-the-exception.md)（upstream patches are the exception））**：
 `roles/omnistat/defaults/main.yml` 的 `omnistat_sources[<version>].patches` 列出每個版本要套的 patch；role 逐一以
@@ -1263,7 +1269,7 @@ playbook 使用的內容放在 `shared/`。
 | Prometheus／Grafana（Managed Software） | `software/prometheus/`、`software/grafana/`（datasource 與 dashboard bundles 在共用 role `grafana_provisioning`） |
 | Node Exporter（Managed Software，OS 部署組入） | `software/node-exporter/`：`deploy-node-exporter.yml`、`uninstall-node-exporter.yml`；role `node_exporter` |
 | 共用 playbook | `shared/playbooks/`：`diagnostic-ping.yml`、`configure-ntp.yml` |
-| 共用 role | `shared/roles/`：`amdgpu_loader`（GPU Operator、Slurm GRES 與 DME）、`device_metrics_exporter`（Slurm 與 DME）、`helm`（固定版本的 helm 與 SHA-256，GPU Operator 與 Kubernetes 的 Platform Grafana）、`grafana_provisioning`（每個 swallow 安裝的 Grafana 共用的 datasource、dashboard provider 與 `files/dashboards/<bundle>`：`node-exporter`、`omnistat`、`device-metrics-exporter`；以檔案交給 Grafana Managed Software，以 Helm values 與 ConfigMap 交給 Kubernetes 的 Platform Grafana）、`time_sync_check`（`deploy-kubernetes.yml` 與 `deploy-slurm.yml` 開頭使用；SNTP 量測 `files/ntp_offset.py`）、`ntp_client`（decision 065；偵測與 client 順序在 `vars/`，timesyncd／chrony／ntpd 設定 template 在 `templates/`）、`package_maintenance_hold`（decision 073；改套件的 playbook 第一個 play 取得、最後一個 play 釋放）；`docker_runtime` 與 `rdc_exporter` 仍在，但沒有 playbook 使用 |
+| 共用 role | `shared/roles/`：`amdgpu_loader`（GPU Operator、Slurm GRES 與 DME）、`device_metrics_exporter`（Slurm 與 DME）、`helm`（固定版本的 helm 與 SHA-256，GPU Operator 與 Kubernetes 的 Platform Grafana）、`grafana_provisioning`（每個 swallow 安裝的 Grafana 共用的 datasource、dashboard provider 與 `files/dashboards/<bundle>`：`node-exporter`、`omnistat`、`device-metrics-exporter`；以檔案交給 Grafana Managed Software，以 Helm values 與 ConfigMap 交給 Kubernetes 的 Platform Grafana）、`time_sync_check`（`deploy-kubernetes.yml` 與 `deploy-slurm.yml` 開頭使用；SNTP 量測 `files/ntp_offset.py`）、`ntp_client`（decision 065；偵測與 client 順序在 `vars/`，timesyncd／chrony／ntpd 設定 template 在 `templates/`）、`package_maintenance_hold`（decision 073；改套件的 playbook 第一個 play 取得、最後一個 play 釋放）、`local_repo_client`（decision 078；取得 hold 之後的下一個 play，把 apt、pip 與 container runtime 指向 Site 的 Local Repository）；`docker_runtime` 與 `rdc_exporter` 仍在，但沒有 playbook 使用 |
 
 映像：production 於 build 時把 `api-server/modules`（去掉 Go 原始碼）複製到 `/opt/swallow/automation/modules`；`ansible`
 與 API/worker 共用同一映像，以不同 command 啟動。

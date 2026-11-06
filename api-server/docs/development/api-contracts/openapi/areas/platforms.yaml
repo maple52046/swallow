@@ -50,8 +50,9 @@ paths:
         sends `approve=true` and the policy allows it, waiting for approval otherwise. Nothing
         touches a machine until the plan is approved. 400 for an invalid body, spec, topology,
         target, network, or feature; 404 for an unknown Site; 409 when the installation has no
-        Deployment Key, the name is taken, or a target is claimed, locked, or held by another
-        Workflow; 503 when Site automation is not configured.
+        Deployment Key, the Site's Local Repository is not ready (local-repository.md), the name is
+        taken, or a target is claimed, locked, or held by another Workflow; 503 when Site
+        automation is not configured.
       parameters:
         - $ref: '#/components/parameters/ApproveChange'
       requestBody:

@@ -1,0 +1,6 @@
+// Managed by Swallow (local_repo_client): apt reaches the Site's Local Repository directly, never
+// through the host's apt proxy.
+{% set uris = swallow_local_repository.deb | map(attribute='uri') | list %}
+{% for scheme, host in uris | map('urlsplit', 'scheme') | zip(uris | map('urlsplit', 'hostname')) | unique %}
+Acquire::{{ scheme }}::Proxy::{{ host }} "DIRECT";
+{% endfor %}

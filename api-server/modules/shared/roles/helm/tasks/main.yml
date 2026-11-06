@@ -7,10 +7,10 @@
     helm_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] | default(ansible_architecture) }}"
     helm_binary: "{{ helm_home }}/{{ helm_version }}/helm"
 
-- name: Refuse an architecture without a pinned helm checksum
+- name: Refuse an architecture the Local Repository holds no helm for
   ansible.builtin.fail:
-    msg: "[helm_unsupported_architecture] swallow pins helm {{ helm_version }} for {{ helm_checksums.keys() | join(', ') }}, not {{ helm_arch }}"
-  when: helm_arch not in helm_checksums
+    msg: "[helm_unsupported_architecture] swallow pins helm {{ helm_version }} for {{ helm_archives.keys() | join(', ') }}, not {{ helm_arch }}"
+  when: helm_arch not in helm_archives
 
 - name: Create swallow's helm directory
   ansible.builtin.file:
@@ -20,16 +20,20 @@
     group: root
     mode: "0755"
 
-- name: Download the pinned helm release
+- name: Download the pinned helm release from the Local Repository
   ansible.builtin.get_url:
-    url: "https://get.helm.sh/helm-{{ helm_version }}-linux-{{ helm_arch }}.tar.gz"
-    dest: "{{ helm_home }}/helm-{{ helm_version }}-linux-{{ helm_arch }}.tar.gz"
-    checksum: "sha256:{{ helm_checksums[helm_arch] }}"
+    url: "{{ swallow_local_repository.files }}{{ helm_archives[helm_arch].path }}"
+    dest: "{{ helm_home }}/{{ helm_archives[helm_arch].path | basename }}"
+    checksum: "sha256:{{ helm_archives[helm_arch].sha256 }}"
     mode: "0644"
+  register: helm_download
+  until: helm_download is succeeded
+  retries: 5
+  delay: 10
 
 - name: Unpack helm
   ansible.builtin.unarchive:
-    src: "{{ helm_home }}/helm-{{ helm_version }}-linux-{{ helm_arch }}.tar.gz"
+    src: "{{ helm_home }}/{{ helm_archives[helm_arch].path | basename }}"
     dest: "{{ helm_home }}/{{ helm_version }}"
     remote_src: true
     extra_opts:

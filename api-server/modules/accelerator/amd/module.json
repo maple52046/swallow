@@ -26,5 +26,17 @@
   "routes": [
     "/api/v1/platforms/gpu-operator/releases",
     "/api/v1/platforms/{id}/gpu-operator"
-  ]
+  ],
+  "artifacts": {
+    "images": [
+      "docker.io/rocm/gpu-operator:v1.5.1",
+      "registry.k8s.io/nfd/node-feature-discovery:v0.18.3",
+      "docker.io/rocm/k8s-device-plugin:1.31.0.11",
+      "docker.io/rocm/k8s-device-plugin:labeller-1.31.0.11",
+      "docker.io/rocm/gpu-operator-utils:v1.5.1",
+      "docker.io/rocm/device-metrics-exporter:v1.5.1",
+      "docker.io/rocm/k8s-gpu-dra-driver:v1.0.1",
+      "docker.io/library/busybox:1.36"
+    ]
+  }
 }

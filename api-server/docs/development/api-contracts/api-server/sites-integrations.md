@@ -47,7 +47,7 @@ whether one is stored.
 second credential a Kubernetes Platform's deployment records on its `platform` Integration for the
 cluster explorer's writes ([platforms-kubernetes.md](platforms-kubernetes.md#cluster-credentials)).
 swallow reads it from the stored record without opening the credential, so it says nothing else
-about it. It is `false` for every other Integration: a `provisioner` or `metrics` Integration, a
+about it. It is `false` for every other Integration: a `provisioner`, `metrics`, or `repository` Integration, a
 Slurm Platform's, and a Kubernetes Platform's whose latest successful deployment ran before
 2026-11-05 and recorded one credential. No route writes it: `PUT .../credential` replaces only the
 credential, and a later successful deployment of the Platform records or removes the operator
@@ -86,12 +86,13 @@ on create and on `PATCH`. `description` is stored as sent and is `""` when absen
 ## Integrations
 
 Create requires `siteId`, `kind`, `providerKind`, `name`, and `endpoint`; `name` and `endpoint`
-are trimmed and must not be blank. The valid pairs are `provisioner`/`maas` and
-`metrics`/`prometheus`. `credential` is optional (omitted or `""` stores none), `enabled`
-defaults to `true`, and `settings` is a string map (see below). An unknown `siteId` is
-`404 not_found`. `name` is unique within a Site: a create or a rename onto a name another
+are trimmed and must not be blank. The valid pairs are `provisioner`/`maas`,
+`metrics`/`prometheus`, and `repository`/`pulp`. `credential` is optional (omitted or `""` stores
+none), `enabled` defaults to `true`, and `settings` is a string map (see below). An unknown `siteId`
+is `404 not_found`. `name` is unique within a Site: a create or a rename onto a name another
 Integration of the Site has is `409 conflict`. A Site has at most one `metrics` Integration (its
-Prometheus): creating a second in the same Site is `409 conflict`.
+Prometheus) and at most one `repository` Integration (its Local Repository): creating a second of
+either kind in the same Site is `409 conflict`.
 
 `GET /api/v1/integrations` does not validate `kind`: a value no Integration has returns `[]`.
 
@@ -110,7 +111,7 @@ message naming what to delete first. Deleting it also deletes, in the same trans
 records that only describe its provider: the metadata and the verification records of its OS
 Images.
 
-`POST /api/v1/integrations` accepts `kind` of `provisioner` or `metrics` only. `kind=platform`
+`POST /api/v1/integrations` accepts `kind` of `provisioner`, `metrics`, or `repository` only. `kind=platform`
 is rejected with `400 validation_error`: a `platform`
 Integration reads a Kubernetes/Slurm runtime's live state, and swallow creates it only from a
 successful deployment because it manages only self-deployed platforms
@@ -152,7 +153,26 @@ recognises:
 | `grafanaUrl` | URL, or absent | A Grafana base address for links from swallow's charts. |
 | `labelProxyUrl` | URL, or absent | The label proxy in front of this Prometheus that the Platform metrics gateway forwards to ([platform-metrics-gateway.md](platform-metrics-gateway.md)); without it no Platform of the Site can read its metrics. |
 
+## Repository settings
+
+A `repository` Integration (provider kind `pulp`) is its Site's Local Repository
+([local-repository.md](local-repository.md)). Its `endpoint` is where swallow calls the provider's
+API, and its credential is the provider's admin password. The installation registers it
+([installation.md](../../../../../docs/development/installation.md)). Key it recognises:
+
+| Key | Values | Meaning |
+| --- | --- | --- |
+| `contentOrigin` | URL with a scheme, host, and port and no path | Where the Site's Servers read the Local Repository's content, which may differ from `endpoint` (an address only the control plane reaches). The host addresses a deployment receives are built on it. Required: without one the worker cannot converge the Local Repository (its `realized` condition is `content_origin_missing`, or `integration_invalid` for a malformed one), and browsing its content is `400 validation_error` naming the setting. |
+
+Disabling the Integration pauses the Local Repository: the worker stops converging it, its last
+observed state is kept, and deployments that fetch from it are refused until it is enabled again.
+Deleting it clears the observed state; the Site's spec (its user sources) is kept for the next
+`repository` Integration of the Site.
+
 ## Compatibility Notes
+
+- Since 2026-11-06 an Integration may have `kind` `repository` (provider kind `pulp`); a Site has at
+  most one, and a second is `409 conflict`. The values are additive for readers.
 
 On 2026-11-03 the metrics setting `labelProxyUrl` was added, and a second `metrics` Integration in a Site became `409 conflict`; a Site has one
 Prometheus, which reads every one of its Servers' metrics.

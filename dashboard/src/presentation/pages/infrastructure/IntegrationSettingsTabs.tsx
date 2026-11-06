@@ -12,7 +12,7 @@ import { credentialGuidance } from './credentialGuidance'
 import { CredentialGuidanceNote } from './CredentialGuidanceNote'
 import { IntegrationConnectionFields } from './IntegrationConnectionFields'
 import { IntegrationSettingsPanel } from './IntegrationSettingsPanel'
-import { isMaasProvisioner, providerLabel, roleLabel, withIntegrationSetting } from './integrationSettings'
+import { integrationSettingsProblem, isMaasProvisioner, providerLabel, roleLabel, withIntegrationSetting } from './integrationSettings'
 import { ProvisionerHttpProxySection } from './ProvisionerHttpProxySection'
 import { ProvisionerSubnetDnsSection } from './ProvisionerSubnetDnsSection'
 import { useIntegrationSettingsContext } from './useIntegrationSettings'
@@ -129,7 +129,8 @@ export function IntegrationGeneralTab() {
  * Connection tab: the Integration `settings` map (timeout, TLS, automatic inspection, and
  * provider-specific keys), saved as a whole. Unknown keys the Dashboard does not edit are carried
  * through unchanged. The write sends the saved name, endpoint, and Enabled, so it never carries the
- * General tab's unsaved draft.
+ * General tab's unsaved draft. A `repository` Integration saves only with a valid content origin,
+ * without which its Local Repository cannot converge.
  */
 export function IntegrationConnectionTab() {
   const { integration, connectionDraft, setConnectionDraft, onSaved } = useIntegrationSettingsContext()
@@ -139,9 +140,10 @@ export function IntegrationConnectionTab() {
   const [error, setError] = useState<DisplayedFailure | null>(null)
   const settings = connectionDraft ?? integration.settings
   const dirty = JSON.stringify(sortedEntries(settings)) !== JSON.stringify(sortedEntries(integration.settings))
+  const valid = integrationSettingsProblem(integration.kind, settings) === null
 
   const save = async () => {
-    if (!dirty || saving) return
+    if (!dirty || !valid || saving) return
     setSaving(true)
     setError(null)
     try {
@@ -171,7 +173,11 @@ export function IntegrationConnectionTab() {
       <IntegrationSettingsPanel
         id="integration-connection"
         title="Connection"
-        description="How swallow talks to the provider and what it does with newly enrolled Servers. Saved with this Integration."
+        description={
+          integration.kind === 'repository'
+            ? "Where the Site's Servers read the Local Repository. Saved with this Integration."
+            : 'How swallow talks to the provider and what it does with newly enrolled Servers. Saved with this Integration.'
+        }
       >
         {error && (
           <Alert status="error" title="Connection settings could not be saved">
@@ -185,7 +191,7 @@ export function IntegrationConnectionTab() {
           disabled={saving}
           onSettingChange={(key, value) => setConnectionDraft(withIntegrationSetting(settings, key, value))}
         />
-        <SaveRow dirty={dirty} saving={saving} canSave={dirty && !saving} />
+        <SaveRow dirty={dirty} saving={saving} canSave={dirty && valid && !saving} />
       </IntegrationSettingsPanel>
     </form>
   )

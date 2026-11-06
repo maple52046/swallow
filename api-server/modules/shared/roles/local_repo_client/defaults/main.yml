@@ -1,0 +1,37 @@
+---
+# Point a host's apt, pip, and container runtimes at its Site's Local Repository, which arrives only
+# as the trusted variable swallow_local_repository (deb sources and their signing key, the registry
+# and its per-upstream mirrors, the Python index, and the files URL). Every playbook manifest.json
+# marks usesLocalRepository runs this role before it installs or downloads anything. The caller says
+# which container runtimes its run pulls images with:
+#   local_repo_client_containerd  k0s's containerd on a Kubernetes node (/etc/k0s/containerd.d)
+#   local_repo_client_docker      Docker Engine (insecure-registries in /etc/docker/daemon.json)
+#   local_repo_client_podman      Podman (a registries.conf.d drop-in)
+local_repo_client_containerd: false
+local_repo_client_docker: false
+local_repo_client_podman: false
+
+# Prefixed to every path the role writes; empty on a host. A content test points it at a scratch
+# directory, where the role leaves the real package index and Docker service alone.
+local_repo_client_root: ""
+
+# Every other apt source of the host, which the Local Repository's sources replace: sources.list and
+# each *.list and *.sources file in the sources directory, whether the distribution, the image (a GPU
+# vendor's archive, for example), or a user added it, since apt would otherwise still fetch their
+# indices from the Internet on every update. A file with an active line is renamed with the suffix
+# rather than deleted, so renaming it back restores the host; an archive hosts still need belongs in
+# the Site's Local Repository as a user source.
+local_repo_client_apt_sources_list: /etc/apt/sources.list
+local_repo_client_apt_sources_dir: /etc/apt/sources.list.d
+local_repo_client_disabled_suffix: .disabled-by-swallow
+
+local_repo_client_keyring: /etc/apt/keyrings/swallow-local-repository.asc
+local_repo_client_apt_sources: /etc/apt/sources.list.d/swallow-local-repository.sources
+local_repo_client_apt_conf: /etc/apt/apt.conf.d/90swallow-local-repository
+local_repo_client_pip_conf: /etc/pip.conf
+# k0s reads every *.toml directly in /etc/k0s/containerd.d as a containerd drop-in, so the registry
+# hosts files live one level below it.
+local_repo_client_containerd_dropin: /etc/k0s/containerd.d/swallow-registry-mirrors.toml
+local_repo_client_containerd_hosts: /etc/k0s/containerd.d/certs.d
+local_repo_client_docker_daemon: /etc/docker/daemon.json
+local_repo_client_podman_registries: /etc/containers/registries.conf.d/50-swallow-local-repository.conf

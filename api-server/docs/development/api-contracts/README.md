@@ -99,8 +99,9 @@ openapi/
 
 Areas follow route prefixes; the area table is the source of which fragment owns
 a route: `system` (`/livez`, `/readyz`, `/healthz`, `/metrics`), `auth`
-(`/api/v1/auth/*`, `/api/v1/api-keys*`, `/api/v1/ssh-keys*`), `sites`
-(`/api/v1/sites*`, `/api/v1/integrations*`, `/api/v1/infrastructure/*`,
+(`/api/v1/auth/*`, `/api/v1/api-keys*`, `/api/v1/ssh-keys*`), `local-repository`
+(`/api/v1/sites/{siteId}/local-repository*`), `sites`
+(the rest of `/api/v1/sites*`, `/api/v1/integrations*`, `/api/v1/infrastructure/*`,
 `PUT /api/v1/servers/{id}/placement`, `/api/v1/provisioning/integrations/{id}/http-proxy`,
 `/api/v1/provisioning/integrations/{id}/subnets*`), `servers` (`/api/v1/servers`,
 `/api/v1/servers/stream`, `/api/v1/servers/{id}` and the routes under it except

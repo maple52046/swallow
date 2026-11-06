@@ -5,8 +5,8 @@
 初始設定會建立 Site boundary、external Integration，以及 swallow 管理 Server 前
 所需的 automation policy。
 
-[Production installation](../installation.md) 已經為 Site `default`、共置的 MAAS 與它的
-Prometheus 完成步驟 1 到 4。本指南可用來檢查該結果、新增其他 Site，或設定 development stack。
+[Production installation](../installation.md) 已經為 Site `default`、共置的 MAAS、它的
+Prometheus 與它的 local repository 完成步驟 1 到 5。本指南可用來檢查該結果、新增其他 Site，或設定 development stack。
 
 ## 1. 建立 Site
 
@@ -69,7 +69,24 @@ Site 的 Prometheus 透過 swallow HTTP service-discovery endpoint 發現 swallo
 exporter，使 scraped series 帶有穩定的 `server_id`、`site`、`platform_id` 與 `exporter` labels。
 這一版其他 Site 沒有 Prometheus。
 
-## 4. 設定 Site automation
+## 4. 註冊 local repository
+
+部署只從 Site 的 **local repository** 安裝套件、container image、Python 套件與檔案，從不連到網際網路。
+它和 swallow 執行在一起（Pulp，在同一個 installation 中），每個 artifact 只從上游取得一次，再提供給
+該 Site 的每台 Server。因此部署不受 Site 對外頻寬影響，每台 Server 也都拿到保存在站點上的相同內容；OS 套件
+索引以 Site 自己的金鑰簽章，檔案以宣告的 checksum 驗證。
+
+Production installation 會把它註冊為 Site 的 `repository` / `pulp` Integration，並把 Ubuntu archive
+加為 Site 的 `ubuntu` 來源。一個 Site 至多一個。其他內容由 swallow 自己的模組宣告，例如 Docker CE 的
+套件庫、k0s binary，以及 Platform 執行的 container image，所以只有 swallow 沒有宣告的東西才需要自己
+加來源。Development stack 要自己註冊：endpoint 是 swallow 連到 Pulp API 的位址，`contentOrigin`
+setting 是 Server 連到它的位址，credential 是 Pulp admin 的密碼。
+
+需要它的部署在 Site 沒有 local repository 或內容尚未 ready 時會被拒絕，訊息會指出要註冊或等待什麼。
+**Infrastructure → Local repository** 顯示來源與同步狀態，並可依格式瀏覽內容，標出宣告每一項的模組。
+API 請見 [local repository contract](../../../api-server/docs/development/api-contracts/api-server/local-repository.md)。
+
+## 5. 設定 Site automation
 
 Site automation 定義：
 
@@ -84,9 +101,11 @@ Automation 一律以安裝層級的 deployment key 登入；它在安裝時（`s
 只有 shipped manifest 內的 playbook 可以執行。Automation 不是 external
 Integration，而是 Site-scoped swallow capability。
 
-## 5. 驗證 readiness
+## 6. 驗證 readiness
 
 - Integration sync 有最近的 `lastSucceededAt`，且沒有未處理 error。
+- **Infrastructure → Local repository** 顯示 deployment 會被接受：每個來源、file 與宣告的 image 都是
+  **Ready**。
 - Reconcile 後出現 Servers；以 **Servers → Add servers** 新增更多（見
   [新增 Server](servers-and-infrastructure.md#新增-server)）。
 - Worker 與 Ansible executor healthy。

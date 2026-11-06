@@ -14,7 +14,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 - [swallow](terms/swallow.md): The system this repository builds — a generic core delivered, with providers and plugins, as an out-of-the-box distribution; the only name for it — not "the platform" and not a `Platform`.
 - [Site](terms/site.md): A location with its own infrastructure that frames every other managed fact.
-- [Integration](terms/integration.md): One registration of a Provider Adapter at one Site (`provisioner` / `metrics` / `platform`).
+- [Integration](terms/integration.md): One registration of a Provider Adapter at one Site (`provisioner` / `metrics` / `platform` / `repository`).
 - [Staleness](terms/staleness.md): The freshness of a mirrored fact (Observed State) — its source and last-observed time — surfaced as part of the API.
 - [Provider Data Overlay](terms/provider-data-overlay.md): Retired: fields once merged onto a provider fact at read time (the OS Image overlay, the Server tag fallback); both became Desired State ([decision 071](../../decisions/071-provisioner-realized-desired-state.md) (provisioner realized desired state)).
 
@@ -32,8 +32,8 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 ### Core and Extensions
 
-- [Provider Interface](terms/provider-interface.md): A core-defined port, in core vocabulary, for one kind of external system (OS provisioning, Workflow executor, host automation, store, metrics and alerts, BMC and hypervisor).
-- [Provider Adapter](terms/provider-adapter.md): The replaceable implementation of a Provider Interface for one system (MAAS, Temporal, Ansible, MongoDB, …), translating its vocabulary; never part of the core.
+- [Provider Interface](terms/provider-interface.md): A core-defined port, in core vocabulary, for one kind of external system (OS provisioning, Workflow executor, host automation, store, metrics and alerts, BMC and hypervisor, Local Repository).
+- [Provider Adapter](terms/provider-adapter.md): The replaceable implementation of a Provider Interface for one system (MAAS, Temporal, Ansible, MongoDB, Pulp, …), translating its vocabulary; never part of the core.
 - [Extension Module](terms/extension-module.md): A unit adding something swallow manages — a Platform Module, Accelerator Module, or Software Module — through the module contract; also called a plugin.
 - [Platform Module](terms/platform-module.md): The module that makes one kind of Platform runtime manageable (Kubernetes, Slurm).
 - [Accelerator Module](terms/accelerator-module.md): The module for one GPU vendor (AMD, later NVIDIA), an axis separate from Platforms.
@@ -155,6 +155,11 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Docker Host Explorer](terms/docker-host-explorer.md): The live, api-server-mediated management of the Docker Engine on a Server where swallow installed Docker CE with `enableApi`; images, containers, volumes, and networks stay in the Docker Engine.
 - [Registry Credential](terms/registry-credential.md): A sealed, installation-wide credential for one image registry, attached to an explorer pull whose image reference resolves to that registry.
 
+### Local Repository
+
+- [Local Repository](terms/local-repository.md): The one place a Site's Servers fetch every artifact a deployment installs — `deb`, `rpm` (designed in), `oci`, `python`, `file` — kept by a provider (Pulp) next to the control plane; never a fallback to the Internet.
+- [Repository Source](terms/repository-source.md): One upstream a Local Repository mirrors (a declared package source) or caches (a pull-through registry host or PyPI) — `pending | syncing | ready | failed`.
+
 ### Automation
 
 - [Workflow](terms/workflow.md): A user intent as a desired end-state for a set of resources, executed durably and convergently as a composition of Jobs and Tasks (canonical; compatibility code and wire fields still contain "Operation").
@@ -189,6 +194,7 @@ term file of the current term has the details.
 | Automation key, Site private key | [Deployment Key](terms/deployment-key.md) | — |
 | `master` | The control-plane [Node Role](terms/node-role.md) | — |
 | Server import | [Server Enrollment](terms/server-enrollment.md); a Server registered with its OS kept has the `imported` [Server Origin](terms/server-origin.md) | — |
+| Artifact Repository | [Local Repository](terms/local-repository.md) | — |
 
 Two names that look related are not: the schema-v2 Operation records were retired and dropped
 (decision 074), while `swallow.workflow.v2` is the name of the current Temporal driver workflow.

@@ -205,6 +205,9 @@ func respondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, sitedomain.ErrSiteHasMetricsIntegration):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
 			"This site already has its metrics integration; a site has one metrics store. Update that integration instead."))
+	case errors.Is(err, sitedomain.ErrSiteHasRepositoryIntegration):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
+			"This site already has its repository integration; a site has one local repository. Update that integration instead."))
 	case errors.Is(err, sitedomain.ErrSiteHasIntegrations):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
 			"This site still has integrations. Delete them first."))

@@ -1,0 +1,461 @@
+# A Site's Local Repository: what it must hold, its sync state, its content, and the user's
+# Repository Sources (contract local-repository.md).
+tags:
+  - name: local-repository
+    description: >-
+      Read a Site's Local Repository (the source every deployment fetches its artifacts from), browse
+      its content, replace the Repository Sources a user adds to it, and ask for an immediate
+      convergence.
+paths:
+  /api/v1/sites/{siteId}/local-repository:
+    parameters:
+      - $ref: '#/components/parameters/LocalRepositorySiteId'
+    get:
+      tags: [local-repository]
+      operationId: getLocalRepository
+      summary: Read a Site's Local Repository and its sync state.
+      description: >-
+        Requires role `admin`. Returns the user's spec and the effective content (the modules'
+        declarations merged with the spec) with the sync state the worker last recorded. It is read
+        from swallow's store; the provider is not called.
+      responses:
+        '200':
+          description: The Site's Local Repository.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalRepository'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Site does not exist or has no `repository` Integration.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/sites/{siteId}/local-repository/content:
+    parameters:
+      - $ref: '#/components/parameters/LocalRepositorySiteId'
+    get:
+      tags: [local-repository]
+      operationId: browseLocalRepositoryContent
+      summary: Browse one page of a Site's Local Repository content of one format.
+      description: >-
+        Requires role `admin`. Read live from the provider. `format` is required; `source` keeps only
+        the content of one Repository Source and `search` only items whose name contains it.
+      parameters:
+        - name: format
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/LocalRepositoryFormat'
+        - name: source
+          in: query
+          required: false
+          description: A Repository Source name.
+          schema:
+            type: string
+        - name: search
+          in: query
+          required: false
+          description: A substring of the item name.
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: One page of content.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalRepositoryContentPage'
+        '400':
+          description: >-
+            `validation_error`: `format` is missing or unknown, `page` or `pageSize` is out of range,
+            or the provider refused the query (the message is the provider's reason).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Site does not exist or has no `repository` Integration.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: >-
+            `provider_unavailable`: the provider could not be reached, refused the Integration's
+            credential, or the Integration has no credential.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/sites/{siteId}/local-repository/spec:
+    parameters:
+      - $ref: '#/components/parameters/LocalRepositorySiteId'
+    put:
+      tags: [local-repository]
+      operationId: putLocalRepositorySpec
+      summary: Replace the Repository Sources a user adds to a Site's Local Repository.
+      description: >-
+        Requires role `admin`. `generation` is the spec generation the writer read (`0` before the
+        first write); `sources` is the whole list and replaces the stored one. The worker converges
+        the provider afterwards; the response is the stored spec with the last recorded state.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocalRepositorySpecWrite'
+      responses:
+        '200':
+          description: The Site's Local Repository with the new spec.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalRepository'
+        '400':
+          description: >-
+            `validation_error`: the body is not valid JSON, `generation` is missing or negative, a
+            source is invalid or listed twice, or a source contradicts what a module declares.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Site does not exist or has no `repository` Integration.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: '`conflict`: `generation` is not the stored generation; the spec changed since it was read.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/sites/{siteId}/local-repository/sync:
+    parameters:
+      - $ref: '#/components/parameters/LocalRepositorySiteId'
+    post:
+      tags: [local-repository]
+      operationId: syncLocalRepository
+      summary: Ask the worker to converge the Local Repositories now.
+      description: >-
+        Requires role `admin`. No request body. Asks the Local Repository controller to converge every
+        Site's repository now rather than at its next resync; results appear in a later read.
+      responses:
+        '202':
+          description: >-
+            The convergence was requested. The body is the plain-text status text `Accepted`, which
+            carries no information; consumers must ignore it.
+          content:
+            text/plain:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Site does not exist or has no `repository` Integration.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  parameters:
+    LocalRepositorySiteId:
+      name: siteId
+      in: path
+      required: true
+      description: The Site's `id`.
+      schema:
+        type: string
+  schemas:
+    LocalRepositoryFormat:
+      type: string
+      enum: [deb, rpm, oci, python, file]
+      description: >-
+        The kind of content: OS packages (`deb`, `rpm`), container images (`oci`), Python packages
+        (`python`), or single files (`file`).
+    LocalRepositorySyncState:
+      type: string
+      enum: [pending, syncing, ready, failed]
+      description: >-
+        `pending`: not fetched yet (or not observed since its definition changed); `syncing`: a fetch
+        runs; `ready`: served; `failed`: the last fetch failed and `message` says why.
+    LocalRepositoryDeclaredBy:
+      type: array
+      description: Who declared the item, in declaration order; `module:<id>` for a module, `user` for the spec.
+      items:
+        type: string
+    LocalRepositorySpecSource:
+      type: object
+      description: A Repository Source of the user's spec.
+      required: [name, format, url, suites, components, architectures]
+      properties:
+        name:
+          type: string
+        format:
+          $ref: '#/components/schemas/LocalRepositoryFormat'
+        url:
+          type: string
+        suites:
+          type: array
+          items:
+            type: string
+        components:
+          type: array
+          items:
+            type: string
+        architectures:
+          type: array
+          items:
+            type: string
+    LocalRepositorySpecWrite:
+      type: object
+      required: [generation, sources]
+      properties:
+        generation:
+          type: integer
+          format: int64
+          minimum: 0
+          description: The spec generation the writer read; `0` before the first write.
+        sources:
+          type: array
+          items:
+            type: object
+            required: [name, format, url]
+            properties:
+              name:
+                type: string
+                description: >-
+                  1 to 63 lower-case letters, digits, `.`, `_`, or `-`, starting and ending with a
+                  letter or digit; unique in the list.
+              format:
+                $ref: '#/components/schemas/LocalRepositoryFormat'
+              url:
+                type: string
+                description: The upstream's http or https URL, without credentials.
+              suites:
+                type: array
+                description: Required (at least one) for `deb`; not allowed for other formats.
+                items:
+                  type: string
+              components:
+                type: array
+                description: Required (at least one) for `deb`; not allowed for other formats.
+                items:
+                  type: string
+              architectures:
+                type: array
+                description: Optional for `deb` and `rpm`; not allowed for other formats.
+                items:
+                  type: string
+    LocalRepository:
+      type: object
+      required: [siteId, integrationId, ready, contentOrigin, spec, sources, files, images, python, observedAt, observedGeneration, conditions]
+      properties:
+        siteId:
+          type: string
+        integrationId:
+          type: string
+          description: The Site's `repository` Integration.
+        ready:
+          type: boolean
+          description: >-
+            Every source, file, and image is `ready` on the enabled Integration and the host
+            addresses were read: deployments that fetch from the Local Repository are accepted.
+        contentOrigin:
+          type: string
+          nullable: true
+          description: The Integration's `contentOrigin` setting, where hosts read content; null when unset.
+        spec:
+          type: object
+          required: [generation, sources]
+          properties:
+            generation:
+              type: integer
+              format: int64
+              description: The spec generation; `0` before the first write.
+            sources:
+              type: array
+              items:
+                $ref: '#/components/schemas/LocalRepositorySpecSource'
+        sources:
+          type: array
+          description: The effective Repository Sources, ordered by name.
+          items:
+            type: object
+            required: [name, format, url, suites, components, architectures, declaredBy, state, message, lastSyncedAt, contentCount]
+            properties:
+              name:
+                type: string
+              format:
+                $ref: '#/components/schemas/LocalRepositoryFormat'
+              url:
+                type: string
+              suites:
+                type: array
+                items:
+                  type: string
+              components:
+                type: array
+                items:
+                  type: string
+              architectures:
+                type: array
+                items:
+                  type: string
+              declaredBy:
+                $ref: '#/components/schemas/LocalRepositoryDeclaredBy'
+              state:
+                $ref: '#/components/schemas/LocalRepositorySyncState'
+              message:
+                type: string
+                nullable: true
+              lastSyncedAt:
+                nullable: true
+                allOf:
+                  - $ref: '#/components/schemas/Timestamp'
+              contentCount:
+                type: integer
+                description: How many items the source serves; `0` when unknown.
+        files:
+          type: array
+          description: The files the modules declare, ordered by path.
+          items:
+            type: object
+            required: [path, url, sha256, declaredBy, state, message, sizeBytes]
+            properties:
+              path:
+                type: string
+              url:
+                type: string
+              sha256:
+                type: string
+              declaredBy:
+                $ref: '#/components/schemas/LocalRepositoryDeclaredBy'
+              state:
+                $ref: '#/components/schemas/LocalRepositorySyncState'
+              message:
+                type: string
+                nullable: true
+              sizeBytes:
+                type: integer
+                format: int64
+                description: '`0` until the file was fetched.'
+        images:
+          type: array
+          description: >-
+            The container images the modules declare, ordered by reference; fetched in advance
+            through their registry's pull-through source and `ready` once the provider stores every
+            layer.
+          items:
+            type: object
+            required: [reference, declaredBy, state, message, sizeBytes]
+            properties:
+              reference:
+                type: string
+              declaredBy:
+                $ref: '#/components/schemas/LocalRepositoryDeclaredBy'
+              state:
+                $ref: '#/components/schemas/LocalRepositorySyncState'
+              message:
+                type: string
+                nullable: true
+              sizeBytes:
+                type: integer
+                format: int64
+                description: '`0` until the image is stored.'
+        python:
+          type: array
+          description: The Python requirements the modules declare, ordered; fetched through the `pypi` source.
+          items:
+            type: object
+            required: [requirement, declaredBy]
+            properties:
+              requirement:
+                type: string
+              declaredBy:
+                $ref: '#/components/schemas/LocalRepositoryDeclaredBy'
+        observedAt:
+          nullable: true
+          description: When the worker last observed the repository; null before the first observation.
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+        observedGeneration:
+          type: integer
+          format: int64
+          description: >-
+            The spec generation the worker's last complete pass converged; equal to
+            `spec.generation` once the latest spec has been observed.
+        conditions:
+          type: array
+          description: >-
+            The Local Repository controller's judgements (local-repository.md, Conditions): `ready`,
+            `realized`, and `requires_attention`, each for the generation it names; `[]` before the
+            controller first looked at the Site's Integration.
+          items:
+            $ref: '#/components/schemas/Condition'
+    LocalRepositoryContentPage:
+      type: object
+      required: [items, total, page, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [name, version, architecture, source, path, sizeBytes]
+            description: One item; the fields that do not apply to its format are null.
+            properties:
+              name:
+                type: string
+              version:
+                type: string
+                nullable: true
+              architecture:
+                type: string
+                nullable: true
+              source:
+                type: string
+                nullable: true
+                description: The Repository Source that serves it.
+              path:
+                type: string
+                nullable: true
+              sizeBytes:
+                type: integer
+                format: int64
+                nullable: true
+        total:
+          type: integer
+          description: The number of matching items across all pages.
+        page:
+          type: integer
+        pageSize:
+          type: integer

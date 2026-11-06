@@ -1,0 +1,7 @@
+# Managed by Swallow (local_repo_client): pull {{ item.key }} images through the Site's Local
+# Repository. The mirror URL carries the registry's path, so containerd must not append /v2.
+server = "https://{{ item.key }}"
+
+[host."{{ item.value }}"]
+  capabilities = ["pull", "resolve"]
+  override_path = true

@@ -322,7 +322,7 @@ enrollment script and the swallow CLI from the address in `--swallow-url`
 `settings.autoInspect: "false"` on a provisioner turns automatic hardware
 inspection of newly enrolled Servers off; absent means on.
 
-`integration.yaml` (kind is `provisioner` or `metrics`; `platform` is rejected):
+`integration.yaml` (kind is `provisioner`, `metrics`, or `repository`; `platform` is rejected):
 
 ```yaml
 siteId: site1
@@ -334,6 +334,25 @@ settings: {}
 credential:
   apiKey: "REDACTED-MAAS-API-KEY"
 ```
+
+A `repository` Integration is the Site's Local Repository, which deployments fetch every artifact
+from; a Site has at most one. `endpoint` is where swallow calls the provider's API,
+`settings.contentOrigin` (required) is where the Site's Servers read content, and the credential is
+the provider's admin password:
+
+```yaml
+siteId: site1
+kind: repository
+providerKind: pulp
+name: local-repository
+endpoint: http://pulp-web:8080
+settings:
+  contentOrigin: http://10.170.168.20:8080
+credential: "REDACTED-PULP-ADMIN-PASSWORD"
+```
+
+The CLI has no command for the Local Repository itself yet (its content, sync state, and the
+Site's sources); use the Dashboard or the HTTP API.
 
 ### servers
 

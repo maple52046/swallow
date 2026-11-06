@@ -15,17 +15,21 @@ type playbookManifest struct {
 	Playbooks     []playbookManifestEntry `json:"playbooks"`
 }
 
+// playbookManifestEntry is one allowlisted playbook. UsesLocalRepository (optional, false when
+// absent) marks a playbook whose hosts fetch every artifact from the Site's Local Repository.
 type playbookManifestEntry struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
+	Name                string `json:"name"`
+	Path                string `json:"path"`
+	UsesLocalRepository bool   `json:"usesLocalRepository,omitempty"`
 }
 
 // ManifestCatalog is an immutable allowlist shipped with the release. Its root is the modules
 // root: every manifest path is a module's playbook (see playbookModule), and the run takes its
 // roles from that module and the shared roles only (see rolesPath).
 type ManifestCatalog struct {
-	root  string
-	paths map[string]string
+	root            string
+	paths           map[string]string
+	localRepository map[string]bool
 }
 
 // LoadManifestCatalog validates the manifest and every referenced path.
@@ -45,7 +49,7 @@ func LoadManifestCatalog(manifestPath, projectRoot string) (*ManifestCatalog, er
 	if err != nil {
 		return nil, err
 	}
-	catalog := &ManifestCatalog{root: root, paths: make(map[string]string, len(manifest.Playbooks))}
+	catalog := &ManifestCatalog{root: root, paths: make(map[string]string, len(manifest.Playbooks)), localRepository: map[string]bool{}}
 	for _, entry := range manifest.Playbooks {
 		if entry.Name == "" || entry.Path == "" {
 			return nil, fmt.Errorf("playbook manifest entries require name and path")
@@ -65,8 +69,17 @@ func LoadManifestCatalog(manifestPath, projectRoot string) (*ManifestCatalog, er
 			return nil, fmt.Errorf("manifest playbook %q: %w", entry.Name, statErr)
 		}
 		catalog.paths[entry.Name] = clean
+		if entry.UsesLocalRepository {
+			catalog.localRepository[entry.Name] = true
+		}
 	}
 	return catalog, nil
+}
+
+// UsesLocalRepository implements workflowdomain.PlaybookCatalog from the entry's
+// usesLocalRepository flag.
+func (c *ManifestCatalog) UsesLocalRepository(name string) bool {
+	return c.localRepository[name]
 }
 
 // Resolve returns a manifest-owned relative path, never a user path.

@@ -14,6 +14,8 @@ tags:
     name: auth
   - description: Preview, approve, or reject what realizing a destructive spec change will do, and read or replace the policy that decides whether a change approved with its submission is approved at once.
     name: change-plans
+  - description: Read a Site's Local Repository (the source every deployment fetches its artifacts from), browse its content, replace the Repository Sources a user adds to it, and ask for an immediate convergence.
+    name: local-repository
   - description: Read the Extension Modules compiled into the running build, with the spec schema a module declares, so a client can render a generic settings form and details for a module it has no dedicated screens for.
     name: modules
   - description: The overview, alerts read from Alertmanager, named metric queries against the metrics backend, and the Prometheus and Ansible discovery projections of the Server inventory. swallow stores no alerts and no metrics.
@@ -1016,7 +1018,7 @@ paths:
           required: false
           schema:
             type: string
-        - description: 'Restrict to one Integration kind: `provisioner`, `metrics`, or `platform`. Not validated.'
+        - description: 'Restrict to one Integration kind: `provisioner`, `metrics`, `platform`, or `repository`. Not validated.'
           in: query
           name: kind
           required: false
@@ -1062,16 +1064,18 @@ paths:
                   enum:
                     - provisioner
                     - metrics
+                    - repository
                   type: string
                 name:
                   description: Unique within the Site.
                   minLength: 1
                   type: string
                 providerKind:
-                  description: '`maas` for `provisioner`; `prometheus` for `metrics`.'
+                  description: '`maas` for `provisioner`; `prometheus` for `metrics`; `pulp` for `repository`.'
                   enum:
                     - maas
                     - prometheus
+                    - pulp
                   type: string
                 settings:
                   $ref: '#/components/schemas/IntegrationSettings'
@@ -1114,10 +1118,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`conflict`: another Integration of the Site has the name.'
+          description: '`conflict`: another Integration of the Site has the name, or the Site already has its one `metrics` or `repository` Integration and the request is for another of that kind.'
         default:
           $ref: '#/components/responses/Error'
-      summary: Register a provisioner or metrics Integration for a Site.
+      summary: Register a provisioner, metrics, or repository Integration for a Site.
       tags:
         - sites
   /api/v1/integrations/{id}:
@@ -2103,7 +2107,7 @@ paths:
       tags:
         - platforms
     post:
-      description: 'Requires the `admin` role. The spec is validated as a deployment would be (the Deployment Key, topology, targets, network, and features) before anything is written; then the Platform is stored at generation 1 with its members claimed, and its install is the returned Change Plan (platforms.md, Create A Platform): approved with the request when it sends `approve=true` and the policy allows it, waiting for approval otherwise. Nothing touches a machine until the plan is approved. 400 for an invalid body, spec, topology, target, network, or feature; 404 for an unknown Site; 409 when the installation has no Deployment Key, the name is taken, or a target is claimed, locked, or held by another Workflow; 503 when Site automation is not configured.'
+      description: 'Requires the `admin` role. The spec is validated as a deployment would be (the Deployment Key, topology, targets, network, and features) before anything is written; then the Platform is stored at generation 1 with its members claimed, and its install is the returned Change Plan (platforms.md, Create A Platform): approved with the request when it sends `approve=true` and the policy allows it, waiting for approval otherwise. Nothing touches a machine until the plan is approved. 400 for an invalid body, spec, topology, target, network, or feature; 404 for an unknown Site; 409 when the installation has no Deployment Key, the Site''s Local Repository is not ready (local-repository.md), the name is taken, or a target is claimed, locked, or held by another Workflow; 503 when Site automation is not configured.'
       operationId: createPlatform
       parameters:
         - $ref: '#/components/parameters/ApproveChange'
@@ -3357,7 +3361,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`conflict`: a target is absent, not ready, locked, of another Integration than the other targets or the template, or needs a new inspection before a disk deployment; the image is a custom image not verified for the deploy target, not fully staged, or of another architecture; the provisioner cannot deploy from memory; a network conflict; a target is already held by an unfinished Workflow; or the installation has no Deployment Key or no NTP server (`SWALLOW_API_NTP_SERVER`).'
+          description: '`conflict`: a target is absent, not ready, locked, of another Integration than the other targets or the template, or needs a new inspection before a disk deployment; the image is a custom image not verified for the deploy target, not fully staged, or of another architecture; the provisioner cannot deploy from memory; a network conflict; a target is already held by an unfinished Workflow; the installation has no Deployment Key or no NTP server (`SWALLOW_API_NTP_SERVER`); or the Site''s Local Repository is not ready for a Task that fetches from it (local-repository.md).'
         "503":
           content:
             application/json:
@@ -6866,6 +6870,171 @@ paths:
       summary: Replace the Site's write-only become password.
       tags:
         - sites
+  /api/v1/sites/{siteId}/local-repository:
+    get:
+      description: Requires role `admin`. Returns the user's spec and the effective content (the modules' declarations merged with the spec) with the sync state the worker last recorded. It is read from swallow's store; the provider is not called.
+      operationId: getLocalRepository
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalRepository'
+          description: The Site's Local Repository.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`not_found`: the Site does not exist or has no `repository` Integration.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Read a Site's Local Repository and its sync state.
+      tags:
+        - local-repository
+    parameters:
+      - $ref: '#/components/parameters/LocalRepositorySiteId'
+  /api/v1/sites/{siteId}/local-repository/content:
+    get:
+      description: Requires role `admin`. Read live from the provider. `format` is required; `source` keeps only the content of one Repository Source and `search` only items whose name contains it.
+      operationId: browseLocalRepositoryContent
+      parameters:
+        - in: query
+          name: format
+          required: true
+          schema:
+            $ref: '#/components/schemas/LocalRepositoryFormat'
+        - description: A Repository Source name.
+          in: query
+          name: source
+          required: false
+          schema:
+            type: string
+        - description: A substring of the item name.
+          in: query
+          name: search
+          required: false
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalRepositoryContentPage'
+          description: One page of content.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`validation_error`: `format` is missing or unknown, `page` or `pageSize` is out of range, or the provider refused the query (the message is the provider''s reason).'
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`not_found`: the Site does not exist or has no `repository` Integration.'
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`provider_unavailable`: the provider could not be reached, refused the Integration''s credential, or the Integration has no credential.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Browse one page of a Site's Local Repository content of one format.
+      tags:
+        - local-repository
+    parameters:
+      - $ref: '#/components/parameters/LocalRepositorySiteId'
+  /api/v1/sites/{siteId}/local-repository/spec:
+    parameters:
+      - $ref: '#/components/parameters/LocalRepositorySiteId'
+    put:
+      description: Requires role `admin`. `generation` is the spec generation the writer read (`0` before the first write); `sources` is the whole list and replaces the stored one. The worker converges the provider afterwards; the response is the stored spec with the last recorded state.
+      operationId: putLocalRepositorySpec
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocalRepositorySpecWrite'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalRepository'
+          description: The Site's Local Repository with the new spec.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`validation_error`: the body is not valid JSON, `generation` is missing or negative, a source is invalid or listed twice, or a source contradicts what a module declares.'
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`not_found`: the Site does not exist or has no `repository` Integration.'
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`conflict`: `generation` is not the stored generation; the spec changed since it was read.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Replace the Repository Sources a user adds to a Site's Local Repository.
+      tags:
+        - local-repository
+  /api/v1/sites/{siteId}/local-repository/sync:
+    parameters:
+      - $ref: '#/components/parameters/LocalRepositorySiteId'
+    post:
+      description: Requires role `admin`. No request body. Asks the Local Repository controller to converge every Site's repository now rather than at its next resync; results appear in a later read.
+      operationId: syncLocalRepository
+      responses:
+        "202":
+          content:
+            text/plain:
+              schema:
+                type: string
+          description: The convergence was requested. The body is the plain-text status text `Accepted`, which carries no information; consumers must ignore it.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`not_found`: the Site does not exist or has no `repository` Integration.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Ask the worker to converge the Local Repositories now.
+      tags:
+        - local-repository
   /api/v1/software/assignments:
     get:
       description: Requires the `admin` role. Ordered by `serverId`, then `kind`; not paginated (one record per Server per kind). `absent` assignments are omitted unless `includeAbsent=true`.
@@ -6943,7 +7112,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`conflict`: a mutually exclusive kind is present on a target; a target is a Kubernetes Platform member and the kind refuses members; a target has a Platform Claim and the kind refuses claimed Servers; a target lacks the AMD compute GPUs the kind requires; the `container` method''s runtime is not `installed` on a target or differs from `spec.containerRuntime`; a target Server is absent or not in provisioning state `deployed`; or, when the Workflow is created, a target already has active durable work or is locked.'
+          description: '`conflict`: a mutually exclusive kind is present on a target; a target is a Kubernetes Platform member and the kind refuses members; a target has a Platform Claim and the kind refuses claimed Servers; a target lacks the AMD compute GPUs the kind requires; the `container` method''s runtime is not `installed` on a target or differs from `spec.containerRuntime`; a target Server is absent or not in provisioning state `deployed`; when the Workflow is created, a target already has active durable work or is locked; or the Site''s Local Repository is not ready for the install (local-repository.md).'
         "503":
           content:
             application/json:
@@ -7984,6 +8153,13 @@ components:
       required: true
       schema:
         type: string
+    LocalRepositorySiteId:
+      description: The Site's `id`.
+      in: path
+      name: siteId
+      required: true
+      schema:
+        type: string
     MetricNames:
       description: Comma-separated metric names to evaluate; every name when omitted.
       explode: false
@@ -8170,7 +8346,7 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
-      description: A target is already in unfinished work, a target is protected by its Server Lock, a target is not in the provisioning state the kind requires, or the intent contradicts a Platform policy (`conflict`).
+      description: A target is already in unfinished work, a target is protected by its Server Lock, a target is not in the provisioning state the kind requires, the intent contradicts a Platform policy, or the playbook fetches from the Site's Local Repository and it is not ready (`conflict`).
     WorkflowCreateRejected:
       content:
         application/json:
@@ -9909,17 +10085,19 @@ components:
             - provisioner
             - metrics
             - platform
+            - repository
           type: string
         name:
           description: Unique within the Site.
           type: string
         providerKind:
-          description: 'The product implementing `kind`: `maas` (provisioner), `prometheus` (metrics), `kubernetes` or `slurm` (platform).'
+          description: 'The product implementing `kind`: `maas` (provisioner), `prometheus` (metrics), `kubernetes` or `slurm` (platform), `pulp` (repository).'
           enum:
             - maas
             - prometheus
             - kubernetes
             - slurm
+            - pulp
           type: string
         settings:
           $ref: '#/components/schemas/IntegrationSettings'
@@ -9947,7 +10125,7 @@ components:
     IntegrationSettings:
       additionalProperties:
         type: string
-      description: Non-secret adapter options as a string map; `{}` when none are set. Keys a provisioner Integration recognises (`timeout`, `insecureSkipVerify`, `autoInspect`, `virshSshPublicKey`) are described in sites-integrations.md; other keys are stored and returned unchanged.
+      description: Non-secret adapter options as a string map; `{}` when none are set. Keys a provisioner Integration recognises (`timeout`, `insecureSkipVerify`, `autoInspect`, `virshSshPublicKey`) and the keys of a metrics or repository Integration (such as `contentOrigin`) are described in sites-integrations.md; other keys are stored and returned unchanged.
       type: object
     IntegrationSyncState:
       description: Freshness of what the Integration feeds (glossary Staleness). Each field is `null` until it first applies; a failed sync sets `lastError` and keeps the previous `lastSucceededAt`, and the next successful sync clears `lastError`.
@@ -10489,6 +10667,322 @@ components:
         - status
         - version
       type: object
+    LocalRepository:
+      properties:
+        conditions:
+          description: 'The Local Repository controller''s judgements (local-repository.md, Conditions): `ready`, `realized`, and `requires_attention`, each for the generation it names; `[]` before the controller first looked at the Site''s Integration.'
+          items:
+            $ref: '#/components/schemas/Condition'
+          type: array
+        contentOrigin:
+          description: The Integration's `contentOrigin` setting, where hosts read content; null when unset.
+          nullable: true
+          type: string
+        files:
+          description: The files the modules declare, ordered by path.
+          items:
+            properties:
+              declaredBy:
+                $ref: '#/components/schemas/LocalRepositoryDeclaredBy'
+              message:
+                nullable: true
+                type: string
+              path:
+                type: string
+              sha256:
+                type: string
+              sizeBytes:
+                description: '`0` until the file was fetched.'
+                format: int64
+                type: integer
+              state:
+                $ref: '#/components/schemas/LocalRepositorySyncState'
+              url:
+                type: string
+            required:
+              - path
+              - url
+              - sha256
+              - declaredBy
+              - state
+              - message
+              - sizeBytes
+            type: object
+          type: array
+        images:
+          description: The container images the modules declare, ordered by reference; fetched in advance through their registry's pull-through source and `ready` once the provider stores every layer.
+          items:
+            properties:
+              declaredBy:
+                $ref: '#/components/schemas/LocalRepositoryDeclaredBy'
+              message:
+                nullable: true
+                type: string
+              reference:
+                type: string
+              sizeBytes:
+                description: '`0` until the image is stored.'
+                format: int64
+                type: integer
+              state:
+                $ref: '#/components/schemas/LocalRepositorySyncState'
+            required:
+              - reference
+              - declaredBy
+              - state
+              - message
+              - sizeBytes
+            type: object
+          type: array
+        integrationId:
+          description: The Site's `repository` Integration.
+          type: string
+        observedAt:
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          description: When the worker last observed the repository; null before the first observation.
+          nullable: true
+        observedGeneration:
+          description: The spec generation the worker's last complete pass converged; equal to `spec.generation` once the latest spec has been observed.
+          format: int64
+          type: integer
+        python:
+          description: The Python requirements the modules declare, ordered; fetched through the `pypi` source.
+          items:
+            properties:
+              declaredBy:
+                $ref: '#/components/schemas/LocalRepositoryDeclaredBy'
+              requirement:
+                type: string
+            required:
+              - requirement
+              - declaredBy
+            type: object
+          type: array
+        ready:
+          description: 'Every source, file, and image is `ready` on the enabled Integration and the host addresses were read: deployments that fetch from the Local Repository are accepted.'
+          type: boolean
+        siteId:
+          type: string
+        sources:
+          description: The effective Repository Sources, ordered by name.
+          items:
+            properties:
+              architectures:
+                items:
+                  type: string
+                type: array
+              components:
+                items:
+                  type: string
+                type: array
+              contentCount:
+                description: How many items the source serves; `0` when unknown.
+                type: integer
+              declaredBy:
+                $ref: '#/components/schemas/LocalRepositoryDeclaredBy'
+              format:
+                $ref: '#/components/schemas/LocalRepositoryFormat'
+              lastSyncedAt:
+                allOf:
+                  - $ref: '#/components/schemas/Timestamp'
+                nullable: true
+              message:
+                nullable: true
+                type: string
+              name:
+                type: string
+              state:
+                $ref: '#/components/schemas/LocalRepositorySyncState'
+              suites:
+                items:
+                  type: string
+                type: array
+              url:
+                type: string
+            required:
+              - name
+              - format
+              - url
+              - suites
+              - components
+              - architectures
+              - declaredBy
+              - state
+              - message
+              - lastSyncedAt
+              - contentCount
+            type: object
+          type: array
+        spec:
+          properties:
+            generation:
+              description: The spec generation; `0` before the first write.
+              format: int64
+              type: integer
+            sources:
+              items:
+                $ref: '#/components/schemas/LocalRepositorySpecSource'
+              type: array
+          required:
+            - generation
+            - sources
+          type: object
+      required:
+        - siteId
+        - integrationId
+        - ready
+        - contentOrigin
+        - spec
+        - sources
+        - files
+        - images
+        - python
+        - observedAt
+        - observedGeneration
+        - conditions
+      type: object
+    LocalRepositoryContentPage:
+      properties:
+        items:
+          items:
+            description: One item; the fields that do not apply to its format are null.
+            properties:
+              architecture:
+                nullable: true
+                type: string
+              name:
+                type: string
+              path:
+                nullable: true
+                type: string
+              sizeBytes:
+                format: int64
+                nullable: true
+                type: integer
+              source:
+                description: The Repository Source that serves it.
+                nullable: true
+                type: string
+              version:
+                nullable: true
+                type: string
+            required:
+              - name
+              - version
+              - architecture
+              - source
+              - path
+              - sizeBytes
+            type: object
+          type: array
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          description: The number of matching items across all pages.
+          type: integer
+      required:
+        - items
+        - total
+        - page
+        - pageSize
+      type: object
+    LocalRepositoryDeclaredBy:
+      description: Who declared the item, in declaration order; `module:<id>` for a module, `user` for the spec.
+      items:
+        type: string
+      type: array
+    LocalRepositoryFormat:
+      description: 'The kind of content: OS packages (`deb`, `rpm`), container images (`oci`), Python packages (`python`), or single files (`file`).'
+      enum:
+        - deb
+        - rpm
+        - oci
+        - python
+        - file
+      type: string
+    LocalRepositorySpecSource:
+      description: A Repository Source of the user's spec.
+      properties:
+        architectures:
+          items:
+            type: string
+          type: array
+        components:
+          items:
+            type: string
+          type: array
+        format:
+          $ref: '#/components/schemas/LocalRepositoryFormat'
+        name:
+          type: string
+        suites:
+          items:
+            type: string
+          type: array
+        url:
+          type: string
+      required:
+        - name
+        - format
+        - url
+        - suites
+        - components
+        - architectures
+      type: object
+    LocalRepositorySpecWrite:
+      properties:
+        generation:
+          description: The spec generation the writer read; `0` before the first write.
+          format: int64
+          minimum: 0
+          type: integer
+        sources:
+          items:
+            properties:
+              architectures:
+                description: Optional for `deb` and `rpm`; not allowed for other formats.
+                items:
+                  type: string
+                type: array
+              components:
+                description: Required (at least one) for `deb`; not allowed for other formats.
+                items:
+                  type: string
+                type: array
+              format:
+                $ref: '#/components/schemas/LocalRepositoryFormat'
+              name:
+                description: 1 to 63 lower-case letters, digits, `.`, `_`, or `-`, starting and ending with a letter or digit; unique in the list.
+                type: string
+              suites:
+                description: Required (at least one) for `deb`; not allowed for other formats.
+                items:
+                  type: string
+                type: array
+              url:
+                description: The upstream's http or https URL, without credentials.
+                type: string
+            required:
+              - name
+              - format
+              - url
+            type: object
+          type: array
+      required:
+        - generation
+        - sources
+      type: object
+    LocalRepositorySyncState:
+      description: '`pending`: not fetched yet (or not observed since its definition changed); `syncing`: a fetch runs; `ready`: served; `failed`: the last fetch failed and `message` says why.'
+      enum:
+        - pending
+        - syncing
+        - ready
+        - failed
+      type: string
     MetricName:
       description: One of the fixed named metric queries (server-metrics.md, Metric Names).
       enum:

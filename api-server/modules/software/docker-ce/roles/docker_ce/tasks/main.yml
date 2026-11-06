@@ -1,8 +1,9 @@
 ---
-# Install or remove Docker CE. OS-aware and builtin-only: Debian/Ubuntu use apt + the Docker apt
-# repository; RHEL family (Rocky/RHEL/Alibaba Cloud Linux) use dnf + the Docker CE yum repository.
-# Idempotent: a converged host produces no changes. os_family branching mirrors the platform
-# playbooks, so one software kind serves both image families under one Site.
+# Install or remove Docker CE. OS-aware and builtin-only: Debian/Ubuntu use apt and the Local
+# Repository's docker-ce source (the playbook's local_repo_client wrote the apt sources and Docker's
+# insecure registry); RHEL family (Rocky/RHEL/Alibaba Cloud Linux) use dnf + the Docker CE yum
+# repository. Idempotent: a converged host produces no changes. os_family branching mirrors the
+# platform playbooks, so one software kind serves both image families under one Site.
 #
 # This role is the single source of the Docker CE install path so the standalone software deploy and
 # every platform composition (today a Slurm deploy with Omnistat, decision 063) share one
@@ -12,50 +13,12 @@
   when: docker_ce_state == 'present' and ansible_facts['os_family'] == 'Debian'
   become: true
   block:
-    - name: Ensure prerequisite packages are present
-      ansible.builtin.apt:
-        name:
-          - ca-certificates
-          - curl
-          - gnupg
-        state: present
-        update_cache: true
-        cache_valid_time: 3600
-        lock_timeout: 300
-      register: docker_ce_prereqs
-      until: docker_ce_prereqs is succeeded
-      retries: 60
-      delay: 5
-
-    - name: Ensure the apt keyring directory exists
-      ansible.builtin.file:
-        path: /etc/apt/keyrings
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-
-    - name: Install the Docker CE apt GPG key
-      # Idempotent: only writes when the dearmored key differs. The key is fetched once and
-      # dearmored into the keyring the apt source below references by signed-by.
-      ansible.builtin.get_url:
-        url: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
-        dest: /etc/apt/keyrings/docker.asc
-        owner: root
-        group: root
-        mode: "0644"
-        force: false
-
-    - name: Register the Docker CE apt repository
-      # The install below refreshes the cache and retries a held lock; this module cannot retry.
-      ansible.builtin.apt_repository:
-        repo: >-
-          deb [arch={{ docker_ce_apt_arch }} signed-by=/etc/apt/keyrings/docker.asc]
-          https://download.docker.com/linux/{{ ansible_distribution | lower }}
-          {{ ansible_distribution_release }} stable
-        filename: docker
-        state: present
-        update_cache: false
+    - name: Refuse a Local Repository without the Docker CE source
+      ansible.builtin.fail:
+        msg: >-
+          [local_repository_source_missing] The Site's Local Repository has no {{ docker_ce_apt_source }}
+          deb source, which the docker-ce module declares. Wait until the source is ready and retry.
+      when: docker_ce_apt_source not in (swallow_local_repository.deb | map(attribute='name'))
 
     - name: Install Docker CE packages (apt)
       # An empty docker_ce_version installs the latest available; a pinned version applies the

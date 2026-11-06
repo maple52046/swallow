@@ -39,6 +39,9 @@ type workerPlatformDeps struct {
 	software        *softwarestore.MongoAssignmentRepo
 	bootISOs        serverdomain.BootISOResolver
 	keys            platformdomain.DeploymentKeyChecker
+	// localRepository resolves the trusted vars of playbooks that fetch from the Site's Local
+	// Repository, as in the API.
+	localRepository workflowapp.LocalRepositoryVars
 }
 
 // workerPlatformOperations composes the Platform operations in the worker, as the API does, so its
@@ -62,8 +65,11 @@ func workerPlatformOperations(
 	}
 	protection := providerServerMutationGuard{servers: deps.servers, providers: deps.providers}
 	orchestrations := deps.workflows
+	if deps.localRepository == nil {
+		return platformOperations{}, errors.New("platform operations need the Local Repository resolver")
+	}
 	operations := workflowapp.NewExecutionService(deps.servers, deps.automation, catalog, modules.workflowKinds, runner, events,
-		platformapp.NewPolicyChecker(deps.platforms, deps.servers), protection, orchestrations)
+		platformapp.NewPolicyChecker(deps.platforms, deps.servers), protection, orchestrations, deps.localRepository)
 	software := softwareapp.NewSoftwareService(transactor, modules.software, modules.accelerators, deps.software, deps.servers,
 		kubernetesMembershipChecker{servers: deps.servers, platforms: deps.platforms})
 	software.AttachLauncher(softwareDeploymentLauncher{operations: operations, orchestrations: orchestrations, modules: modules.registry})

@@ -750,6 +750,233 @@ export interface FixtureOptions {
   provisionerSubnets?: Record<string, ProvisionerSubnetFixture[]>
   /** Called for every Subnet DNS PUT with the Integration id, subnet id, and its JSON body. */
   onSubnetDnsRequest?: (integrationId: string, subnetId: string, body: Record<string, unknown>) => void
+  /**
+   * Gives site-a a Local Repository (decision 078) through a `repo-a` Pulp Integration, in one of
+   * the {@link LocalRepositoryScenario}s. Omitted: no Site has one, so every local-repository route
+   * answers 404 as it does for a Site without a `repository` Integration.
+   */
+  localRepository?: LocalRepositoryScenario
+  /** In the `syncing` scenario, the number of repository reads after which every source, file, and image is ready. */
+  localRepositorySettleAfterReads?: number
+  /**
+   * Makes the first spec write answer 409 the way a concurrent write by another admin would: the
+   * stored generation moves on and gains that admin's `ports` source, and nothing of this write lands.
+   */
+  localRepositorySpecConflict?: boolean
+  /** Makes every content read fail with this API error, as when Pulp cannot be reached. */
+  localRepositoryContentError?: { status: number; code: string; message: string }
+  /** Called for every local-repository write (spec PUT, sync POST) with its method, path, and JSON body. */
+  onLocalRepositoryRequest?: (method: string, path: string, body: Record<string, unknown> | null) => void
+}
+
+/**
+ * site-a's Local Repository in the local-repository.md read shape:
+ * - `ready`: every source, file, and image is ready and deployments are accepted;
+ * - `syncing`: the grafana archive syncs, the docker.io cache, the k0s binary, and the docker.io
+ *   images wait, and the kube-proxy image is being fetched;
+ * - `failed`: the docker-ce archive, the k0s binary, and the kube-proxy image failed, with the
+ *   provider's reasons;
+ * - `attention`: Pulp refused the Integration's credential, so the last pass stopped and the items
+ *   keep their last observation.
+ */
+export type LocalRepositoryScenario = 'ready' | 'syncing' | 'failed' | 'attention'
+
+/** One effective Repository Source as the fixture stores it. */
+interface RepositorySourceFixture {
+  name: string
+  format: string
+  url: string
+  suites: string[]
+  components: string[]
+  architectures: string[]
+  declaredBy: string[]
+  state: string
+  message: string | null
+  lastSyncedAt: string | null
+  contentCount: number
+}
+
+/** One Repository Source of the user's spec. */
+interface RepositorySourceSpecFixture {
+  name: string
+  format: string
+  url: string
+  suites: string[]
+  components: string[]
+  architectures: string[]
+}
+
+const repositorySyncedAt = '2026-08-27T02:40:00Z'
+
+/** The Ubuntu archive the installation writes as site-a's first user source (generation 1). */
+const ubuntuSourceSpec: RepositorySourceSpecFixture = {
+  name: 'ubuntu', format: 'deb', url: 'http://archive.ubuntu.com/ubuntu',
+  suites: ['noble', 'noble-updates', 'noble-security'], components: ['main', 'universe'], architectures: ['amd64'],
+}
+
+/** The sources the compiled modules declare, and the pull-through caches derived from their images and requirements. */
+function moduleRepositorySources(scenario: LocalRepositoryScenario): RepositorySourceFixture[] {
+  const syncing = scenario === 'syncing'
+  const failed = scenario === 'failed'
+  const ready = (contentCount: number) => ({ state: 'ready', message: null, lastSyncedAt: repositorySyncedAt, contentCount })
+  const none = { suites: [] as string[], components: [] as string[], architectures: [] as string[] }
+  return [
+    {
+      name: 'docker-ce', format: 'deb', url: 'https://download.docker.com/linux/ubuntu', suites: ['noble'], components: ['stable'], architectures: ['amd64'],
+      declaredBy: ['module:docker-ce'],
+      ...(failed
+        ? { state: 'failed', message: 'sync failed: 404 Not Found fetching https://download.docker.com/linux/ubuntu/dists/noble/Release', lastSyncedAt: '2026-08-20T01:00:00Z', contentCount: 312 }
+        : ready(312)),
+    },
+    {
+      name: 'docker.io', format: 'oci', url: 'https://docker.io', ...none, declaredBy: ['module:grafana', 'module:amd'],
+      ...(syncing ? { state: 'pending', message: null, lastSyncedAt: null, contentCount: 0 } : ready(9)),
+    },
+    {
+      name: 'grafana', format: 'deb', url: 'https://apt.grafana.com', suites: ['stable'], components: ['main'], architectures: ['amd64'],
+      declaredBy: ['module:grafana'],
+      ...(syncing ? { state: 'syncing', message: 'Downloading package indexes', lastSyncedAt: null, contentCount: 0 } : ready(1840)),
+    },
+    { name: 'pypi', format: 'python', url: 'https://pypi.org/', ...none, declaredBy: ['module:slurm'], ...ready(27) },
+    { name: 'quay.io', format: 'oci', url: 'https://quay.io', ...none, declaredBy: ['module:kubernetes'], ...ready(6) },
+  ]
+}
+
+/** The files the modules declare, with the k0s binary following the scenario. */
+function repositoryFiles(scenario: LocalRepositoryScenario) {
+  const file = (path: string, url: string, sha256: string, module: string, sizeBytes: number) => ({
+    path, url, sha256, declaredBy: [`module:${module}`], state: 'ready', message: null as string | null, sizeBytes,
+  })
+  const k0s = file(
+    'k0s/v1.36.3+k0s.2/k0s-v1.36.3+k0s.2-amd64', 'https://github.com/k0sproject/k0s/releases/download/v1.36.3+k0s.2/k0s-v1.36.3+k0s.2-amd64',
+    'f8b278ba5a9938ced226381484a0f31b6bfa2938703949df235474e03c774acc', 'kubernetes', 248_512_512,
+  )
+  if (scenario === 'syncing') Object.assign(k0s, { state: 'pending', sizeBytes: 0 })
+  if (scenario === 'failed') {
+    Object.assign(k0s, { state: 'failed', sizeBytes: 0, message: 'checksum mismatch: the download has sha256 3b1c0d9a52e4, the declaration f8b278ba5a99' })
+  }
+  return [
+    file(
+      'device-metrics-exporter/1.5.3/amdgpu-exporter_1.5.3~24.04_amd64.deb',
+      'https://repo.radeon.com/device-metrics-exporter/apt/1.5.3/pool/main/a/amdgpu-exporter/amdgpu-exporter_1.5.3~24.04_amd64.deb',
+      'fa5cc3f949c89f3e944798bf6326cded16de7aca6449e80de7376d2b824886b7', 'device-metrics-exporter', 23_456_789,
+    ),
+    file('helm/v3.22.1/helm-v3.22.1-linux-amd64.tar.gz', 'https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz',
+      '896cf63684a42a723d61c980369d6e588330927deb13676ca0d85006dd6da0ea', 'kubernetes', 16_384_000),
+    k0s,
+    file('omnistat/v1.15.0.tar.gz', 'https://github.com/ROCm/omnistat/archive/refs/tags/v1.15.0.tar.gz',
+      '899c681179b8dfe5b3ccebde360c7a39ef2fe13cd0fdebb34d088963ad32f96f', 'slurm', 1_048_576),
+  ]
+}
+
+/** The images the modules declare, with what the worker observed of each in the scenario. */
+function repositoryImages(scenario: LocalRepositoryScenario) {
+  const image = (reference: string, module: string, sizeBytes: number) => ({
+    reference, declaredBy: [`module:${module}`], state: 'ready', message: null as string | null, sizeBytes,
+  })
+  const grafana = image('docker.io/grafana/grafana:12.4.12', 'grafana', 186_413_056)
+  const gpuOperator = image('docker.io/rocm/gpu-operator:v1.5.1', 'amd', 64_225_280)
+  const kubeProxy = image('quay.io/k0sproject/kube-proxy:v1.36.3-1', 'kubernetes', 30_408_704)
+  if (scenario === 'syncing') {
+    // The docker.io cache is not ready yet, so its images wait; kube-proxy's layers are downloading.
+    for (const waiting of [grafana, gpuOperator]) Object.assign(waiting, { state: 'pending', sizeBytes: 0 })
+    Object.assign(kubeProxy, { state: 'syncing', sizeBytes: 0 })
+  }
+  if (scenario === 'failed') {
+    Object.assign(kubeProxy, {
+      state: 'failed', sizeBytes: 0,
+      message: 'Pulp could not fetch the image quay.io/k0sproject/kube-proxy:v1.36.3-1 from its upstream registry (HTTP 502); it is tried again later.',
+    })
+  }
+  return [grafana, gpuOperator, kubeProxy, image('quay.io/k0sproject/pause:3.10.2-0', 'kubernetes', 320_512)]
+}
+
+/** The controller's conditions for a scenario (local-repository.md, Conditions), judged for `generation`. */
+function repositoryConditions(scenario: LocalRepositoryScenario, generation: number) {
+  const condition = (type: string, status: string, reason: string, message = '') => ({
+    type, status, reason, message, lastTransitionTime: '2026-08-27T02:58:00Z', observedGeneration: generation,
+  })
+  switch (scenario) {
+    case 'ready':
+      return [condition('ready', 'true', 'ready'), condition('realized', 'true', 'converged'), condition('requires_attention', 'false', 'none')]
+    case 'syncing':
+      return [
+        condition('ready', 'false', 'syncing', 'source docker.io is pending; source grafana is syncing; file k0s/v1.36.3+k0s.2/k0s-v1.36.3+k0s.2-amd64 is pending; '
+          + 'image docker.io/grafana/grafana:12.4.12 is pending; image docker.io/rocm/gpu-operator:v1.5.1 is pending; image quay.io/k0sproject/kube-proxy:v1.36.3-1 is syncing'),
+        condition('realized', 'false', 'syncing', 'grafana is syncing'),
+        condition('requires_attention', 'false', 'none'),
+      ]
+    case 'failed':
+      return [
+        condition('ready', 'false', 'source_failed', 'source docker-ce failed: 404 Not Found; file k0s/v1.36.3+k0s.2/k0s-v1.36.3+k0s.2-amd64 failed: checksum mismatch; '
+          + 'image quay.io/k0sproject/kube-proxy:v1.36.3-1 failed: Pulp could not fetch the image from its upstream registry (HTTP 502)'),
+        condition('realized', 'false', 'source_failed', 'docker-ce: 404 Not Found fetching the Release file'),
+        condition('requires_attention', 'false', 'none'),
+      ]
+    case 'attention': {
+      const refused = "Pulp refused the Integration's credential (401 Unauthorized); set the Pulp admin password again."
+      return [
+        condition('ready', 'false', 'credential_rejected', refused),
+        condition('realized', 'false', 'credential_rejected', refused),
+        condition('requires_attention', 'true', 'credential_rejected', refused),
+      ]
+    }
+  }
+}
+
+/** One content item in the browse read shape; the fields a format does not have are null. */
+interface RepositoryContentFixture {
+  name: string
+  version: string | null
+  architecture: string | null
+  source: string | null
+  path: string | null
+  sizeBytes: number | null
+}
+
+/** Ubuntu archive packages the `ubuntu` source serves, enough for two content pages. */
+const ubuntuPackageNames = [
+  'acl', 'adduser', 'apparmor', 'apt', 'base-files', 'bash', 'bsdutils', 'ca-certificates', 'chrony', 'coreutils',
+  'curl', 'dash', 'dbus', 'debconf', 'dpkg', 'e2fsprogs', 'gpgv', 'grep', 'gzip', 'hostname',
+  'init-system-helpers', 'iproute2', 'iptables', 'jq', 'kmod', 'libc6', 'libssl3t64', 'login', 'mount', 'netplan.io',
+  'openssh-server', 'passwd', 'procps', 'python3', 'sed', 'systemd', 'tar', 'tzdata', 'util-linux', 'zstd',
+]
+
+/** What the provider serves per format, ordered by name as the provider pages it. */
+function repositoryContent(format: string): RepositoryContentFixture[] {
+  const items: RepositoryContentFixture[] = (() => {
+    switch (format) {
+      case 'deb':
+        return [
+          { name: 'containerd.io', version: '1.7.28-1', architecture: 'amd64', source: 'docker-ce', path: 'pool/stable/amd64/containerd.io_1.7.28-1_amd64.deb', sizeBytes: 31_457_280 },
+          { name: 'docker-ce', version: '5:28.5.1-1~ubuntu.24.04~noble', architecture: 'amd64', source: 'docker-ce', path: 'pool/stable/amd64/docker-ce_28.5.1-1~ubuntu.24.04~noble_amd64.deb', sizeBytes: 20_971_520 },
+          { name: 'docker-ce-cli', version: '5:28.5.1-1~ubuntu.24.04~noble', architecture: 'amd64', source: 'docker-ce', path: 'pool/stable/amd64/docker-ce-cli_28.5.1-1~ubuntu.24.04~noble_amd64.deb', sizeBytes: 15_728_640 },
+          { name: 'grafana', version: '12.4.12', architecture: 'amd64', source: 'grafana', path: 'pool/main/g/grafana/grafana_12.4.12_amd64.deb', sizeBytes: 125_829_120 },
+          ...ubuntuPackageNames.map((name, index) => ({
+            name, version: `1.${index}.0-1ubuntu1`, architecture: 'amd64', source: 'ubuntu',
+            path: `pool/main/${name.charAt(0)}/${name}/${name}_1.${index}.0-1ubuntu1_amd64.deb`, sizeBytes: 65_536 * (index + 3),
+          })),
+        ]
+      case 'oci':
+        return [
+          { name: 'docker.io/grafana/grafana', version: '12.4.12', architecture: 'amd64', source: 'docker.io', path: null, sizeBytes: 152_043_520 },
+          { name: 'docker.io/rocm/gpu-operator', version: 'v1.5.1', architecture: 'amd64', source: 'docker.io', path: null, sizeBytes: 98_566_144 },
+          { name: 'quay.io/k0sproject/pause', version: '3.10.2-0', architecture: 'amd64', source: 'quay.io', path: null, sizeBytes: 327_680 },
+        ]
+      case 'python':
+        return [
+          { name: 'Flask', version: '3.1.3', architecture: null, source: 'pypi', path: null, sizeBytes: 103_424 },
+          { name: 'numpy', version: '2.5.4', architecture: null, source: 'pypi', path: null, sizeBytes: 16_777_216 },
+        ]
+      case 'file':
+        return repositoryFiles('ready').map((file) => ({
+          name: file.path.split('/').pop() ?? file.path, version: null, architecture: null, source: null, path: file.path, sizeBytes: file.sizeBytes,
+        }))
+      default:
+        return []
+    }
+  })()
+  return items.sort((left, right) => left.name.localeCompare(right.name))
 }
 
 /** One subnet in the provisioner-subnet-dns.md read shape. */
@@ -1505,6 +1732,58 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       settings: { ...integration.settings },
       sync: { ...integration.sync },
     }))
+  // site-a's Local Repository (local-repository.md): the `repo-a` Pulp Integration, the user's spec,
+  // and the scenario the worker last observed. A spec write stores the sources at once; the new
+  // ones read pending, and the observed generation stays behind until the worker would converge it.
+  let localRepositoryScenario = options.localRepository
+  if (localRepositoryScenario) {
+    const settings: Record<string, string> = { contentOrigin: 'http://10.170.168.20:8080' }
+    integrationItems.push({
+      id: 'repo-a', siteId: 'site-a', kind: 'repository', providerKind: 'pulp', name: 'Pulp Taipei', endpoint: 'http://127.0.0.1:24817',
+      enabled: true, settings, hasCredential: true, hasOperatorCredential: false,
+      sync: { lastStartedAt: now, lastSucceededAt: now, lastError: null }, createdAt: now, updatedAt: now,
+    })
+  }
+  const localRepositorySpec = { generation: 1, sources: [structuredClone(ubuntuSourceSpec)] }
+  let localRepositoryObservedGeneration = 1
+  let localRepositoryReads = 0
+  let localRepositoryConflictPending = Boolean(options.localRepositorySpecConflict)
+  // User sources the mock worker has synced; a written spec converges on the second read after it.
+  const syncedUserSources = new Set(['ubuntu'])
+  let readsUntilSpecConverges = 0
+  const localRepositoryBody = (scenario: LocalRepositoryScenario) => {
+    const integration = integrationItems.find((item) => item.id === 'repo-a')
+    const userSources: RepositorySourceFixture[] = localRepositorySpec.sources.map((source) => ({
+      ...structuredClone(source),
+      declaredBy: ['user'],
+      ...(syncedUserSources.has(source.name)
+        ? { state: 'ready', message: null, lastSyncedAt: repositorySyncedAt, contentCount: source.name === 'ubuntu' ? 64_012 : 1_204 }
+        : { state: 'pending', message: null, lastSyncedAt: null, contentCount: 0 }),
+    }))
+    const pendingUserSources = userSources.filter((source) => source.state === 'pending').map((source) => source.name)
+    const conditions = scenario === 'ready' && pendingUserSources.length > 0
+      ? repositoryConditions('ready', localRepositoryObservedGeneration).map((condition) => condition.type === 'requires_attention'
+        ? condition
+        : { ...condition, status: 'false', reason: 'syncing', message: pendingUserSources.map((name) => `source ${name} is pending`).join('; ') })
+      : repositoryConditions(scenario, localRepositoryObservedGeneration)
+    return {
+      siteId: 'site-a',
+      integrationId: 'repo-a',
+      ready: scenario === 'ready' && pendingUserSources.length === 0,
+      contentOrigin: (integration?.settings as Record<string, string> | undefined)?.contentOrigin ?? null,
+      spec: structuredClone(localRepositorySpec),
+      sources: [...moduleRepositorySources(scenario), ...userSources].sort((left, right) => left.name.localeCompare(right.name)),
+      files: repositoryFiles(scenario),
+      images: repositoryImages(scenario),
+      python: [
+        { requirement: 'Flask==3.1.3', declaredBy: ['module:slurm'] },
+        { requirement: 'numpy==2.5.4', declaredBy: ['module:slurm'] },
+      ],
+      observedAt: '2026-08-27T02:58:00Z',
+      observedGeneration: localRepositoryObservedGeneration,
+      conditions,
+    }
+  }
   // Provisioner settings are swallow-owned desired state (decision 071). The fixture plays the
   // controller: a PUT stores the spec unapplied, and the next read finds it applied (or refused).
   type HttpProxyConfigFixture = { mode: string; httpProxy: string }
@@ -2410,6 +2689,78 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       if (sub === '/volumes' && method === 'GET') return json(route, { items: dockerVolumes })
       if (sub === '/networks' && method === 'GET') return json(route, { items: dockerNetworks })
       return json(route, { error: { code: 'not_found', message: `No Docker fixture for ${method} ${sub}` } }, 404)
+    }
+    // Local Repository (local-repository.md): only site-a has one, and only with a scenario set.
+    const localRepositoryMatch = path.match(/^\/api\/v1\/sites\/([^/]+)\/local-repository(\/content|\/spec|\/sync)?$/)
+    if (localRepositoryMatch) {
+      const method = request.method()
+      const sub = localRepositoryMatch[2] ?? ''
+      if (localRepositoryMatch[1] !== 'site-a' || !localRepositoryScenario) {
+        return json(route, { error: { code: 'not_found', message: 'The site has no repository integration.', requestId: 'req-no-local-repository' } }, 404)
+      }
+      if (sub === '' && method === 'GET') {
+        localRepositoryReads += 1
+        const settleAfter = options.localRepositorySettleAfterReads
+        if (localRepositoryScenario === 'syncing' && settleAfter !== undefined && localRepositoryReads > settleAfter) localRepositoryScenario = 'ready'
+        if (readsUntilSpecConverges > 0) {
+          readsUntilSpecConverges -= 1
+          if (readsUntilSpecConverges === 0) {
+            for (const source of localRepositorySpec.sources) syncedUserSources.add(source.name)
+            localRepositoryObservedGeneration = localRepositorySpec.generation
+          }
+        }
+        return json(route, localRepositoryBody(localRepositoryScenario))
+      }
+      if (sub === '/content' && method === 'GET') {
+        const failure = options.localRepositoryContentError
+        if (failure) return json(route, { error: { code: failure.code, message: failure.message, requestId: 'req-local-repository-content' } }, failure.status)
+        const format = url.searchParams.get('format') ?? ''
+        if (!['deb', 'rpm', 'oci', 'python', 'file'].includes(format)) {
+          return json(route, { error: { code: 'validation_error', message: 'format is required: one of deb, rpm, oci, python, file' } }, 400)
+        }
+        const page = Number(url.searchParams.get('page') ?? '1')
+        const pageSize = Number(url.searchParams.get('pageSize') ?? '20')
+        if (!Number.isInteger(page) || page < 1 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+          return json(route, { error: { code: 'validation_error', message: 'page must be at least 1 and pageSize between 1 and 100' } }, 400)
+        }
+        const source = url.searchParams.get('source')
+        const search = (url.searchParams.get('search') ?? '').toLowerCase()
+        const matching = repositoryContent(format).filter((item) => (!source || item.source === source) && (!search || item.name.toLowerCase().includes(search)))
+        return route.fulfill({
+          status: 200, contentType: 'application/json', headers: { 'Cache-Control': 'no-store' },
+          body: JSON.stringify({ items: matching.slice((page - 1) * pageSize, page * pageSize), total: matching.length, page, pageSize }),
+        })
+      }
+      if (sub === '/spec' && method === 'PUT') {
+        const body = (request.postDataJSON() ?? {}) as { generation?: unknown; sources?: unknown }
+        options.onLocalRepositoryRequest?.(method, path, body as Record<string, unknown>)
+        if (localRepositoryConflictPending) {
+          localRepositoryConflictPending = false
+          localRepositorySpec.generation += 1
+          localRepositorySpec.sources.push({ name: 'ports', format: 'deb', url: 'http://ports.ubuntu.com/ubuntu-ports', suites: ['noble'], components: ['main'], architectures: ['arm64'] })
+        }
+        if (body.generation !== localRepositorySpec.generation) {
+          return json(route, { error: { code: 'conflict', message: `the local repository spec changed since it was read: generation ${String(body.generation)} is not ${localRepositorySpec.generation}`, requestId: 'req-local-repository-conflict' } }, 409)
+        }
+        const written = Array.isArray(body.sources) ? (body.sources as Array<Record<string, unknown>>) : []
+        const words = (value: unknown) => (Array.isArray(value) ? value.map(String) : [])
+        const sources = written.map((source) => ({
+          name: String(source.name ?? ''), format: String(source.format ?? ''), url: String(source.url ?? ''),
+          suites: words(source.suites), components: words(source.components), architectures: words(source.architectures),
+        }))
+        const invalid = sources.find((source) => !source.name || (source.format === 'deb' && (source.suites.length === 0 || source.components.length === 0)))
+        if (!Array.isArray(body.sources) || invalid || new Set(sources.map((source) => source.name)).size !== sources.length) {
+          return json(route, { error: { code: 'validation_error', message: `invalid local repository spec${invalid ? `: source ${invalid.name} needs suites and components` : ''}` } }, 400)
+        }
+        localRepositorySpec.sources = sources
+        localRepositorySpec.generation += 1
+        readsUntilSpecConverges = 2
+        return json(route, localRepositoryBody(localRepositoryScenario))
+      }
+      if (sub === '/sync' && method === 'POST') {
+        options.onLocalRepositoryRequest?.(method, path, null)
+        return route.fulfill({ status: 202, contentType: 'text/plain', body: 'Accepted' })
+      }
     }
     if (path === '/api/v1/sites' && request.method() === 'GET') return json(route, siteItems)
     if (path === '/api/v1/sites' && request.method() === 'POST') {

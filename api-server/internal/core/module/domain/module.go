@@ -83,6 +83,10 @@ type Manifest struct {
 	Capabilities []string `json:"capabilities"`
 	// Routes are the path prefixes under the API the module serves.
 	Routes []string `json:"routes"`
+	// Artifacts are what the module's host automation fetches, all of it from the Site's Local
+	// Repository. Unlike the lists above they are not owned: modules may declare the same source
+	// or file when the declarations agree.
+	Artifacts Artifacts `json:"artifacts,omitempty"`
 }
 
 // Ref is "<kind>/<id>", the module's directory under modules/.
@@ -126,7 +130,8 @@ func ParseManifest(data []byte) (Manifest, error) {
 
 // Validate checks one manifest on its own: a supported contract version, a known kind, a
 // kebab-case id, a SemVer version, unique names in every list, a reason for every hook, known
-// ports, routes under /api/v1/, and a well-formed spec schema when present.
+// ports, routes under /api/v1/, a well-formed spec schema when present, and artifacts that pass
+// Artifacts.Validate (the error then wraps both ErrInvalidManifest and ErrInvalidArtifact).
 func (m Manifest) Validate() error {
 	if !supported(m.ContractVersion) {
 		return fmt.Errorf("%w: module %s declares contract version %d, this core loads %v",
@@ -172,6 +177,9 @@ func (m Manifest) Validate() error {
 	if _, err := m.SpecSchema(); err != nil {
 		return err
 	}
+	if err := m.Artifacts.Validate(); err != nil {
+		return fmt.Errorf("%w: module %s artifacts: %w", ErrInvalidManifest, m.Ref(), err)
+	}
 	return nil
 }
 
@@ -214,13 +222,15 @@ type Registry struct {
 }
 
 // NewRegistry validates the modules on their own and against each other: each manifest is valid,
-// each module's hook implementations are exactly its declared hooks, and no two modules share a
-// reference, Workflow kind, completion type, route, or playbook.
+// each module's hook implementations are exactly its declared hooks, no two modules share a
+// reference, Workflow kind, completion type, route, or playbook, and modules that declare the same
+// artifact source or file agree on it (artifactClaims.claim).
 func NewRegistry(modules ...Module) (*Registry, error) {
 	registry := &Registry{
 		byRef: map[string]Module{}, byWorkflowKind: map[string]Module{}, byCompletion: map[string]Module{},
 	}
 	routes, playbooks := map[string]string{}, map[string]string{}
+	artifacts := newArtifactClaims()
 	for _, module := range modules {
 		manifest := module.Manifest
 		if err := manifest.Validate(); err != nil {
@@ -250,6 +260,9 @@ func NewRegistry(modules ...Module) (*Registry, error) {
 			return nil, err
 		}
 		if err := claim(playbooks, manifest.Playbooks, ref, "playbook"); err != nil {
+			return nil, err
+		}
+		if err := artifacts.claim(ref, manifest.Artifacts); err != nil {
 			return nil, err
 		}
 		registry.modules = append(registry.modules, module)

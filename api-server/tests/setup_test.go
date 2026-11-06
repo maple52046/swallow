@@ -11,6 +11,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/maple52046/swallow/internal/adapters/localrepo/pulp"
 	"github.com/maple52046/swallow/internal/adapters/metrics/promstack"
 	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
 	"github.com/maple52046/swallow/internal/core/convergence"
@@ -151,6 +152,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 			sitedomain.IntegrationKindProvisioner: {maas.ProviderKind},
 			sitedomain.IntegrationKindMetrics:     {promstack.ProviderKind},
 			sitedomain.IntegrationKindPlatform:    {kubeapi.ProviderKind, slurmapi.ProviderKind},
+			sitedomain.IntegrationKindRepository:  {pulp.ProviderKind},
 		}, &storetest.Transactor{}, integrationDeps),
 	)
 	// The reconcile use case is also the DeployedImageNameRefresher, so the metadata edit and the

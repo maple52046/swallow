@@ -422,7 +422,9 @@ keeps its Servers for as long as it waits, with no renewal that a transient outa
 ## Errors
 
 Target overlap, Server Lock, a target not in the required provisioning state, Platform policy,
-invalid control state, and an ineligible Task retry return `conflict`. A malformed request,
+invalid control state, an ineligible Task retry, and a playbook that fetches from the Site's Local
+Repository while it is not ready ([local-repository.md](local-repository.md#deployments)) return
+`conflict`. A malformed request,
 targets of more than one Site, or an unregistered or unmapped playbook returns
 `validation_error`. Disabled Site automation, a missing Deployment Key or Site
 credential, and an unknown live Server Lock state return `provider_unavailable`. An unknown

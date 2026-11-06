@@ -6,16 +6,14 @@
 docker_ce_state: present
 docker_ce_version: ""
 
-# The Docker apt repository is indexed by dpkg architecture (amd64/arm64), which differs from
-# the kernel machine name in ansible_architecture (x86_64/aarch64). Map the common cases and
-# fall back to the raw fact so an unexpected architecture still produces a visible repo line.
-docker_ce_apt_arch: >-
-  {{ {'x86_64': 'amd64', 'aarch64': 'arm64'}.get(ansible_architecture, ansible_architecture) }}
+# The Local Repository's deb source the docker-ce module declares (Docker's official apt repository).
+docker_ce_apt_source: docker-ce
 
 # docker_ce_api_enabled makes dockerd also listen on tcp://0.0.0.0:<docker_ce_api_port>, the
 # unauthenticated plain-HTTP Docker Engine API the Docker Host Explorer dials (decision 043). The
 # deploy playbook always sets both from swallow trusted vars; the defaults keep the role closed when
-# it is reused without them. The listener is a systemd drop-in so daemon.json stays user-owned.
+# it is reused without them. The listener is a systemd drop-in so daemon.json stays user-owned
+# (local_repo_client only adds the Local Repository's registry to its insecure-registries).
 docker_ce_api_enabled: false
 docker_ce_api_port: 2375
 docker_ce_api_dropin: /etc/systemd/system/docker.service.d/swallow-api.conf

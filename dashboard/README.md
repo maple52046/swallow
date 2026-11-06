@@ -23,7 +23,7 @@ consumer of the provider-owned HTTP contract and binds only real API adapters.
 | `/workflows`, `/workflows/:id` | Durable Workflow list, events, logs, and controls |
 | `/change-plans` | Change Plans waiting for approval |
 | `/monitoring` | Health, usage charts (selected Servers, Pool, Zone, Platform), current metrics, optional Grafana, and (in development) alerts and silences |
-| `/infrastructure/*` | Sites, Integrations, Zones, and Pools |
+| `/infrastructure/*` | Sites, Integrations, Zones, Pools, and the Site's Local repository |
 | `/account/ssh-keys`, `/account/api-keys` | Your SSH keys and API keys (account menu) |
 
 `/clusters`, `/operations`, and the retired `/provisioning/deploy` page are

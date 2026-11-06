@@ -225,6 +225,7 @@ func (contractAutomation) FindBySiteID(_ context.Context, siteID string) (*workf
 type contractCatalog struct{}
 
 func (contractCatalog) Resolve(name string) (string, error) { return "playbooks/" + name, nil }
+func (contractCatalog) UsesLocalRepository(string) bool     { return false }
 
 // contractRunner serves fixed retained output and per-host results for any run.
 type contractRunner struct {
@@ -377,7 +378,7 @@ func newWorkflowContractHandler() *ExecutionHandler {
 	}}
 	operations := application.NewExecutionService(
 		contractServers{}, contractAutomation{}, contractCatalog{}, workflowdomain.WorkflowKinds{}, runner, nil, nil,
-		unlockedServers{}, orchestrations,
+		unlockedServers{}, orchestrations, nil,
 	)
 	return NewExecutionHandler(operations, nil, orchestrations)
 }

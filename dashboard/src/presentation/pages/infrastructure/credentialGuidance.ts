@@ -18,7 +18,7 @@ export interface CredentialGuidance {
 }
 
 /**
- * Returns credential guidance for a provider kind (`maas`, `prometheus`, `kubernetes`, `slurm`),
+ * Returns credential guidance for a provider kind (`maas`, `prometheus`, `pulp`, `kubernetes`, `slurm`),
  * falling back to a generic description for an unknown kind so the UI never shows nothing.
  */
 export function credentialGuidance(providerKind: string): CredentialGuidance {
@@ -49,6 +49,15 @@ export function credentialGuidance(providerKind: string): CredentialGuidance {
         whatItIs: 'A token for the Kubernetes API, such as a service-account token.',
         impact:
           'Affects platform membership sync and live status for this platform. Without it, Swallow cannot read the cluster.',
+        optional: false,
+      }
+    case 'pulp':
+      return {
+        term: 'Pulp admin password',
+        purpose: "Swallow uses it to call this site's Pulp API and keep the Local Repository's content as declared.",
+        whatItIs: "The password of Pulp's admin user, set when Pulp was installed.",
+        impact:
+          'Drives the Local Repository of this site: syncing its sources and files and browsing its content. Without it the repository cannot converge, and deployments that fetch from it are refused.',
         optional: false,
       }
     case 'slurm':

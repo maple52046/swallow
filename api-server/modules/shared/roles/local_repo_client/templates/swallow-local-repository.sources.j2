@@ -1,0 +1,10 @@
+# Managed by Swallow (local_repo_client): the Site's Local Repository. The distribution's own
+# sources are renamed with the {{ local_repo_client_disabled_suffix }} suffix.
+{% for source in swallow_local_repository.deb %}
+
+Types: deb
+URIs: {{ source.uri }}
+Suites: {{ source.suites | join(' ') }}
+Components: {{ source.components | join(' ') }}
+Signed-By: {{ local_repo_client_keyring }}
+{% endfor %}

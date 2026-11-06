@@ -30,7 +30,7 @@ Strategic DDD 的部分整理自 Eric Evans 的 [Domain-Driven Design Reference:
 | 部分 | 目前的內容 |
 | --- | --- |
 | core | 資源模型、desired 與 observed state、controller、Workflow 的模型與語意、各類 provider interface 與模組契約、身分與認證、Site 與 Integration 的登錄、監控關聯 |
-| provider | OS provisioning：MAAS；Workflow executor：Temporal；host automation：Ansible；store：MongoDB；metrics 與 alerts：Prometheus、Alertmanager；BMC 與 hypervisor：Redfish、libvirt |
+| provider | OS provisioning：MAAS；Workflow executor：Temporal；host automation：Ansible；store：MongoDB；metrics 與 alerts：Prometheus、Alertmanager；BMC 與 hypervisor：Redfish、libvirt；Local Repository：Pulp |
 | plugin | Platform：Kubernetes、Slurm；Accelerator（與 Platform 分開的維度，一個 GPU 廠商只支援一次）：AMD；Software：每個 Managed Software kind 一個模組（目前的 kind 以 `api-server/modules/software/` 與 Software catalog 為準） |
 
 目前只有一種組合：以上全部，給要開箱即用 GPU datacenter 的 user。依設定選擇 plugin 組裝發行版尚未實作

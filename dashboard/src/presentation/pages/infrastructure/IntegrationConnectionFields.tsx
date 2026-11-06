@@ -1,6 +1,7 @@
 import { Field, Input } from '@chakra-ui/react'
-import { AUTO_INSPECT_SETTING, autoInspectEnabled, type IntegrationKind } from '@/domain/site/types'
+import { AUTO_INSPECT_SETTING, autoInspectEnabled, CONTENT_ORIGIN_SETTING, type IntegrationKind } from '@/domain/site/types'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
+import { integrationSettingsProblem } from './integrationSettings'
 
 interface IntegrationConnectionFieldsProps {
   kind: IntegrationKind
@@ -20,8 +21,36 @@ interface IntegrationConnectionFieldsProps {
  *
  * Every value is a string; a cleared field removes its key rather than storing "" so the backend
  * applies its default. The fields render into the caller's two-column form grid.
+ *
+ * A `repository` Integration recognises only `contentOrigin`, so it shows that field alone; a
+ * malformed value is marked invalid with the reason {@link integrationSettingsProblem} gives, and
+ * the caller blocks its save on the same check (which also refuses an empty value).
  */
 export function IntegrationConnectionFields({ kind, providerKind, settings, onSettingChange, disabled }: IntegrationConnectionFieldsProps) {
+  if (kind === 'repository') {
+    const origin = settings[CONTENT_ORIGIN_SETTING] ?? ''
+    // An empty field is flagged by its required marker only, so a new form does not open in red.
+    const problem = origin ? integrationSettingsProblem(kind, settings) : null
+    return (
+      <div className="sw-resource-form-grid">
+        <Field.Root required disabled={disabled} invalid={problem !== null}>
+          <Field.Label>
+            Content origin <Field.RequiredIndicator />
+          </Field.Label>
+          <Input
+            type="url"
+            value={origin}
+            placeholder="http://10.0.0.5:8080"
+            onChange={(event) => onSettingChange(CONTENT_ORIGIN_SETTING, event.target.value.trim())}
+          />
+          {problem ? <Field.ErrorText>{problem}</Field.ErrorText> : null}
+          <Field.HelperText>
+            Where the Site&apos;s Servers read packages, images, and files. It may differ from the endpoint, which only swallow needs to reach.
+          </Field.HelperText>
+        </Field.Root>
+      </div>
+    )
+  }
   return (
     <div className="sw-resource-form-grid">
       <Field.Root disabled={disabled}>

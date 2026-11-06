@@ -1,48 +1,26 @@
 ---
-# native method: the pinned grafana package from Grafana's official apt or yum repository. The
-# package's own grafana-server unit runs it; a swallow drop-in points it at the management address
-# and the swallow-owned provisioning and data directories, so the package's /etc/grafana is never
-# edited.
+# native method: the pinned grafana package, on Debian from the Site's Local Repository (the
+# playbook's local_repo_client already wrote its apt sources) and on the RHEL family from Grafana's
+# official yum repository. The package's own grafana-server unit runs it; a swallow drop-in points
+# it at the management address and the swallow-owned provisioning and data directories, so the
+# package's /etc/grafana is never edited.
 
-- name: Refuse an OS family without an official Grafana repository
+- name: Refuse an OS family without a Grafana package source
   ansible.builtin.fail:
     msg: >-
-      [os_unsupported] The Grafana native method installs from Grafana's apt or yum repository,
-      which {{ ansible_facts['distribution'] }} ({{ ansible_facts['os_family'] }}) cannot use.
+      [os_unsupported] The Grafana native method installs Grafana's apt or yum package, which
+      {{ ansible_facts['distribution'] }} ({{ ansible_facts['os_family'] }}) cannot use.
   when: ansible_facts['os_family'] not in ['Debian', 'RedHat']
 
-- name: Install Grafana from the official apt repository
+- name: Install Grafana from the Local Repository
   when: ansible_facts['os_family'] == 'Debian'
   block:
-    - name: Ensure the apt keyring directory exists
-      ansible.builtin.file:
-        path: /etc/apt/keyrings
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-
-    - name: Install the Grafana apt key
-      ansible.builtin.get_url:
-        url: "{{ grafana_apt_key_url }}"
-        dest: /etc/apt/keyrings/grafana.asc
-        owner: root
-        group: root
-        mode: "0644"
-        force: false
-      register: grafana_apt_key
-      until: grafana_apt_key is succeeded
-      retries: 5
-      delay: 10
-
-    - name: Register the Grafana apt repository
-      # The cache is refreshed by the install below, which waits for the apt lock; this module
-      # cannot wait, and a freshly booted host is often still running its own apt-get.
-      ansible.builtin.apt_repository:
-        repo: "deb [signed-by=/etc/apt/keyrings/grafana.asc] {{ grafana_apt_repo_url }} stable main"
-        filename: grafana
-        state: present
-        update_cache: false
+    - name: Refuse a Local Repository without the Grafana source
+      ansible.builtin.fail:
+        msg: >-
+          [local_repository_source_missing] The Site's Local Repository has no {{ grafana_apt_source }}
+          deb source, which the grafana module declares. Wait until the source is ready and retry.
+      when: grafana_apt_source not in (swallow_local_repository.deb | map(attribute='name'))
 
     - name: Install the pinned Grafana package (apt)
       ansible.builtin.apt:

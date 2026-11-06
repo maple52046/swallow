@@ -63,7 +63,7 @@ func integrationsListCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().String("site-id", "", "filter by Site (defaults to the global --site)")
-	cmd.Flags().String("kind", "", "filter by kind: provisioner or metrics")
+	cmd.Flags().String("kind", "", "filter by kind: provisioner, metrics, platform, or repository")
 	return cmd
 }
 
@@ -82,7 +82,9 @@ func integrationsCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create an integration from a JSON/YAML body",
-		Long:  "Create a provisioner or metrics integration. kind=platform is rejected by the server; a platform integration is created only by a platform deploy.",
+		Long: "Create a provisioner, metrics, or repository integration. A Site has at most one metrics and one repository " +
+			"integration; a repository integration (the Site's Local Repository) needs settings.contentOrigin. " +
+			"kind=platform is rejected by the server; a platform integration is created only by a platform deploy.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			body, err := requireBodyFile(cmd)
 			if err != nil {

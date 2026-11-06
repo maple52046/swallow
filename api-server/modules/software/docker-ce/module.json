@@ -25,5 +25,17 @@
   "routes": [
     "/api/v1/servers/{id}/docker",
     "/api/v1/software/docker-ce/registry-credentials"
-  ]
+  ],
+  "artifacts": {
+    "sources": [
+      {
+        "name": "docker-ce",
+        "format": "deb",
+        "url": "https://download.docker.com/linux/ubuntu",
+        "suites": ["noble"],
+        "components": ["stable"],
+        "architectures": ["amd64"]
+      }
+    ]
+  }
 }

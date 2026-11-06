@@ -315,6 +315,7 @@ func (r slurmTestServers) FindByID(_ context.Context, id string) (*serverdomain.
 type slurmTestCatalog struct{}
 
 func (slurmTestCatalog) Resolve(name string) (string, error) { return name + ".yml", nil }
+func (slurmTestCatalog) UsesLocalRepository(string) bool     { return false }
 
 // slurmCompositionLauncher is a launcher over deployed test Servers (GPUs on gpus) that knows the
 // installation's monitoring addresses.

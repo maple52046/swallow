@@ -357,7 +357,9 @@ Deployment Key, because swallow logs in to the targets with it (see [ssh-keys.md
 Without one the request is rejected with `409 conflict` before any validation (other than an
 unparsable body or a missing `siteId`, which are `400 validation_error` first), Platform, or
 Workflow is created; the message names the installation command that creates it
-(`swallow-api deployment-key ensure`).
+(`swallow-api deployment-key ensure`). A deploy whose playbooks fetch their artifacts from the
+Site's Local Repository is likewise `409 conflict` while that repository is not ready, with a
+message naming what to register or wait for ([local-repository.md](local-repository.md#deployments)).
 
 By default the targets must already be `deployed`. To provision the operating system inside
 the same Workflow, include an optional `spec.machinePreparation` object (shared by both platform

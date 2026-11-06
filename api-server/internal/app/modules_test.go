@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	moduledomain "github.com/maple52046/swallow/internal/core/module/domain"
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
@@ -209,6 +210,69 @@ func TestSoftwareSpecSchemasAreChecked(t *testing.T) {
 	}
 	if err := modules.software.CheckSpec(softwaredomain.KindNFS, map[string]any{"exportPath": "/export/data"}); err != nil {
 		t.Errorf("CheckSpec(nfs, valid) = %v", err)
+	}
+}
+
+// Every compiled module's artifact declaration is valid on its own, the declarations agree with each
+// other (the registry builds), and the registry reports exactly the modules that declare something.
+func TestCompiledModuleArtifactsAreValid(t *testing.T) {
+	registry := testRegistry(t)
+	declared := map[string]bool{}
+	for _, entry := range registry.Artifacts() {
+		declared[entry.ModuleID] = true
+	}
+	for _, module := range registry.Modules() {
+		artifacts := module.Manifest.Artifacts
+		if err := artifacts.Validate(); err != nil {
+			t.Errorf("module %s artifacts: %v", module.Manifest.Ref(), err)
+		}
+		declares := len(artifacts.Sources)+len(artifacts.Files)+len(artifacts.Images)+len(artifacts.Python) > 0
+		if declared[module.Manifest.ID] != declares {
+			t.Errorf("Artifacts() lists module %s: %v, want %v", module.Manifest.Ref(), declared[module.Manifest.ID], declares)
+		}
+	}
+}
+
+// The AMD module declares every image a GPU Operator release pins, so a release added to the core's
+// catalog cannot deploy images the Local Repository was never asked to fetch.
+func TestAMDModuleDeclaresTheGPUOperatorImages(t *testing.T) {
+	amd, ok := testRegistry(t).Module(moduledomain.KindAccelerator, "amd")
+	if !ok {
+		t.Fatal("no accelerator/amd module")
+	}
+	images := amd.Manifest.Artifacts.Images
+	for _, release := range platformdomain.GPUOperatorReleases() {
+		pinned := []string{release.Images.DevicePlugin, release.Images.NodeLabeller, release.Images.Utils, release.Images.MetricsExporter}
+		for _, image := range release.DRADriverImages {
+			pinned = append(pinned, image)
+		}
+		for _, image := range pinned {
+			if !slices.Contains(images, image) {
+				t.Errorf("GPU Operator %s pins %s, which accelerator/amd does not declare", release.Version, image)
+			}
+		}
+	}
+}
+
+// The Slurm module declares exactly the Python pins Omnistat installs within, so the Local
+// Repository fetches the same environment pip resolves on every node.
+func TestSlurmModuleDeclaresTheOmnistatConstraints(t *testing.T) {
+	slurm, ok := testRegistry(t).Module(moduledomain.KindPlatform, "slurm")
+	if !ok {
+		t.Fatal("no platform/slurm module")
+	}
+	data, err := os.ReadFile(filepath.Join(modulesRoot, "platform", "slurm", "roles", "omnistat", "files", "omnistat-1.15.0-constraints.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pins []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
+			pins = append(pins, line)
+		}
+	}
+	if got := slurm.Manifest.Artifacts.Python; !slices.Equal(got, pins) {
+		t.Errorf("platform/slurm python = %v, want the Omnistat constraints %v", got, pins)
 	}
 }
 

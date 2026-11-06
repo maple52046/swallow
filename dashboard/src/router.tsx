@@ -57,6 +57,7 @@ import {
   IntegrationSubnetDnsTab,
 } from './presentation/pages/infrastructure/IntegrationSettingsTabs'
 import { GroupingPage } from './presentation/pages/infrastructure/GroupingPage'
+import { LocalRepositoryPage } from './presentation/pages/infrastructure/LocalRepositoryPage'
 import { SSHKeysPage } from './presentation/pages/account/SSHKeysPage'
 import { ApiKeysPage } from './presentation/pages/account/ApiKeysPage'
 import { FeatureRoute } from './presentation/components/FeatureRoute'
@@ -158,6 +159,8 @@ export const router = createBrowserRouter([
       },
       { path: 'infrastructure/zones', element: <GroupingPage kind="zone" /> },
       { path: 'infrastructure/pools', element: <GroupingPage kind="pool" /> },
+      // One Site's Local Repository (decision 078): Site-scoped through the URL like the pages above.
+      { path: 'infrastructure/local-repository', element: <LocalRepositoryPage /> },
       // Account settings for the signed-in admin; not Site-scoped (SSH keys are per User).
       { path: 'account/ssh-keys', element: <SSHKeysPage /> },
       // API Keys for non-interactive clients belong to the signed-in User (decision 042).

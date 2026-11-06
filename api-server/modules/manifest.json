@@ -7,7 +7,8 @@
     },
     {
       "name": "deploy-kubernetes",
-      "path": "platform/kubernetes/playbooks/deploy-kubernetes.yml"
+      "path": "platform/kubernetes/playbooks/deploy-kubernetes.yml",
+      "usesLocalRepository": true
     },
     {
       "name": "uninstall-kubernetes",
@@ -15,15 +16,18 @@
     },
     {
       "name": "configure-kubernetes-grafana",
-      "path": "platform/kubernetes/playbooks/configure-kubernetes-grafana.yml"
+      "path": "platform/kubernetes/playbooks/configure-kubernetes-grafana.yml",
+      "usesLocalRepository": true
     },
     {
       "name": "configure-amd-gpu-operator",
-      "path": "accelerator/amd/playbooks/configure-amd-gpu-operator.yml"
+      "path": "accelerator/amd/playbooks/configure-amd-gpu-operator.yml",
+      "usesLocalRepository": true
     },
     {
       "name": "deploy-slurm",
-      "path": "platform/slurm/playbooks/deploy-slurm.yml"
+      "path": "platform/slurm/playbooks/deploy-slurm.yml",
+      "usesLocalRepository": true
     },
     {
       "name": "uninstall-slurm",
@@ -31,7 +35,8 @@
     },
     {
       "name": "deploy-node-exporter",
-      "path": "software/node-exporter/playbooks/deploy-node-exporter.yml"
+      "path": "software/node-exporter/playbooks/deploy-node-exporter.yml",
+      "usesLocalRepository": true
     },
     {
       "name": "uninstall-node-exporter",
@@ -39,7 +44,8 @@
     },
     {
       "name": "install-exporters",
-      "path": "software/node-exporter/playbooks/deploy-node-exporter.yml"
+      "path": "software/node-exporter/playbooks/deploy-node-exporter.yml",
+      "usesLocalRepository": true
     },
     {
       "name": "uninstall-exporters",
@@ -47,7 +53,8 @@
     },
     {
       "name": "deploy-docker-ce",
-      "path": "software/docker-ce/playbooks/deploy-docker-ce.yml"
+      "path": "software/docker-ce/playbooks/deploy-docker-ce.yml",
+      "usesLocalRepository": true
     },
     {
       "name": "uninstall-docker-ce",
@@ -55,7 +62,8 @@
     },
     {
       "name": "deploy-podman",
-      "path": "software/podman/playbooks/deploy-podman.yml"
+      "path": "software/podman/playbooks/deploy-podman.yml",
+      "usesLocalRepository": true
     },
     {
       "name": "uninstall-podman",
@@ -63,7 +71,8 @@
     },
     {
       "name": "deploy-nfs",
-      "path": "software/nfs/playbooks/deploy-nfs.yml"
+      "path": "software/nfs/playbooks/deploy-nfs.yml",
+      "usesLocalRepository": true
     },
     {
       "name": "uninstall-nfs",
@@ -79,7 +88,8 @@
     },
     {
       "name": "deploy-grafana",
-      "path": "software/grafana/playbooks/deploy-grafana.yml"
+      "path": "software/grafana/playbooks/deploy-grafana.yml",
+      "usesLocalRepository": true
     },
     {
       "name": "uninstall-grafana",
@@ -87,11 +97,13 @@
     },
     {
       "name": "configure-omnistat",
-      "path": "platform/slurm/playbooks/configure-omnistat.yml"
+      "path": "platform/slurm/playbooks/configure-omnistat.yml",
+      "usesLocalRepository": true
     },
     {
       "name": "deploy-device-metrics-exporter",
-      "path": "software/device-metrics-exporter/playbooks/deploy-device-metrics-exporter.yml"
+      "path": "software/device-metrics-exporter/playbooks/deploy-device-metrics-exporter.yml",
+      "usesLocalRepository": true
     },
     {
       "name": "uninstall-device-metrics-exporter",
@@ -99,11 +111,13 @@
     },
     {
       "name": "configure-device-metrics-exporter",
-      "path": "software/device-metrics-exporter/playbooks/deploy-device-metrics-exporter.yml"
+      "path": "software/device-metrics-exporter/playbooks/deploy-device-metrics-exporter.yml",
+      "usesLocalRepository": true
     },
     {
       "name": "configure-ntp",
-      "path": "shared/playbooks/configure-ntp.yml"
+      "path": "shared/playbooks/configure-ntp.yml",
+      "usesLocalRepository": true
     }
   ]
 }

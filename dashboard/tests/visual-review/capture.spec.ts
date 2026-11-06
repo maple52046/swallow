@@ -1793,3 +1793,78 @@ test.describe('OS deployment flow visual review', () => {
     await capture(page, testInfo, 'platform-wizard-review')
   })
 })
+
+/** One Local repository capture: the fixture scenario, the route, and the text that marks it rendered. */
+interface LocalRepositoryVisualCase {
+  name: string
+  scenario: 'ready' | 'syncing' | 'failed'
+  path: string
+  rendered: string | RegExp
+}
+
+const localRepositoryVisualCases: readonly LocalRepositoryVisualCase[] = [
+  // Every source and file ready, with the first page of OS packages in the content browser.
+  { name: 'local-repository-ready', scenario: 'ready', path: '/infrastructure/local-repository?site=site-a', rendered: 'Showing 1–25 of 44 OS packages' },
+  // Spinners on the syncing and pending rows, the API's not-ready message, and the polling cue.
+  { name: 'local-repository-syncing', scenario: 'syncing', path: '/infrastructure/local-repository?site=site-a', rendered: 'Updating every 5 s while it converges' },
+  // A failed archive and a checksum mismatch, each with the provider's reason as text.
+  { name: 'local-repository-failed', scenario: 'failed', path: '/infrastructure/local-repository?site=site-a', rendered: /checksum mismatch/ },
+  // site-b has no repository Integration: the explanation and the way to register one.
+  { name: 'local-repository-empty', scenario: 'ready', path: '/infrastructure/local-repository?site=site-b', rendered: 'This Site has no Local Repository' },
+  // The content browser's last page, reached through the URL-owned page.
+  { name: 'local-repository-content-page-2', scenario: 'ready', path: '/infrastructure/local-repository?site=site-a&page=2', rendered: 'Showing 26–44 of 44 OS packages' },
+]
+
+/**
+ * Captures Infrastructure → Local repository (decision 078) in each state a reviewer must read: a
+ * ready repository with its content, a syncing one, a failed source and file with the provider's
+ * reasons, a Site without one, the content browser's second page (also cropped to the browser at
+ * its real scale), and the Manage user sources dialog with a draft source and a field error. The
+ * syncing page polls every 5 s, so each capture waits for its own content rather than for an idle
+ * network. Select them with `--grep local-repository`.
+ */
+test.describe('Local repository visual review', () => {
+  for (const visualCase of localRepositoryVisualCases) {
+    test(visualCase.name, async ({ page }, testInfo) => {
+      const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+      await installApiFixtures(page, { localRepository: visualCase.scenario })
+      await setAppearance(page, appearance)
+      await page.goto(visualCase.path)
+      await expect(page.getByRole('tab', { name: 'Local repository', selected: true })).toBeVisible()
+      await prepareCapture(page, appearance, async () => {
+        await expect(page.getByText(visualCase.rendered).filter({ visible: true }).first()).toBeVisible()
+      })
+      if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
+      await capture(page, testInfo, visualCase.name)
+      if (visualCase.name === 'local-repository-content-page-2') {
+        // A page clip rather than an element capture, so the sticky shell does not cover the browser.
+        const box = await page.locator('.sw-local-repository-content').boundingBox()
+        const viewport = page.viewportSize()
+        if (box && viewport) {
+          await page.screenshot({
+            path: testInfo.outputPath(`${visualCase.name}-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
+            fullPage: true, clip: { x: 0, y: box.y, width: viewport.width, height: Math.min(box.height, viewport.height) },
+          })
+        }
+      }
+    })
+  }
+
+  test('local-repository-user-sources-dialog', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page, { localRepository: 'ready' })
+    await setAppearance(page, appearance)
+    await page.goto('/infrastructure/local-repository?site=site-a')
+    await page.getByRole('button', { name: 'Manage user sources' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Manage user sources' })
+    await dialog.getByText('Sources declared by modules (5), not editable here').click()
+    await dialog.getByRole('textbox', { name: /^Name/ }).fill('ubuntu-ports')
+    await dialog.getByRole('textbox', { name: /^URL/ }).fill('http://ports.ubuntu.com/ubuntu-ports')
+    await dialog.getByRole('textbox', { name: /^Suites/ }).fill('noble noble')
+    await expect(dialog.getByText('List each suite once.')).toBeVisible()
+    await prepareCapture(page, appearance, async () => {
+      await expect(dialog.getByRole('list', { name: 'Sources declared by modules' })).toBeVisible()
+    })
+    await capture(page, testInfo, 'local-repository-user-sources-dialog', false)
+  })
+})

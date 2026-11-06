@@ -5,8 +5,8 @@
 Initial setup establishes the Site boundary, external Integrations, and the
 automation policy required before swallow can manage Servers.
 
-The [production installation](../installation.md) already performs steps 1 to 4 for the
-Site `default` with its co-located MAAS and its Prometheus. Use this guide to review that result, to add more
+The [production installation](../installation.md) already performs steps 1 to 5 for the
+Site `default` with its co-located MAAS, its Prometheus, and its local repository. Use this guide to review that result, to add more
 Sites, or to set up a development stack.
 
 ## 1. Create the Site
@@ -78,7 +78,33 @@ swallow's HTTP service-discovery endpoint, so scraped series receive stable `ser
 `site`, `platform_id`, and `exporter` labels. In this version other Sites have no
 Prometheus.
 
-## 4. Configure Site automation
+## 4. Register the local repository
+
+Deployments install packages, container images, Python packages, and files only
+from the Site's **local repository**, never from the Internet. It runs next to
+swallow (Pulp, in the same installation), fetches each artifact from its upstream
+once, and serves it to every Server of the Site. Deployments therefore do not
+depend on the Site's Internet bandwidth, and every Server gets the same content,
+kept at the Site; OS package indexes are signed with the Site's own key and
+files are checked against their declared checksums.
+
+The production installation registers it as the Site's `repository` / `pulp`
+Integration and adds the Ubuntu archive as the Site's `ubuntu` source. A Site has
+at most one. Everything else it holds is declared by swallow's own modules, for
+example the Docker CE package archive, the k0s binary, and the container images a
+Platform runs, so you add a source only for something swallow does not declare.
+For a development stack, register it yourself: the endpoint is where swallow
+reaches Pulp's API, the `contentOrigin` setting is the address Servers reach it
+at, and the credential is the Pulp admin password.
+
+A deployment that needs it is refused while the Site has no local repository or
+its content is not ready yet; the message names what to register or wait for.
+**Infrastructure → Local repository** shows its sources and their sync state and
+lets you browse its content by format, with the module that declared each item.
+See the [local repository contract](../../../api-server/docs/development/api-contracts/api-server/local-repository.md)
+for the API.
+
+## 5. Configure Site automation
 
 Site automation defines:
 
@@ -95,9 +121,11 @@ private key of its own. See [SSH keys and image login users](ssh-keys.md).
 Only playbooks in the shipped manifest can execute. Automation is not an
 external Integration; it is a Site-scoped swallow capability.
 
-## 5. Verify readiness
+## 6. Verify readiness
 
 - Integration sync has a recent `lastSucceededAt` and no unresolved error.
+- **Infrastructure → Local repository** says deployments are accepted: every
+  source, file, and declared image is **Ready**.
 - Servers appear after reconcile; add more with **Servers → Add servers** (see
   [Add servers](servers-and-infrastructure.md#add-servers)).
 - Worker and Ansible executor are healthy.

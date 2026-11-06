@@ -103,6 +103,7 @@ api-server/
 │   │   ├── executor/temporalworkflow/
 │   │   ├── hostautomation/ansible/
 │   │   ├── metrics/promstack/
+│   │   ├── localrepo/pulp/
 │   │   ├── bmc/redfish/
 │   │   ├── hypervisor/libvirt/
 │   │   ├── hostaccess/sshaccess/    # Ansible 之外直接 SSH 到 host（Server Default User、Hypervisor）
@@ -121,7 +122,7 @@ api-server/
 ```
 
 - **core**：`<context>` 是現在的 feature slice（site、server、provisioning、workflow、platform、software、sshkey、
-  auth、apikey、infrastructure、monitoring、overview、discovery），各自保留 domain、application、delivery 三層。
+  auth、apikey、infrastructure、monitoring、overview、discovery、localrepo），各自保留 domain、application、delivery 三層。
   `convergence`（controller 框架：runtime、lease、`KeysForChange`、Change Plan；用法見 desired-state-model.md §7、§12）
   與 `module`（模組契約與 registry）是各 slice 共用的機制，不是 feature slice。
   Delivery（HTTP）屬於 core，因為它是 swallow 自己發佈的契約。core 不得 import `internal/adapters` 或
@@ -215,6 +216,9 @@ playbook 與 role 屬於哪個模組，以 `modules/` 的目錄為準；在 `mod
 - `workflow` — Workflow/Job/Task domain、execution records 與 artifacts（型別與 collection 沿用先前的 Operation
   名稱；runner 在 `internal/adapters/hostautomation/ansible`）。
 - `monitoring`／`overview`／`discovery` — read models 與 external live queries。
+- `localrepo` — 每個 Site 的 Local Repository：模組宣告與 Site 來源合併成的有效內容、把 `repository` Integration
+  收斂過去的 controller，以及部署受理時解析主機 trusted var 的 resolver（adapter 在
+  `internal/adapters/localrepo/pulp`）。
 
 Schema／data evolution 在 store adapter 的 `migration`。Context 之間不得 import 對方的 adapter；cross-context
 coordination 透過 application port 或 `internal/app` adapter 組合。

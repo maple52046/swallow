@@ -679,8 +679,9 @@ paths:
             other targets or the template, or needs a new inspection before a disk deployment;
             the image is a custom image not verified for the deploy target, not fully staged, or
             of another architecture; the provisioner cannot deploy from memory; a network
-            conflict; a target is already held by an unfinished Workflow; or the installation
-            has no Deployment Key or no NTP server (`SWALLOW_API_NTP_SERVER`).
+            conflict; a target is already held by an unfinished Workflow; the installation
+            has no Deployment Key or no NTP server (`SWALLOW_API_NTP_SERVER`); or the Site's Local
+            Repository is not ready for a Task that fetches from it (local-repository.md).
           content:
             application/json:
               schema:

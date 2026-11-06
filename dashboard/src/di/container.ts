@@ -15,6 +15,7 @@ import { ApiRegistryCredentialRepository } from '@/infrastructure/api/ApiRegistr
 import { ApiSSHKeyRepository } from '@/infrastructure/api/ApiSSHKeyRepository'
 import { ApiApiKeyRepository } from '@/infrastructure/api/ApiApiKeyRepository'
 import { ApiChangePlanRepository } from '@/infrastructure/api/ApiChangePlanRepository'
+import { ApiLocalRepository } from '@/infrastructure/api/ApiLocalRepository'
 import { ApiKubernetesExplorer } from '@/modules/platform/kubernetes/infrastructure/ApiKubernetesExplorer'
 import { ApiSlurmPlatform } from '@/modules/platform/slurm/infrastructure/ApiSlurmPlatform'
 import { ApiAMDPlatform } from '@/modules/accelerator/amd/infrastructure/ApiAMDPlatform'
@@ -39,6 +40,7 @@ import type { RegistryCredentialRepository } from '@/application/ports/RegistryC
 import type { SSHKeyRepository } from '@/application/ports/SSHKeyRepository'
 import type { ApiKeyRepository } from '@/application/ports/ApiKeyRepository'
 import type { ChangePlanRepository } from '@/application/ports/ChangePlanRepository'
+import type { LocalRepositoryPort } from '@/application/ports/LocalRepositoryPort'
 import type { ExperimentalFeatureSettings } from '@/application/ports/ExperimentalFeatureSettings'
 import type { KubernetesExplorerPort } from '@/modules/platform/kubernetes/KubernetesExplorerPort'
 import type { SlurmPlatformPort } from '@/modules/platform/slurm/SlurmPlatformPort'
@@ -73,6 +75,8 @@ export interface AppContainer {
   apiKeys: ApiKeyRepository
   /** Change Plans of destructive changes, which an admin approves or rejects as a whole (decision 076). */
   changePlans: ChangePlanRepository
+  /** Each Site's Local Repository: its sync state, its content, and the user's sources (decision 078). */
+  localRepository: LocalRepositoryPort
   operations: OperationRepository
   monitoring: MonitoringRepository
   /** Which in-development dashboard features are shown; adjustable only in development builds. */
@@ -116,6 +120,7 @@ export function createContainer(): AppContainer {
     sshKeys: new ApiSSHKeyRepository(),
     apiKeys: new ApiApiKeyRepository(),
     changePlans: new ApiChangePlanRepository(),
+    localRepository: new ApiLocalRepository(),
     operations: new ApiOperationRepository(),
     monitoring: new ApiMonitoringRepository(),
     experimentalFeatures: import.meta.env.DEV

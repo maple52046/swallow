@@ -311,7 +311,7 @@ swallow integrations enroll-bundle int1 --swallow-url https://swallow.example.co
 provisioner 的 `settings.autoInspect: "false"` 會關閉新納管 Server 的自動硬體檢視；
 未設定代表開啟。
 
-`integration.yaml`（kind 可為 `provisioner` 或 `metrics`；`platform` 會被拒絕）：
+`integration.yaml`（kind 可為 `provisioner`、`metrics` 或 `repository`；`platform` 會被拒絕）：
 
 ```yaml
 siteId: site1
@@ -323,6 +323,24 @@ settings: {}
 credential:
   apiKey: "REDACTED-MAAS-API-KEY"
 ```
+
+`repository` Integration 是 Site 的 Local Repository，部署的所有 artifact 都從它取得；一個 Site
+至多一個。`endpoint` 是 swallow 呼叫 provider API 的位址，`settings.contentOrigin`（必填）是
+Site 的 Server 讀取內容的位址，credential 是 provider 的 admin 密碼：
+
+```yaml
+siteId: site1
+kind: repository
+providerKind: pulp
+name: local-repository
+endpoint: http://pulp-web:8080
+settings:
+  contentOrigin: http://10.170.168.20:8080
+credential: "REDACTED-PULP-ADMIN-PASSWORD"
+```
+
+CLI 目前還沒有 Local Repository 本身的指令（內容、同步狀態與 Site 的來源）；請使用 Dashboard 或
+HTTP API。
 
 ### servers
 

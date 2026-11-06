@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Button, Table, Text, VisuallyHidden } from '@chakra-ui/react'
 import { Plus } from 'lucide-react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { Integration, IntegrationKind } from '@/domain/site/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
@@ -20,7 +20,7 @@ import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatRelative } from '@/shared/utils/time'
 import { credentialGuidance } from './credentialGuidance'
 import { InfrastructureHeader } from './InfrastructureHeader'
-import { CreateIntegrationDialog } from './CreateIntegrationDialog'
+import { CreateIntegrationDialog, type CreatableIntegrationRole } from './CreateIntegrationDialog'
 import { isMaasProvisioner } from './integrationSettings'
 import { ResourceDeleteDialog } from './ResourceDeleteDialog'
 
@@ -33,6 +33,22 @@ const KIND_LABELS: Record<IntegrationKind, string> = {
   provisioner: 'Provisioner',
   metrics: 'Metrics',
   platform: 'Platform',
+  repository: 'Repository',
+}
+
+/**
+ * The navigation state another page sends to open Create integration with a role preselected (the
+ * Local repository page does for a Site without one). It is history state rather than a URL
+ * parameter because it is a one-time action, not a shareable view.
+ */
+interface CreateIntegrationRequest {
+  createIntegration: CreatableIntegrationRole
+}
+
+/** Reads a {@link CreateIntegrationRequest} from untyped history state; anything else is no request. */
+function requestedCreateRole(state: unknown): CreatableIntegrationRole | null {
+  const role = (state as Partial<CreateIntegrationRequest> | null)?.createIntegration
+  return role === 'provisioner' || role === 'metrics' || role === 'repository' ? role : null
 }
 
 /**
@@ -55,18 +71,31 @@ function credentialHint(integration: Integration): string {
  * Registration uses the Create integration dialog; editing an existing Integration, including its
  * write-only credential, happens on its settings page, which the name, Edit, and Credential
  * actions open at the matching tab. Deletion stays a confirmation dialog here. Desktop rows and
- * mobile cards share the same filters, status semantics, and actions.
+ * mobile cards share the same filters, status semantics, and actions. Another page may open the
+ * dialog with a role preselected through a {@link CreateIntegrationRequest}.
  */
 export function IntegrationsPage() {
   const { sites: repository } = useApp()
   const { showToast } = useToast()
   const { sites, siteId, scopedHref } = useSiteScope()
   const navigate = useNavigate()
+  const location = useLocation()
   const [state, setState] = useState<IntegrationsState>({ status: 'loading' })
   const [query, setQuery] = useState('')
   const [kind, setKind] = useState<IntegrationKind | ''>('')
-  const [creating, setCreating] = useState(false)
+  // `null` is closed; otherwise the role the dialog opens with (`undefined` for its default).
+  const [creating, setCreating] = useState<{ kind?: CreatableIntegrationRole } | null>(() => {
+    const requested = requestedCreateRole(location.state)
+    return requested ? { kind: requested } : null
+  })
   const [deleting, setDeleting] = useState<Integration | null>(null)
+
+  // A create request in history state is consumed once: dropping it keeps a reload or a Back
+  // navigation from reopening the dialog.
+  useEffect(() => {
+    if (!requestedCreateRole(location.state)) return
+    navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: null })
+  }, [location.pathname, location.search, location.state, navigate])
 
   const load = useCallback(async () => {
     try {
@@ -103,12 +132,17 @@ export function IntegrationsPage() {
     scopedHref(`/infrastructure/integrations/${encodeURIComponent(integration.id)}/${tab}`)
 
   // A new MAAS provisioner still has settings only its page offers (its HTTP proxy and Subnet DNS),
-  // so it opens there; any other Integration is complete and stays in the list.
+  // so it opens there; a new repository opens its Site's Local repository page, where its first
+  // sync shows; any other Integration is complete and stays in the list.
   const handleCreated = async (created: Integration) => {
-    setCreating(false)
+    setCreating(null)
     showToast({ tone: 'success', title: 'Integration created' })
     if (isMaasProvisioner(created)) {
       navigate(settingsHref(created, 'general'))
+      return
+    }
+    if (created.kind === 'repository') {
+      navigate(scopedHref('/infrastructure/local-repository', created.siteId))
       return
     }
     await load()
@@ -128,7 +162,7 @@ export function IntegrationsPage() {
     <div className="console-page">
       <InfrastructureHeader
         actions={
-          <Button colorPalette="brand" onClick={() => setCreating(true)} disabled={sites.length === 0}>
+          <Button colorPalette="brand" onClick={() => setCreating({})} disabled={sites.length === 0}>
             <Plus size={16} />
             Create integration
           </Button>
@@ -147,6 +181,7 @@ export function IntegrationsPage() {
             { value: 'provisioner', label: 'Provisioner' },
             { value: 'metrics', label: 'Metrics' },
             { value: 'platform', label: 'Platform' },
+            { value: 'repository', label: 'Repository' },
           ]}
         />
       </DataToolbar>
@@ -157,7 +192,7 @@ export function IntegrationsPage() {
         <EmptyState
           title="No integrations"
           message={query || kind ? 'No results match these filters.' : 'Connect a provider to a site.'}
-          action={!query && !kind && sites.length > 0 ? { label: 'Create integration', onClick: () => setCreating(true) } : undefined}
+          action={!query && !kind && sites.length > 0 ? { label: 'Create integration', onClick: () => setCreating({}) } : undefined}
         />
       )}
       {state.status === 'ready' && filtered.length > 0 && (
@@ -247,7 +282,8 @@ export function IntegrationsPage() {
         <CreateIntegrationDialog
           sites={sites}
           defaultSiteId={siteId}
-          onClose={() => setCreating(false)}
+          defaultKind={creating.kind}
+          onClose={() => setCreating(null)}
           onCreated={(created) => void handleCreated(created)}
         />
       )}

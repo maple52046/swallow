@@ -22,7 +22,7 @@
 | `/workflows`、`/workflows/:id` | Durable Workflow list、event、log 與 control |
 | `/change-plans` | 等待核准的 Change Plan |
 | `/monitoring` | Health、用量圖表（勾選 Server、Pool、Zone、Platform）、current metric、選用的 Grafana，以及（開發中的）alert 與 silence |
-| `/infrastructure/*` | Site、Integration、Zone、Pool |
+| `/infrastructure/*` | Site、Integration、Zone、Pool，以及 Site 的 Local repository |
 | `/account/ssh-keys`、`/account/api-keys` | 你的 SSH key 與 API key（account menu） |
 
 `/clusters`、`/operations` 與已退役的 `/provisioning/deploy` 頁面是

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	localrepodomain "github.com/maple52046/swallow/internal/core/localrepo/domain"
 	"github.com/maple52046/swallow/internal/core/platform/application"
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
@@ -613,6 +614,9 @@ func respondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, platformdomain.ErrMonitoringEndpointMissing),
 		// A target cannot take the Managed Software the deployment composes (decision 063).
 		errors.Is(err, platformdomain.ErrComposedSoftwareConflict),
+		// The deployment's hosts fetch their artifacts from the Site's Local Repository, which is
+		// not ready; the message names what to register or wait for.
+		errors.Is(err, localrepodomain.ErrLocalRepositoryUnavailable),
 		errors.Is(err, serverdomain.ErrServerLocked):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 

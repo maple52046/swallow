@@ -425,7 +425,7 @@ export interface paths {
         get: operations["listIntegrations"];
         put?: never;
         /**
-         * Register a provisioner or metrics Integration for a Site.
+         * Register a provisioner, metrics, or repository Integration for a Site.
          * @description Requires role `admin`. `kind` and `providerKind` are validated together. `kind` `platform` is refused: a platform Integration is created only by a successful Platform deployment (decision 032). `name` and `endpoint` are trimmed. `enabled` defaults to true. The credential is write-only and never returned.
          */
         post: operations["createIntegration"];
@@ -823,7 +823,7 @@ export interface paths {
         put?: never;
         /**
          * Create a Platform from its spec and propose its install as a Change Plan.
-         * @description Requires the `admin` role. The spec is validated as a deployment would be (the Deployment Key, topology, targets, network, and features) before anything is written; then the Platform is stored at generation 1 with its members claimed, and its install is the returned Change Plan (platforms.md, Create A Platform): approved with the request when it sends `approve=true` and the policy allows it, waiting for approval otherwise. Nothing touches a machine until the plan is approved. 400 for an invalid body, spec, topology, target, network, or feature; 404 for an unknown Site; 409 when the installation has no Deployment Key, the name is taken, or a target is claimed, locked, or held by another Workflow; 503 when Site automation is not configured.
+         * @description Requires the `admin` role. The spec is validated as a deployment would be (the Deployment Key, topology, targets, network, and features) before anything is written; then the Platform is stored at generation 1 with its members claimed, and its install is the returned Change Plan (platforms.md, Create A Platform): approved with the request when it sends `approve=true` and the policy allows it, waiting for approval otherwise. Nothing touches a machine until the plan is approved. 400 for an invalid body, spec, topology, target, network, or feature; 404 for an unknown Site; 409 when the installation has no Deployment Key, the Site's Local Repository is not ready (local-repository.md), the name is taken, or a target is claimed, locked, or held by another Workflow; 503 when Site automation is not configured.
          */
         post: operations["createPlatform"];
         delete?: never;
@@ -3213,6 +3213,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sites/{siteId}/local-repository": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site's `id`. */
+                siteId: components["parameters"]["LocalRepositorySiteId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a Site's Local Repository and its sync state.
+         * @description Requires role `admin`. Returns the user's spec and the effective content (the modules' declarations merged with the spec) with the sync state the worker last recorded. It is read from swallow's store; the provider is not called.
+         */
+        get: operations["getLocalRepository"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sites/{siteId}/local-repository/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site's `id`. */
+                siteId: components["parameters"]["LocalRepositorySiteId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Browse one page of a Site's Local Repository content of one format.
+         * @description Requires role `admin`. Read live from the provider. `format` is required; `source` keeps only the content of one Repository Source and `search` only items whose name contains it.
+         */
+        get: operations["browseLocalRepositoryContent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sites/{siteId}/local-repository/spec": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site's `id`. */
+                siteId: components["parameters"]["LocalRepositorySiteId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace the Repository Sources a user adds to a Site's Local Repository.
+         * @description Requires role `admin`. `generation` is the spec generation the writer read (`0` before the first write); `sources` is the whole list and replaces the stored one. The worker converges the provider afterwards; the response is the stored spec with the last recorded state.
+         */
+        put: operations["putLocalRepositorySpec"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sites/{siteId}/local-repository/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site's `id`. */
+                siteId: components["parameters"]["LocalRepositorySiteId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask the worker to converge the Local Repositories now.
+         * @description Requires role `admin`. No request body. Asks the Local Repository controller to converge every Site's repository now rather than at its next resync; results appear in a later read.
+         */
+        post: operations["syncLocalRepository"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/software/assignments": {
         parameters: {
             query?: never;
@@ -4626,20 +4718,20 @@ export interface components {
              * @description The role the external system plays. `platform` Integrations are created only by a successful Platform deployment.
              * @enum {string}
              */
-            kind: "provisioner" | "metrics" | "platform";
+            kind: "provisioner" | "metrics" | "platform" | "repository";
             /** @description Unique within the Site. */
             name: string;
             /**
-             * @description The product implementing `kind`: `maas` (provisioner), `prometheus` (metrics), `kubernetes` or `slurm` (platform).
+             * @description The product implementing `kind`: `maas` (provisioner), `prometheus` (metrics), `kubernetes` or `slurm` (platform), `pulp` (repository).
              * @enum {string}
              */
-            providerKind: "maas" | "prometheus" | "kubernetes" | "slurm";
+            providerKind: "maas" | "prometheus" | "kubernetes" | "slurm" | "pulp";
             settings: components["schemas"]["IntegrationSettings"];
             siteId: string;
             sync: components["schemas"]["IntegrationSyncState"];
             updatedAt: components["schemas"]["Timestamp"];
         };
-        /** @description Non-secret adapter options as a string map; `{}` when none are set. Keys a provisioner Integration recognises (`timeout`, `insecureSkipVerify`, `autoInspect`, `virshSshPublicKey`) are described in sites-integrations.md; other keys are stored and returned unchanged. */
+        /** @description Non-secret adapter options as a string map; `{}` when none are set. Keys a provisioner Integration recognises (`timeout`, `insecureSkipVerify`, `autoInspect`, `virshSshPublicKey`) and the keys of a metrics or repository Integration (such as `contentOrigin`) are described in sites-integrations.md; other keys are stored and returned unchanged. */
         IntegrationSettings: {
             [key: string]: string;
         };
@@ -4867,6 +4959,135 @@ export interface components {
             /** @description The release version the process was started with. */
             version: string;
         };
+        LocalRepository: {
+            /** @description The Local Repository controller's judgements (local-repository.md, Conditions): `ready`, `realized`, and `requires_attention`, each for the generation it names; `[]` before the controller first looked at the Site's Integration. */
+            conditions: components["schemas"]["Condition"][];
+            /** @description The Integration's `contentOrigin` setting, where hosts read content; null when unset. */
+            contentOrigin: string | null;
+            /** @description The files the modules declare, ordered by path. */
+            files: {
+                declaredBy: components["schemas"]["LocalRepositoryDeclaredBy"];
+                message: string | null;
+                path: string;
+                sha256: string;
+                /**
+                 * Format: int64
+                 * @description `0` until the file was fetched.
+                 */
+                sizeBytes: number;
+                state: components["schemas"]["LocalRepositorySyncState"];
+                url: string;
+            }[];
+            /** @description The container images the modules declare, ordered by reference; fetched in advance through their registry's pull-through source and `ready` once the provider stores every layer. */
+            images: {
+                declaredBy: components["schemas"]["LocalRepositoryDeclaredBy"];
+                message: string | null;
+                reference: string;
+                /**
+                 * Format: int64
+                 * @description `0` until the image is stored.
+                 */
+                sizeBytes: number;
+                state: components["schemas"]["LocalRepositorySyncState"];
+            }[];
+            /** @description The Site's `repository` Integration. */
+            integrationId: string;
+            /** @description When the worker last observed the repository; null before the first observation. */
+            observedAt: components["schemas"]["Timestamp"] | null;
+            /**
+             * Format: int64
+             * @description The spec generation the worker's last complete pass converged; equal to `spec.generation` once the latest spec has been observed.
+             */
+            observedGeneration: number;
+            /** @description The Python requirements the modules declare, ordered; fetched through the `pypi` source. */
+            python: {
+                declaredBy: components["schemas"]["LocalRepositoryDeclaredBy"];
+                requirement: string;
+            }[];
+            /** @description Every source, file, and image is `ready` on the enabled Integration and the host addresses were read: deployments that fetch from the Local Repository are accepted. */
+            ready: boolean;
+            siteId: string;
+            /** @description The effective Repository Sources, ordered by name. */
+            sources: {
+                architectures: string[];
+                components: string[];
+                /** @description How many items the source serves; `0` when unknown. */
+                contentCount: number;
+                declaredBy: components["schemas"]["LocalRepositoryDeclaredBy"];
+                format: components["schemas"]["LocalRepositoryFormat"];
+                lastSyncedAt: components["schemas"]["Timestamp"] | null;
+                message: string | null;
+                name: string;
+                state: components["schemas"]["LocalRepositorySyncState"];
+                suites: string[];
+                url: string;
+            }[];
+            spec: {
+                /**
+                 * Format: int64
+                 * @description The spec generation; `0` before the first write.
+                 */
+                generation: number;
+                sources: components["schemas"]["LocalRepositorySpecSource"][];
+            };
+        };
+        LocalRepositoryContentPage: {
+            items: {
+                architecture: string | null;
+                name: string;
+                path: string | null;
+                /** Format: int64 */
+                sizeBytes: number | null;
+                /** @description The Repository Source that serves it. */
+                source: string | null;
+                version: string | null;
+            }[];
+            page: number;
+            pageSize: number;
+            /** @description The number of matching items across all pages. */
+            total: number;
+        };
+        /** @description Who declared the item, in declaration order; `module:<id>` for a module, `user` for the spec. */
+        LocalRepositoryDeclaredBy: string[];
+        /**
+         * @description The kind of content: OS packages (`deb`, `rpm`), container images (`oci`), Python packages (`python`), or single files (`file`).
+         * @enum {string}
+         */
+        LocalRepositoryFormat: "deb" | "rpm" | "oci" | "python" | "file";
+        /** @description A Repository Source of the user's spec. */
+        LocalRepositorySpecSource: {
+            architectures: string[];
+            components: string[];
+            format: components["schemas"]["LocalRepositoryFormat"];
+            name: string;
+            suites: string[];
+            url: string;
+        };
+        LocalRepositorySpecWrite: {
+            /**
+             * Format: int64
+             * @description The spec generation the writer read; `0` before the first write.
+             */
+            generation: number;
+            sources: {
+                /** @description Optional for `deb` and `rpm`; not allowed for other formats. */
+                architectures?: string[];
+                /** @description Required (at least one) for `deb`; not allowed for other formats. */
+                components?: string[];
+                format: components["schemas"]["LocalRepositoryFormat"];
+                /** @description 1 to 63 lower-case letters, digits, `.`, `_`, or `-`, starting and ending with a letter or digit; unique in the list. */
+                name: string;
+                /** @description Required (at least one) for `deb`; not allowed for other formats. */
+                suites?: string[];
+                /** @description The upstream's http or https URL, without credentials. */
+                url: string;
+            }[];
+        };
+        /**
+         * @description `pending`: not fetched yet (or not observed since its definition changed); `syncing`: a fetch runs; `ready`: served; `failed`: the last fetch failed and `message` says why.
+         * @enum {string}
+         */
+        LocalRepositorySyncState: "pending" | "syncing" | "ready" | "failed";
         /**
          * @description One of the fixed named metric queries (server-metrics.md, Metric Names).
          * @enum {string}
@@ -7033,7 +7254,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description A target is already in unfinished work, a target is protected by its Server Lock, a target is not in the provisioning state the kind requires, or the intent contradicts a Platform policy (`conflict`). */
+        /** @description A target is already in unfinished work, a target is protected by its Server Lock, a target is not in the provisioning state the kind requires, the intent contradicts a Platform policy, or the playbook fetches from the Site's Local Repository and it is not ready (`conflict`). */
         WorkflowCreateConflict: {
             headers: {
                 [name: string]: unknown;
@@ -7130,6 +7351,8 @@ export interface components {
         KubernetesNodeName: string;
         /** @description The object's name within the namespace. */
         KubernetesObjectName: string;
+        /** @description The Site's `id`. */
+        LocalRepositorySiteId: string;
         /** @description Comma-separated metric names to evaluate; every name when omitted. */
         MetricNames: components["schemas"]["MetricName"][];
         /** @description The image's architecture as the catalog returns it; one image id can back several. */
@@ -8252,7 +8475,7 @@ export interface operations {
             query?: {
                 /** @description Restrict to the Integrations of this Site. */
                 siteId?: string;
-                /** @description Restrict to one Integration kind: `provisioner`, `metrics`, or `platform`. Not validated. */
+                /** @description Restrict to one Integration kind: `provisioner`, `metrics`, `platform`, or `repository`. Not validated. */
                 kind?: string;
             };
             header?: never;
@@ -8291,14 +8514,14 @@ export interface operations {
                     enabled?: boolean;
                     endpoint: string;
                     /** @enum {string} */
-                    kind: "provisioner" | "metrics";
+                    kind: "provisioner" | "metrics" | "repository";
                     /** @description Unique within the Site. */
                     name: string;
                     /**
-                     * @description `maas` for `provisioner`; `prometheus` for `metrics`.
+                     * @description `maas` for `provisioner`; `prometheus` for `metrics`; `pulp` for `repository`.
                      * @enum {string}
                      */
-                    providerKind: "maas" | "prometheus";
+                    providerKind: "maas" | "prometheus" | "pulp";
                     settings?: components["schemas"]["IntegrationSettings"];
                     siteId: string;
                 };
@@ -8334,7 +8557,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `conflict`: another Integration of the Site has the name. */
+            /** @description `conflict`: another Integration of the Site has the name, or the Site already has its one `metrics` or `repository` Integration and the request is for another of that kind. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10924,7 +11147,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `conflict`: a target is absent, not ready, locked, of another Integration than the other targets or the template, or needs a new inspection before a disk deployment; the image is a custom image not verified for the deploy target, not fully staged, or of another architecture; the provisioner cannot deploy from memory; a network conflict; a target is already held by an unfinished Workflow; or the installation has no Deployment Key or no NTP server (`SWALLOW_API_NTP_SERVER`). */
+            /** @description `conflict`: a target is absent, not ready, locked, of another Integration than the other targets or the template, or needs a new inspection before a disk deployment; the image is a custom image not verified for the deploy target, not fully staged, or of another architecture; the provisioner cannot deploy from memory; a network conflict; a target is already held by an unfinished Workflow; the installation has no Deployment Key or no NTP server (`SWALLOW_API_NTP_SERVER`); or the Site's Local Repository is not ready for a Task that fetches from it (local-repository.md). */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -14490,6 +14713,195 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    getLocalRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site's `id`. */
+                siteId: components["parameters"]["LocalRepositorySiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Site's Local Repository. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalRepository"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `not_found`: the Site does not exist or has no `repository` Integration. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    browseLocalRepositoryContent: {
+        parameters: {
+            query: {
+                format: components["schemas"]["LocalRepositoryFormat"];
+                /** @description A Repository Source name. */
+                source?: string;
+                /** @description A substring of the item name. */
+                search?: string;
+                page?: components["parameters"]["Page"];
+                pageSize?: components["parameters"]["PageSize"];
+            };
+            header?: never;
+            path: {
+                /** @description The Site's `id`. */
+                siteId: components["parameters"]["LocalRepositorySiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of content. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalRepositoryContentPage"];
+                };
+            };
+            /** @description `validation_error`: `format` is missing or unknown, `page` or `pageSize` is out of range, or the provider refused the query (the message is the provider's reason). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `not_found`: the Site does not exist or has no `repository` Integration. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `provider_unavailable`: the provider could not be reached, refused the Integration's credential, or the Integration has no credential. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    putLocalRepositorySpec: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site's `id`. */
+                siteId: components["parameters"]["LocalRepositorySiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocalRepositorySpecWrite"];
+            };
+        };
+        responses: {
+            /** @description The Site's Local Repository with the new spec. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalRepository"];
+                };
+            };
+            /** @description `validation_error`: the body is not valid JSON, `generation` is missing or negative, a source is invalid or listed twice, or a source contradicts what a module declares. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `not_found`: the Site does not exist or has no `repository` Integration. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `conflict`: `generation` is not the stored generation; the spec changed since it was read. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    syncLocalRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site's `id`. */
+                siteId: components["parameters"]["LocalRepositorySiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The convergence was requested. The body is the plain-text status text `Accepted`, which carries no information; consumers must ignore it. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `not_found`: the Site does not exist or has no `repository` Integration. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
     listSoftwareAssignments: {
         parameters: {
             query?: {
@@ -14562,7 +14974,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `conflict`: a mutually exclusive kind is present on a target; a target is a Kubernetes Platform member and the kind refuses members; a target has a Platform Claim and the kind refuses claimed Servers; a target lacks the AMD compute GPUs the kind requires; the `container` method's runtime is not `installed` on a target or differs from `spec.containerRuntime`; a target Server is absent or not in provisioning state `deployed`; or, when the Workflow is created, a target already has active durable work or is locked. */
+            /** @description `conflict`: a mutually exclusive kind is present on a target; a target is a Kubernetes Platform member and the kind refuses members; a target has a Platform Claim and the kind refuses claimed Servers; a target lacks the AMD compute GPUs the kind requires; the `container` method's runtime is not `installed` on a target or differs from `spec.containerRuntime`; a target Server is absent or not in provisioning state `deployed`; when the Workflow is created, a target already has active durable work or is locked; or the Site's Local Repository is not ready for the install (local-repository.md). */
             409: {
                 headers: {
                     [name: string]: unknown;

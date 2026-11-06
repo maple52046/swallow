@@ -12,11 +12,13 @@ device_metrics_exporter_job_attribution: >-
 device_metrics_exporter_slurm: "{{ device_metrics_exporter_job_attribution == 'slurm' }}"
 # AMD's native Ubuntu package per version: gpuagent and amd-metrics-exporter under systemd, with
 # their runtime libraries embedded, so no privileged container and no apt repository is needed.
-# config is the package's own /etc/metrics/config.json, kept unchanged as the base swallow overrides.
+# path and sha256 locate the package under swallow_local_repository.files; the module that installs
+# it declares the same file artifact, which a content test keeps in step. config is the package's
+# own /etc/metrics/config.json, kept unchanged as the base swallow overrides.
 device_metrics_exporter_packages:
   "1.5.3":
-    url: https://repo.radeon.com/device-metrics-exporter/apt/1.5.3/pool/main/a/amdgpu-exporter/amdgpu-exporter_1.5.3~24.04_amd64.deb
-    checksum: sha256:fa5cc3f949c89f3e944798bf6326cded16de7aca6449e80de7376d2b824886b7
+    path: device-metrics-exporter/1.5.3/amdgpu-exporter_1.5.3~24.04_amd64.deb
+    sha256: fa5cc3f949c89f3e944798bf6326cded16de7aca6449e80de7376d2b824886b7
     version: 1.5.3~24.04
     distribution_release: noble
     config: config-1.5.3.json

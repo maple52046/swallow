@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Button, Field, Heading, Input, Stack } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
-import type { Integration, Site } from '@/domain/site/types'
+import type { Integration, IntegrationKind, Site } from '@/domain/site/types'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
@@ -11,29 +11,39 @@ import { Select } from '@/presentation/components/ui/select'
 import { credentialGuidance } from './credentialGuidance'
 import { CredentialGuidanceNote } from './CredentialGuidanceNote'
 import { IntegrationConnectionFields } from './IntegrationConnectionFields'
-import { withIntegrationSetting } from './integrationSettings'
-
-interface CreateIntegrationDialogProps {
-  sites: Site[]
-  defaultSiteId?: string
-  onClose: () => void
-  /** Called with the Integration the API created; the caller decides where to go next. */
-  onCreated: (integration: Integration) => void
-}
-
-/** Providers a user can register per role. */
-const PROVIDERS: Record<'provisioner' | 'metrics', Array<{ value: string; label: string }>> = {
-  provisioner: [{ value: 'maas', label: 'MAAS' }],
-  metrics: [{ value: 'prometheus', label: 'Prometheus' }],
-}
+import { integrationSettingsProblem, withIntegrationSetting } from './integrationSettings'
 
 /**
  * Roles a user may create. `platform` is intentionally absent: a platform Integration is
  * created only by deploying a platform (decision 032), and is edited on its settings page.
  */
-const CREATABLE_ROLE_OPTIONS: Array<{ value: 'provisioner' | 'metrics'; label: string }> = [
+export type CreatableIntegrationRole = Exclude<IntegrationKind, 'platform'>
+
+interface CreateIntegrationDialogProps {
+  sites: Site[]
+  defaultSiteId?: string
+  /**
+   * The role preselected when the dialog opens, for example `repository` when the Local repository
+   * page sends a Site without one here; Provisioner when omitted.
+   */
+  defaultKind?: CreatableIntegrationRole
+  onClose: () => void
+  /** Called with the Integration the API created; the caller decides where to go next. */
+  onCreated: (integration: Integration) => void
+}
+
+/** Providers a user can register per role; the API accepts only these pairs (sites-integrations.md). */
+const PROVIDERS: Record<CreatableIntegrationRole, Array<{ value: string; label: string }>> = {
+  provisioner: [{ value: 'maas', label: 'MAAS' }],
+  metrics: [{ value: 'prometheus', label: 'Prometheus' }],
+  repository: [{ value: 'pulp', label: 'Pulp' }],
+}
+
+const CREATABLE_ROLE_OPTIONS: Array<{ value: CreatableIntegrationRole; label: string }> = [
   { value: 'provisioner', label: 'Provisioner' },
   { value: 'metrics', label: 'Metrics' },
+  // A Site's Local Repository; the API refuses a second one in the same Site with a conflict.
+  { value: 'repository', label: 'Repository' },
 ]
 
 /**
@@ -45,11 +55,11 @@ const CREATABLE_ROLE_OPTIONS: Array<{ value: 'provisioner' | 'metrics'; label: s
  * The credential lives only in transient state and is cleared on success. Changing the role or
  * provider resets the settings, because their keys are provider-specific.
  */
-export function CreateIntegrationDialog({ sites: availableSites, defaultSiteId, onClose, onCreated }: CreateIntegrationDialogProps) {
+export function CreateIntegrationDialog({ sites: availableSites, defaultSiteId, defaultKind, onClose, onCreated }: CreateIntegrationDialogProps) {
   const { sites } = useApp()
   const [siteId, setSiteId] = useState(defaultSiteId ?? '')
-  const [kind, setKind] = useState<'provisioner' | 'metrics'>('provisioner')
-  const [providerKind, setProviderKind] = useState('maas')
+  const [kind, setKind] = useState<CreatableIntegrationRole>(defaultKind ?? 'provisioner')
+  const [providerKind, setProviderKind] = useState(PROVIDERS[defaultKind ?? 'provisioner'][0].value)
   const [name, setName] = useState('')
   const [endpoint, setEndpoint] = useState('')
   const [credential, setCredential] = useState('')
@@ -58,15 +68,17 @@ export function CreateIntegrationDialog({ sites: availableSites, defaultSiteId, 
   const [error, setError] = useState<DisplayedFailure | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const providerOptions = PROVIDERS[kind]
-  // Metrics backends may allow anonymous reads; every other role needs a credential to work.
+  // Metrics backends may allow anonymous reads; every other role needs a credential to work (a
+  // repository's is the provider's admin password).
   const credentialRequired = kind !== 'metrics'
   const valid = Boolean(siteId && name.trim() && endpoint.trim() && (!credentialRequired || credential))
+    && integrationSettingsProblem(kind, settings) === null
 
   const close = () => {
     if (!submitting) onClose()
   }
 
-  const changeKind = (nextKind: 'provisioner' | 'metrics') => {
+  const changeKind = (nextKind: CreatableIntegrationRole) => {
     setKind(nextKind)
     setProviderKind(PROVIDERS[nextKind][0].value)
     setSettings({})
@@ -148,7 +160,7 @@ export function CreateIntegrationDialog({ sites: availableSites, defaultSiteId, 
               value={kind}
               aria-label="Role"
               // Every option is a creatable role, so the value the select emits is one of them.
-              onChange={(value) => changeKind(value as 'provisioner' | 'metrics')}
+              onChange={(value) => changeKind(value as CreatableIntegrationRole)}
               options={CREATABLE_ROLE_OPTIONS}
             />
           </Field.Root>

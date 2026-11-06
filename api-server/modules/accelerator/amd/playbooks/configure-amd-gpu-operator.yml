@@ -7,7 +7,23 @@
 # load-bearing: the cluster-level checks pass before anything changes, the old allocation mode is
 # switched off before the DRA links are removed, the driver and links are ready before the
 # DeviceConfig starts the operands, and with the metrics exporter on every managed node's exporter
-# answers on its address before the run succeeds.
+# answers on its address before the run succeeds. helm and every operator image come from the Site's
+# Local Repository (swallow_local_repository): helm by its file URL, the images through k0s's
+# containerd registry mirrors.
+
+- name: Hold the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: package_maintenance_hold
+
+- name: Point every target at the Site's Local Repository
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: local_repo_client
+      vars:
+        local_repo_client_containerd: true
 
 - name: Read every target
   hosts: all
@@ -93,3 +109,12 @@
       when:
         - amd_gpu_operator_managed | bool
         - swallow_amd_gpu_operator_metrics_exporter | bool
+
+- name: Release the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Release the package maintenance hold
+      ansible.builtin.include_role:
+        name: package_maintenance_hold
+        tasks_from: release

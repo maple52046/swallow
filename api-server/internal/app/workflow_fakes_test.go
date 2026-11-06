@@ -33,11 +33,12 @@ func newTestWorkflowService(workflows workflowdomain.WorkflowRepository) *workfl
 // newTestExecutionService is an ExecutionService for planning tests: PrepareAnsibleStep checks
 // targets against servers, automation, and catalog and finds every target unlocked. Its
 // WorkflowService has no store, so a test that accepts automation through Create needs its own.
+// It has no Local Repository resolver, so a playbook the catalog marks as using one is refused.
 func newTestExecutionService(
 	servers serverdomain.ServerRepository,
 	automation workflowdomain.AutomationConfigurationRepository,
 	catalog workflowdomain.PlaybookCatalog,
 	kinds workflowdomain.WorkflowKinds,
 ) *workflowapp.ExecutionService {
-	return workflowapp.NewExecutionService(servers, automation, catalog, kinds, nil, nil, nil, stubMutationGuard{}, newTestWorkflowService(nil))
+	return workflowapp.NewExecutionService(servers, automation, catalog, kinds, nil, nil, nil, stubMutationGuard{}, newTestWorkflowService(nil), nil)
 }

@@ -20,6 +20,12 @@
   roles:
     - role: package_maintenance_hold
 
+- name: Point every target at the Site's Local Repository
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: local_repo_client
+
 - name: Classify NFS nodes by assigned role
   hosts: all
   gather_facts: true

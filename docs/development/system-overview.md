@@ -34,6 +34,7 @@ release build 中隱藏。
 | Kubernetes explorer | 有 | `kubernetes.go` | `platforms-kubernetes.md` | 同上 |
 | Managed Software 與 registry credential | 有 | 無 | `software.md`、`registry-credentials.md` | [software-deployment.md](software-deployment.md) |
 | Docker explorer | 有 | 無 | `servers-docker.md` | 同上 |
+| Local Repository（部署取得 artifact 的站點來源） | 有（Infrastructure → Local repository） | 無 | `local-repository.md` | [local-repository.md](local-repository.md) |
 | Workflow | 有 | `workflows.go` | `workflows.md` | [workflow-execution.md](workflow-execution.md) |
 | 監控與告警 | 有（告警為實驗） | `monitoring.go` | `monitoring-alerts.md`、`server-metrics.md` | [monitoring.md](monitoring.md) |
 | Prometheus 的 service discovery | 無 | `discovery.go` | `discovery-prometheus.md` | — |
@@ -68,6 +69,9 @@ flowchart LR
     worker --> bmc
     executor --> hosts[managed hosts over SSH]
     worker --> hosts
+    worker --> repo["Local Repository (Pulp)"]
+    api --> repo
+    hosts -->|"packages, images, files"| repo
 ```
 
 - **api**：HTTP API；Workflow 只寫入 intent 與命令，不連 Temporal。不執行任何背景迴圈；按需的即時讀取（例如 refresh
@@ -80,9 +84,10 @@ flowchart LR
   的 lease 保證同時只有一個 instance 執行，由 change feed 與定期 resync 觸發：`workflow-dispatch`（派發與取消 Workflow，
   [workflow-execution.md](workflow-execution.md) §10）、`server`（tag 與 Zone／Pool placement）、`zone-pool-catalog`、
   `http-proxy`、`subnet-dns`、`ssh-keys`、`auto-inspect`（為新 enroll 的 Server 建立 `inspect-hardware` Workflow）、
-  `platform`（Platform spec 與 Change Plan 的 apply）、`change-plan-expiry`，以及 `node-exporter`（讓每台受政策涵蓋的
+  `platform`（Platform spec 與 Change Plan 的 apply）、`change-plan-expiry`、`node-exporter`（讓每台受政策涵蓋的
   Server 都有運作中的 Node Exporter，以 `configure-node-exporter` Workflow 安裝，[software-deployment.md](software-deployment.md)
-  的 Node Exporter；`SWALLOW_WORKER_NODE_EXPORTER_ENSURE=false` 時不註冊，開發環境預設如此）。
+  的 Node Exporter；`SWALLOW_WORKER_NODE_EXPORTER_ENSURE=false` 時不註冊，開發環境預設如此），以及 `local-repository`
+  （把模組宣告的 artifact 與 Site 的來源收斂到 Site 的 Local Repository，並讀回同步狀態，[local-repository.md](local-repository.md) §7）。
   定期 resync 的間隔：`workflow-dispatch` 30 秒、`change-plan-expiry` 5 分鐘，其他 10 分鐘
   （`controllerResyncInterval`）。規則見 [desired-state-model.md](desired-state-model.md) §7。
 
@@ -102,16 +107,17 @@ flowchart LR
   自己寫入的目錄。
 - **migrate**：一次性的 schema migration，在服務啟動前執行。
 
-安裝拓樸（容器、volume、MAAS 與 Temporal 共用的 PostgreSQL）見 [installation.md](installation.md)；開發環境見
+安裝拓樸（容器、volume、MAAS、Temporal 與 Pulp 共用的 PostgreSQL）見 [installation.md](installation.md)；開發環境見
 [development-and-testing.md](development-and-testing.md) §1。
 
 ## 3. 從裸機到 Platform
 
 在三台裸機上建立一個 Kubernetes Platform，依序經過：
 
-1. **安裝**：production 安裝會一起裝好 MAAS、Site `default` 與它的 provisioner Integration
-   （[installation.md](installation.md)）。開發環境要自己註冊 MAAS，並設定 Server 的 NTP 位址
-   （[development-and-testing.md](development-and-testing.md) §1）。
+1. **安裝**：production 安裝會一起裝好 MAAS、Site `default` 與它的 provisioner Integration，以及 Site 的 Local Repository
+   （`repository` Integration 與 `ubuntu` 來源）（[installation.md](installation.md)）。開發環境要自己註冊 MAAS 與 Local
+   Repository，並設定 Server 的 NTP 位址（[development-and-testing.md](development-and-testing.md) §1）。部署需要的 artifact
+   都從 Local Repository 取得（[local-repository.md](local-repository.md)）。
 2. **納管**：機器從 PXE（或在 DHCP 不由 MAAS 提供的網路上，從 Boot ISO）開機，MAAS enlist 後，reconcile 讓它以
    `new` 的 Server 出現；swallow 自動執行 `inspect-hardware`，完成後 Server 為 `ready`
    （[server-enrollment-and-boot-media.md](server-enrollment-and-boot-media.md)）。
@@ -181,6 +187,7 @@ collection 可能由多個 process 寫入，但每個欄位只有一個寫入者
 | platform | `platforms`、`platform_deployment_requirements` | Platform 的 spec、status 與功能狀態；Slurm 部署需求 | api（spec、按需同步）；worker（membership 的同步狀態、controller、投影）；ansible-executor（credential 與功能結果） |
 | software | `software_assignments`、`software_registry_credentials` | 哪台 Server 裝了什麼；registry 的封存密碼 | api（受理時的 `pending`、`uninstalling`）；worker（Node Exporter controller 與 platform controller 受理安裝時的 `pending`；reconcile 觀察到機器沒有 OS 時標 `absent`）；worker 與 ansible-executor（Task 的記錄與失敗標記、拿走 OS 的 Task 標 `absent`） |
 | sshkey | `ssh_keys`、`ssh_key_provider_syncs` | Deployment Key 與 Access Key；各 provisioner 的同步紀錄 | api（金鑰）；worker（同步） |
+| localrepo | `local_repositories` | 每個 Site 的 Local Repository：user 來源的 spec，與每個來源、檔案的同步狀態（artifact 本身在 provider，不存在 swallow） | api（spec）；worker（controller） |
 | workflow | `workflows`、`workflow_events`、`workflow_secrets` | Workflow 的計畫與執行狀態、timeline、封存的 secret | api（受理、命令）；worker 與 ansible-executor（經 Workflow service 的狀態轉換） |
 | workflow | `resource_leases` | Workflow 擁有的資源（沒有 TTL） | worker |
 | workflow | `ansible_task_events`、`automation_configurations` | Ansible 的即時事件；Site automation 設定 | ansible-executor（事件與它們的 retention）；api（設定） |
@@ -227,6 +234,7 @@ architecture spec。找東西時：
 | Workflow 的組成（launcher） | `api-server/internal/app/*_adapter.go`（platform deployment、software、GPU Operator、Slurm composition、Kubernetes 的 Platform Grafana） |
 | 每個 context 的 domain、use case、HTTP handler | `api-server/internal/core/<context>/` |
 | 外部系統的 adapter | `api-server/internal/adapters/<port>/<adapter>/` |
+| Local Repository（port、controller、Pulp adapter、共用 role `local_repo_client`） | `api-server/internal/core/localrepo/`、`api-server/internal/adapters/localrepo/pulp/`、`api-server/modules/shared/roles/local_repo_client/` |
 | MongoDB 的 repository（列表的篩選與搜尋在這裡） | `api-server/internal/adapters/store/mongodb/<context>/` |
 | 模組（module.json、hook、playbook、role） | `api-server/modules/<種類>/<id>/` |
 | dashboard 的頁面、模組畫面、API adapter | `dashboard/src/presentation/pages/`、`dashboard/src/modules/`、`dashboard/src/infrastructure/api/` |

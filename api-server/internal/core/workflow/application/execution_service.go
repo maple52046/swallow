@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	localrepodomain "github.com/maple52046/swallow/internal/core/localrepo/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
@@ -28,13 +29,26 @@ type ExecutionService struct {
 	protection serverdomain.MutationGuard
 	policy     PolicyChecker
 	durable    *WorkflowService
+	// localRepository resolves the trusted vars of playbooks the catalog marks as fetching from the
+	// Site's Local Repository. Nil only in tests: such a playbook is then refused, never run
+	// without them.
+	localRepository LocalRepositoryVars
+}
+
+// LocalRepositoryVars resolves, at acceptance, the trusted extra vars that point a Site's hosts at
+// its Local Repository (the Local Repository resolver implements it). HostVars returns the vars to
+// add, or an error wrapping localrepodomain.ErrLocalRepositoryUnavailable, which names what the user
+// must register or wait for, while the Site has none ready. It reads swallow's store only.
+type LocalRepositoryVars interface {
+	HostVars(ctx context.Context, siteID string) (map[string]any, error)
 }
 
 // NewExecutionService constructs the Ansible automation use case. kinds are the Workflow kinds the
 // build accepts, the same set the WorkflowService's plan catalog carries. protection and durable are
 // required: protection reads the provider-owned Server Lock of every target live before Create or
 // PrepareAnsibleStep accepts automation (the stored Locked flag can be stale), and durable is the
-// Workflow service Create accepts automation into.
+// Workflow service Create accepts automation into. localRepository is required in the api and
+// worker processes; a nil one (tests) refuses every playbook that uses the Local Repository.
 func NewExecutionService(
 	servers serverdomain.ServerRepository,
 	configurations workflowdomain.AutomationConfigurationRepository,
@@ -45,12 +59,25 @@ func NewExecutionService(
 	policy PolicyChecker,
 	protection serverdomain.MutationGuard,
 	durable *WorkflowService,
+	localRepository LocalRepositoryVars,
 ) *ExecutionService {
 	return &ExecutionService{
 		servers: servers, configurations: configurations,
 		catalog: catalog, kinds: kinds, runner: runner, events: events, policy: policy,
-		protection: protection, durable: durable,
+		protection: protection, durable: durable, localRepository: localRepository,
 	}
+}
+
+// localRepositoryVars returns the trusted vars playbook needs from the Site's Local Repository: none
+// for a playbook the catalog does not mark, the resolver's otherwise.
+func (s *ExecutionService) localRepositoryVars(ctx context.Context, siteID, playbook string) (map[string]any, error) {
+	if !s.catalog.UsesLocalRepository(playbook) {
+		return nil, nil
+	}
+	if s.localRepository == nil {
+		return nil, fmt.Errorf("%w: this process cannot resolve it", localrepodomain.ErrLocalRepositoryUnavailable)
+	}
+	return s.localRepository.HostVars(ctx, siteID)
 }
 
 // ExecutionItem is the `execution` summary every Workflow response still carries (WorkflowItem).
@@ -130,6 +157,10 @@ func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInpu
 	if _, err := s.catalog.Resolve(playbook); err != nil {
 		return nil, err
 	}
+	repositoryVars, err := s.localRepositoryVars(ctx, siteID, playbook)
+	if err != nil {
+		return nil, err
+	}
 
 	now := time.Now().UTC()
 	operation := &workflowdomain.ExecutionOperation{
@@ -143,7 +174,7 @@ func (s *ExecutionService) Create(ctx context.Context, input CreateExecutionInpu
 	operation.Execution = workflowdomain.Execution{
 		RunID: uuid.NewString(), Playbook: playbook, Status: workflowdomain.StatusPending,
 	}
-	operation.ExtraVars = buildExecutionExtraVars(operation, targets, input.ExtraVars, input.TrustedVars)
+	operation.ExtraVars = buildExecutionExtraVars(operation, targets, input.ExtraVars, input.TrustedVars, repositoryVars)
 	stepTargets := make([]workflowdomain.ResourceReference, 0, len(operation.TargetServerIDs))
 	for _, serverID := range operation.TargetServerIDs {
 		stepTargets = append(stepTargets, workflowdomain.ResourceReference{Kind: "server", ID: serverID})
@@ -204,11 +235,12 @@ var standardExtraVarKeys = map[string]bool{
 	"swallow_server_hostnames": true,
 }
 
-// buildExecutionExtraVars assembles a run's extra vars from three sources: the standard
+// buildExecutionExtraVars assembles a run's extra vars from four sources: the standard
 // swallow_ identifiers, user-supplied vars (which may not use the swallow_ prefix, so
-// a client cannot forge a trusted variable), and trusted server-side vars (which may, and
-// are used for things like node-role assignment the client must not control).
-func buildExecutionExtraVars(operation *workflowdomain.ExecutionOperation, targets []*serverdomain.Server, operator, trusted map[string]any) map[string]any {
+// a client cannot forge a trusted variable), trusted server-side vars (which may, and
+// are used for things like node-role assignment the client must not control), and the Local
+// Repository's vars, which are applied last so no caller points hosts at another source.
+func buildExecutionExtraVars(operation *workflowdomain.ExecutionOperation, targets []*serverdomain.Server, operator, trusted, repository map[string]any) map[string]any {
 	vars := map[string]any{
 		"swallow_operation_id":   operation.ID,
 		"swallow_operation_kind": string(operation.Kind),
@@ -234,6 +266,9 @@ func buildExecutionExtraVars(operation *workflowdomain.ExecutionOperation, targe
 		if standardExtraVarKeys[key] {
 			continue
 		}
+		vars[key] = value
+	}
+	for key, value := range repository {
 		vars[key] = value
 	}
 	return vars
@@ -403,8 +438,10 @@ type PreparedAnsibleStep struct {
 	Targets   []workflowdomain.ResourceReference
 }
 
-// PrepareAnsibleStep applies the same catalog, credential, policy, and lock checks as
-// Create while letting a preceding provision-os Step satisfy the final deployed state.
+// PrepareAnsibleStep applies the same catalog, credential, policy, lock, and Local Repository checks
+// as Create while letting a preceding provision-os Step satisfy the final deployed state. A playbook
+// marked as using the Local Repository gets its trusted vars, or is refused with
+// localrepodomain.ErrLocalRepositoryUnavailable.
 func (s *ExecutionService) PrepareAnsibleStep(ctx context.Context, input CreateExecutionInput, operationID string, provisionFirst bool) (*PreparedAnsibleStep, error) {
 	kind := workflowdomain.WorkflowKind(strings.TrimSpace(input.Kind))
 	if !s.kinds.Valid(kind) || len(input.TargetServerIDs) == 0 {
@@ -456,6 +493,10 @@ func (s *ExecutionService) PrepareAnsibleStep(ctx context.Context, input CreateE
 	if _, err := s.catalog.Resolve(playbook); err != nil {
 		return nil, err
 	}
+	repositoryVars, err := s.localRepositoryVars(ctx, siteID, playbook)
+	if err != nil {
+		return nil, err
+	}
 	operation := &workflowdomain.ExecutionOperation{
 		ID: operationID, Kind: kind, SiteID: siteID, PlatformID: input.PlatformID,
 		TargetServerIDs: append([]string(nil), input.TargetServerIDs...),
@@ -466,7 +507,7 @@ func (s *ExecutionService) PrepareAnsibleStep(ctx context.Context, input CreateE
 	}
 	return &PreparedAnsibleStep{
 		SiteID: siteID, Playbook: playbook,
-		ExtraVars: buildExecutionExtraVars(operation, targets, input.ExtraVars, input.TrustedVars),
+		ExtraVars: buildExecutionExtraVars(operation, targets, input.ExtraVars, input.TrustedVars, repositoryVars),
 		Targets:   stepTargets,
 	}, nil
 }

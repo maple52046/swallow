@@ -452,6 +452,7 @@ In addition to the shared codes in [conventions](conventions.md):
 | `not_found` | 404 | A target Server, or a Prometheus `scrapeServerIds` entry, does not exist. |
 | `conflict` | 409 | A mutually exclusive software kind is already installed on a target, the `container` method's runtime is not `installed` on a target, a target is already a Kubernetes Platform member for a kind that refuses members, a target has a Platform Claim for a kind that refuses claimed Servers, or a target lacks the AMD compute GPUs the Device Metrics Exporter needs. |
 | `conflict` | 409 | A target Server is absent or not in provisioning state `deployed`, checked first and re-checked when the Workflow is created; or, when the Workflow is created, a target already has an active durable Workflow or is locked. |
+| `conflict` | 409 | The kind's playbook fetches its artifacts from the Site's Local Repository and that repository is not ready; the message names what to register or wait for ([local-repository.md](local-repository.md#deployments)). |
 | `provider_unavailable` | 503 | The targets' Site cannot run the Workflow's Ansible automation (no automation configuration, automation disabled, automation not logging in with the Deployment Key, or a playbook outside the release manifest), or the Server Lock state of a target cannot be confirmed. |
 
 ## Uninstall Software

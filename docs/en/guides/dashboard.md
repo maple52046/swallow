@@ -18,7 +18,7 @@ current session in the browser.
 | Workflows | Durable execution state, Jobs, Tasks, events, logs, cancel, rerun, and retry |
 | Change Plans | Plans for destructive Platform changes: the ones waiting for approval or rejection, the record of approved ones, and the safety switch |
 | Monitoring | Fleet health, usage charts for selected Servers, Pools, Zones, and Platforms, current metrics, optional Grafana links, and (in development) alerts and silences |
-| Infrastructure | Sites, Integrations, Zones, Pools, credentials, and automation settings |
+| Infrastructure | Sites, Integrations, Zones, Pools, credentials, automation settings, and the Site's local repository (its sources, sync state, and content; see [Initial setup](initial-setup.md#4-register-the-local-repository)) |
 | SSH keys (account menu) | The deployment key, your access keys, and their provisioner sync status — see [SSH keys](ssh-keys.md) |
 | API keys (account menu) | Keys that let scripts, CI, and the CLI call swallow as you without a password — see [API keys](api-keys.md) |
 
@@ -102,6 +102,51 @@ three-minute mount-settle wait. Choose **Continue in background** to close the
 dialog without stopping it; the block stays **Applying**, shows the same
 progress after a reload or in another tab, and disables its actions until the
 result arrives as a notification.
+
+## Local repository
+
+**Infrastructure → Local repository** shows the scoped Site's local repository,
+where its Servers fetch every package, image, and file a deployment installs.
+Choose a Site first; an installation with one Site opens it directly.
+
+- The status block says whether deployments that fetch from the repository are
+  accepted and, when they are not, what is in the way, in the API's words. It also
+  shows the content origin Servers read it at (with a copy button), the Site's
+  `repository` Integration and whether it is paused, and when swallow last
+  observed the repository. When swallow cannot use the Integration's credential
+  or content origin, an alert links to the Integration settings tab where you
+  fix it.
+- **Repository sources** lists every source: the ones swallow's modules declare
+  (named by module), the ones you added (**User**), and the pull-through caches
+  for container registries and PyPI. Each shows its state (**Pending**,
+  **Syncing**, **Ready**, or **Failed**) with the provider's message, its last
+  successful sync, and how many items it serves. **Files** lists the files the
+  modules declare with a shortened sha256 you can copy in full, and their size.
+  **Declared images** lists the container images the modules declare, each with
+  its state, the provider's message when a fetch failed, and its size once every
+  layer is stored. swallow fetches each image in advance once its registry's
+  cache is ready, and the repository stays not ready, so deployments wait, until
+  every image is stored; an interrupted or failed fetch is started again. The
+  declared Python packages follow. While anything is still syncing, the page
+  refreshes every 5 seconds.
+- **Sync now** asks swallow to converge the repository right away instead of at
+  its next periodic check; the states update as swallow observes them.
+- **User sources** shows the sources you asked for. **Manage user sources** adds
+  a Debian or Ubuntu archive (name, URL, suites, components, and optional
+  architectures) or removes one of yours, then saves the whole list. Sources a
+  module declares are listed as not editable. If someone else changed the
+  sources after you opened the dialog, nothing is saved: the dialog shows the
+  current list, and you make your change again.
+- **Content** browses what the repository serves by format (OS packages,
+  container images, Python packages, files), one page at a time, optionally
+  narrowed to one source or a name. The format, source, search, and page stay in
+  the URL, so you can share the view.
+
+A Site without a local repository explains that deployments need one.
+**Register a repository** opens Create integration on the Integrations page with
+the Repository role and the Pulp provider: the endpoint is where swallow reaches
+Pulp's API, **Content origin** is the address Servers read it at
+(`http://host:port`), and the credential is the Pulp admin password.
 
 ## Reading status
 

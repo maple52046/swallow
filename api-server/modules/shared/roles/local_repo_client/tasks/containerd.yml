@@ -1,0 +1,55 @@
+---
+# k0s's containerd reads its drop-ins when the k0s service starts, so a Kubernetes playbook runs this
+# before it starts k0s on a new node. containerd reads the hosts files at every pull.
+
+- name: Pull k0s's images through the Local Repository
+  become: true
+  block:
+    - name: Ensure the registry hosts directory exists
+      ansible.builtin.file:
+        path: "{{ local_repo_client_root }}{{ local_repo_client_containerd_hosts }}"
+        state: directory
+        mode: "0755"
+
+    - name: Ensure a hosts directory exists for each mirrored registry
+      ansible.builtin.file:
+        path: "{{ local_repo_client_root }}{{ local_repo_client_containerd_hosts }}/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop: "{{ swallow_local_repository.registry_mirrors | default({}) | list }}"
+
+    - name: Resolve each mirrored registry through its Local Repository mirror
+      ansible.builtin.template:
+        src: hosts.toml.j2
+        dest: "{{ local_repo_client_root }}{{ local_repo_client_containerd_hosts }}/{{ item.key }}/hosts.toml"
+        mode: "0644"
+      loop: "{{ swallow_local_repository.registry_mirrors | default({}) | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Find the registries the Local Repository no longer mirrors
+      ansible.builtin.find:
+        paths: "{{ local_repo_client_root }}{{ local_repo_client_containerd_hosts }}"
+        file_type: directory
+      register: local_repo_client_hosts_dirs
+
+    - name: Stop resolving them through a mirror
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ local_repo_client_hosts_dirs.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      when: (item.path | basename) not in (swallow_local_repository.registry_mirrors | default({}))
+
+    - name: Make k0s's containerd read the registry hosts
+      ansible.builtin.copy:
+        dest: "{{ local_repo_client_root }}{{ local_repo_client_containerd_dropin }}"
+        mode: "0644"
+        content: |
+          # Managed by Swallow (local_repo_client): resolve images through the hosts files that
+          # point each upstream registry at the Site's Local Repository.
+          version = 3
+
+          [plugins."io.containerd.cri.v1.images".registry]
+            config_path = "{{ local_repo_client_containerd_hosts }}"

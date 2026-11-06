@@ -22,5 +22,20 @@
   "capabilities": [
     "host-automation"
   ],
-  "routes": []
+  "routes": [],
+  "artifacts": {
+    "sources": [
+      {
+        "name": "grafana",
+        "format": "deb",
+        "url": "https://apt.grafana.com",
+        "suites": ["stable"],
+        "components": ["main"],
+        "architectures": ["amd64"]
+      }
+    ],
+    "images": [
+      "docker.io/grafana/grafana:12.4.12"
+    ]
+  }
 }

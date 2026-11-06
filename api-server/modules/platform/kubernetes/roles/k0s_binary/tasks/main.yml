@@ -1,26 +1,42 @@
 ---
-# Install the pinned k0s binary. Guarded by the binary's presence so a rerun is a no-op;
-# the version is only honoured on first install, which matches k0s's own upgrade model
-# (changing the version later is a separate, out-of-scope operation).
+# Install the pinned k0s binary from the Site's Local Repository. The guard is the version the
+# installed binary reports, not its presence, so a truncated or other-version file is replaced and a
+# rerun at the pinned version changes nothing. Replacing the file does not restart a running k0s;
+# changing the version of a cluster is a separate, out-of-scope operation.
 
-- name: Check for an existing k0s binary
-  ansible.builtin.stat:
-    path: /usr/local/bin/k0s
-  register: k0s_binary_stat
+- name: Resolve the pinned k0s release
+  ansible.builtin.set_fact:
+    k0s_binary_release: >-
+      {{ (k0s_binary_releases[swallow_k0s_version] | default({}))
+         [{'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] | default(ansible_architecture)]
+         | default({}) }}
 
-- name: Download the k0s installer
+- name: Refuse a k0s release the Local Repository does not hold
+  ansible.builtin.fail:
+    msg: >-
+      [k0s_version_unavailable] k0s {{ swallow_k0s_version }} for {{ ansible_architecture }} is not
+      in the Site's Local Repository, which holds only the releases swallow declares
+      ({{ k0s_binary_releases | list | join(', ') }}).
+  when: k0s_binary_release.path is not defined
+
+- name: Read the installed k0s version
+  ansible.builtin.command:
+    argv: ["{{ k0s_binary_path }}", version]
+  register: k0s_binary_installed
+  changed_when: false
+  failed_when: false
+
+- name: Install k0s from the Local Repository
+  # get_url checks the SHA-256 of the download before it moves the file into place, so an
+  # interrupted or corrupted download never replaces the binary.
   ansible.builtin.get_url:
-    url: https://get.k0s.sh
-    dest: /tmp/get-k0s.sh
+    url: "{{ swallow_local_repository.files }}{{ k0s_binary_release.path }}"
+    checksum: "sha256:{{ k0s_binary_release.sha256 }}"
+    dest: "{{ k0s_binary_path }}"
     mode: "0755"
   become: true
-  when: not k0s_binary_stat.stat.exists
-
-- name: Install k0s at the pinned version
-  ansible.builtin.command:
-    cmd: /tmp/get-k0s.sh
-  environment:
-    K0S_VERSION: "{{ swallow_k0s_version }}"
-  become: true
-  when: not k0s_binary_stat.stat.exists
-  changed_when: true
+  register: k0s_binary_download
+  until: k0s_binary_download is succeeded
+  retries: 5
+  delay: 10
+  when: (k0s_binary_installed.stdout | default('') | trim) != swallow_k0s_version

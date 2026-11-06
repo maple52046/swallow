@@ -6,6 +6,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	localrepodomain "github.com/maple52046/swallow/internal/core/localrepo/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 	"github.com/maple52046/swallow/internal/core/workflow/application"
@@ -235,6 +236,8 @@ func respondExecutionError(c *fiber.Ctx, err error) error {
 		errors.Is(err, workflowdomain.ErrTaskRetryUnsafe),
 		errors.Is(err, workflowdomain.ErrTargetLocked),
 		errors.Is(err, workflowdomain.ErrTargetStateInvalid),
+		// The playbook fetches its artifacts from the Site's Local Repository, which is not ready.
+		errors.Is(err, localrepodomain.ErrLocalRepositoryUnavailable),
 		errors.Is(err, serverdomain.ErrServerLocked):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 	case errors.Is(err, application.ErrInvalidOperation),

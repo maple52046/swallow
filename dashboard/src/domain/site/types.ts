@@ -11,7 +11,11 @@ export interface Site {
   updatedAt: string
 }
 
-export type IntegrationKind = 'provisioner' | 'metrics' | 'platform'
+/**
+ * An Integration's role (sites-integrations.md). `repository` is a Site's Local Repository (provider
+ * kind `pulp`, at most one per Site); `platform` Integrations are created only by deploying a Platform.
+ */
+export type IntegrationKind = 'provisioner' | 'metrics' | 'platform' | 'repository'
 
 /**
  * Freshness of whatever an integration feeds. Part of the API, not an implementation
@@ -64,6 +68,26 @@ export const AUTO_INSPECT_SETTING = 'autoInspect'
 /** Whether a provisioner Integration inspects newly enrolled Servers automatically. */
 export function autoInspectEnabled(integration: Pick<Integration, 'settings'>): boolean {
   return integration.settings[AUTO_INSPECT_SETTING] !== 'false'
+}
+
+/**
+ * The `repository` Integration setting naming where the Site's Servers read the Local Repository's
+ * content, which may differ from the `endpoint` swallow calls the provider's API at (contract
+ * sites-integrations.md, Repository settings). Without a valid one the worker cannot converge the
+ * Local Repository and browsing its content is refused.
+ */
+export const CONTENT_ORIGIN_SETTING = 'contentOrigin'
+
+// A scheme, a host (a name, an IPv4 address, or a bracketed IPv6 address), an explicit port, and
+// no path, query, fragment, or user info; a trailing slash is the empty path.
+const CONTENT_ORIGIN_PATTERN = /^https?:\/\/(\[[0-9A-Fa-f:.]+\]|[^\s/?#@:[\]]+):\d{1,5}\/?$/
+
+/**
+ * Whether `value` has the shape the API requires of `contentOrigin`. Mirrored only so a form can
+ * flag a typo before saving; the API remains the validator of record.
+ */
+export function isValidContentOrigin(value: string): boolean {
+  return CONTENT_ORIGIN_PATTERN.test(value)
 }
 
 /**

@@ -27,6 +27,7 @@ import (
 	"github.com/maple52046/swallow/internal/adapters/hostaccess/sshaccess"
 	"github.com/maple52046/swallow/internal/adapters/hostautomation/ansible"
 	"github.com/maple52046/swallow/internal/adapters/hypervisor/libvirt"
+	"github.com/maple52046/swallow/internal/adapters/localrepo/pulp"
 	"github.com/maple52046/swallow/internal/adapters/metrics/promstack"
 	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
@@ -34,6 +35,7 @@ import (
 	authstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/auth"
 	convergencestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/convergence"
 	infrastructurestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/infrastructure"
+	localrepostore "github.com/maple52046/swallow/internal/adapters/store/mongodb/localrepo"
 	"github.com/maple52046/swallow/internal/adapters/store/mongodb/migration"
 	platformstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/platform"
 	provisioningstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/provisioning"
@@ -50,6 +52,8 @@ import (
 	discoverydelivery "github.com/maple52046/swallow/internal/core/discovery/delivery"
 	infrastructureapp "github.com/maple52046/swallow/internal/core/infrastructure/application"
 	infrastructuredelivery "github.com/maple52046/swallow/internal/core/infrastructure/delivery"
+	localrepoapp "github.com/maple52046/swallow/internal/core/localrepo/application"
+	localrepodelivery "github.com/maple52046/swallow/internal/core/localrepo/delivery"
 	moduledelivery "github.com/maple52046/swallow/internal/core/module/delivery"
 	monitoringapp "github.com/maple52046/swallow/internal/core/monitoring/application"
 	monitoringdelivery "github.com/maple52046/swallow/internal/core/monitoring/delivery"
@@ -443,10 +447,18 @@ func RunAPI(cfg config.APIConfig) error {
 	if err != nil {
 		return fmt.Errorf("ansible event repo init: %w", err)
 	}
+	// Local Repository: the API reads and writes each Site's spec, browses content live through the
+	// Site's repository Integration, and resolves at acceptance where a deployment's hosts fetch
+	// their artifacts; the worker's controller converges the provider.
+	localRepositories := localrepostore.NewMongoLocalRepositoryRepo(db)
+	localRepositoryProviders := pulp.NewRepositoryFactory(integrationRepo, nil)
+	localRepositoryHandler := localrepodelivery.NewHandler(localrepoapp.NewService(
+		siteRepo, integrationRepo, localRepositories, localRepositoryProviders, convergencestore.NewMongoRequester(db), modules.artifacts))
 	operationService := workflowapp.NewExecutionService(
 		serverRepo, effectiveAutomation, catalog, modules.workflowKinds, runner, ansibleEventRepo,
 		platformapp.NewPolicyChecker(platformRepo, serverRepo),
 		serverProtection, orchestrationService,
+		localrepoapp.NewResolver(integrationRepo, localRepositories, modules.artifacts),
 	)
 	automationService := workflowapp.NewAutomationConfigurationService(
 		automationRepo, siteRepo, catalog, modules.workflowKinds, deploymentKeys,
@@ -631,17 +643,18 @@ func RunAPI(cfg config.APIConfig) error {
 		monitoring:      monitoringHandler,
 		gateway: monitoringdelivery.NewGatewayHandler(platformAccess,
 			platformMetricsUpstream{platforms: platformRepo, integrations: integrationRepo}),
-		platforms:      platformHandler,
-		software:       softwareHandler,
-		docker:         dockerHandler,
-		registryCreds:  registryCredentialHandler,
-		infrastructure: infrastructureHandler,
-		discovery:      discoveryHandler,
-		sshKeys:        sshKeyHandler,
-		apiKeys:        apiKeyHandler,
-		changePlans:    convergencedelivery.NewChangePlanHandler(changePlans),
-		moduleList:     moduledelivery.NewModuleHandler(modules.registry),
-		releaseVersion: releaseVersion,
+		platforms:       platformHandler,
+		software:        softwareHandler,
+		docker:          dockerHandler,
+		registryCreds:   registryCredentialHandler,
+		infrastructure:  infrastructureHandler,
+		discovery:       discoveryHandler,
+		sshKeys:         sshKeyHandler,
+		apiKeys:         apiKeyHandler,
+		changePlans:     convergencedelivery.NewChangePlanHandler(changePlans),
+		moduleList:      moduledelivery.NewModuleHandler(modules.registry),
+		localRepository: localRepositoryHandler,
+		releaseVersion:  releaseVersion,
 		readiness: func(ctx context.Context) error {
 			if err := client.Ping(ctx, nil); err != nil {
 				return err
@@ -706,9 +719,11 @@ type routeDeps struct {
 	apiKeys        *apikeydelivery.Handler
 	changePlans    *convergencedelivery.ChangePlanHandler
 	// moduleList lists the modules of the build and their spec schemas (contract modules.md).
-	moduleList     *moduledelivery.ModuleHandler
-	readiness      func(context.Context) error
-	releaseVersion string
+	moduleList *moduledelivery.ModuleHandler
+	// localRepository serves each Site's Local Repository (contract local-repository.md).
+	localRepository *localrepodelivery.Handler
+	readiness       func(context.Context) error
+	releaseVersion  string
 }
 
 // registerPlatformRoutes registers the Platform routes on routes.
@@ -822,6 +837,9 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	sites.Get("/:id/automation", deps.operations.GetAutomation)
 	sites.Put("/:id/automation", deps.operations.PutAutomation)
 	sites.Put("/:id/automation/credential", deps.operations.PutAutomationCredential)
+	// A Site's Local Repository (contract local-repository.md): the source its deployments fetch
+	// every artifact from, converged by the worker's local-repository controller.
+	deps.localRepository.RegisterRoutes(sites)
 	integrations := v1.Group("/integrations", admin...)
 	integrations.Post("/", deps.sites.CreateIntegration)
 	integrations.Get("/", deps.sites.ListIntegrations)

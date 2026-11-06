@@ -371,8 +371,8 @@ paths:
           in: query
           required: false
           description: >-
-            Restrict to one Integration kind: `provisioner`, `metrics`, or `platform`. Not
-            validated.
+            Restrict to one Integration kind: `provisioner`, `metrics`, `platform`, or
+            `repository`. Not validated.
           schema:
             type: string
       responses:
@@ -393,7 +393,7 @@ paths:
     post:
       tags: [sites]
       operationId: createIntegration
-      summary: Register a provisioner or metrics Integration for a Site.
+      summary: Register a provisioner, metrics, or repository Integration for a Site.
       description: >-
         Requires role `admin`. `kind` and `providerKind` are validated together. `kind` `platform`
         is refused: a platform Integration is created only by a successful Platform deployment
@@ -413,11 +413,11 @@ paths:
                   minLength: 1
                 kind:
                   type: string
-                  enum: [provisioner, metrics]
+                  enum: [provisioner, metrics, repository]
                 providerKind:
                   type: string
-                  description: '`maas` for `provisioner`; `prometheus` for `metrics`.'
-                  enum: [maas, prometheus]
+                  description: '`maas` for `provisioner`; `prometheus` for `metrics`; `pulp` for `repository`.'
+                  enum: [maas, prometheus, pulp]
                 name:
                   type: string
                   minLength: 1
@@ -461,7 +461,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: '`conflict`: another Integration of the Site has the name.'
+          description: >-
+            `conflict`: another Integration of the Site has the name, or the Site already has its
+            one `metrics` or `repository` Integration and the request is for another of that kind.
           content:
             application/json:
               schema:
@@ -1453,13 +1455,13 @@ components:
           description: >-
             The role the external system plays. `platform` Integrations are created only by a
             successful Platform deployment.
-          enum: [provisioner, metrics, platform]
+          enum: [provisioner, metrics, platform, repository]
         providerKind:
           type: string
           description: >-
             The product implementing `kind`: `maas` (provisioner), `prometheus` (metrics),
-            `kubernetes` or `slurm` (platform).
-          enum: [maas, prometheus, kubernetes, slurm]
+            `kubernetes` or `slurm` (platform), `pulp` (repository).
+          enum: [maas, prometheus, kubernetes, slurm, pulp]
         name:
           type: string
           description: Unique within the Site.
@@ -1491,7 +1493,8 @@ components:
       description: >-
         Non-secret adapter options as a string map; `{}` when none are set. Keys a provisioner
         Integration recognises (`timeout`, `insecureSkipVerify`, `autoInspect`,
-        `virshSshPublicKey`) are described in sites-integrations.md; other keys are stored and
+        `virshSshPublicKey`) and the keys of a metrics or repository Integration (such as
+        `contentOrigin`) are described in sites-integrations.md; other keys are stored and
         returned unchanged.
       additionalProperties:
         type: string

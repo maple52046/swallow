@@ -7,6 +7,7 @@ const TABS = [
   { value: '/infrastructure/integrations', label: 'Integrations' },
   { value: '/infrastructure/zones', label: 'Zones' },
   { value: '/infrastructure/pools', label: 'Pools' },
+  { value: '/infrastructure/local-repository', label: 'Local repository' },
 ] as const
 
 /** Keeps Infrastructure resource navigation aligned with the global URL-owned Site scope. */

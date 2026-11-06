@@ -37,6 +37,9 @@ const (
 	IntegrationKindMetrics IntegrationKind = "metrics"
 	// IntegrationKindPlatform reports live platform state and membership.
 	IntegrationKindPlatform IntegrationKind = "platform"
+	// IntegrationKindRepository serves the Site's Local Repository: the artifacts deployments
+	// fetch instead of reaching the internet.
+	IntegrationKindRepository IntegrationKind = "repository"
 )
 
 // ValidIntegrationKinds lists every kind, for validation and for telling a user
@@ -45,6 +48,14 @@ var ValidIntegrationKinds = []IntegrationKind{
 	IntegrationKindProvisioner,
 	IntegrationKindMetrics,
 	IntegrationKindPlatform,
+	IntegrationKindRepository,
+}
+
+// OnePerSite reports whether a Site may have at most one Integration of kind k: its metrics store
+// (one Prometheus reads all of a Site's Servers, decision 003) and its Local Repository (hosts are
+// pointed at one), since a second would leave swallow two answers for the same question.
+func (k IntegrationKind) OnePerSite() bool {
+	return k == IntegrationKindMetrics || k == IntegrationKindRepository
 }
 
 func (k IntegrationKind) Valid() bool {
@@ -150,6 +161,9 @@ var (
 	// ErrSiteHasMetricsIntegration means the Site already has its metrics Integration: a Site has
 	// one Prometheus (decision 003), so a second would leave swallow two answers for its Servers.
 	ErrSiteHasMetricsIntegration = errors.New("site already has a metrics integration")
+	// ErrSiteHasRepositoryIntegration means the Site already has its repository Integration: its
+	// hosts read every artifact from one Local Repository.
+	ErrSiteHasRepositoryIntegration = errors.New("site already has a repository integration")
 	// ErrSiteHasIntegrations prevents deleting a site out from under the
 	// integrations and servers that reference it.
 	ErrSiteHasIntegrations = errors.New("site still has integrations")

@@ -213,6 +213,33 @@ func TestCreateIntegration_OneMetricsIntegrationPerSite(t *testing.T) {
 	}
 }
 
+// A Site's hosts read every artifact from one Local Repository: a second repository Integration in
+// the same Site is refused, another Site may still register its own.
+func TestCreateIntegration_OneRepositoryIntegrationPerSite(t *testing.T) {
+	f := setupPlatform(t)
+	east := createSite(t, f, "dc-east")
+	west := createSite(t, f, "dc-west")
+	repository := func(siteID, name string) map[string]any {
+		return map[string]any{
+			"siteId": siteID, "kind": "repository", "providerKind": "pulp", "name": name,
+			"endpoint": "http://pulp-web:8080", "settings": map[string]any{"contentOrigin": "http://10.0.0.5:8080"},
+		}
+	}
+	if resp := doRequest(t, f.app, "POST", "/api/v1/integrations/", repository(east, "local"), f.adminAuth(t)); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("first repository integration: expected 201, got %d", resp.StatusCode)
+	}
+	resp := doRequest(t, f.app, "POST", "/api/v1/integrations/", repository(east, "second"), f.adminAuth(t))
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("second repository integration in the Site: expected 409, got %d", resp.StatusCode)
+	}
+	if message, _ := parseBody(t, resp)["error"].(map[string]any)["message"].(string); !strings.Contains(message, "one local repository") {
+		t.Errorf("message = %q, want it to explain that a site has one local repository", message)
+	}
+	if resp := doRequest(t, f.app, "POST", "/api/v1/integrations/", repository(west, "local"), f.adminAuth(t)); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("another Site's repository integration: expected 201, got %d", resp.StatusCode)
+	}
+}
+
 // The credential must not be readable through any response, in any form.
 func TestIntegration_CredentialIsNeverReturned(t *testing.T) {
 	f := setupPlatform(t)

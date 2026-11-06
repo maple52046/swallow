@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/maple52046/swallow/internal/adapters/localrepo/pulp"
 	"github.com/maple52046/swallow/internal/adapters/metrics/promstack"
 	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
+	localrepodomain "github.com/maple52046/swallow/internal/core/localrepo/domain"
 	moduledomain "github.com/maple52046/swallow/internal/core/module/domain"
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
@@ -68,6 +70,9 @@ type composedModules struct {
 	credentials []platformdomain.CredentialReader
 	// platforms are the Platform modules' platform hooks, by Platform type.
 	platforms map[platformdomain.PlatformType]platformdomain.PlatformModule
+	// artifacts are the modules' declarations of what their deployments fetch from the Site's
+	// Local Repository.
+	artifacts []localrepodomain.ModuleDeclaration
 }
 
 // composeModules assembles the registry and derives the software catalog and the accepted Workflow
@@ -105,7 +110,30 @@ func composeModules() (composedModules, error) {
 	return composedModules{
 		registry: registry, software: software, workflowKinds: kinds, platformReaders: readers,
 		accelerators: accelerators, credentials: credentials, platforms: platforms,
+		artifacts: localRepositoryDeclarations(registry),
 	}, nil
+}
+
+// localRepositoryDeclarations restates the modules' artifact declarations in the Local Repository's
+// terms. The registry has validated them and their agreement across modules.
+func localRepositoryDeclarations(registry *moduledomain.Registry) []localrepodomain.ModuleDeclaration {
+	var declarations []localrepodomain.ModuleDeclaration
+	for _, declared := range registry.Artifacts() {
+		declaration := localrepodomain.ModuleDeclaration{
+			ModuleID: declared.ModuleID, Images: declared.Artifacts.Images, Python: declared.Artifacts.Python,
+		}
+		for _, source := range declared.Artifacts.Sources {
+			declaration.Sources = append(declaration.Sources, localrepodomain.Source{
+				Name: source.Name, Format: localrepodomain.Format(source.Format), URL: source.URL,
+				Suites: source.Suites, Components: source.Components, Architectures: source.Architectures,
+			})
+		}
+		for _, file := range declared.Artifacts.Files {
+			declaration.Files = append(declaration.Files, localrepodomain.File{Path: file.Path, URL: file.URL, SHA256: file.SHA256})
+		}
+		declarations = append(declarations, declaration)
+	}
+	return declarations
 }
 
 // platformModules collects the platform hook of every Platform module, by the Platform type it
@@ -266,6 +294,7 @@ func integrationProviders() sitedomain.IntegrationProviders {
 		sitedomain.IntegrationKindProvisioner: {maas.ProviderKind},
 		sitedomain.IntegrationKindMetrics:     {promstack.ProviderKind},
 		sitedomain.IntegrationKindPlatform:    {kubeapi.ProviderKind, slurmapi.ProviderKind},
+		sitedomain.IntegrationKindRepository:  {pulp.ProviderKind},
 	}
 }
 

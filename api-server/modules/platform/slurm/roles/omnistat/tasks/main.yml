@@ -48,10 +48,10 @@
     - "{{ omnistat_prefix }}"
     - "{{ omnistat_config_dir }}"
 
-- name: Download the pinned Omnistat source
+- name: Download the pinned Omnistat source from the Local Repository
   ansible.builtin.get_url:
-    url: "{{ omnistat_sources[omnistat_version].url }}"
-    checksum: "{{ omnistat_sources[omnistat_version].checksum }}"
+    url: "{{ swallow_local_repository.files }}{{ omnistat_sources[omnistat_version].path }}"
+    checksum: "sha256:{{ omnistat_sources[omnistat_version].sha256 }}"
     dest: "{{ omnistat_prefix }}/omnistat-{{ omnistat_version }}.tar.gz"
     mode: "0644"
   register: omnistat_download
@@ -115,6 +115,10 @@
       - "{{ omnistat_venv }}/bin/pip"
       - install
       - --no-cache-dir
+      - --index-url
+      - "{{ swallow_local_repository.python_index }}"
+      - --trusted-host
+      - "{{ swallow_local_repository.python_index | urlsplit('hostname') }}"
       - --constraint
       - "{{ omnistat_prefix }}/{{ omnistat_sources[omnistat_version].constraints }}"
       - "{{ omnistat_src }}"

@@ -55,6 +55,8 @@ func (ntpTestCatalog) Resolve(name string) (string, error) {
 	return "", workflowdomain.ErrPlaybookNotAllowed
 }
 
+func (ntpTestCatalog) UsesLocalRepository(string) bool { return false }
+
 func newNTPTestPlanner(server string, deployed map[string]bool, automationDisabled bool) ntpStepPlanner {
 	operations := newTestExecutionService(
 		ntpTestServers{deployed: deployed}, ntpTestAutomation{disabled: automationDisabled}, ntpTestCatalog{}, workflowdomain.WorkflowKinds{},

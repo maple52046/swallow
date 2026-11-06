@@ -167,9 +167,11 @@ Power Configuration 這類欄位的 drift 只回報。已遷移的資源與其�
 | OS Image metadata | 每個 provider image 的名稱、OS、release、tags 與 `defaultUser` | 無：不需要 provider 實現，所以沒有 controller、generation 與 conditions；讀取時合併到 live catalog | glossary [OS Image](glossaries/terms/os-image.md)、[os-provisioning.md](os-provisioning.md) §4.1 |
 | Platform | type、拓樸、各 Server 的 Node Role、功能開關與版本（type 模組定義 schema） | Platform controller：接管最近一次部署的紀錄；非破壞性變更以 Workflow 收斂，破壞性變更產生 Change Plan（§5.2） | glossary [Platform](glossaries/terms/platform.md)、[platform-deployment.md](platform-deployment.md)、[platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md) |
 | Node Exporter（Managed Software） | 無：desired 由政策推導（§3.2），存在、`deployed`、沒有 lock、Site 啟用 automation 的 Server 應該有它 | Node Exporter controller：缺少或 `absent` 時以 Workflow 安裝，`failed` 依退避重試，`installed` 但 Site Prometheus 持續收集不到時重新安裝（auto-correct），不卸載 | [software-deployment.md](software-deployment.md) 的 Node Exporter、[monitoring.md](monitoring.md) §4.1、[software.md](../../api-server/docs/development/api-contracts/api-server/software.md#node-exporter) |
+| Local Repository | 每個 Site 的 user 來源（`spec.sources`）；模組宣告的 `artifacts` 由 release 編入的模組決定，不儲存 | Local Repository controller：把兩者的合併經 Site 的 `repository` Integration 收斂到 provider，讀回每個來源與檔案的同步狀態；每一輪都 ensure，provider 中被刪除的內容在下一輪補回 | glossary [Local Repository](glossaries/terms/local-repository.md)、[local-repository.md](local-repository.md)、[local-repository 契約](../../api-server/docs/development/api-contracts/api-server/local-repository.md) |
 
 遷移第一段的資源都已遷移；Platform 與 Node Exporter 不屬於這兩段，Platform 另依 §5.2 遷移，Node Exporter 是第一個由政策
-推導 desired 的資源。遷移第二段的資源（Power Configuration、Server Default User、Boot Media）尚未遷移，維持現行行為。
+推導 desired 的資源，Local Repository 是一開始就依本模型設計的新資源。遷移第二段的資源（Power Configuration、Server
+Default User、Boot Media）尚未遷移，維持現行行為。
 
 遷移後有 spec 的資源共同遵守（由政策推導 desired 的資源沒有 spec，不適用前兩點）：
 

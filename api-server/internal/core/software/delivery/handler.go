@@ -10,6 +10,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	localrepodomain "github.com/maple52046/swallow/internal/core/localrepo/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
@@ -231,6 +232,8 @@ func respondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, workflowdomain.ErrTargetsBusy),
 		errors.Is(err, workflowdomain.ErrTargetLocked),
 		errors.Is(err, workflowdomain.ErrTargetStateInvalid),
+		// The install fetches its artifacts from the Site's Local Repository, which is not ready.
+		errors.Is(err, localrepodomain.ErrLocalRepositoryUnavailable),
 		errors.Is(err, serverdomain.ErrServerLocked):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 

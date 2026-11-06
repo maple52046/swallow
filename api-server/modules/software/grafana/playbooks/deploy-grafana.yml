@@ -2,13 +2,15 @@
 # Install Grafana as Managed Software (docs/development/software-deployment.md, decision 063).
 # One pinned, read-only Grafana per Server (anonymous Viewer, no login, no admin) on the Server's
 # management address. Intent arrives only through trusted variables:
-#   swallow_grafana_install_method    container (default) or native (official apt/yum repository)
+#   swallow_grafana_install_method    container (default) or native (Grafana's apt or yum package)
 #   swallow_grafana_container_runtime docker-ce or podman (container method; already installed)
 #   swallow_grafana_version           release version (image tag or package version)
 #   swallow_grafana_port              host port (owned by the api-server domain)
 #   swallow_grafana_prometheus_url    datasource URL; empty reads the Prometheus on this Server
 #   swallow_grafana_prometheus_port   that Prometheus's port, used for the empty-URL default
 #   swallow_grafana_dashboards        swallow-shipped dashboard bundles to provision
+#   swallow_local_repository          the Site's Local Repository: the image, or on Debian the
+#                                     package
 # and, as a secret var, swallow_grafana_datasource_token: the bearer token the datasource sends (a
 # Platform's monitoring token for swallow's metrics gateway). A run on one Server writes
 # {grafanaUrl}, the requested bundles' landing dashboard (the root without a bundle), to the run's
@@ -20,6 +22,20 @@
   gather_facts: false
   roles:
     - role: package_maintenance_hold
+
+- name: Point every target at the Site's Local Repository
+  hosts: all
+  gather_facts: false
+  vars:
+    # The grafana role's own defaults, read here because a role's defaults are not the play's.
+    grafana_container_runtime_used: >-
+      {{ swallow_grafana_container_runtime | default('docker-ce', true)
+         if (swallow_grafana_install_method | default('container', true)) == 'container' else '' }}
+  roles:
+    - role: local_repo_client
+      vars:
+        local_repo_client_docker: "{{ grafana_container_runtime_used | trim == 'docker-ce' }}"
+        local_repo_client_podman: "{{ grafana_container_runtime_used | trim == 'podman' }}"
 
 - name: Install Grafana
   hosts: all

@@ -18,7 +18,7 @@ are easy to question later.
    daemon (`slurmctld`), the compute daemon (`slurmd`), or both, and a controller commonly
    also contributes compute. There are also login/submit and accounting daemons.
 2. **Where the Slurm packages come from.** SchedMD recommends user-built `slurm-smd`
-   deb/rpm and swallow has no local package repository yet.
+   deb/rpm, which no upstream package source provides.
 3. **How swallow reads a deployed Slurm Platform.** Slurm has no kubeconfig; membership is read
    from slurmrestd, which needs an endpoint, a JWT, and an endpoint version.
 4. **Where cluster validation happens.** k0s adds an internal `validate-platform-health` Task
@@ -39,7 +39,8 @@ are easy to question later.
 - **Slurm packages come from the OS image; other software may still be installed.** The
   `slurm-smd` packages are baked into the MAAS image and the playbook only verifies and configures
   them — it does not build or install Slurm from a distribution repo. Supporting software the
-  deployment needs (MUNGE, and later MariaDB for accounting) is installed normally.
+  deployment needs (MUNGE, and later MariaDB for accounting) is installed from the Site's Local
+  Repository ([ADR 078](078-local-repository.md)), like every other package a deployment installs.
 - **The credential is a slurmrestd reader, and it is optional.** The primary controller runs
   `slurmrestd` with JWT auth and returns `{ slurmrestdEndpoint, token, apiVersion }` through the
   run's result file; swallow records it as a `slurm` platform Integration, mirroring how k0s records
@@ -64,9 +65,9 @@ are easy to question later.
   express a node that is both controller and compute, which is normal for Slurm, and would leak
   Kubernetes vocabulary into a different scheduler.
 - **Install Slurm from a distribution repo or build it in the playbook:** rejected for this
-  cut — SchedMD recommends user-built packages, swallow has no local repo, and building per
-  host causes version drift. Baking packages into the image is the reliable path until a local
-  repo exists.
+  cut — SchedMD recommends user-built packages, and building per host causes version drift.
+  The Site's Local Repository mirrors and caches upstream sources only, so it holds no user-built
+  `slurm-smd`; baking the packages into the image remains the reliable path.
 - **Add a `validate-platform-health` Task for Slurm like k0s:** rejected for the first cut — the
   reader integration is not recorded until the install step completes, so the playbook's own
   verification plus background membership sync is simpler and avoids a credential-timing race.
@@ -91,3 +92,4 @@ are easy to question later.
 ## Revision history
 
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
+- 2026-11-06: supporting software comes from the Site's Local Repository (decision 078), which mirrors upstream sources and so holds no user-built `slurm-smd`; Slurm itself still comes from the image.

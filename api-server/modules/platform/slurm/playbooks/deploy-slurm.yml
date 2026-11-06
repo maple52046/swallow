@@ -4,8 +4,9 @@
 # lists, an ordered controller list whose first entry is the primary, plus optional HA state
 # directory and slurmrestd API version. The Slurm packages are expected to be present from the
 # user's image (SchedMD slurm-smd), so this playbook only configures and starts the
-# cluster and returns a slurmrestd reader credential. It is idempotent: a converged cluster
-# reruns with no changes.
+# cluster and returns a slurmrestd reader credential. The packages it does install (MUNGE, NFS,
+# crun, OpenMPI) come from the Site's Local Repository (swallow_local_repository). It is
+# idempotent: a converged cluster reruns with no changes.
 #
 # Addresses, not DNS: every host is keyed by serverId (inventory_hostname); slurm.conf uses
 # the connection address (ansible_host) via SlurmctldHost host(ip) and NodeAddr, so the
@@ -16,6 +17,12 @@
   gather_facts: false
   roles:
     - role: package_maintenance_hold
+
+- name: Point every node at the Site's Local Repository
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: local_repo_client
 
 - name: Classify Slurm nodes by assigned daemon
   hosts: all

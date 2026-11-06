@@ -1,13 +1,24 @@
 ---
 # Deploy k0s onto already-provisioned Servers. Topology is supplied only through trusted
 # variables: one control-plane Server is non-HA, while three or more odd control-plane
-# Servers enable the keepalived path in the shared configuration.
+# Servers enable the keepalived path in the shared configuration. Packages, the k0s binary, and
+# every image come from the Site's Local Repository (swallow_local_repository).
 
 - name: Hold the OS's automatic package maintenance
   hosts: all
   gather_facts: false
   roles:
     - role: package_maintenance_hold
+
+- name: Point every node at the Site's Local Repository
+  # Before k0s is installed: k0s's containerd reads its registry mirrors only when it starts, and
+  # its first image pull must already resolve through them.
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: local_repo_client
+      vars:
+        local_repo_client_containerd: true
 
 - name: Classify k0s nodes by assigned role
   hosts: all

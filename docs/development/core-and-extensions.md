@@ -25,6 +25,7 @@ flowchart TB
         mongo["Store: MongoDB"]
         prom["Metrics and alerts: Prometheus, Alertmanager"]
         bmc["BMC and hypervisor: Redfish, libvirt"]
+        repo["Local Repository: Pulp"]
     end
     subgraph mods [Extension modules]
         platformMods["Platform: Kubernetes, Slurm"]
@@ -76,6 +77,7 @@ core **不得**含有任何廠商、產品、平台或 GPU 廠商的名稱、型
 | Store | MongoDB | `internal/adapters/store/mongodb`（各 context 的 repository 在 `<context>/`） | 安裝層級，由 composition root 選擇 |
 | Metrics 與 alerts | Prometheus、Alertmanager | `internal/adapters/metrics/promstack` | Site 的 `metrics` Integration |
 | BMC 與 hypervisor | Redfish、libvirt | `internal/adapters/bmc/redfish`、`internal/adapters/hypervisor/libvirt` | 依 Server（連線資料由 provisioner 提供，或以 Deployment Key 經 SSH 連到 Hypervisor） |
+| Local Repository | Pulp 3 | `internal/adapters/localrepo/pulp`（port 在 `internal/core/localrepo/domain`） | Site 的 `repository` Integration，一個 Site 至多一個（[local-repository.md](local-repository.md)） |
 
 Platform 執行環境的即時讀取（Kubernetes API、slurmrestd）與 Docker Engine 的即時管理不是 core 的 provider
 interface，而是 Platform 模組與 Software 模組提供的能力（§4）。
@@ -200,6 +202,8 @@ core 檔案的廠商詞彙數仍不得增加。新的平台或廠商名稱要寫
 - Job／Task 範本。
 - 狀態規則：如何從 observed 推導 conditions 與功能狀態。
 - 需要的 provider capability。
+- 部署要取得的 artifact（`artifacts`）：套件來源、帶 sha256 的檔案、container image 與固定版本的 Python 套件，都由
+  Site 的 Local Repository 提供；OS 套件來自 Site 的 OS 套件來源，不由模組宣告。
 - Platform 模組：相容的 Accelerator 模組；Software 模組：互斥或相依的其他軟體。
 
 manifest 是資料；core 以讀取 manifest 的方式載入模組，契約版本不相容時拒絕載入。
@@ -207,6 +211,7 @@ manifest 是資料；core 以讀取 manifest 的方式載入模組，契約版�
 契約 v1 的格式是 `modules/<種類>/<id>/module.json`，由模組的 root Go package 嵌入，composition root 為三個 process
 組出同一個 registry（[decision 075](../decisions/075-module-contract-v1.md)（module contract v1）；欄位與寫法見
 [module-authoring.md](module-authoring.md) §1.1）。v1 的 spec schema 是 core 與 dashboard 讀法相同的 JSON Schema 子集；
+`artifacts` 屬於 v1，不由模組擁有：兩個模組可以宣告同一個來源或檔案，宣告不一致時 registry 建立失敗，process 拒絕啟動；
 功能開關、Job／Task 範本、狀態規則與模組之間的相容宣告尚未進入 v1：目前由模組的 Go hook 產生執行計畫，宣告式的範本
 另行定義；相容關係以 core 的 port 表達。
 

@@ -13,11 +13,11 @@
     state: directory
     mode: "0755"
 
-- name: Download the pinned Device Metrics Exporter package
+- name: Download the pinned Device Metrics Exporter package from the Local Repository
   ansible.builtin.get_url:
-    url: "{{ device_metrics_exporter_package.url }}"
-    checksum: "{{ device_metrics_exporter_package.checksum }}"
-    dest: "{{ device_metrics_exporter_cache_dir }}/{{ device_metrics_exporter_package.url | basename }}"
+    url: "{{ swallow_local_repository.files }}{{ device_metrics_exporter_package.path }}"
+    checksum: "sha256:{{ device_metrics_exporter_package.sha256 }}"
+    dest: "{{ device_metrics_exporter_cache_dir }}/{{ device_metrics_exporter_package.path | basename }}"
     mode: "0644"
   register: device_metrics_exporter_download
   until: device_metrics_exporter_download is succeeded

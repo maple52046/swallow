@@ -1,10 +1,12 @@
 ---
 # Point Servers at the installation's NTP server (decision 065; docs/development/platform-deployment.md).
 # swallow runs this play once per Server it provisions, after SSH readiness: in a Deploy OS Workflow
-# and in a Platform deployment's ensure-os Job alike (configure-ntp-<serverId>). It needs one trusted
-# variable:
-#   swallow_ntp_servers   ordered list of IP addresses or host names; the api-server validates its
-#                         SWALLOW_API_NTP_SERVER and freezes it into the Workflow at acceptance
+# and in a Platform deployment's ensure-os Job alike (configure-ntp-<serverId>). It needs two trusted
+# variables:
+#   swallow_ntp_servers       ordered list of IP addresses or host names; the api-server validates
+#                             its SWALLOW_API_NTP_SERVER and freezes it into the Workflow at acceptance
+#   swallow_local_repository  the Site's Local Repository, the only source chrony may come from
+#                             (role local_repo_client)
 #
 # The play configures the time client the OS already has (systemd-timesyncd, else chrony, else
 # ntpd), installs chrony only when there is none, and stops every other client, so every provisioned
@@ -20,6 +22,14 @@
   gather_facts: false
   roles:
     - role: package_maintenance_hold
+
+- name: Point every target at the Site's Local Repository
+  # Also the first swallow play to do so on a freshly provisioned Server; every later playbook
+  # reconverges it.
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: local_repo_client
 
 - name: Configure time synchronization
   hosts: all

@@ -2,13 +2,22 @@
 # Install Podman on already-provisioned Servers as a standalone Managed Software
 # (docs/development/software-deployment.md). The deploy target is one software (Podman), not a
 # platform. Idempotent: a converged host reruns with no changes. An optional pinned version
-# arrives as swallow_podman_version.
+# arrives as swallow_podman_version. The package comes from the distribution's archive in the Site's
+# Local Repository (swallow_local_repository), whose registry the installed Podman may pull from.
 
 - name: Hold the OS's automatic package maintenance
   hosts: all
   gather_facts: false
   roles:
     - role: package_maintenance_hold
+
+- name: Point every target at the Site's Local Repository
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: local_repo_client
+      vars:
+        local_repo_client_podman: true
 
 - name: Install Podman
   hosts: all
