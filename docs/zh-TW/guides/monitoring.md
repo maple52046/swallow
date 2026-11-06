@@ -128,7 +128,7 @@ Device Metrics Exporter 的 **Overview** 或 Omnistat 的 **Global - RMS**，否
 
 Platform workspace 的 **Monitoring** route 集中這些入口，但不內嵌 dashboard。它連到 Swallow
 usage charts、Platform Grafana、其他 Monitoring Links，以及 Omnistat 或 GPU 監控元件記錄的
-安裝狀態與 Workflow。Active Platform 的 workspace hero 也提供 **Open Platform Grafana**。
+安裝狀態與 Workflow。Active Platform 的 workspace hero 也提供 **Grafana**，開啟 Platform Grafana。
 
 - **Slurm**：Grafana 在 primary controller 上，port 3000。預設以 container 執行，因此部署會先在 primary controller
   安裝 container engine：部署在 **Container runtime** 要求的那一個，否則是 Docker CE；該 Server 已有 container engine

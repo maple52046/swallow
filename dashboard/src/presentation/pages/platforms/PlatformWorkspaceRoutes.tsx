@@ -24,7 +24,7 @@ import { formatDateTime, formatRelative } from '@/shared/utils/time'
 import { PlatformDetailsCard } from './PlatformDetailsCard'
 import { PlatformLifecycleBadge } from './PlatformLifecycleBadge'
 import { describePlatformSpecState } from './platformSpecState'
-import { topologyLabel } from './platformDetailShared'
+import { platformTopologyLabel } from './platformDetailShared'
 import { usePlatformMembers, type PlatformMembersState } from './usePlatformMembers'
 import { usePlatformWorkspaceContext } from './PlatformWorkspaceContext'
 
@@ -59,7 +59,7 @@ export function PlatformOverviewRoute() {
         <KeyValueGrid
           items={[
             { label: 'Lifecycle', value: <PlatformLifecycleBadge state={platform.lifecycleState} /> },
-            { label: 'Topology', value: platform.deployment ? topologyLabel(platform.deployment.topology) : 'External or legacy runtime' },
+            { label: 'Topology', value: platformTopologyLabel(platform, module, 'External or legacy runtime') },
             { label: 'Members', value: `${counts.matched} matched · ${counts.total} total` },
             { label: 'Specification', value: specState.summary },
             { label: 'Applied generation', value: currentSpec ? `${platform.status.observedGeneration} of ${platform.generation}` : 'Not adopted' },
@@ -217,7 +217,7 @@ export function PlatformMonitoringRoute() {
             </Text>
             {grafana && (
               <Button asChild variant="outline" size="sm" mt="3">
-                <a href={grafana.url} target="_blank" rel="noreferrer">Open Platform Grafana<ExternalLink size={14} /></a>
+                <a href={grafana.url} target="_blank" rel="noreferrer" aria-label="Open Platform Grafana">Grafana<ExternalLink size={14} aria-hidden /></a>
               </Button>
             )}
           </div>

@@ -1,7 +1,7 @@
 import { AppWindow, Boxes, Folders, Server } from 'lucide-react'
 import type { PlatformModuleUI } from '@/modules/types'
 import { KubernetesApplicationsTab, KubernetesClusterTab, KubernetesNamespacesTab } from './KubernetesExplorer'
-import { kubernetesPlatformFacts } from './kubernetesFacts'
+import { kubernetesPlatformFacts, kubernetesSpecTopology } from './kubernetesFacts'
 import { KubernetesAccess } from './KubernetesAccess'
 import { useKubernetesDeployForm } from './useKubernetesDeployForm'
 
@@ -40,4 +40,5 @@ export const kubernetesModule: PlatformModuleUI = {
   ],
   deploy: { icon: Boxes, namePlaceholder: 'lab-k0s', useForm: useKubernetesDeployForm },
   facts: kubernetesPlatformFacts,
+  specTopology: kubernetesSpecTopology,
 }

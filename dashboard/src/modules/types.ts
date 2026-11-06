@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 import type { ComponentType, ReactNode } from 'react'
-import type { DeployPlatformInput, Platform, PlatformType } from '@/domain/platform/types'
+import type { DeployPlatformInput, KubernetesTopology, Platform, PlatformSpec, PlatformType } from '@/domain/platform/types'
 import type { Server } from '@/domain/server/types'
 
 /**
@@ -253,6 +253,12 @@ export interface PlatformModuleUI {
    * An empty list, or no function, leaves the group out.
    */
   facts?: (platform: Platform) => PlatformFact[]
+  /**
+   * The topology a spec's member roles describe, in the type's own role vocabulary, for a Platform
+   * that has no deployment record yet (a `planned` Platform before its install runs). Pure, like
+   * `facts`; undefined when the roles form no supported shape.
+   */
+  specTopology?: (spec: PlatformSpec) => KubernetesTopology | undefined
 }
 
 /** The manifest of an Accelerator module (AMD): the Platform features it brings. */

@@ -185,7 +185,7 @@ export function platformRecordDeleteConsequence(context: PlatformRecordDeleteCon
   return {
     status: 'error',
     title: 'Hosts will not be cleaned up',
-    body: 'Swallow will cancel this Platform’s in-flight workflows, then permanently delete the record and owned projections. It will not uninstall platform software or release servers; any software still running on the hosts keeps running. If you want host cleanup, cancel this dialog and use Uninstall platform instead; if an uninstall is already running, let it finish. This cannot be undone.',
+    body: 'Swallow will cancel this Platform’s in-flight workflows, then permanently delete the record and owned projections. It will not uninstall platform software or release servers; any software still running on the hosts keeps running. If you want host cleanup, cancel this dialog and use Uninstall instead; if an uninstall is already running, let it finish. This cannot be undone.',
   }
 }
 

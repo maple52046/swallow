@@ -1,7 +1,7 @@
 import { Cpu, LayoutGrid, Server } from 'lucide-react'
 import { wantsPlatformGrafana } from '@/domain/platform/monitoring'
 import type { PlatformModuleUI } from '@/modules/types'
-import { slurmPlatformFacts } from './slurmFacts'
+import { slurmPlatformFacts, slurmSpecTopology } from './slurmFacts'
 import { SlurmAccess } from './SlurmAccess'
 import { SlurmNodesRoute, SlurmPartitionsRoute } from './SlurmWorkspaceRoutes'
 import { useSlurmDeployForm } from './useSlurmDeployForm'
@@ -64,4 +64,5 @@ export const slurmModule: PlatformModuleUI = {
   deploy: { icon: Cpu, namePlaceholder: 'lab-slurm', useForm: useSlurmDeployForm },
   Settings: SlurmSettingsPage,
   facts: slurmPlatformFacts,
+  specTopology: slurmSpecTopology,
 }

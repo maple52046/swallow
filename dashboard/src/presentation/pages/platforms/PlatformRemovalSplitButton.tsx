@@ -3,8 +3,14 @@ import { ChevronDown, Trash2 } from 'lucide-react'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 
 interface PlatformRemovalSplitButtonProps {
-  /** The primary label (`Uninstall platform`, `Uninstall` in the bulk toolbar, a dialog's submit label). */
+  /** The primary label (`Uninstall` in the detail header and the bulk toolbar, a dialog's submit label). */
   primaryLabel: string
+  /**
+   * The primary part's accessible name when the short visible label needs its object, for example
+   * `Uninstall platform` behind the header's `Uninstall`. It starts with the visible label, so
+   * speech input that names what it sees still matches.
+   */
+  primaryAccessibleLabel?: string
   /**
    * A qualifier appended to the label (`selected` or `eligible` in the bulk toolbar). It is hidden
    * on phone-width toolbars, where the full label would push the chevron out of view; the visible
@@ -52,6 +58,7 @@ interface PlatformRemovalSplitButtonProps {
  */
 export function PlatformRemovalSplitButton({
   primaryLabel,
+  primaryAccessibleLabel,
   primaryLabelSuffix,
   primaryDisabledReason,
   disabled = false,
@@ -64,7 +71,8 @@ export function PlatformRemovalSplitButton({
   size = 'md',
   placement,
 }: PlatformRemovalSplitButtonProps) {
-  const fullLabel = primaryLabelSuffix ? `${primaryLabel} ${primaryLabelSuffix}` : primaryLabel
+  const visibleLabel = primaryLabelSuffix ? `${primaryLabel} ${primaryLabelSuffix}` : primaryLabel
+  const fullLabel = primaryAccessibleLabel ?? visibleLabel
   return (
     <Menu.Root positioning={{ placement: placement === 'header' ? 'bottom-end' : 'top-end' }}>
       <div className="sw-removal-split" data-placement={placement}>
@@ -76,7 +84,7 @@ export function PlatformRemovalSplitButton({
               size={size}
               loading={loading}
               disabled={disabled || loading || Boolean(primaryDisabledReason)}
-              aria-label={primaryDisabledReason ? `${fullLabel}: ${primaryDisabledReason}` : undefined}
+              aria-label={primaryDisabledReason ? `${fullLabel}: ${primaryDisabledReason}` : primaryAccessibleLabel}
               onClick={onPrimaryAction}
             >
               {/* One text run, so the button's flex gap does not widen the space before the suffix. */}

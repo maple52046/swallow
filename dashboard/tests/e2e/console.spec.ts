@@ -1487,7 +1487,7 @@ test.describe('user interactions', () => {
     const deleteDialog = page.getByRole('dialog', { name: 'Delete platform record' })
     await expect(deleteDialog.locator('p').filter({ hasText: 'Target: Swallow record “production-k0s”. Hosts are not targeted.' })).toBeVisible()
     await expect(deleteDialog.getByText('Hosts will not be cleaned up')).toBeVisible()
-    await expect(deleteDialog.getByText(/If you want host cleanup, cancel this dialog and use Uninstall platform instead/)).toBeVisible()
+    await expect(deleteDialog.getByText(/If you want host cleanup, cancel this dialog and use Uninstall instead/)).toBeVisible()
     // Record-only Delete has nothing to release and no Workflow to cancel on the hosts' behalf.
     await expect(deleteDialog.getByLabel('Release all servers instead of uninstalling platform software')).toHaveCount(0)
     await expect(deleteDialog.getByRole('list', { name: "Workflows holding the platform's servers" })).toHaveCount(0)
@@ -1754,7 +1754,7 @@ test.describe('user interactions', () => {
     // The Platform page says the uninstall needs a new plan, and the safety switch goes off.
     await page.goto('/platforms/platform-a?site=site-a')
     await expect(page.getByText('Uninstall needs a new Change Plan', { exact: true })).toBeVisible()
-    await expect(page.getByText(/Its Change Plan was rejected or expired\. Choose Uninstall platform again to propose a new one\./)).toBeVisible()
+    await expect(page.getByText(/Its Change Plan was rejected or expired\. Choose Uninstall again to propose a new one\./)).toBeVisible()
     await page.goto('/change-plans?site=site-a')
     await page.getByRole('switch', { name: 'Require a separate approval for every Change Plan' }).locator('..').click()
     await expect(page.getByText('Confirmed changes start at once')).toBeVisible()

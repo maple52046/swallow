@@ -167,7 +167,7 @@ Platform detail 透過 Platform API 讀取 live Slurm state，並把 node 關聯
 
 lifecycle 正在變更或失敗時，主要入口是 **View workflow** 或 **Review workflow**；等待核准的
 Change Plan 連到 **Change Plans**。Active 且有自己 Grafana 的 Platform 提供
-**Open Platform Grafana**；**Sync**、uninstall 與 record deletion 仍保留，但不把 Overview
+**Grafana**；**Sync**、**Uninstall** 與 record deletion 仍保留，但不把 Overview
 做成 action wall。
 ## Lifecycle
 

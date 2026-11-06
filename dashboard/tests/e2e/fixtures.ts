@@ -2004,7 +2004,9 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       : {}),
   })).map((platform) => {
     const spec = fixturePlatformSpec(platform)
-    const seeded = { ...platform, generation: 1, spec, status: fixturePlatformStatus(platform.lifecycleState, spec) }
+    // A planned Platform's install has not run, so no deployment Workflow records its topology yet.
+    const deployment = platform.lifecycleState === 'planned' ? null : platform.deployment
+    const seeded = { ...platform, deployment, generation: 1, spec, status: fixturePlatformStatus(platform.lifecycleState, spec) }
     const removal = options.platformRemovals?.[platform.id]
     return removal ? pendingRemoval(seeded, removal) : seeded
   })

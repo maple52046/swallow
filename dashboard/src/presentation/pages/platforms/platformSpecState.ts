@@ -109,7 +109,7 @@ export function pendingUninstallNotice(platform: Platform): PlatformChangeNotice
     return {
       status: 'warning',
       title: 'Uninstall needs a new Change Plan',
-      body: 'Nothing was removed. Its Change Plan was rejected or expired. Choose Uninstall platform again to propose a new one.',
+      body: 'Nothing was removed. Its Change Plan was rejected or expired. Choose Uninstall again to propose a new one.',
       linksChangePlans: true,
     }
   }
@@ -127,7 +127,7 @@ export function pendingUninstallNotice(platform: Platform): PlatformChangeNotice
     return {
       status: 'warning',
       title: 'Uninstall cannot start yet',
-      body: `${asSentence(realized.message, 'Swallow could not start the uninstall.')} Swallow keeps trying; resolve the cause, or choose Uninstall platform again with other options.`,
+      body: `${asSentence(realized.message, 'Swallow could not start the uninstall.')} Swallow keeps trying; resolve the cause, or choose Uninstall again with other options.`,
       linksChangePlans: false,
     }
   }

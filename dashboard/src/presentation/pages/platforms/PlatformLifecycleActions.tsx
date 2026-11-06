@@ -279,7 +279,8 @@ export function PlatformLifecycleActions({ platform, operation, targetServerIds,
         </Button>
       ) : (
         <PlatformRemovalSplitButton
-          primaryLabel="Uninstall platform"
+          primaryLabel="Uninstall"
+          primaryAccessibleLabel="Uninstall platform"
           primaryDisabledReason={uninstall.reason}
           onPrimaryAction={() => open('uninstall')}
           menuItemLabel="Delete only…"

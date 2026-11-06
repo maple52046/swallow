@@ -11,7 +11,7 @@ import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useIntegration } from '@/presentation/pages/infrastructure/useIntegrationSettings'
 import type { PlatformFact, PlatformModuleUI } from '@/modules/registry'
 import { formatDateTime } from '@/shared/utils/time'
-import { topologyLabel } from './platformDetailShared'
+import { platformTopologyLabel } from './platformDetailShared'
 import { describePlatformSpecState } from './platformSpecState'
 
 interface PlatformDetailsCardProps {
@@ -154,7 +154,7 @@ export function PlatformDetailsCard({ platform, module }: PlatformDetailsCardPro
     {
       title: 'Deployment',
       facts: [
-        { label: 'Topology', value: platform.deployment ? topologyLabel(platform.deployment.topology) : 'Not recorded' },
+        { label: 'Topology', value: platformTopologyLabel(platform, module, 'Not recorded') },
         { label: 'Members', value: membersValue(platform) },
         ...machinePreparationFacts(platform),
       ],

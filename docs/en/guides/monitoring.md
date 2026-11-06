@@ -155,7 +155,7 @@ credential, so a credential copied from an older deployment stops working.
 The Platform workspace's **Monitoring** route collects these destinations without embedding
 their dashboards. It links to Swallow usage charts, the Platform Grafana, other Monitoring
 Links, and the recorded installation state and Workflow for Omnistat or GPU monitoring.
-On an active Platform, **Open Platform Grafana** is also available from the workspace hero.
+On an active Platform, the workspace hero also offers **Grafana**, which opens the Platform Grafana.
 
 - **Slurm**: Grafana runs on the primary controller, at port 3000. It runs as a container by
   default, so the deploy installs a container engine on the primary controller first: the one

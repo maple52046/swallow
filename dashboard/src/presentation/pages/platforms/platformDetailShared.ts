@@ -1,5 +1,7 @@
 import { platformLifecycleLabel } from '@/domain/platform/lifecycle'
+import { platformCurrentSpec } from '@/domain/platform/spec'
 import type { KubernetesTopology, Platform } from '@/domain/platform/types'
+import type { PlatformModuleUI } from '@/modules/registry'
 import type { MetricItem } from '@/presentation/components/ConsolePrimitives'
 import { formatRelative } from '@/shared/utils/time'
 
@@ -16,6 +18,19 @@ export function topologyLabel(topology: KubernetesTopology): string {
     case 'high-availability':
       return 'High availability'
   }
+}
+
+/**
+ * A Platform's topology label: the latest deployment Workflow's recorded intent; before one exists
+ * (a `planned` Platform whose install has not run), the topology its current spec's member roles
+ * describe, through the owning module's `specTopology`; `fallback` only when neither tells, for
+ * example a registered Platform or one deployed before specs existed.
+ */
+export function platformTopologyLabel(platform: Platform, module: PlatformModuleUI | undefined, fallback: string): string {
+  if (platform.deployment) return topologyLabel(platform.deployment.topology)
+  const spec = platformCurrentSpec(platform)
+  const derived = spec ? module?.specTopology?.(spec) : undefined
+  return derived ? topologyLabel(derived) : fallback
 }
 
 /**

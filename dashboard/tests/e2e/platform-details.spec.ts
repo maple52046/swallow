@@ -96,6 +96,11 @@ test('a Platform awaiting its install approval is not deployed yet and has a dir
     Integration: 'Not connected',
     'GPU stack': 'provisioning',
   })
+
+  // No deployment Workflow has run, so the Overview reads the topology from the spec's roles too.
+  await page.goto('/platforms/platform-b?site=site-a')
+  const posture = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Runtime posture' }) })
+  await expect.poll(() => readFacts(posture)).toMatchObject({ Topology: 'Standalone' })
 })
 
 test('a Slurm Platform states its cluster, the Docker CE its container Grafana brought, and MPI', async ({ page }) => {

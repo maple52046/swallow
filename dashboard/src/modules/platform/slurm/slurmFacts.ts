@@ -1,8 +1,20 @@
 import { wantsPlatformGrafana } from '@/domain/platform/monitoring'
 import { platformCurrentSpec, settingObject, settingString } from '@/domain/platform/spec'
-import type { ObservabilityInstallMethod, Platform } from '@/domain/platform/types'
+import type { KubernetesTopology, ObservabilityInstallMethod, Platform, PlatformSpec } from '@/domain/platform/types'
 import type { PlatformFact } from '@/modules/types'
 import { platformGrafanaContainerHostFact, slurmContainerRuntimeLabel } from './slurmGrafanaCopy'
+
+/**
+ * The topology a Slurm spec's member roles describe (platforms.md "Slurm": per-daemon
+ * `controller`, `compute`, `login`), derived the way the api-server projects a Slurm deployment:
+ * more than one controller is high availability, one is standalone; Slurm has no multi-node
+ * manager tier. Undefined without a controller, so a reader shows no guessed topology.
+ */
+export function slurmSpecTopology(spec: PlatformSpec): KubernetesTopology | undefined {
+  const controllers = spec.members.filter((member) => member.roles.includes('controller')).length
+  if (controllers === 0) return undefined
+  return controllers > 1 ? 'high-availability' : 'standalone'
+}
 
 /**
  * How a Slurm Platform's own Grafana was installed on its primary controller, or null when the

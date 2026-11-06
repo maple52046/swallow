@@ -218,7 +218,7 @@ the arrow keys move between tabs.
 
 Changing or failed lifecycle states lead with **View workflow** or **Review workflow**.
 A Change Plan waiting for approval links to **Change Plans**. An active Platform with its
-own Grafana offers **Open Platform Grafana**; **Sync**, uninstall, and record deletion remain
+own Grafana offers **Grafana**; **Sync**, **Uninstall**, and record deletion remain
 available without turning the Overview into an action wall.
 
 ## Lifecycle
