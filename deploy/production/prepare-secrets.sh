@@ -30,5 +30,10 @@ write_secret machine-token "$(openssl rand -hex 32)"
 # need no quoting in SQL or URIs. local-maas.sh adds maas-api-key after MAAS is initialized.
 write_secret maas-db-password "$(openssl rand -hex 24)"
 write_secret maas-admin-password "$(openssl rand -hex 18)"
+# The Site's Local Repository (Pulp): its PostgreSQL role password, its admin password (the
+# repository Integration's credential), and its Django secret key.
+write_secret pulp-db-password "$(openssl rand -hex 24)"
+write_secret pulp-admin-password "$(openssl rand -hex 18)"
+write_secret pulp-secret-key "$(openssl rand -hex 32)"
 chmod 0444 "${secrets_dir}"/*
 printf 'secrets prepared in %s\n' "${secrets_dir}"

@@ -27,6 +27,9 @@ Installer 完成時：
   已啟用；
 - Site `default` 的 Prometheus 在同一台 VM 上執行，已是該 Site 的 metrics Integration，並收集
   swallow 安裝在該 Site 的 Server 上的 exporter（見 [Monitoring](guides/monitoring.md)）；
+- Site 的 Local Repository（Pulp）在同一台 VM 的 **HTTP port 8080** 上執行，已是該 Site 的 `repository`
+  Integration，第一個來源是 Ubuntu archive：swallow 佈署的每台 Server 都從它取得 OS 套件、container image、
+  Python 套件與檔案，而不是從網際網路；
 - VM 在 UDP 123 提供 NTP（MAAS 自己的時間服務），swallow 佈署的每台 Server 都使用它
   （見[時間同步](guides/os-provisioning.md#時間同步)）；
 - `swallow` CLI 已安裝在 `/usr/local/bin/swallow`。
@@ -34,12 +37,15 @@ Installer 完成時：
 ### 前置條件
 
 - 一台可 `sudo` 的乾淨 Ubuntu 24.04 amd64 VM。建議起始規格 4 vCPU、16 GiB RAM、
-  100 GiB disk。
+  100 GiB disk，再加上 Local Repository 的 cache 空間：它保留 Server 取得過的每個套件、image 與檔案，一次 GPU
+  Platform 的佈署就會增加數十 GiB。
 - 能連到 `github.com`（release）、`ghcr.io`（swallow 自己的 images）、Docker Hub（官方
-  MongoDB、PostgreSQL、Temporal 與 Prometheus images）、`quay.io`（prom-label-proxy image）、
-  `download.docker.com`、Snap Store 與 `images.maas.io`。
-- 未被占用的 port：80（Dashboard）、5240（MAAS），以及 loopback 5432（MAAS 用的 PostgreSQL）。
-  機器會連 VM 的 UDP 123 對時，也會連 port 80：Platform 自己的 Grafana 經 swallow 在那裡讀取 metrics。
+  MongoDB、PostgreSQL、Temporal、Prometheus 與 Pulp images）、`quay.io`（prom-label-proxy image）、
+  `download.docker.com`、Snap Store 與 `images.maas.io`。佈署時 Local Repository 還要連得到它鏡像的上游：
+  `archive.ubuntu.com`，以及已安裝的模組宣告的來源、registry、PyPI 與下載網站。
+- 未被占用的 port：80（Dashboard）、8080（Local Repository）、5240（MAAS），以及 loopback 5432（MAAS 用的
+  PostgreSQL）。機器會連 VM 的 UDP 123 對時、連 port 8080 取得它們安裝的每樣東西，也會連 port 80：Platform 自己的
+  Grafana 經 swallow 在那裡讀取 metrics。要用 8080 以外的 port，在第一次安裝前設定 `SWALLOW_PULP_PORT`。
 - VM 本身要連得到一個 NTP server。VM 預設跟隨 `ntp.ubuntu.com`；網路連不到它時，以
   `SWALLOW_NTP_UPSTREAM` 指定其他 server，例如
   `curl … | sudo SWALLOW_NTP_UPSTREAM=10.0.0.123 bash`，或之後以
@@ -65,7 +71,7 @@ curl -fsSL https://github.com/maple52046/swallow/releases/download/v<version>/in
 Installer 會以 release 的 checksums 核對檔案、解壓到 `/opt/swallow`（`--dir` 可改目錄），再執行
 `swallowctl install`：缺少 Docker 時安裝 Docker、把 release 的 image digests 與你的設定寫入
 `.env`、產生 secrets、啟動 stack、建立 Deployment Key、安裝 MAAS、匯入 `ubuntu/noble`（數百
-MB）、在 swallow 註冊 MAAS 與 Site 的 Prometheus，最後執行 `swallowctl doctor`。重複執行是安全的：中途停下的安裝會
+MB）、在 swallow 註冊 MAAS、Site 的 Prometheus 與 Site 的 Local Repository，最後執行 `swallowctl doctor`。重複執行是安全的：中途停下的安裝會
 接續完成。`--help` 會列出所有選項。有穩定版之後，
 `https://github.com/maple52046/swallow/releases/latest/download/install.sh` 永遠安裝最新的穩定版。
 
@@ -114,9 +120,11 @@ native bundle。
 ## 正式環境安全基線
 
 - Installation 提供 plain HTTP。要開放到受信任的管理網路之外前，請在 port 80 前面加上
-  TLS terminator。
+  TLS terminator。port 8080 的 Local Repository 以 plain HTTP 服務 machine network；它的 OS 套件以這個
+  installation 自己的金鑰簽章，檔案以宣告的 sha256 檢查。
 - 保留產生的 secrets：`/opt/swallow/production/secrets/` 權限為 0700，不得進 source control。
 - 只用含 immutable image digests 的 release manifest 安裝。
 - 排程 `swallowctl backup` 並演練 `restore`。Backup 包含 MongoDB、credential key、
-  Workflow artifacts 與 MAAS database；deployment key 的私鑰以 credential key 加密，
-  兩者必須一起還原。Site 的 Prometheus 中的 metrics 不備份：遺失只少了用量歷史。
+  Workflow artifacts、Local Repository 的 database 與金鑰，以及 MAAS database；deployment key 的私鑰以
+  credential key 加密，兩者必須一起還原。Site 的 Prometheus 中的 metrics 不備份：遺失只少了用量歷史。Local
+  Repository 快取的套件與 image 也不備份：restore 之後從它們的上游重新下載。

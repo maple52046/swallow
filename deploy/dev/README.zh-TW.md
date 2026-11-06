@@ -31,6 +31,9 @@ Local-only bootstrap account 是 `admin` / `admin`。
 | `ansible-executor` | internal | Idempotent Ansible attempt 與 event |
 | `prometheus` | 9090 | Site 的 Prometheus：swallow 自己的 metrics（`swallow-api`）與 swallow 確知已安裝的 exporter（`swallow-exporters`，來自 swallow discovery） |
 | `prom-label-proxy` | 9091（只在 loopback） | 只看得到一個 Platform 的 series 的 Site Prometheus：`X-Swallow-Platform-Id` header 中的 `platform_id`；API 以 `http://prom-label-proxy:8080` 連到它 |
+| `pulp-db`、`pulp-init` | 無（一次性） | 每次 `up` 都執行：在 `temporal-postgresql` 建立 Pulp 的 role 與 database `pulp`，再補上 Pulp 的金鑰、遷移 schema、設定 admin 密碼，並加上 deb 簽章服務 |
+| `pulp-api`、`pulp-content`、`pulp-worker` | internal | 開發 Site 的 [Local Repository](../../docs/development/local-repository.md)（Pulp 3）：API、content app 與兩個 worker |
+| `pulp-web` | 8080（`PULP_HTTP_PORT`，每個介面） | Local Repository 唯一的位址：content、registry（`/v2/`）、Python index（`/pypi/`）與 Pulp 的 API；lab 的 Server 從這裡取得每個 artifact，API 以 `http://pulp-web:8080` 連到它 |
 
 ## 常用指令
 
@@ -158,6 +161,23 @@ Servers 看到的這台主機的位址。任一個是空的時候，需要它的
 printf 'SWALLOW_API_PUBLIC_URL=http://10.170.168.20\nSWALLOW_API_MONITORING_SCRAPE_ADDRESSES=10.170.168.20,192.168.100.1\n' >> .env
 docker compose up -d api-server worker
 ```
+
+## Local Repository
+
+部署從 Site 的 Local Repository（開發環境的 Pulp）取得套件、檔案、container image 與 Python 套件；Site 沒有
+ready 的 Local Repository 時，這類部署在受理時就被拒絕。Pulp 以它的 origin 寫出絕對 URL，lab 的 Server 也從這個位址連到它，
+所以要在 `.env` 把 `PULP_ORIGIN` 設成 Server 看到的、這台主機在 `PULP_HTTP_PORT` 的位址，並重建 Pulp 的 services；
+預設的 `http://localhost:8080` 只有這台主機自己連得到。lab 的設定：
+
+```bash
+echo PULP_ORIGIN=http://10.170.168.20:8080 >> .env && docker compose up -d && bash seed.sh
+```
+
+設了 `PULP_ORIGIN` 時，`seed.sh` 會把 Pulp 登錄為 Site 的 `repository` Integration（provider kind `pulp`、endpoint
+`http://pulp-web:8080`、setting `contentOrigin` 等於 `PULP_ORIGIN`，credential 是 Pulp 的 admin 密碼
+`PULP_ADMIN_PASSWORD`，預設 `admin`），並比照 production installation，在從未寫入過的 Local Repository spec 加上 Site 的
+`ubuntu` 來源（Ubuntu archive）；見 [local-repository.md](../../docs/development/local-repository.md) §4.1 與 §5.2。
+Ubuntu archive 的第一次同步要一段時間，進度在 Infrastructure 的 Local Repository 頁面。
 
 ## Node Exporter controller
 

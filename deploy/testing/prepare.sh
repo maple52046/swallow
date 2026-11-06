@@ -25,6 +25,11 @@ write_secret "${secrets_dir}/bootstrap-admin-password" "$(openssl rand -hex 18)"
 write_secret "${secrets_dir}/credential-key" "$(openssl rand -base64 32)"
 write_secret "${secrets_dir}/machine-token" "$(openssl rand -hex 32)"
 write_secret "${secrets_dir}/temporal-db-password" "$(openssl rand -hex 24)"
+# The Local Repository (Pulp), as production's prepare-secrets.sh writes them: its PostgreSQL role
+# password, its admin password (the repository Integration's credential), and its Django secret key.
+write_secret "${secrets_dir}/pulp-db-password" "$(openssl rand -hex 24)"
+write_secret "${secrets_dir}/pulp-admin-password" "$(openssl rand -hex 18)"
+write_secret "${secrets_dir}/pulp-secret-key" "$(openssl rand -hex 32)"
 
 chmod 0444 "${secrets_dir}"/*
 printf 'testing secrets prepared in %s\n' "${secrets_dir}"

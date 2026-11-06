@@ -12,7 +12,9 @@
     "postgres": "docker.io/library/postgres@sha256:REPLACE",
     "temporalServer": "docker.io/temporalio/auto-setup@sha256:REPLACE",
     "prometheus": "docker.io/prom/prometheus@sha256:REPLACE",
-    "promLabelProxy": "quay.io/prometheuscommunity/prom-label-proxy@sha256:REPLACE"
+    "promLabelProxy": "quay.io/prometheuscommunity/prom-label-proxy@sha256:REPLACE",
+    "pulp": "docker.io/pulp/pulp-minimal@sha256:REPLACE",
+    "pulpWeb": "docker.io/pulp/pulp-web@sha256:REPLACE"
   },
   "compatibility": {
     "host": "ubuntu-24.04-amd64",

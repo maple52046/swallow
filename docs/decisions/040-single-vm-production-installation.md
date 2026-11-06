@@ -10,7 +10,9 @@ The production Compose installation used to stop at swallow itself: MAAS needed 
 image synchronization and the provisioner Integration were manual, and every backend service sat on
 an internal network, so nothing could reach a provisioner or a Server. The goal is that one clean
 Ubuntu 24.04 VM becomes operable with one command: the Dashboard, a synced MAAS Integration,
-Temporal with a polling worker, a working Ansible executor, and a deployable `ubuntu/noble` image.
+Temporal with a polling worker, a working Ansible executor, a deployable `ubuntu/noble` image, and,
+since deployments stopped fetching from the Internet ([decision 078](078-local-repository.md)
+(local repository)), the Local Repository its Servers fetch every artifact from.
 "Production" names the installation contract (digest-pinned images, generated secrets, lifecycle
 tooling), not a multi-host topology.
 
@@ -26,22 +28,32 @@ only in the environment was lost on the next upgrade.
 
 - **One VM.** swallow runs on Docker Compose and a MAAS 3.6 region+rack snap runs on the same host.
   `swallowctl` installs, initializes, stops, and purges that MAAS and refuses a MAAS it did not install.
-- **One PostgreSQL instance, separate databases.** MAAS stores its state in the Compose PostgreSQL that
-  serves Temporal, under its own role and database; `maas-test-db` is never used.
+- **One PostgreSQL instance, separate databases.** MAAS and Pulp store their state in the Compose
+  PostgreSQL that serves Temporal, each under its own role and database; `maas-test-db` is never used.
 - **swallow's own state is in MongoDB, as a single-node replica set** in every environment, because the
   store needs transactions and change streams
   ([decision 069](069-swallow-owns-desired-state.md) (swallow owns desired state)); every process
   refuses to start on a standalone server.
 - **Backend egress.** The API, worker, and Ansible executor also join a non-internal network to reach
-  the co-located MAAS and the Servers; MongoDB, Temporal, and PostgreSQL stay internal. The co-located
-  MAAS is registered at the host's own address, not `host.docker.internal`, so the address the
-  Dashboard pre-fills for a Boot ISO's rack is one machines can reach.
+  the co-located MAAS and the Servers, and Pulp joins it to fetch from the upstreams it mirrors;
+  MongoDB, Temporal, and PostgreSQL stay internal. The co-located MAAS is registered at the host's
+  own address, not `host.docker.internal`, so the address the Dashboard pre-fills for a Boot ISO's
+  rack is one machines can reach.
+- **The Site's Local Repository runs on the same VM.** Pulp 3 (`pulp-minimal` for the API, the content
+  app, and the workers, `pulp-web` in front) keeps its state in the shared PostgreSQL under its own role
+  and database, like MAAS, and the bootstrap registers it as the Site's `repository` Integration with
+  the Site's Ubuntu source (decision 078). `pulp-web` is
+  the installation's **second external listener, for Servers**, on its own port
+  (`SWALLOW_PULP_PORT`, 8080 by default): a container registry must answer `/v2/` at the root of its
+  host and port, and Pulp writes absolute URLs on its content origin, so it cannot sit under a path of
+  the Dashboard's listener.
 - **Official image only.** The installation ensures the official `ubuntu/noble` amd64 image; custom
   images and offline image media are not part of it.
 - **Records through the published API.** A post-install bootstrap creates the Site, registers MAAS as
   its provisioner Integration, and writes Site automation defaults only when none exist. Co-location
   changes the topology, not the model: MAAS is an external provisioner behind its Integration.
-- **Plain HTTP** on port 80; TLS, when required, terminates in front of the installation.
+- **Plain HTTP** on port 80 and on the Local Repository's port; TLS, when required, terminates in
+  front of the installation.
 
 ### Releases
 
@@ -50,9 +62,10 @@ only in the environment was lost on the next upgrade.
   Temporal and PostgreSQL packaging is complete, no offline image archive until offline installation
   (MAAS images included) is supported, and no mirrored Temporal UI: its image is the user's choice and
   must be an exact digest.
-- **GHCR holds only the images swallow builds** (`api`, `dashboard`, `cli`). MongoDB, PostgreSQL, and
-  Temporal Server are used unchanged from Docker Hub, pinned by their upstream index digests in the
-  release manifest. Installations never use tags.
+- **GHCR holds only the images swallow builds** (`api`, `dashboard`, `cli`). MongoDB, PostgreSQL,
+  Temporal Server, Prometheus, and Pulp are used unchanged from Docker Hub, and prom-label-proxy from
+  Quay, pinned by their upstream index digests in the release manifest; a release references Pulp's
+  GPL images and never redistributes them. Installations never use tags.
 - **The shared PostgreSQL has a neutral name**, `postgres`, wherever swallow names it; its superuser
   and password secret keep their Temporal names because Temporal logs in with that account.
 - **Publishing needs crane on `PATH`**, with no container fallback.
@@ -73,6 +86,10 @@ only in the environment was lost on the next upgrade.
   swallow's Temporal runs and the Workflow dispatcher re-dispatches every unfinished Workflow from
   the restored store ([decision 072](072-store-driven-workflow-execution.md) (store-driven Workflow
   execution)).
+- **Pulp's database and keys are backed up; its artifacts are not.** The database is unreadable
+  without the field encryption key, and deb Releases are signed with a key Servers already trust, so
+  both stay with the database. Every artifact comes from an upstream, and the cache can reach tens
+  of GiB, so a restore asks Pulp to download the missing ones again.
 
 ## Alternatives considered
 
@@ -89,6 +106,20 @@ only in the environment was lost on the next upgrade.
   under swallow's name with a second digest, adds a release step, and does not make offline
   installation work by itself.
 - **Rename the PostgreSQL superuser and secret too:** deferred; it changes Temporal's database login.
+- **Serve the Local Repository through the Dashboard's Nginx on port 80:** rejected; the registry's
+  `/v2/` must be at the root of its own host and port, and Pulp's absolute URLs would mix with the
+  API's.
+- **Pulp's all-in-one image, or a PostgreSQL of its own:** rejected; the all-in-one image always
+  starts its own PostgreSQL, which would be a second database engine and backup path on the VM.
+- **Back up Pulp's artifacts:** rejected; they all come from upstreams, are re-fetched on demand or
+  by a repair, and would make every backup as large as the cache.
+- **Serve the Local Repository through the Dashboard's Nginx on port 80:** rejected; the registry's
+  `/v2/` must be at the root of its own host and port, and Pulp's absolute URLs would mix with the
+  API's.
+- **Pulp's all-in-one image, or a PostgreSQL of its own:** rejected; the all-in-one image always
+  starts its own PostgreSQL, which would be a second database engine and backup path on the VM.
+- **Back up Pulp's artifacts:** rejected; they all come from upstreams, are re-fetched on demand or
+  by a repair, and would make every backup as large as the cache.
 - **A crane container fallback:** rejected; under rootless nerdctl it could not read the registry
   login and hung on streamed output.
 - **Publish `swallowctl` alone and let it download its bundle:** rejected; one tool would be both the
@@ -102,8 +133,13 @@ only in the environment was lost on the next upgrade.
   that recreates PostgreSQL briefly interrupts it, and boot images re-sync after a restore.
 - The VM is a single failure domain for swallow and its provisioner, and plain HTTP exposes the admin
   login unless a TLS terminator fronts it.
-- Installation needs outbound access to GHCR, Docker Hub (anonymous pull limits apply),
-  `images.maas.io`, and the snap store; an air-gapped site cannot install from a release.
+- Installation needs outbound access to GHCR, Docker Hub (anonymous pull limits apply), Quay,
+  `images.maas.io`, and the snap store; an air-gapped site cannot install from a release. Deployments
+  need Pulp to reach the upstreams the Local Repository mirrors (the Ubuntu archive and what the
+  modules declare), and the machine networks to reach the VM's Local Repository port.
+- The VM's disk holds the Local Repository's cache: every package, image, and file the Site's
+  Servers fetched. After a restore on another host, artifacts are downloaded again before they are
+  served.
 - Each runtime image can be traced to its official source by the digest in the manifest.
 - The address cannot change after the first install, because MAAS keeps the URL it was initialized
   with. MAAS DHCP and PXE configuration stays outside the installation.
@@ -116,3 +152,4 @@ only in the environment was lost on the next upgrade.
 - 2026-10-06: decision 040 added a per-release `install.sh` that installs or upgrades in one command, keeping `swallowctl` the only lifecycle tool.
 - 2026-10-30: decision 069 required MongoDB to run as a single-node replica set in every installation.
 - 2026-11-02: merged decision 040 into this ADR; the body states the current decision.
+- 2026-11-06: added the Site's Local Repository (Pulp on the shared PostgreSQL) to the installation, with `pulp-web` as the second external listener, for Servers, because a container registry must be at the root of its own host and port; its database and keys are backed up, its artifacts are not.

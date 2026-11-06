@@ -21,15 +21,17 @@ jq -e --argjson current "${current_schema}" --argjson oldest "${oldest_schema}" 
   { printf 'release-manifest.example.json: schemaVersions and upgrade must match schema %s upgrading from %s (%s)\n' \
       "${current_schema}" "${oldest_schema}" "${migration_go}" >&2; exit 1; }
 jq -e '.upgrade.downgradeSupported == false and
-  (.images | keys) == ["api", "cli", "dashboard", "mongo", "postgres", "promLabelProxy", "prometheus", "temporalServer"] and
+  (.images | keys) == ["api", "cli", "dashboard", "mongo", "postgres", "promLabelProxy", "prometheus", "pulp", "pulpWeb", "temporalServer"] and
   (.artifacts.cliBinary | type == "string") and
   ([.images.api, .images.dashboard, .images.cli] | map(startswith("ghcr.io/maple52046/swallow@sha256:")) | all) and
-  ([.images.mongo, .images.postgres, .images.temporalServer, .images.prometheus] | map(test("^docker\\.io/[^@]+@sha256:")) | all) and
+  ([.images.mongo, .images.postgres, .images.temporalServer, .images.prometheus, .images.pulp, .images.pulpWeb] |
+    map(test("^docker\\.io/[^@]+@sha256:")) | all) and
   (.images.promLabelProxy | test("^quay\\.io/[^@]+@sha256:"))' \
   deploy/release/release-manifest.example.json >/dev/null
 # Every runtime image the manifest carries is pinned in runtime-images.env, and every image the
 # production compose.yaml requires comes from the manifest.
-for key in MONGO_IMAGE POSTGRES_IMAGE TEMPORAL_SERVER_IMAGE PROMETHEUS_IMAGE PROM_LABEL_PROXY_IMAGE; do
+for key in MONGO_IMAGE POSTGRES_IMAGE TEMPORAL_SERVER_IMAGE PROMETHEUS_IMAGE PROM_LABEL_PROXY_IMAGE \
+  PULP_IMAGE PULP_WEB_IMAGE; do
   grep -q "^${key}=" deploy/release/runtime-images.env ||
     { printf 'runtime-images.env must pin %s\n' "${key}" >&2; exit 1; }
 done

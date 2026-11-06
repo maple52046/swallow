@@ -85,7 +85,9 @@ Restart/rebuild the Dashboard after changing a Vite environment variable.
 
 Production serves Dashboard and API through the same Nginx origin over plain HTTP
 (port 80 by default); MongoDB and Temporal stay internal, and the API, worker, and executor
-reach MAAS and Servers through the `egress` network. Terminate TLS in front of it when the
+reach MAAS and Servers through the `egress` network. The Site's Local Repository has its own
+listener for deployed Servers, `SWALLOW_PULP_PORT` (8080 by default), because a container registry
+must answer at the root of its own port. Terminate TLS in front of it when the
 installation is exposed beyond a trusted network.
 
 ## CLI configuration
@@ -106,4 +108,5 @@ outside a controlled lab.
 Compose and native assets document their exact secret file contract. Keep secret
 directories out of source control and back up the credential key with MongoDB and
 artifacts. The production installation generates every secret, including the co-located
-MAAS database password, admin password, and API key, under `production/secrets/`.
+MAAS database password, admin password, and API key, and the Local Repository's (Pulp's) database
+password, admin password, and secret key, under `production/secrets/`.

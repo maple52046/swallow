@@ -14,12 +14,16 @@ GHCR package `ghcr.io/<owner>/swallow` 只放由此 repository build 的 images�
 | `api`、`dashboard`、`cli` | 由此 repository build（linux/amd64），推送到 GHCR |
 | MongoDB、PostgreSQL、Temporal Server、Prometheus | Docker Hub 上官方的 `mongo`、`postgres`、`temporalio/auto-setup` 與 `prom/prometheus`，固定在 [`runtime-images.env`](runtime-images.env) |
 | prom-label-proxy | Prometheus community 在 Quay 上的 `prometheuscommunity/prom-label-proxy`，固定在 [`runtime-images.env`](runtime-images.env) |
+| Pulp（Site 的 Local Repository） | Pulp 專案在 Docker Hub 上的 `pulp/pulp-minimal` 與 `pulp/pulp-web`，固定在 [`runtime-images.env`](runtime-images.env) |
 
 Installation 從不使用 tag：`release-manifest.json` 以 digest 固定每個 image。請審慎地檢查並
 更新 `runtime-images.env`；PostgreSQL image 同時承載共置 MAAS 的 database，必須維持
 PostgreSQL 14 以上；Prometheus image 必須保有 `scrape_config_files` 與 busybox `wget`（Site 的
 exporter discovery 與它的健康檢查依賴兩者）；prom-label-proxy image 必須保有 `-header-name`（`platform_id`
-取自請求的 header）、`-enable-label-apis` 與 busybox `wget`（它的 healthcheck）。選配的 Temporal UI 不屬於 release；user 需要時，自行在
+取自請求的 header）、`-enable-label-apis` 與 busybox `wget`（它的 healthcheck）。Pulp 使用共用的 PostgreSQL，
+所以用 `pulp-minimal`（all-in-one image 一律啟動自己的資料庫）；container 的匿名 pull-through 需要
+`pulp_container` 2.30.1（或 2.29.3）以上，`pulp-web` 與 `pulp-minimal` 一起升版。Release 以上游 digest 參照
+Pulp 的 image，從不重新散布它們。選配的 Temporal UI 不屬於 release；user 需要時，自行在
 `production/.env` 設定它的 digest。
 
 ## 發佈 release

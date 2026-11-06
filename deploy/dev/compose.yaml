@@ -5,6 +5,25 @@ name: swallow-dev
 # Every setting below has a development default, so the stack starts without a
 # .env file; copy .env.example to .env only when you need to override something.
 
+# The dev Site's Local Repository (Pulp 3, docs/development/local-repository.md): one image runs
+# the API, the content app, and the workers; pulp-web routes them under one address.
+x-pulp: &pulp
+  image: ${PULP_IMAGE:-docker.io/pulp/pulp-minimal:3.123.1}
+  user: pulp
+  environment: &pulp-environment
+    # The address deployed Servers reach Pulp at (PULP_HTTP_PORT on this host). Set PULP_ORIGIN in
+    # .env to this host's LAN address for a lab.
+    SWALLOW_PULP_ORIGIN: "${PULP_ORIGIN:-http://localhost:8080}"
+    SWALLOW_PULP_SECRET_KEY: "dev-pulp-secret-key-not-for-production-0123456789"
+    SWALLOW_PULP_DB_HOST: temporal-postgresql
+    SWALLOW_PULP_DB_PASSWORD: pulp
+    SWALLOW_PULP_ADMIN_PASSWORD: "${PULP_ADMIN_PASSWORD:-admin}"
+  volumes:
+    - ./pulp/settings.py:/etc/pulp/settings.py:ro
+    - ./pulp/sign-deb-release.sh:/usr/local/share/swallow/sign-deb-release.sh:ro
+    - pulp-certs:/etc/pulp/certs
+    - pulp-data:/var/lib/pulp
+
 services:
   # A single-node replica set (rs0), the store topology swallow requires (decision 069). The dev
   # stack runs without authentication, so it needs no keyFile. Tools on the host reach it with
@@ -298,6 +317,96 @@ services:
     ports:
       - "127.0.0.1:${PROM_LABEL_PROXY_PORT:-9091}:8080"
 
+  # Creates Pulp's role and database in the dev PostgreSQL, then exits.
+  pulp-db:
+    image: postgres:16
+    restart: "no"
+    depends_on:
+      temporal-postgresql:
+        condition: service_healthy
+    environment:
+      PGHOST: temporal-postgresql
+      PGUSER: temporal
+      PGPASSWORD: temporal
+    entrypoint:
+      - sh
+      - -c
+      - |
+        psql -v ON_ERROR_STOP=1 <<'SQL'
+        SELECT 'CREATE ROLE pulp LOGIN PASSWORD ''pulp''' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'pulp')\gexec
+        SELECT 'CREATE DATABASE pulp OWNER pulp' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'pulp')\gexec
+        SQL
+
+  # Keys, schema migrations, admin password, and the deb signing service; then exits.
+  pulp-init:
+    <<: *pulp
+    user: root
+    restart: "no"
+    depends_on:
+      pulp-db:
+        condition: service_completed_successfully
+    command: ["/usr/local/share/swallow/init.sh"]
+    volumes:
+      - ./pulp/settings.py:/etc/pulp/settings.py:ro
+      - ./pulp/sign-deb-release.sh:/usr/local/share/swallow/sign-deb-release.sh:ro
+      - ./pulp/init.sh:/usr/local/share/swallow/init.sh:ro
+      - pulp-certs:/etc/pulp/certs
+      - pulp-data:/var/lib/pulp
+
+  pulp-api:
+    <<: *pulp
+    restart: unless-stopped
+    depends_on:
+      pulp-init:
+        condition: service_completed_successfully
+    command: ["pulp-api"]
+    healthcheck:
+      test: ["CMD", "readyz.py", "/pulp/api/v3/status/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  pulp-content:
+    <<: *pulp
+    restart: unless-stopped
+    depends_on:
+      pulp-init:
+        condition: service_completed_successfully
+    command: ["pulp-content"]
+    healthcheck:
+      test: ["CMD", "readyz.py", "/pulp/content/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  pulp-worker:
+    <<: *pulp
+    restart: unless-stopped
+    depends_on:
+      pulp-init:
+        condition: service_completed_successfully
+    command: ["pulp-worker"]
+    deploy:
+      replicas: 2
+
+  # The one address of the dev Pulp: API, registry (/v2/), Python index (/pypi/), and content.
+  # Published on every interface, because lab Servers fetch from it.
+  pulp-web:
+    image: ${PULP_WEB_IMAGE:-docker.io/pulp/pulp-web:3.123.1}
+    restart: unless-stopped
+    user: root
+    depends_on:
+      pulp-api:
+        condition: service_healthy
+      pulp-content:
+        condition: service_healthy
+    command: ["/usr/bin/nginx.sh"]
+    volumes:
+      - ./pulp/nginx.sh:/usr/bin/nginx.sh:ro
+      - ./pulp/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
+    ports:
+      - "${PULP_HTTP_PORT:-8080}:8080"
+
   dashboard:
     build:
       context: .
@@ -333,3 +442,5 @@ volumes:
   npm-cache:
   prometheus-data:
   temporal-postgres-data:
+  pulp-certs:
+  pulp-data:

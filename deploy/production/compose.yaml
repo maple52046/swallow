@@ -1,14 +1,35 @@
 name: swallow-production
 
-# Single-VM production installation. Dashboard/Nginx is the only public listener (plain
-# HTTP). MongoDB and Temporal stay on the internal `control` network. The API, worker, and
-# Ansible executor also join `egress` so they can reach the co-located MAAS (through
-# host.docker.internal) and the Servers they deploy and configure; Prometheus joins it to scrape
-# the exporters on those Servers. prom-label-proxy stays on `control`.
+# Single-VM production installation. Two listeners are public, both plain HTTP: Dashboard/Nginx
+# (the Dashboard and the API) and pulp-web (the Site's Local Repository, for deployed Servers).
+# MongoDB and Temporal stay on the internal `control` network. The API, worker, and Ansible
+# executor also join `egress` so they can reach the co-located MAAS (through host.docker.internal)
+# and the Servers they deploy and configure; Prometheus joins it to scrape the exporters on those
+# Servers, and Pulp to fetch from the upstream sources it mirrors. prom-label-proxy stays on
+# `control`.
 
 x-backend-hosts: &backend-hosts
   extra_hosts:
     - "host.docker.internal:host-gateway"
+
+# The Site's Local Repository (Pulp 3): pulp-minimal runs the API, the content app, and the workers
+# as separate services on the shared PostgreSQL; pulp-web routes them under one address.
+x-pulp: &pulp
+  image: ${SWALLOW_PULP_IMAGE:?set a digest-pinned SWALLOW_PULP_IMAGE}
+  user: pulp
+  environment:
+    # The address deployed Servers reach pulp-web at; Pulp writes absolute URLs on it.
+    SWALLOW_PULP_ORIGIN: http://${SWALLOW_ADDRESS:-localhost}:${SWALLOW_PULP_PORT:-8080}
+  secrets:
+    - pulp_db_password
+    - pulp_secret_key
+  volumes:
+    - ./pulp/settings.py:/etc/pulp/settings.py:ro
+    - ./pulp/sign-deb-release.sh:/usr/local/share/swallow/sign-deb-release.sh:ro
+    - pulp-certs:/etc/pulp/certs
+    - pulp-data:/var/lib/pulp
+  networks: [control, egress]
+  security_opt: [no-new-privileges:true]
 
 services:
   # A single-node replica set (rs0) with keyFile authentication: swallow needs transactions and
@@ -42,10 +63,11 @@ services:
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, SETGID, SETUID]
 
-  # One PostgreSQL instance serves Temporal (temporal_core, temporal_visibility) and, on the
-  # single-VM installation, the co-located MAAS region (role `maas`, database `maasdb`,
-  # created by local-maas.sh). Each has its own database and role; nothing is shared below
-  # the instance. The port is published on loopback only, for the MAAS snap on this host.
+  # One PostgreSQL instance serves Temporal (temporal_core, temporal_visibility), Pulp (role and
+  # database `pulp`, created by swallowctl before Pulp starts) and, on the single-VM installation,
+  # the co-located MAAS region (role `maas`, database `maasdb`, created by local-maas.sh). Each has
+  # its own database and role; nothing is shared below the instance. The port is published on
+  # loopback only, for the MAAS snap on this host.
   postgres:
     image: ${SWALLOW_POSTGRES_IMAGE:?set a digest-pinned SWALLOW_POSTGRES_IMAGE}
     restart: unless-stopped
@@ -332,6 +354,97 @@ services:
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
 
+  # Keys, schema migrations, admin password, and the deb signing service; then exits. It runs on
+  # every start, so a new Pulp image migrates its database at the next `up`.
+  pulp-init:
+    <<: *pulp
+    user: root
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["bash", "/usr/local/share/swallow/init.sh"]
+    secrets:
+      - pulp_db_password
+      - pulp_secret_key
+      - pulp_admin_password
+    volumes:
+      - ./pulp/settings.py:/etc/pulp/settings.py:ro
+      - ./pulp/sign-deb-release.sh:/usr/local/share/swallow/sign-deb-release.sh:ro
+      - ./pulp/init.sh:/usr/local/share/swallow/init.sh:ro
+      - pulp-certs:/etc/pulp/certs
+      - pulp-data:/var/lib/pulp
+    networks: [control]
+
+  pulp-api:
+    <<: *pulp
+    restart: unless-stopped
+    depends_on:
+      pulp-init:
+        condition: service_completed_successfully
+    command: ["pulp-api"]
+    healthcheck:
+      test: ["CMD", "readyz.py", "/pulp/api/v3/status/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    cap_drop: [ALL]
+
+  pulp-content:
+    <<: *pulp
+    restart: unless-stopped
+    depends_on:
+      pulp-init:
+        condition: service_completed_successfully
+    command: ["pulp-content"]
+    healthcheck:
+      test: ["CMD", "readyz.py", "/pulp/content/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    cap_drop: [ALL]
+
+  pulp-worker:
+    <<: *pulp
+    restart: unless-stopped
+    depends_on:
+      pulp-init:
+        condition: service_completed_successfully
+    command: ["pulp-worker"]
+    deploy:
+      replicas: 2
+    cap_drop: [ALL]
+
+  # The one address of the Local Repository: Pulp's API (/pulp/api/v3/, admin only), the registry
+  # (/v2/ and /token/), the Python index (/pypi/), and content (/pulp/content/). Published on every
+  # interface, because deployed Servers fetch from it; the registry must be at the root of its own
+  # host and port, so it cannot share the Dashboard's. The api-server calls it at
+  # http://pulp-web:8080 over `control`, the repository Integration's endpoint.
+  pulp-web:
+    image: ${SWALLOW_PULP_WEB_IMAGE:?set a digest-pinned SWALLOW_PULP_WEB_IMAGE}
+    restart: unless-stopped
+    user: root
+    depends_on:
+      pulp-api:
+        condition: service_healthy
+      pulp-content:
+        condition: service_healthy
+    command: ["bash", "/usr/bin/nginx.sh"]
+    volumes:
+      - ./pulp/nginx.sh:/usr/bin/nginx.sh:ro
+      - ./pulp/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
+    ports:
+      - "${SWALLOW_PULP_PORT:-8080}:8080"
+    networks: [edge, control]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/pulp/api/v3/status/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    security_opt: [no-new-privileges:true]
+
   dashboard:
     image: ${SWALLOW_DASHBOARD_IMAGE:?set a digest-pinned SWALLOW_DASHBOARD_IMAGE}
     restart: unless-stopped
@@ -363,6 +476,11 @@ volumes:
   postgres-data:
   # Metrics only, outside the backup scope: losing it loses usage history, never swallow state.
   prometheus-data:
+  # Pulp's keys (database field encryption, registry tokens) and the GPG home of its signing key:
+  # backed up with the pulp database, which they belong to.
+  pulp-certs:
+  # Pulp's artifacts, outside the backup scope: restore has Pulp fetch missing ones from upstream.
+  pulp-data:
 
 secrets:
   mongo_root_username:
@@ -383,3 +501,9 @@ secrets:
     file: ./secrets/credential-key
   machine_token:
     file: ./secrets/machine-token
+  pulp_db_password:
+    file: ./secrets/pulp-db-password
+  pulp_admin_password:
+    file: ./secrets/pulp-admin-password
+  pulp_secret_key:
+    file: ./secrets/pulp-secret-key

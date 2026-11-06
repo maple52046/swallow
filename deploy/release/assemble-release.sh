@@ -9,7 +9,8 @@
 # Usage: assemble-release.sh COMMIT
 # Environment: RELEASE_VERSION, OUT_DIR, IMAGE_REPO, API_DIGEST, DASHBOARD_DIGEST, CLI_DIGEST,
 # and the official MONGO_IMAGE, POSTGRES_IMAGE, TEMPORAL_SERVER_IMAGE, PROMETHEUS_IMAGE,
-# PROM_LABEL_PROXY_IMAGE from runtime-images.env (exact @sha256 references). OUT_DIR is replaced.
+# PROM_LABEL_PROXY_IMAGE, PULP_IMAGE, PULP_WEB_IMAGE from runtime-images.env (exact @sha256
+# references). OUT_DIR is replaced.
 set -euo pipefail
 
 commit="${1:?commit SHA required}"
@@ -27,10 +28,13 @@ postgres_image="${POSTGRES_IMAGE:?set POSTGRES_IMAGE from runtime-images.env}"
 temporal_server_image="${TEMPORAL_SERVER_IMAGE:?set TEMPORAL_SERVER_IMAGE from runtime-images.env}"
 prometheus_image="${PROMETHEUS_IMAGE:?set PROMETHEUS_IMAGE from runtime-images.env}"
 prom_label_proxy_image="${PROM_LABEL_PROXY_IMAGE:?set PROM_LABEL_PROXY_IMAGE from runtime-images.env}"
+pulp_image="${PULP_IMAGE:?set PULP_IMAGE from runtime-images.env}"
+pulp_web_image="${PULP_WEB_IMAGE:?set PULP_WEB_IMAGE from runtime-images.env}"
 compose_bundle="swallow-compose-${version}.tar.zst"
 
 for image in "${api_image}" "${dashboard_image}" "${cli_image}" "${mongo_image}" \
-  "${postgres_image}" "${temporal_server_image}" "${prometheus_image}" "${prom_label_proxy_image}"; do
+  "${postgres_image}" "${temporal_server_image}" "${prometheus_image}" "${prom_label_proxy_image}" \
+  "${pulp_image}" "${pulp_web_image}"; do
   [[ "${image}" =~ @sha256:[0-9a-f]{64}$ ]] ||
     { printf 'image is not digest pinned: %s\n' "${image}" >&2; exit 1; }
 done
@@ -62,6 +66,7 @@ for file in compose.yaml .env.example env.sh prepare-secrets.sh mongo-entrypoint
   README.md README.zh-TW.md; do
   cp "${root}/deploy/production/${file}" "${out}/production/"
 done
+cp -R "${root}/deploy/production/pulp" "${out}/production/"
 for file in compose.yaml .env.example prepare.sh seed.sh README.md README.zh-TW.md; do
   cp "${root}/deploy/testing/${file}" "${out}/testing/"
 done
@@ -73,14 +78,15 @@ jq -n --arg version "${version}" --arg commit "${commit}" \
   --arg api "${api_image}" --arg dashboard "${dashboard_image}" --arg cli "${cli_image}" \
   --arg mongo "${mongo_image}" --arg postgres "${postgres_image}" \
   --arg temporalServer "${temporal_server_image}" --arg prometheus "${prometheus_image}" \
-  --arg promLabelProxy "${prom_label_proxy_image}" --arg compose "${compose_bundle}" \
+  --arg promLabelProxy "${prom_label_proxy_image}" --arg pulp "${pulp_image}" \
+  --arg pulpWeb "${pulp_web_image}" --arg compose "${compose_bundle}" \
   --argjson apiInfo "${api_info}" --argjson playbookManifest "${playbook_manifest_schema}" \
   '{schemaVersion:1,version:$version,commit:$commit,
     platforms:["linux-amd64","ubuntu-24.04-amd64"],
     schemaVersions:{mongo:$apiInfo.schemaVersion,playbookManifest:$playbookManifest},
     images:{api:$api,dashboard:$dashboard,cli:$cli,mongo:$mongo,
       postgres:$postgres,temporalServer:$temporalServer,prometheus:$prometheus,
-      promLabelProxy:$promLabelProxy},
+      promLabelProxy:$promLabelProxy,pulp:$pulp,pulpWeb:$pulpWeb},
     compatibility:{host:"ubuntu-24.04-amd64",maas:"3.6",mongodb:"8.0",
       prometheus:"release-managed",dockerCE:"release-managed"},
     artifacts:{composeBundle:$compose,cliBinary:"swallow-linux-amd64",

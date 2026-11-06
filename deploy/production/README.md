@@ -37,8 +37,9 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
    that are set in the environment (other settings in `.env` are kept), and generates secrets
    in `secrets/` (mode 0700) with `prepare-secrets.sh`;
 3. pulls only missing images, starts MongoDB and PostgreSQL and waits until both are healthy
-   (MongoDB runs as the single-node replica set `rs0`), runs `swallow-api migrate`,
-   creates the Deployment Key (`swallow-api deployment-key ensure`), and starts the stack;
+   (MongoDB runs as the single-node replica set `rs0`), creates the `pulp` role and database in
+   PostgreSQL for the Local Repository, runs `swallow-api migrate`, creates the Deployment Key
+   (`swallow-api deployment-key ensure`), and starts the stack (`pulp-init` migrates Pulp first);
 4. installs the bundled CLI to `/usr/local/bin/swallow` (the API also serves `bin/swallow`
    at `/downloads/swallow` for hosts that enroll with their OS kept);
 5. runs [`local-maas.sh`](local-maas.sh): creates the `maas` role and `maasdb` database in
@@ -60,6 +61,11 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
    virtual machines), the Site's Prometheus as its metrics Integration (`site-prometheus`,
    `http://prometheus:9090`, with the setting `labelProxyUrl` `http://prom-label-proxy:8080`; an
    existing metrics Integration is repointed and keeps its other settings, never duplicated),
+   the installation's Pulp as its `repository` Integration (`local-repository`,
+   `http://pulp-web:8080`, with the setting `contentOrigin` `http://<SWALLOW_ADDRESS>:<SWALLOW_PULP_PORT>`
+   and the Pulp admin password as its credential), the Local Repository's default source `ubuntu`
+   (the Ubuntu archive, `noble`, `noble-updates`, and `noble-security`) while its spec has never
+   been written, so removing every source later is kept,
    Site automation defaults (enabled, Deployment Key, no playbook mappings) when the Site has
    none; then waits for the Integration sync and the `ubuntu/noble` catalog entry;
 8. renders the Prometheus exporter discovery for the Site: the `swallow-exporters` job, from
@@ -75,10 +81,12 @@ It never creates an SSH Access Key: the user adds their own in the Dashboard.
 
 | Component | Where | Exposure |
 | --- | --- | --- |
-| Dashboard (Nginx) | Compose | HTTP `${SWALLOW_HTTP_PORT:-80}`, the only public listener |
+| Dashboard (Nginx) | Compose | HTTP `${SWALLOW_HTTP_PORT:-80}`, public listener for users and API clients |
+| Local Repository (`pulp-web`, Pulp's Nginx) | Compose | HTTP `${SWALLOW_PULP_PORT:-8080}`, public listener for deployed Servers; the API calls it at `http://pulp-web:8080` |
+| Pulp API, content app, and two workers | Compose | internal `control` plus `egress` (fetch from the upstreams the Local Repository mirrors) |
 | API, worker, Ansible executor | Compose | internal `control` plus `egress` (reach MAAS and Servers) |
 | MongoDB (single-node replica set `rs0`), Temporal | Compose | internal only |
-| PostgreSQL | Compose | Temporal databases and `maasdb`; `127.0.0.1:${SWALLOW_POSTGRES_HOST_PORT:-5432}` for MAAS |
+| PostgreSQL | Compose | Temporal databases, `pulp`, and `maasdb`; `127.0.0.1:${SWALLOW_POSTGRES_HOST_PORT:-5432}` for MAAS |
 | Prometheus (the Site's metrics) | Compose | internal `control` plus `egress` (scrape the Servers' exporters); not published, the API reads `http://prometheus:9090` |
 | prom-label-proxy (one Platform's view of those metrics) | Compose | internal `control` only; not published, the API reads `http://prom-label-proxy:8080` |
 | MAAS 3.6 region+rack | snap on the host | `SWALLOW_MAAS_URL`, which swallow's provisioner Integration uses too |
@@ -86,8 +94,18 @@ It never creates an SSH Access Key: the user adds their own in the Dashboard.
 | Temporal UI | Compose profile `diagnostics` | `127.0.0.1:${SWALLOW_TEMPORAL_UI_PORT:-8233}`, off by default |
 
 The installation serves plain HTTP. Put a TLS terminator in front of port 80 before exposing
-it beyond a trusted management network. Deployed Servers reach the NTP server on UDP 123, so a
-host firewall must allow it from the machine networks.
+it beyond a trusted management network. Deployed Servers reach the NTP server on UDP 123 and the
+Local Repository on `SWALLOW_PULP_PORT`, so a host firewall must allow both from the machine
+networks.
+
+The Local Repository is the Site's own source of everything a deployment installs: OS packages
+(the Ubuntu archive and vendor archives, signed with this installation's key), container images
+(a pull-through cache per registry), Python packages (a pull-through cache of PyPI), and files
+verified against their declared sha256. Deployed Servers fetch only from it, at
+`http://<SWALLOW_ADDRESS>:<SWALLOW_PULP_PORT>`; Pulp fetches from the upstreams once and keeps
+what it fetched in the volume `pulp-data`, so the disk must have room for that cache. The
+Dashboard's Local repository page shows its content and sync state. Pulp's own REST API on the same
+port needs the Pulp admin password (`secrets/pulp-admin-password`).
 
 A Platform's own Grafana, on a Slurm controller or in a Kubernetes cluster, reads the Site Prometheus through the API at
 `http://<SWALLOW_ADDRESS>:<SWALLOW_HTTP_PORT>` (Compose passes it as `SWALLOW_API_PUBLIC_URL`), and
@@ -126,6 +144,7 @@ write the ones set in the environment into `.env`, so later runs keep them:
 | --- | --- | --- |
 | `SWALLOW_ADDRESS` | the value already in `.env`, else the host the co-located MAAS was first initialized with, else the primary IPv4 | address machines and BMCs use to reach this host (`install.sh --address`) |
 | `SWALLOW_HTTP_PORT` | `80` | Dashboard and API port |
+| `SWALLOW_PULP_PORT` | `8080` | Local Repository port deployed Servers fetch from, on every interface |
 | `SWALLOW_POSTGRES_HOST_PORT` | `5432` | loopback port MAAS uses for PostgreSQL |
 | `SWALLOW_MAAS_URL` | `http://<SWALLOW_ADDRESS>:5240/MAAS` | address machines use to reach MAAS; fixed at the first install |
 | `SWALLOW_BOOT_MEDIA_BASE_URL` | `http://<SWALLOW_ADDRESS>` | address BMCs use to fetch Boot ISOs |
@@ -148,10 +167,13 @@ queue, and `ansible-runner` executes the shipped `diagnostic-ping` playbook, the
 the Control-Plane NTP Server (UDP 123 served, MAAS's upstream equals `SWALLOW_NTP_UPSTREAM` or the
 default, and whether it follows that upstream), the admin login, the Deployment Key, Site
 automation, the metrics Integration pointing at the Site's Prometheus and its prom-label-proxy,
-the MAAS Integration sync, and the `ubuntu/noble` entry in the OS Image catalog, that Prometheus is
-ready and runs the `swallow-exporters` job of this Site, and that prom-label-proxy confines a query
-to the `platform_id` it is given. It also prints how many Workflows have not reached a terminal
-status. It deploys nothing.
+the repository Integration pointing at the installation's Pulp, the MAAS Integration sync, and the
+`ubuntu/noble` entry in the OS Image catalog, that Prometheus is ready and runs the
+`swallow-exporters` job of this Site, that prom-label-proxy confines a query to the `platform_id`
+it is given, and that Pulp answers through `pulp-web` on `SWALLOW_PULP_PORT` with its database
+connected and an API app, a content app, and a worker online. It also prints how many Workflows
+have not reached a terminal status. It deploys nothing. Whether the Local Repository's sources
+have synced is shown on the Dashboard, not checked here.
 
 ## Recover
 
@@ -165,10 +187,13 @@ The installation's desired state is the contract `doctor` checks:
 5. the Dashboard and API answer `/readyz` on the HTTP port;
 6. Prometheus is ready and runs the `swallow-exporters` job, and prom-label-proxy confines each
    query to the `platform_id` it is given;
-7. the co-located MAAS answers with a complete `ubuntu/noble` and its virsh SSH identity, the
+7. Pulp answers through `pulp-web` on `SWALLOW_PULP_PORT`, with its database connected and an API
+   app, a content app, and a worker online;
+8. the co-located MAAS answers with a complete `ubuntu/noble` and its virsh SSH identity, the
    Control-Plane NTP Server serves UDP 123 with the configured upstream, the installation
-   records (admin login, Deployment Key, Site automation, metrics Integration, MAAS Integration
-   sync, OS Image catalog) exist, and Prometheus discovers the exporters of the installation Site.
+   records (admin login, Deployment Key, Site automation, metrics Integration, repository
+   Integration, MAAS Integration sync, OS Image catalog) exist, and Prometheus discovers the
+   exporters of the installation Site.
 
 `doctor` only reports drift from this state. After a power loss, a host reboot, or any `FAIL`
 line, run one command:
@@ -177,7 +202,8 @@ line, run one command:
 sudo ./swallowctl ensure
 ```
 
-`ensure` starts the declared services that are not running, then holds each condition in
+`ensure` first makes sure PostgreSQL runs and holds Pulp's role and database, starts the declared
+services that are not running, then holds each condition in
 dependency order: when one fails, it restarts the services that own it (the MAAS snap for the
 MAAS API), runs the idempotent `local-maas.sh` ensure steps, `local-ntp.sh install` and `upstream`,
 `bootstrap.sh apply`, or the Prometheus exporter discovery rendering when their checks fail, and
@@ -194,26 +220,34 @@ applies a changed `.env` (that is `upgrade`), and it never cancels or retries Wo
   `backups/pre-upgrade-<installed version>-<time>` (kept until you remove it), migrates, starts
   the stack, ensures the Control-Plane NTP Server and its upstream, the MAAS rack's `virsh` SSH
   key and its record on the Integration, the metrics Integration and the Prometheus exporter
-  discovery, and reruns `doctor`. `install.sh` refuses a downgrade before it extracts anything.
+  discovery, the repository Integration and the Local Repository's default source, and reruns
+  `doctor`. An installation from before the Local Repository gets Pulp's database, services, and
+  Integration here; a new Pulp image migrates its database when the stack starts, after the backup.
+  `install.sh` refuses a downgrade before it extracts anything.
 - `sudo ./swallowctl ntp upstream [show | set SERVER... | default]` shows, sets, or resets the
   NTP server's upstream. `set` and `default` apply the change first and record it in `.env` only
   when it succeeded. swallowctl owns MAAS's `ntp_servers`: a value set in the MAAS UI is replaced
   on the next install, upgrade, or ensure.
-- `sudo ./swallowctl backup` writes MongoDB, the job artifacts, the credential key, the MAAS
-  database, and `backup.json` (the release and database schema it was taken from) under
-  `backups/`, with checksums relative to the backup. Schedule it daily; retention is seven daily
-  and four Sunday weekly recovery points. MAAS boot images re-sync from `images.maas.io`.
-  Temporal and the Prometheus metrics (volume `prometheus-data`) are not backed up.
+- `sudo ./swallowctl backup` writes MongoDB, the job artifacts, the credential key, the Local
+  Repository's Pulp database with its keys (the volume `pulp-certs`: the database field
+  encryption key, the registry token keys, and the deb signing key), the MAAS database, and
+  `backup.json` (the release and database schema it was taken from) under `backups/`, with
+  checksums relative to the backup. Schedule it daily; retention is seven daily and four Sunday
+  weekly recovery points. MAAS boot images re-sync from `images.maas.io`. Temporal, the Prometheus
+  metrics (volume `prometheus-data`), and Pulp's artifacts (volume `pulp-data`, which come from
+  upstreams) are not backed up.
 - `sudo ./swallowctl restore BACKUP_DIRECTORY --yes` verifies the checksums, refuses a backup from
   a newer release, stops the API, worker, and Ansible executor, restores MongoDB, the artifacts
-  (replacing the current ones), the credential key, and the MAAS database, migrates, terminates
-  every swallow run in Temporal, starts the stack, and runs `doctor`. The restored database is the
+  (replacing the current ones), the credential key, Pulp's database and keys, and the MAAS
+  database, migrates, terminates every swallow run in Temporal, starts the stack, asks Pulp to
+  download again the artifacts its restored database lists but `pulp-data` lacks, and runs
+  `doctor`. The restored database is the
   truth: each unfinished Workflow is dispatched again from it, so work recorded after the backup
   is lost and Tasks that finished after it run again. Without `--yes` it only says what it would
   replace. SSH key registration attempted while MAAS restarts is retried with backoff and at the
   next controller resync; `swallow ssh-keys sync` (or **Sync to provisioners**) repeats it at once.
-- `sudo ./swallowctl uninstall` stops the stack and MAAS and keeps volumes, secrets, and
-  backups; `--purge-data` also removes the MAAS snap, the volumes, and the backups.
+- `sudo ./swallowctl uninstall` stops the stack and MAAS and keeps volumes (Pulp's included),
+  secrets, and backups; `--purge-data` also removes the MAAS snap, the volumes, and the backups.
 
 The `secrets/` directory must never enter source control; back it up with the lifecycle tool.
 Installation needs registry access: releases ship no offline image archive, and importing MAAS
@@ -228,6 +262,8 @@ sudo ./local-ntp.sh check
 docker compose exec prometheus wget -qO- http://127.0.0.1:9090/api/v1/targets   # Prometheus is not published
 docker compose exec prometheus wget -qO- --header 'X-Swallow-Platform-Id: <platform id>' \
   'http://prom-label-proxy:8080/api/v1/query?query=up'                          # what one Platform sees
+docker compose logs -f pulp-init pulp-api pulp-content pulp-worker pulp-web
+curl -s http://127.0.0.1:8080/pulp/api/v3/status/ | jq                           # Pulp, as Servers reach it
 ```
 
 The Temporal UI is optional and not part of a release. To use it, set

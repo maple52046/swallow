@@ -31,6 +31,9 @@ The local-only bootstrap account is `admin` / `admin`.
 | `ansible-executor` | internal | Idempotent Ansible attempts and events |
 | `prometheus` | 9090 | the Site's Prometheus: swallow's own metrics (`swallow-api`) and the exporters swallow knows are installed (`swallow-exporters`, from swallow discovery) |
 | `prom-label-proxy` | 9091 (loopback only) | the Site Prometheus confined to one Platform's series: the `platform_id` in the `X-Swallow-Platform-Id` header; the API reaches it at `http://prom-label-proxy:8080` |
+| `pulp-db`, `pulp-init` | none (one-shot) | run on every `up`: create Pulp's role and database `pulp` in `temporal-postgresql`, then add Pulp's keys, migrate its schema, set its admin password, and add the deb signing service |
+| `pulp-api`, `pulp-content`, `pulp-worker` | internal | the dev Site's [Local Repository](../../docs/development/local-repository.md) (Pulp 3): its API, content app, and two workers |
+| `pulp-web` | 8080 (`PULP_HTTP_PORT`, every interface) | the Local Repository's one address: content, registry (`/v2/`), Python index (`/pypi/`), and Pulp's API; lab Servers fetch every artifact here, and the API reaches it at `http://pulp-web:8080` |
 
 ## Common commands
 
@@ -174,6 +177,28 @@ is refused when it is planned. For the lab:
 printf 'SWALLOW_API_PUBLIC_URL=http://10.170.168.20\nSWALLOW_API_MONITORING_SCRAPE_ADDRESSES=10.170.168.20,192.168.100.1\n' >> .env
 docker compose up -d api-server worker
 ```
+
+## Local Repository
+
+Deployments fetch their packages, files, container images, and Python packages from the Site's
+Local Repository, the dev Pulp, and one that does is refused when it is accepted while the Site has
+no ready Local Repository.
+Pulp writes absolute URLs on its origin, which is also where lab Servers reach it, so set
+`PULP_ORIGIN` in `.env` to this host's address on `PULP_HTTP_PORT` as the Servers see it and
+recreate the Pulp services; the default, `http://localhost:8080`, reaches only this host. For the
+lab:
+
+```bash
+echo PULP_ORIGIN=http://10.170.168.20:8080 >> .env && docker compose up -d && bash seed.sh
+```
+
+With `PULP_ORIGIN` set, `seed.sh` registers Pulp as the Site's `repository` Integration (provider
+kind `pulp`, endpoint `http://pulp-web:8080`, setting `contentOrigin` equal to `PULP_ORIGIN`, and
+the Pulp admin password, `PULP_ADMIN_PASSWORD`, default `admin`, as its credential) and adds the
+Site's `ubuntu` source (the Ubuntu archive) to a Local Repository spec that has never been written,
+as a production installation does; see
+[local-repository.md](../../docs/development/local-repository.md) §4.1 and §5.2. The first sync of
+the Ubuntu archive takes a while; the Local Repository page under Infrastructure shows its progress.
 
 ## Node Exporter controller
 

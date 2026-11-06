@@ -29,6 +29,10 @@ When the installer finishes:
 - a Prometheus for the Site `default` runs on the same VM, is that Site's metrics Integration,
   and collects the exporters swallow installs on the Site's Servers (see
   [Monitoring](guides/monitoring.md));
+- the Site's Local Repository (Pulp) runs on the same VM on **HTTP port 8080** and is the Site's
+  `repository` Integration, with the Ubuntu archive as its first source: every Server swallow
+  deploys takes its OS packages, container images, Python packages, and files from it instead of
+  the Internet;
 - the VM serves NTP on UDP 123 (MAAS's own time service), and every Server swallow deploys
   uses it (see [Time synchronization](guides/os-provisioning.md#time-synchronization));
 - the `swallow` CLI is installed at `/usr/local/bin/swallow`.
@@ -36,13 +40,17 @@ When the installer finishes:
 ### Prerequisites
 
 - A clean Ubuntu 24.04 amd64 VM with `sudo`. A practical starting size is 4 vCPU,
-  16 GiB RAM, and 100 GiB disk.
+  16 GiB RAM, and 100 GiB disk, plus room for the Local Repository's cache: it keeps every
+  package, image, and file the Servers fetched, which a GPU Platform deployment grows by tens of GiB.
 - Outbound access to `github.com` (the release), `ghcr.io` (swallow's own images), Docker Hub
-  (the official MongoDB, PostgreSQL, Temporal, and Prometheus images), `quay.io` (the
-  prom-label-proxy image), `download.docker.com`, the Snap Store, and `images.maas.io`.
-- Free ports: 80 (Dashboard), 5240 (MAAS), and loopback 5432 (PostgreSQL for MAAS). Machines
-  reach the VM's NTP on UDP 123, and port 80, where a Platform's own Grafana reads its metrics
-  through swallow.
+  (the official MongoDB, PostgreSQL, Temporal, Prometheus, and Pulp images), `quay.io` (the
+  prom-label-proxy image), `download.docker.com`, the Snap Store, and `images.maas.io`. To deploy,
+  the Local Repository also needs the upstreams it mirrors: `archive.ubuntu.com` and the sources,
+  registries, PyPI, and download sites the installed modules declare.
+- Free ports: 80 (Dashboard), 8080 (Local Repository), 5240 (MAAS), and loopback 5432
+  (PostgreSQL for MAAS). Machines reach the VM's NTP on UDP 123, port 8080, where they fetch
+  everything they install, and port 80, where a Platform's own Grafana reads its metrics through
+  swallow. Set `SWALLOW_PULP_PORT` before the first install to use another port than 8080.
 - A reachable NTP server for the VM itself. The VM follows `ntp.ubuntu.com` by default; on a
   network that cannot reach it, pass another one with `SWALLOW_NTP_UPSTREAM`, for example
   `curl … | sudo SWALLOW_NTP_UPSTREAM=10.0.0.123 bash`, or change it later with
@@ -70,8 +78,8 @@ The installer verifies the release against its checksums, extracts it into `/opt
 (`--dir` changes the directory), and runs `swallowctl install`: it installs Docker when
 missing, writes the release's image digests and your settings to `.env`, generates secrets,
 starts the stack, creates the Deployment Key, installs MAAS, imports `ubuntu/noble` (several
-hundred MB), registers MAAS and the Site's Prometheus in swallow, and ends with
-`swallowctl doctor`. It is safe to rerun:
+hundred MB), registers MAAS, the Site's Prometheus, and the Site's Local Repository in swallow, and
+ends with `swallowctl doctor`. It is safe to rerun:
 an installation that stopped part way resumes. `--help` lists the options. Once a stable
 release exists, `https://github.com/maple52046/swallow/releases/latest/download/install.sh`
 always installs the newest one.
@@ -123,11 +131,15 @@ releases do not publish the native bundle yet.
 ## Production-safety baseline
 
 - The installation serves plain HTTP. Put a TLS terminator in front of port 80 before
-  exposing it beyond a trusted management network.
+  exposing it beyond a trusted management network. The Local Repository on port 8080 is plain
+  HTTP for the machine networks; its OS packages are signed with the installation's own key and
+  its files are checked against their declared sha256.
 - Keep the generated secrets: `/opt/swallow/production/secrets/` is mode 0700 and must never enter source
   control.
 - Install only from a release manifest with immutable image digests.
 - Schedule `swallowctl backup` and rehearse `restore`. A backup holds MongoDB, the credential
-  key, Workflow artifacts, and the MAAS database; the Deployment Key's private key is sealed
-  with the credential key, so both must be restored together. Metrics in the Site's Prometheus
-  are not backed up: losing them loses usage history only.
+  key, Workflow artifacts, the Local Repository's database and keys, and the MAAS database; the
+  Deployment Key's private key is sealed with the credential key, so both must be restored
+  together. Metrics in the Site's Prometheus are not backed up: losing them loses usage history
+  only. The Local Repository's cached packages and images are not backed up either: after a
+  restore they are downloaded again from their upstreams.

@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # Converge the swallow-side records of the single-VM production installation through the
 # published api-server HTTP contracts (auth-login, sites-integrations, site-automation,
-# ssh-keys, provisioning). It never touches swallow internals or MongoDB directly.
+# local-repository, ssh-keys, provisioning). It never touches swallow internals or MongoDB
+# directly.
 #
 # Usage: bootstrap.sh apply | verify | site-id
 #   apply   idempotent: find or create the Site, register (or re-key) the co-located MAAS as
 #           its provisioner Integration with the rack's virsh public key as its
 #           virshSshPublicKey setting, register the installation's Prometheus as the Site's
 #           metrics Integration with the installation's prom-label-proxy as its labelProxyUrl
-#           setting, write Site automation defaults only when the Site has none,
-#           then wait for the Integration to sync and for the official ubuntu/noble amd64 OS
-#           Image to appear complete in the catalog
+#           setting, register (or re-key) the installation's Pulp as the Site's repository
+#           Integration with the address Servers reach it at as its contentOrigin setting, write
+#           the Local Repository's default source only while its spec has never been written and
+#           the Site automation defaults only when the Site has none, then wait for the Integration to sync and for the official
+#           ubuntu/noble amd64 OS Image to appear complete in the catalog
 #   verify  read-only checks for `swallowctl doctor`
 #   site-id read-only: print the installation Site's id, which swallowctl renders into the
 #           Prometheus exporter discovery
@@ -19,7 +22,9 @@
 # Environment overrides: SWALLOW_HTTP_PORT, SWALLOW_SITE_NAME (default "default"),
 # SWALLOW_MAAS_ENDPOINT (default SWALLOW_MAAS_URL, the address machines use to reach the
 # co-located MAAS, which the API containers reach too; the Dashboard pre-fills a Boot ISO's rack
-# address from it), SWALLOW_SSH_KNOWN_HOSTS, SWALLOW_BOOTSTRAP_TIMEOUT (seconds).
+# address from it), SWALLOW_SSH_KNOWN_HOSTS, SWALLOW_BOOTSTRAP_TIMEOUT (seconds). SWALLOW_ADDRESS
+# and SWALLOW_PULP_PORT (default 8080) give the repository Integration's contentOrigin, as they give
+# Pulp's CONTENT_ORIGIN in compose.yaml.
 set -euo pipefail
 
 command_name="${1:-}"
@@ -36,6 +41,16 @@ wait_timeout="${SWALLOW_BOOTSTRAP_TIMEOUT:-900}"
 # the prom-label-proxy in front of it for queries confined to one Platform.
 prometheus_endpoint="http://prometheus:9090"
 label_proxy_url="http://prom-label-proxy:8080"
+# The installation's Pulp, the Site's Local Repository (compose.yaml): the api-server calls its API
+# through pulp-web on the control network, and deployed Servers read content where pulp-web is
+# published, which is also Pulp's CONTENT_ORIGIN.
+pulp_endpoint="http://pulp-web:8080"
+pulp_content_origin="http://${SWALLOW_ADDRESS:-}:${SWALLOW_PULP_PORT:-8080}"
+# The Site's OS package source is a user source of the Local Repository, not a module declaration;
+# apply writes it into a spec that has never been written.
+ubuntu_source='{"name":"ubuntu","format":"deb","url":"http://archive.ubuntu.com/ubuntu/",
+  "suites":["noble","noble-updates","noble-security"],"components":["main","universe"],
+  "architectures":["amd64"]}'
 image_id="ubuntu/noble"
 image_arch="amd64"
 token=""
@@ -185,6 +200,74 @@ metrics_integration_has_label_proxy() {
   site_metrics_integration "$1" | jq -e --arg url "${label_proxy_url}" '.settings.labelProxyUrl == $url' >/dev/null
 }
 
+# site_repository_integration prints the Site's repository Integration as JSON, or nothing. The API
+# keeps at most one per Site.
+site_repository_integration() {
+  api GET "/integrations?siteId=$1&kind=repository" | jq -c 'first((.items? // .)[]) // empty'
+}
+
+# ensure_repository_integration registers the installation's Pulp as the Site's repository
+# Integration, with the address Servers reach it at as its contentOrigin setting and the Pulp admin
+# password as its credential. A Site has at most one, so an existing one keeps its id, name, and
+# other settings: only its endpoint and contentOrigin are pointed at this installation's Pulp when
+# they differ (an update replaces the whole settings map, so contentOrigin is merged into the
+# current settings), and its write-only credential is replaced on every run.
+ensure_repository_integration() {
+  local site_id="$1" integration integration_id credential patch
+  [[ -n "${SWALLOW_ADDRESS:-}" ]] ||
+    die 'SWALLOW_ADDRESS is not set: deployed Servers reach the Local Repository at it (swallowctl writes it to .env)'
+  credential="$(secret pulp-admin-password)"
+  integration="$(site_repository_integration "${site_id}")"
+  if [[ -z "${integration}" ]]; then
+    integration_id="$(api POST /integrations --data-binary "$(jq -nc \
+      --arg site "${site_id}" --arg endpoint "${pulp_endpoint}" --arg origin "${pulp_content_origin}" \
+      --arg credential "${credential}" \
+      '{siteId:$site,kind:"repository",providerKind:"pulp",name:"local-repository",endpoint:$endpoint,
+        settings:{contentOrigin:$origin},credential:$credential}')" |
+      jq -er '.id')"
+    log "registered the installation's Pulp as the repository Integration (${integration_id}) -> ${pulp_endpoint}, content at ${pulp_content_origin}"
+    return 0
+  fi
+  integration_id="$(jq -r '.id' <<<"${integration}")"
+  patch="$(jq -c --arg endpoint "${pulp_endpoint}" --arg origin "${pulp_content_origin}" '
+    (if .endpoint != $endpoint then {endpoint: $endpoint} else {} end) +
+    (if (.settings // {}).contentOrigin != $origin
+      then {settings: ((.settings // {}) + {contentOrigin: $origin})} else {} end)' <<<"${integration}")"
+  if [[ "${patch}" != '{}' ]]; then
+    api PATCH "/integrations/${integration_id}" --data-binary "${patch}" >/dev/null
+    log "pointed the repository Integration (${integration_id}) at the installation's Pulp (${pulp_endpoint}, content at ${pulp_content_origin})"
+  fi
+  api PUT "/integrations/${integration_id}/credential" \
+    --data-binary "$(jq -nc --arg credential "${credential}" '{credential:$credential}')" >/dev/null
+  log "repository Integration present (${integration_id}); credential refreshed"
+}
+
+repository_integration_reads_pulp() {
+  site_repository_integration "$1" | jq -e --arg endpoint "${pulp_endpoint}" --arg origin "${pulp_content_origin}" \
+    '.endpoint == $endpoint and .settings.contentOrigin == $origin' >/dev/null
+}
+
+# ensure_repository_sources writes the Site's default user source, the Ubuntu archive deployed
+# Servers take their OS packages from, only while the Local Repository spec has never been written
+# (generation 0), so a user's later edits survive every rerun, removing every source included. The
+# write carries the generation it read: a concurrent change refuses it (409), and the next apply
+# reads again.
+ensure_repository_sources() {
+  local site_id="$1" status body spec
+  body="$(mktemp)"
+  status="$(api_status "/sites/${site_id}/local-repository" "${body}")"
+  spec="$(jq -c '.spec // {}' "${body}" 2>/dev/null || true)"
+  rm -f -- "${body}"
+  [[ "${status}" == 200 ]] || die "reading the Site's Local Repository returned HTTP ${status}"
+  if jq -e '(.generation // 0) > 0' <<<"${spec}" >/dev/null; then
+    log 'Local Repository spec already written; left unchanged'
+    return 0
+  fi
+  api PUT "/sites/${site_id}/local-repository/spec" --data-binary "$(jq -nc \
+    --argjson source "${ubuntu_source}" '{generation:0,sources:[$source]}')" >/dev/null
+  log "Local Repository: added the default source 'ubuntu' ($(jq -r '.url' <<<"${ubuntu_source}"))"
+}
+
 # ensure_automation writes defaults only for a Site with no configuration, so a user's
 # later edits survive every rerun. Automation is enabled (Ansible Tasks refuse to run
 # otherwise) with no playbook mappings. Without user-supplied known_hosts the static block
@@ -252,6 +335,8 @@ apply() {
   integration_id="$(ensure_integration "${site_id}")"
   ensure_virsh_key "${integration_id}"
   ensure_metrics_integration "${site_id}"
+  ensure_repository_integration "${site_id}"
+  ensure_repository_sources "${site_id}"
   ensure_automation "${site_id}"
   deployment_key_present || die 'the Deployment Key is missing; run swallowctl install'
   wait_until 'MAAS Integration sync' integration_synced "${integration_id}" ||
@@ -287,6 +372,8 @@ verify() {
     metrics_integration_reads_prometheus "${site_id}" || failed=1
   report "metrics Integration names the Site's prom-label-proxy (labelProxyUrl ${label_proxy_url})" \
     metrics_integration_has_label_proxy "${site_id}" || failed=1
+  report "repository Integration reads the installation's Pulp (${pulp_endpoint}, content at ${pulp_content_origin})" \
+    repository_integration_reads_pulp "${site_id}" || failed=1
   integration_id="$(find_maas_integration_id "${site_id}")"
   if [[ -z "${integration_id}" ]]; then
     printf 'FAIL  MAAS provisioner Integration is registered\n'

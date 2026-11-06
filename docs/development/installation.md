@@ -42,6 +42,9 @@ decision 040、
 - 監控的設計（exporter 的安裝、label 契約、多租戶）：見 [monitoring.md](monitoring.md)；installation 只部署
   installation Site 的 Prometheus 與它前面的 prom-label-proxy，並把它們登錄為該 Site 的 metrics Integration
   （§2.2、§2.5）。
+- [Local Repository](glossaries/terms/local-repository.md) 的設計（存什麼、怎麼收斂、部署怎麼使用）：見
+  [local-repository.md](local-repository.md)；installation 只部署 installation Site 的 Pulp，把它登錄為該 Site 的
+  `repository` Integration，並寫入 Site 預設的 `ubuntu` 來源（§2.2、§2.5）。
 - 多主機拓樸、TLS、離線（air-gapped）安裝與 native（systemd）安裝：目前都不支援（§2.6、§4.5）。
 
 ---
@@ -68,16 +71,27 @@ decision 040、
 | `ansible-executor` | `SWALLOW_API_IMAGE`（command `ansible-executor`） | `control`、`egress` | 無 |
 | `prometheus` | `SWALLOW_PROMETHEUS_IMAGE` | `control`、`egress` | 無（api-server 以 `http://prometheus:9090` 讀取） |
 | `prom-label-proxy` | `SWALLOW_PROM_LABEL_PROXY_IMAGE` | `control` | 無（api-server 以 `http://prom-label-proxy:8080` 讀取） |
+| `pulp-init`（一次性） | `SWALLOW_PULP_IMAGE` | `control` | 無 |
+| `pulp-api` | `SWALLOW_PULP_IMAGE`（command `pulp-api`） | `control`、`egress` | 無（經 `pulp-web`） |
+| `pulp-content` | `SWALLOW_PULP_IMAGE`（command `pulp-content`） | `control`、`egress` | 無（經 `pulp-web`） |
+| `pulp-worker`（2 個 replica） | `SWALLOW_PULP_IMAGE`（command `pulp-worker`） | `control`、`egress` | 無 |
+| `pulp-web` | `SWALLOW_PULP_WEB_IMAGE` | `edge`、`control` | `${SWALLOW_PULP_PORT:-8080}` → 容器 8080（api-server 以 `http://pulp-web:8080` 呼叫） |
 | `dashboard` | `SWALLOW_DASHBOARD_IMAGE` | `edge`、`control` | `${SWALLOW_HTTP_PORT:-80}` → 容器 8080 |
 
 - `control` 是 `internal` network；MongoDB 與 Temporal 只在這裡。
-- `egress` 不是 internal；只有 API、worker、Ansible executor 與 Prometheus 加入。前三者用來連共置的 MAAS
-  （`SWALLOW_MAAS_URL`，§5.4）與它們佈署、設定的 Server，並以 `extra_hosts` 把 `host.docker.internal` 對到
-  host gateway；Prometheus 用來收集 Server 上的 exporter。
+- `egress` 不是 internal；只有 API、worker、Ansible executor、Prometheus 與 Pulp 的 API、content、worker 加入。
+  前三者用來連共置的 MAAS（`SWALLOW_MAAS_URL`，§5.4）與它們佈署、設定的 Server，並以 `extra_hosts` 把
+  `host.docker.internal` 對到 host gateway；Prometheus 用來收集 Server 上的 exporter；Pulp 用來從它鏡像與快取的
+  上游取得內容（content app 與 registry 的 pull-through 在被要求時取得，worker 同步）。
 - `host-postgres` 只有 PostgreSQL 加入，用於發佈它的 loopback port。
-- Dashboard（Nginx）是唯一對外 listener，把 `/api/`、`/healthz`、`/livez`、`/readyz`、`/metrics`、
-  `/boot-media/`、`/downloads/` 代理到 API（容器內 `:30051`，不發佈）。它以 Docker 內建 DNS（`127.0.0.11`）每
-  10 秒重新解析 `api-server`，所以只重建 API container（例如只換 API image 的 upgrade）不需要一起重建 dashboard。
+- 對外 listener 有兩個，都是 plain HTTP：
+  - Dashboard（Nginx）給 user 與 API client，把 `/api/`、`/healthz`、`/livez`、`/readyz`、`/metrics`、
+    `/boot-media/`、`/downloads/` 代理到 API（容器內 `:30051`，不發佈）。它以 Docker 內建 DNS（`127.0.0.11`）每
+    10 秒重新解析 `api-server`，所以只重建 API container（例如只換 API image 的 upgrade）不需要一起重建 dashboard。
+  - `pulp-web`（Pulp 的 nginx）給部署出去的 Server，發佈在每個介面的 `SWALLOW_PULP_PORT`：content
+    （`/pulp/content/`）、registry（`/v2/`、`/token/`）、Python index（`/pypi/`）與 Pulp 的 REST API
+    （`/pulp/api/v3/`，需要 admin 密碼）。registry 的 `/v2/` 必須在自己的 host:port 根路徑，所以它不能放在
+    Dashboard 的路徑之下。它同樣每 10 秒重新解析 `pulp-api` 與 `pulp-content`。
 - API、worker、Ansible executor 是同一個 image，以不同 command 啟動。Ansible executor 以 `init: true` 執行：
   Docker 的 init 擔任 PID 1，轉送 signal 並回收 `ansible-runner` 留下的 ssh-agent，否則每次 run 都會留下 zombie。
 - Temporal UI 是選用的 diagnostics service：只在 user 設定 `SWALLOW_TEMPORAL_UI_IMAGE` 後以 profile
@@ -106,15 +120,33 @@ decision 040、
     `http://prom-label-proxy:8080` 連到它，這個位址記在 metrics Integration 的 `labelProxyUrl`（§2.5）。
   - 它只在每個請求時需要 Prometheus，所以只等 `prometheus` 啟動，不等它 healthy。healthcheck 以 image 的
     busybox `wget` 查詢 `/healthz`。不保存任何狀態，沒有 volume。
+- Pulp 是 installation Site 的 [Local Repository](glossaries/terms/local-repository.md)（[local-repository.md](local-repository.md)）：
+  比照 Prometheus，隨控制平面部署，由 bootstrap 登錄為該 Site 的 `repository` Integration（§2.5）。部署出去的
+  Server 從它取得 OS 套件、container image、Python 套件與檔案，不連網際網路。
+  - 用 `pulp-minimal` image，API、content app 與 worker 分開執行，資料庫在共用的 PostgreSQL（§2.3）；all-in-one
+    image 一律啟動自己的 PostgreSQL，所以不用。`pulp-web` 把它們放在同一個位址之下。
+  - 設定檔是 bundle 的 `pulp/settings.py`，從 `/run/secrets` 讀 secret `pulp-secret-key`（Django secret key）與
+    `pulp-db-password`；`CONTENT_ORIGIN` 是 `http://<SWALLOW_ADDRESS>:<SWALLOW_PULP_PORT>`（port 一律寫出），Pulp 以它
+    寫出絕對 URL（registry 的 token realm 與 blob redirect、Python index 的套件連結）。
+  - `pulp-init` 是一次性的 root service，每次 `up` 都執行，每一步都冪等：在 volume `pulp-certs` 補上缺少的資料庫
+    欄位加密金鑰與 registry token 金鑰、`pulpcore-manager migrate`（所以新的 Pulp image 在下一次 `up` 時遷移資料庫）、
+    把 admin 密碼重設為 secret `pulp-admin-password`、補上簽 deb Release 的 GPG 金鑰（GPG home 在
+    `pulp-certs/gpg`）與 signing service `swallow-deb`，最後把 volume 交給 `pulp` user。其他 Pulp service 以 `pulp`
+    user 執行，等它成功結束才啟動；`pulp-web` 等 API 與 content app healthy。
+  - Volume `pulp-certs` 放必須和 Pulp 資料庫一起還原的東西（欄位加密金鑰、token 金鑰、簽章金鑰），在備份範圍內；
+    volume `pulp-data` 只放 artifact，**不在備份範圍內**：restore 之後由 Pulp 從上游重新取得（§3.6）。
 
 ### 2.3 共用的 PostgreSQL instance
 
 - 一個 PostgreSQL instance（service `postgres`、volume `postgres-data`）服務 Temporal（database
-  `temporal_core`、`temporal_visibility`）與共置的 MAAS（role `maas`、database `maasdb`）。各自有自己的
-  database 與 role，instance 以下不共用任何東西。
+  `temporal_core`、`temporal_visibility`）、Pulp（role `pulp`、database `pulp`）與共置的 MAAS（role `maas`、
+  database `maasdb`）。各自有自己的 database 與 role，instance 以下不共用任何東西。
 - Superuser 是 `temporal`，密碼 secret 是 `temporal-db-password`，因為 Temporal 以此帳號登入。
 - `local-maas.sh install` 以冪等 SQL 建立 `maas` role 與 `maasdb`（密碼來自 secret `maas-db-password`），
   並要求 PostgreSQL 14 以上（MAAS 3.6 的需求）。
+- `swallowctl` 以同樣的冪等 SQL（`docker compose exec postgres psql -U temporal`）建立 `pulp` role 與 database，並把
+  role 的密碼設為 secret `pulp-db-password`；`install`、`upgrade` 與 `ensure` 都在 Pulp 啟動前執行，因為
+  `pulp-init` 每次啟動都遷移這個 database。
 - 絕不使用 `maas-test-db`。swallow 自己的狀態只在 MongoDB（database `swallow`）。
 
 ### 2.3a MongoDB：single-node replica set
@@ -156,7 +188,7 @@ swallow 需要 store 支援多文件 transaction 與 change stream（[decision 0
 ### 2.5 Installation records 經由已發佈的 API 建立
 
 `bootstrap.sh apply`（冪等）只透過 api-server 已發佈的 HTTP 契約（auth-login、sites-integrations、
-site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直接碰 MongoDB 或 swallow 內部：
+site-automation、local-repository、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直接碰 MongoDB 或 swallow 內部：
 
 1. 以 bootstrap admin 登入。
 2. 找或建立 [Site](glossaries/terms/site.md)（名稱 `SWALLOW_SITE_NAME`，預設 `default`）。
@@ -170,11 +202,20 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
    `409 conflict`）：已存在時保留它的 id、名稱與其他 settings（Alertmanager、Grafana），只在 endpoint 或
    `labelProxyUrl` 不同時以一次 `PATCH` 改指到這兩個 service，從不建立第二個。`PATCH` 的 `settings` 會取代整個
    map，所以 `labelProxyUrl` 合併進目前的 settings 再送出。
-6. Site 沒有 [Automation Configuration](glossaries/terms/automation-configuration.md) 時才寫入預設：
+6. 把 installation 的 Pulp（§2.2）登錄為該 Site 的 `repository` Integration（`providerKind` `pulp`，名稱
+   `local-repository`，endpoint `http://pulp-web:8080`），setting `contentOrigin` 為 Server 讀取內容的位址
+   `http://<SWALLOW_ADDRESS>:<SWALLOW_PULP_PORT>`（§2.7），credential 為 secret `pulp-admin-password`（Pulp 的
+   `admin`）。一個 Site 至多一個：已存在時保留它的 id、名稱與其他 settings，只在 endpoint 或 `contentOrigin`
+   不同時以一次 `PATCH` 改指到這裡（`contentOrigin` 合併進目前的 settings），並每次替換 write-only credential。
+7. Site 的 Local Repository spec 從未寫入過（`generation` 為 `0`）時，才以 `generation` `0` 寫入預設的 user 來源 `ubuntu`
+   （`http://archive.ubuntu.com/ubuntu/`，suites `noble`、`noble-updates`、`noble-security`，components `main`、
+   `universe`，`amd64`；[local-repository.md](local-repository.md) §5.2）。寫過就不動，user 之後的修改（包括刪光
+   所有來源）每次重跑都保留；同時有其他第一次寫入時以 `409` 失敗，下一次重跑重新讀取。
+8. Site 沒有 [Automation Configuration](glossaries/terms/automation-configuration.md) 時才寫入預設：
    啟用、`sshPort` 22、沒有 `playbookMappings`，`knownHosts` 為 `SWALLOW_SSH_KNOWN_HOSTS` 或一行註解
    （executor 每次執行時自行掃描 target 的 host key）；不寫 Site credential（automation 一律使用 Deployment
    Key）。已存在就不動，user 之後的修改每次重跑都保留。
-7. 確認 Deployment Key 存在，等 Integration sync 成功，以及 OS Image catalog 出現完整的 `ubuntu/noble`
+9. 確認 Deployment Key 存在，等 Integration sync 成功，以及 OS Image catalog 出現完整的 `ubuntu/noble`
    amd64（上限 `SWALLOW_BOOTSTRAP_TIMEOUT`，預設 900 秒）。
 
 - 不建立任何 SSH Access Key：由 user 自己上傳。
@@ -182,15 +223,30 @@ site-automation、ssh-keys、provisioning）收斂 swallow 端的紀錄，不直
 - `bootstrap.sh site-id` 只印出 installation Site 的 id，供 `swallowctl` 渲染 Prometheus 的 exporter discovery
   （§2.2）；它不建立任何東西。
 - Ownership 不變（decision 069）：MAAS 仍是擁有
-  machine 與 image 事實的 provisioner；共置只改變拓樸。
+  machine 與 image 事實的 provisioner，Pulp 仍是保存 artifact 的 provider；共置只改變拓樸。
 
 ### 2.6 Plain HTTP
 
 - Dashboard 與 API 走 plain HTTP（`SWALLOW_HTTP_PORT`，預設 80）。需要 TLS 時，由 installation 前面的
   terminator 終結；Nginx 原樣轉送前端帶來的 `X-Forwarded-Proto`（沒有時用自己的 scheme）。
-- 沒有 TLS terminator 時，admin 登入在網路上是明文。
+- Local Repository（`pulp-web`）也走 plain HTTP（`SWALLOW_PULP_PORT`，預設 8080）：deb 內容以 Site 的簽章驗證、
+  檔案以宣告的 sha256 驗證，container image 與 Python 套件和安裝的其他部分一樣以 plain HTTP 提供
+  （[local-repository.md](local-repository.md) §6）。
+- 沒有 TLS terminator 時，admin 登入在網路上是明文；Pulp 的 REST API 以 admin 密碼的 Basic auth 保護，同樣是明文。
 
-### 2.7 部署出去的監控與控制平面互相連到的位址
+### 2.7 部署出去的 Server 與控制平面互相連到的位址
+
+Server 從 installation Site 的 Local Repository 取得每個 artifact，連到 `pulp-web` 發佈的 port：
+
+| 位址 | 記在哪裡 | production 的值 |
+| --- | --- | --- |
+| Server 讀取 Local Repository 的位址 | `repository` Integration 的 setting `contentOrigin`（§2.5）；Pulp 的 `CONTENT_ORIGIN` 也是它 | `http://<SWALLOW_ADDRESS>:<SWALLOW_PULP_PORT>`（port 一律寫出，預設 8080） |
+| api-server 呼叫 Pulp API 的位址 | `repository` Integration 的 endpoint | `http://pulp-web:8080`（經 `control`，不經主機） |
+
+- 兩者分開，因為 api-server 在 Compose 網路內連到 Pulp，Server 則從 machine network 連到主機
+  （[local-repository.md](local-repository.md) §4.1）。主機防火牆必須允許 machine network 連 `SWALLOW_PULP_PORT`。
+- Compose 在 `SWALLOW_ADDRESS` 是空的時以 `localhost` 組 Pulp 的 `CONTENT_ORIGIN`，只是讓不經 `swallowctl` 的 Compose
+  檔仍能解析；production 一律有 `SWALLOW_ADDRESS`（§5.3），`bootstrap.sh apply` 沒有它時拒絕登錄 Integration。
 
 Platform 自己的 Grafana 與 Omnistat 裝在 Server 上，它們和控制平面互相連線（[monitoring.md](monitoring.md)
 §6.2、§7），所以規劃 Platform deployment 的 process（API 與 worker）需要兩個 installation 設定：
@@ -213,20 +269,27 @@ Platform 自己的 Grafana 與 Omnistat 裝在 Server 上，它們和控制平�
 
 - 一台主機、一個 Compose project、一個由 swallowctl 安裝的 MAAS。
 - MAAS 依賴 Compose 的 PostgreSQL：停止 stack 或 uninstall 會停止 MAAS，重建 PostgreSQL 的 upgrade 會短暫
-  中斷它，backup／restore 包含 `maasdb`（§3.6）。
-- MongoDB 與 Temporal 不加入 `egress`；對外連線只來自 API、worker、Ansible executor 與 Prometheus（收集
-  Server 上的 exporter）。
+  中斷它，backup／restore 包含 `maasdb`（§3.6）。Pulp 同樣依賴它，backup／restore 包含 database `pulp` 與
+  volume `pulp-certs`。
+- MongoDB 與 Temporal 不加入 `egress`；對外連線只來自 API、worker、Ansible executor、Prometheus（收集
+  Server 上的 exporter）與 Pulp 的 API、content、worker（從上游取得內容）。
+- 對外 listener 只有 Dashboard（給 user 與 API client）與 `pulp-web`（給部署出去的 Server）；其他 service 都不發佈，
+  PostgreSQL 與 Temporal UI 只聽 loopback。
 - 一個 installation Site 一套 Prometheus，只收集這個 Site 的 exporter；它是該 Site 唯一的 metrics Integration。
+- 一個 installation Site 一套 Pulp；它是該 Site 唯一的 `repository` Integration。
 - prom-label-proxy 只在 `control`：它不驗證身分，所以除了 control network 不得有其他入口。
 - 主機是 swallow 與其 provisioner 共同的單一 failure domain。
 - 安裝需要對外連線：GHCR、Docker Hub 與 Quay（image）、`images.maas.io`（`ubuntu/noble`）、snap store（MAAS），
-  以及主機缺 Docker 時的 Docker apt repository。
+  以及主機缺 Docker 時的 Docker apt repository。部署需要 Pulp 連得到 Local Repository 鏡像與快取的上游：Site 的
+  來源（預設 `archive.ubuntu.com`）與模組宣告的來源、檔案、registry 與 PyPI；Server 的部署不從網際網路取得
+  artifact。
 
 ### 設計理由
 
-單一 VM、MAAS 共用 Compose 的 PostgreSQL instance（而非第二個 PostgreSQL 或 host PostgreSQL）、不用
-`maas-test-db`、紀錄經已發佈 API 建立、先以 plain HTTP 提供：見
-decision 040。
+單一 VM、MAAS 與 Pulp 共用 Compose 的 PostgreSQL instance（而非第二個 PostgreSQL 或 host PostgreSQL）、不用
+`maas-test-db`、紀錄經已發佈 API 建立、先以 plain HTTP 提供、Pulp 以自己的 port 對 Server 發佈：見
+decision 040。Server 只從 Local Repository 取得 artifact：見 [decision 078](../decisions/078-local-repository.md)（local
+repository）。
 
 ---
 
@@ -239,10 +302,10 @@ decision 040。
 
 - **需要 root**：`install`、`upgrade`、`ensure`（production）、`backup`、`restore`、`uninstall`、
   `ntp upstream set|default`。它們安裝主機套件、管理 MAAS snap，而 `secrets/` 由 root 擁有。
-- **`.env` 是 installation 的宣告設定**。release manifest 提供 `SWALLOW_RELEASE_VERSION` 與七個 image
+- **`.env` 是 installation 的宣告設定**。release manifest 提供 `SWALLOW_RELEASE_VERSION` 與九個 image
   參照（`SWALLOW_API_IMAGE`、`SWALLOW_DASHBOARD_IMAGE`、`SWALLOW_MONGO_IMAGE`、`SWALLOW_POSTGRES_IMAGE`、
-  `SWALLOW_TEMPORAL_SERVER_IMAGE`、`SWALLOW_PROMETHEUS_IMAGE`、`SWALLOW_PROM_LABEL_PROXY_IMAGE`）：從 manifest
-  寫入時一律覆寫，且優先於 shell
+  `SWALLOW_TEMPORAL_SERVER_IMAGE`、`SWALLOW_PROMETHEUS_IMAGE`、`SWALLOW_PROM_LABEL_PROXY_IMAGE`、
+  `SWALLOW_PULP_IMAGE`、`SWALLOW_PULP_WEB_IMAGE`）：從 manifest 寫入時一律覆寫，且優先於 shell
   中殘留的同名值；其餘 user 設定保留。設定的持久化規則見 §5.3。
 - 腳本讀取 `.env` 的優先順序與 Compose 相同：shell environment 優先於 `.env`。
 - **Secrets 只補不換**：`prepare-secrets.sh` 只產生缺少的 secret（隨機值），從不替換既有的（例如替換
@@ -263,17 +326,18 @@ decision 040。
 2. 從 `--release-manifest` 寫入 `.env`；未傳入且還沒有 `.env` 時，使用 bundle 的 `release-manifest.json`。
    既沒有 manifest 也沒有 `.env` 即失敗。
 3. 持久化設定並推導位址（§5.3），補齊 secrets。
-4. 第一次安裝（stack 未執行）時，確認 HTTP port、PostgreSQL host port，以及 MAAS 尚未安裝時的 5240 沒有被
-   佔用。
-5. preflight：x86_64、Ubuntu 24.04、Docker 與 Compose、必要工具、SemVer 版本、digest 參照、secrets 齊全
-   與目錄權限、Compose 設定有效。
+4. 第一次安裝（stack 未執行）時，確認 HTTP port、Pulp port（`SWALLOW_PULP_PORT`）、PostgreSQL host port，以及
+   MAAS 尚未安裝時的 5240 沒有被佔用。
+5. preflight：x86_64、Ubuntu 24.04、Docker 與 Compose、必要工具、SemVer 版本、digest 參照、Pulp port 是不同於
+   HTTP port 的數字、secrets 齊全與目錄權限、Compose 設定有效。
 6. 啟動 MongoDB 與 PostgreSQL 並等兩者 healthy（MongoDB 要等 replica set 有 primary，§2.3a；最多 300 秒），
-   執行 `swallow-api migrate` 與 `swallow-api deployment-key ensure`（Deployment Key 只在這裡建立，既有的
-   保留），啟動整個 stack，等 API 回應 `/readyz`。
+   建立 Pulp 的 role 與 database（§2.3），執行 `swallow-api migrate` 與 `swallow-api deployment-key ensure`
+   （Deployment Key 只在這裡建立，既有的保留），啟動整個 stack（`pulp-init` 先遷移 Pulp 的 database），等 API 回應
+   `/readyz`。
 7. 把 bundle 的 CLI 安裝為 `/usr/local/bin/swallow`。
 8. 共置 MAAS：`local-maas.sh install` 與 `ensure-image`（§2.4）。
 9. 時間：`local-ntp.sh install` 與 `upstream`（§6.1、§6.2）。
-10. `bootstrap.sh apply`（§2.5）。
+10. `bootstrap.sh apply`（§2.5），其中包含 `repository` Integration 與 Site 預設的 `ubuntu` 來源。
 11. Prometheus 的 exporter discovery：以 installation Site 的 id 渲染 `swallow-exporters` job，需要時重啟
     Prometheus，等它載入這個 job（§2.2）。
 12. `doctor`；通過才寫入 `state/installed`。
@@ -289,12 +353,17 @@ decision 040。
   - 這些欄位在此機制之前的 release 是寫死且過時的，所以只保護升級到之後的 release；binary 只服務自己的
     schema、拒絕啟動在其他版本的資料庫上，仍是最後一道防線。
 - 有未到終態的 Workflow（包含停在 `requires_attention` 等待 user 的）時拒絕，除非帶 `--force`。
-- 寫入新 manifest、持久化設定、補齊 secrets、preflight、pull 新 image。
+- 寫入新 manifest、持久化設定、補齊 secrets、preflight；`pulp-web` 還沒執行時（Local Repository 之前的
+  installation）確認 Pulp port 沒有被佔用；pull 新 image。
 - **停止 API、worker 與 Ansible executor**，再備份到 `pre-upgrade-<已安裝版本>-<UTC 時間戳>`（§3.6）並印出
   路徑：備份期間與 migrate 時沒有任何 process 寫入資料庫，也沒有舊 binary 在已遷移的 schema 上執行。
   `--force` 時執行中的 Task 也隨之中止。
 - 啟動 MongoDB 與 PostgreSQL 並等兩者 healthy。replica set 之前的 installation 在這一步轉換：補上的
   `mongo-keyfile` 與新的 mongo 設定讓 container 重建，healthcheck 在既有資料上執行 `rs.initiate`（資料保留）。
+- 建立或補齊 Pulp 的 role 與 database（§2.3）。Local Repository 之前的 installation 在這一步得到它的 database，由
+  `up -d` 啟動 Pulp 的 service，並由之後的 `bootstrap.sh apply` 得到 `repository` Integration 與 `ubuntu` 來源；
+  `prepare-secrets.sh` 已補上三個 Pulp secret。換了 Pulp image 時，`pulp-init` 在 `up -d` 時遷移它的 database，在
+  備份之後。
 - `swallow-api migrate --backup-confirmed`（確認已有備份，允許破壞性的 schema 變更：v3 的 Platform rename、
   v10 刪除 schema-v2 的 Operation 紀錄；v11 從每個 Site 的 `playbookMappings` 移除已退役的 `install-exporters`、
   `uninstall-exporters`，v12 移除 Platform 已退役的 exporter 擁有者欄位與 `deploy-k8s-exporters`、
@@ -326,26 +395,34 @@ decision 040。
    exporter，所以不看 target）。Prometheus 不發佈到主機，這兩項在它的容器內查詢。prom-label-proxy 回應，且把查詢
    限制在指定的 `platform_id`：從 Prometheus 的容器經 `control`（api-server 連到它的同一個網路）以一個不屬於任何
    Platform 的 `platform_id` 查詢 `up`，結果成功且沒有任何 series（Prometheus 收集過 swallow-api 之後一定有 `up`）。
-8. 僅 production：共置 MAAS 回應、有完整的 `ubuntu/noble` amd64 與 virsh SSH identity（`local-maas.sh check`）；
+8. Pulp 經 `pulp-web` 在發佈的 port 回應 `/pulp/api/v3/status/`（從主機查詢，與 Server 走同一個入口）：資料庫已連線，
+   且至少各有一個 API app、content app 與 worker 在線。
+9. 僅 production：共置 MAAS 回應、有完整的 `ubuntu/noble` amd64 與 virsh SSH identity（`local-maas.sh check`）；
    Control-Plane NTP Server 在 UDP 123 服務且上游為設定值（`local-ntp.sh check`，§6.1）；installation records
    存在（`bootstrap.sh verify`：admin 登入、Deployment Key、可執行的 Site automation、Site 的 metrics Integration
-   指向 `http://prometheus:9090` 且 `labelProxyUrl` 為 `http://prom-label-proxy:8080`、MAAS Integration sync 無錯誤、
-   catalog 有 `ubuntu/noble` amd64、Integration 記有
+   指向 `http://prometheus:9090` 且 `labelProxyUrl` 為 `http://prom-label-proxy:8080`、Site 的 `repository`
+   Integration 指向 `http://pulp-web:8080` 且 `contentOrigin` 為 `http://<SWALLOW_ADDRESS>:<SWALLOW_PULP_PORT>`、
+   MAAS Integration sync 無錯誤、catalog 有 `ubuntu/noble` amd64、Integration 記有
    virsh 公鑰）；`state/prometheus/swallow-exporters.yml` 是 installation Site 的渲染結果，且 Prometheus 在它寫入之後
-   成功載入過設定（§2.2）。
+   成功載入過設定（§2.2）。Local Repository 的內容是否同步完成不在 `doctor` 內：那是 Local Repository 的 observed
+   state（[local-repository.md](local-repository.md) §7.2）。
 
 - 未到終態的 Workflow 數只是資訊：忙碌的 installation 仍是健康的。
 - `--profile dev` 讓 `doctor` 與 `ensure` 改看 source checkout 的開發 stack（`deploy/dev`），不需要 root，
-  並略過第 8 項；release bundle 不含 `deploy/dev`，所以只有 checkout 能用。開發 stack 的 `prometheus.yml` 自帶
-  兩個 job，`swallow-exporters` 不帶 `siteId`（開發 stack 只有一個 Site）。
+  並略過第 9 項；release bundle 不含 `deploy/dev`，所以只有 checkout 能用。開發 stack 的 `prometheus.yml` 自帶
+  兩個 job，`swallow-exporters` 不帶 `siteId`（開發 stack 只有一個 Site）；它的 Pulp 在 `PULP_HTTP_PORT`（預設
+  8080）。
 
 ### 3.5 `ensure`
 
 - 把 stack 收斂回 §3.4 的 desired state，最後以 `doctor` 的判定為結果；可安全重跑，已符合契約的 stack
   不被動到。production 沒有 `.env`（沒有安裝）時拒絕。
 - 啟動未執行的宣告 service，但**從不 recreate 執行中的 container**：設定與 image 的變更屬於 `upgrade`。
+  production 先啟動 PostgreSQL 並確保 Pulp 的 role 與 database（§2.3），再啟動其他 service，因為 `pulp-init` 每次
+  啟動都遷移那個 database。
 - 每個條件先等一段時間（ensure 剛啟動的 service 給 240 秒的啟動視窗，原本就在跑的給 20 秒重查）；仍
-  失敗就重啟擁有它的 service 一次，再等一個啟動視窗；仍失敗則印出那些 service 的近期 log。
+  失敗就重啟擁有它的 service 一次，再等一個啟動視窗；仍失敗則印出那些 service 的近期 log。Pulp 的條件（§3.4
+  第 8 項）由 `pulp-api`、`pulp-content`、`pulp-worker` 與 `pulp-web` 擁有。
 - 共置 MAAS：API 不回應時 `snap restart maas`；image 或 virsh identity 檢查失敗時重跑 `local-maas.sh` 的
   冪等 ensure 步驟。**從不重裝或重新初始化 MAAS。**
 - NTP 檢查失敗時重跑 `local-ntp.sh install` 與 `upstream`；排在 MAAS 條件之後，因為 MAAS 的 chronyd 就是
@@ -358,10 +435,14 @@ decision 040。
 ### 3.6 `backup` 與 `restore`
 
 - `backup` 在 `backups/`（`SWALLOW_BACKUP_DIR` 可改）建立 `daily-<UTC 時間戳>`，內容為 MongoDB `swallow`
-  database 的 archive、job artifacts、用來解開封存 secrets 的 credential key、有共置 MAAS 時的 `maasdb`
-  dump、記錄取得時的 release 與資料庫 schema 版本的 `backup.json`，以及 `SHA256SUMS`。MAAS boot images 不備份：
-  restore 後從 `images.maas.io` 重新同步。**Temporal 不備份**（見下方的還原語意）。**Prometheus 的 metrics
-  （volume `prometheus-data`）不備份**：它們可丟棄，遺失只少了用量歷史，不影響 swallow 的狀態；restore 也不動它們。
+  database 的 archive、job artifacts、用來解開封存 secrets 的 credential key、Pulp 的 database `pulp` 的 dump
+  （`pulp.pgdump`）與 volume `pulp-certs` 的 tar（`pulp-certs.tar.gz`，不含 gpg-agent 的 socket）、有共置 MAAS 時的
+  `maasdb` dump、記錄取得時的 release 與資料庫 schema 版本的 `backup.json`，以及 `SHA256SUMS`。Pulp 的 database 只能以
+  `pulp-certs` 中的欄位加密金鑰讀取，所以兩者一起取得；Local Repository 之前的 installation（沒有 database `pulp`）
+  兩者都沒有。MAAS boot images 不備份：restore 後從 `images.maas.io` 重新同步。**Pulp 的 artifact（volume
+  `pulp-data`）不備份**：它們都來自上游，可能有數十 GiB；restore 後由 Pulp 重新取得（見下方）。**Temporal 不備份**
+  （見下方的還原語意）。**Prometheus 的 metrics（volume `prometheus-data`）不備份**：它們可丟棄，遺失只少了用量歷史，
+  不影響 swallow 的狀態；restore 也不動它們。
 - `SHA256SUMS` 以備份目錄內的相對檔名記錄，所以 weekly 副本、或搬到其他主機的備份都能獨立驗證。
 - 週日的備份另以 hard link 複製為 `weekly-<時間戳>`；保留最近 7 份 daily 與 4 份 weekly。
 - Compose installation 不自帶備份排程；`upgrade` 一律先備份，寫成 `pre-upgrade-<已安裝版本>-<時間戳>`，內容
@@ -369,17 +450,21 @@ decision 040。
 - 排程的 `backup` 在系統執行中取得，不停任何 process；MongoDB 的各 collection 因此不是同一瞬間的快照。
 - `restore BACKUP_DIRECTORY --yes`：
   1. 驗證 `SHA256SUMS`（早於相對檔名的備份記的是絕對路徑，只取其檔名，檢查的仍是這個目錄中的檔案），並確認
-     MongoDB archive、job artifacts 與 credential key 都在其中。
+     MongoDB archive、job artifacts 與 credential key 都在其中；列有 `pulp.pgdump` 時也必須列有 `pulp-certs.tar.gz`。
   2. 啟動 MongoDB 與 PostgreSQL；依 `backup.json` 拒絕 schema 比目前 API image 服務的還新的備份（不支援降級），
      或比它最舊可升級的 schema 還舊的備份。沒有 `backup.json` 的舊備份不檢查，`migrate` 仍會拒絕較新的 schema，
      但那時資料已經還原。
   3. 沒有 `--yes` 時列出將被取代的內容後停止。
   4. 停止 API、worker 與 Ansible executor：還原期間沒有任何 process 寫入資料庫。
-  5. 還原 MongoDB（`--drop`）；**先清空**再還原 job artifacts；還原 credential key；備份含 dump 且有共置 MAAS
-     時，停止 MAAS snap 並還原 `maasdb`。
+  5. 還原 MongoDB（`--drop`）；**先清空**再還原 job artifacts；還原 credential key；備份含 Pulp 時，停止 Pulp 的
+     service，刪除並重建 database `pulp`（不用 `--clean`，較新 Pulp 在備份之後加的 table 才不會留下來）再還原
+     dump，**先清空**再還原 `pulp-certs`；備份含 dump 且有共置 MAAS 時，停止 MAAS snap 並還原 `maasdb`。
   6. `migrate --backup-confirmed`：較舊 release 的備份升級到目前的 schema。
   7. 終止 Temporal 中所有 `swallow-operation/` 開頭、仍在執行的 run。
-  8. 啟動整個 stack，等 `/readyz`，執行 `doctor`。
+  8. 啟動整個 stack（`pulp-init` 把還原的 Pulp database 遷移到執行中的 Pulp，並把 admin 密碼重設為這台的 secret），
+     等 `/readyz`。備份含 Pulp 時，等 Pulp 回應後請它 repair（`POST /pulp/api/v3/repair/`，不驗證 checksum）：
+     database 列出但 `pulp-data` 沒有的 artifact 在背景從上游重新下載；請求失敗只記錄，不中止 restore。
+  9. 執行 `doctor`。
 - **還原語意：以 store 為準。** Temporal 不備份，它的 run 屬於被取代的 store，所以全部終止；
   `workflow-dispatch` 在下一次 resync 把還原後 store 中每個未結束的 Workflow 派發成新的 run，依 store 接續
   （[workflow-execution.md](workflow-execution.md) §10）。留著舊 run 的話，它可能帶著還原後 store 會再發一次的
@@ -396,9 +481,9 @@ decision 040。
 
 - 先刪除 `state/installed`。
 - 預設：停止 MAAS snap（它的資料庫在 swallow 的 PostgreSQL 中，會隨 stack 停止）並 `docker compose down`；
-  保留 named volumes、`secrets/`、`backups/` 與已停止的 MAAS snap。
+  保留 named volumes（包含 Pulp 的 `pulp-certs`、`pulp-data`）、`secrets/`、`backups/` 與已停止的 MAAS snap。
 - `--purge-data`：另外 purge MAAS snap（連同 `state/local-maas`、MAAS API key 與 virsh 公鑰 secret）、刪除
-  named volumes 與 `backups/`。`.env` 與其餘 `secrets/` 不刪除。
+  named volumes（Pulp 的 database 在 `postgres-data` 中，一起刪除）與 `backups/`。`.env` 與其餘 `secrets/` 不刪除。
 
 ### 3.8 `ntp` 與 `preflight`
 
@@ -413,6 +498,7 @@ decision 040。
   [decision 072](../decisions/072-store-driven-workflow-execution.md)（store driven workflow execution） 的 Consequences。
 - backup／restore 包含 `maasdb`，因為 MAAS 依賴 Compose 的 PostgreSQL：見
   decision 040。
+- backup／restore 包含 Pulp 的 database 與 `pulp-certs`、不含 artifact：見 decision 040。
 - 還原以 store 為準、不備份 Temporal：store 是唯一的真相，execution 遺失時由 store 重新派發，見
   decision 072。
 
@@ -426,7 +512,7 @@ decision 040。
 
 | Artifact | 內容 |
 | --- | --- |
-| `swallow-compose-<version>.tar.zst` | Compose bundle：`production/`（`compose.yaml`、`.env.example`、`env.sh`、`prepare-secrets.sh`、`mongo-entrypoint.sh`、`swallowctl`、`local-maas.sh`、`local-ntp.sh`、`bootstrap.sh`、`prometheus.yml`、`prometheus-exporters.yml.template`、`bin/swallow` CLI）、`testing/` 與 `release-manifest.json` |
+| `swallow-compose-<version>.tar.zst` | Compose bundle：`production/`（`compose.yaml`、`.env.example`、`env.sh`、`prepare-secrets.sh`、`mongo-entrypoint.sh`、`swallowctl`、`local-maas.sh`、`local-ntp.sh`、`bootstrap.sh`、`prometheus.yml`、`prometheus-exporters.yml.template`、`pulp/`（Pulp 的設定、`pulp-init` 的腳本、deb 簽章腳本與 `pulp-web` 的 nginx 設定）、`bin/swallow` CLI）、`testing/` 與 `release-manifest.json` |
 | `install.sh` | 一行指令的 installer 與 upgrader，預設版本就是這個 release（§5） |
 | `swallow-linux-amd64` | CLI binary，從已推送的 `cli` image 以 `crane export` 取出 |
 | `release-manifest.json` | image digest 與 release metadata（§4.3） |
@@ -443,21 +529,26 @@ decision 040。
 | `api`、`dashboard`、`cli` | 由本 repository 建置（linux/amd64），推送到 GHCR package `IMAGE_REPO`（預設 `ghcr.io/maple52046/swallow`），tag 為 `<component>-<version>` | `<IMAGE_REPO>@sha256:<推送後的 digest>` |
 | MongoDB、PostgreSQL、Temporal Server、Prometheus | Docker Hub 官方 image `docker.io/library/mongo`、`docker.io/library/postgres`、`docker.io/temporalio/auto-setup`、`docker.io/prom/prometheus`，原樣使用 | `deploy/release/runtime-images.env` 中的上游 index digest，原樣寫入 |
 | prom-label-proxy | Prometheus community 在 Quay 發佈的 `quay.io/prometheuscommunity/prom-label-proxy`，原樣使用 | 同上 |
+| Pulp | Pulp 專案在 Docker Hub 發佈的 `docker.io/pulp/pulp-minimal` 與 `docker.io/pulp/pulp-web`，原樣使用 | 同上 |
 
 - GHCR 只放 swallow 建置的 image。第三方 image 不鏡像到 GHCR；installation 直接從它們上游的 registry（Docker Hub、
-  Quay）pull。
+  Quay）pull。release 只以 digest 參照 Pulp 的 image、從不附帶它，所以不重新散布這些 GPL 軟體
+  （[local-repository.md](local-repository.md) §4.3）。
 - `runtime-images.env` 的每一項都必須是 `<registry>/<name>@sha256:<digest>`；發佈前確認每一項都能解析出
   linux/amd64 image。升版是刻意的審查動作；PostgreSQL 必須維持 14 以上，因為它同時承載 MAAS 的資料庫；
   Prometheus 必須支援 `scrape_config_files`（exporter discovery 由它載入，§2.2），且是帶 busybox `wget` 的
   變體（healthcheck 與 `doctor` 用它查詢，`doctor` 另以它的 `--header` 經 prom-label-proxy 查詢）；prom-label-proxy
-  必須支援 `-header-name`（`platform_id` 取自 header）與 `-enable-label-apis`，且帶 busybox `wget`（healthcheck 用它）。
+  必須支援 `-header-name`（`platform_id` 取自 header）與 `-enable-label-apis`，且帶 busybox `wget`（healthcheck 用它）；
+  Pulp 必須是 `pulp-minimal`（外部資料庫），container 的匿名 pull-through 需要 `pulp_container` 2.30.1／2.29.3 以上，
+  image 要帶 `readyz.py`、`wait_on_postgres.py`、`gpg`、`openssl` 與 `tar`（healthcheck、`pulp-init` 與備份用它們），
+  `pulp-web` 要帶 `curl`（healthcheck）且與 `pulp-minimal` 同一個 release 一起升版。
 - installation 從不使用 tag。
 - GHCR package 必須是 public，否則每台 installation 都要先 `docker login ghcr.io`。
 
 ### 4.3 Release manifest
 
-- `schemaVersion` 為 1，帶 `version` 與 `commit`。`images` 正好有八個 key：`api`、`dashboard`、`cli`、
-  `mongo`、`postgres`、`temporalServer`、`prometheus`、`promLabelProxy`，全部是 digest 參照。另有 `platforms`、`schemaVersions`、
+- `schemaVersion` 為 1，帶 `version` 與 `commit`。`images` 正好有十個 key：`api`、`dashboard`、`cli`、
+  `mongo`、`postgres`、`temporalServer`、`prometheus`、`promLabelProxy`、`pulp`、`pulpWeb`，全部是 digest 參照。另有 `platforms`、`schemaVersions`、
   `compatibility`（host `ubuntu-24.04-amd64`、MAAS `3.6`、MongoDB `8.0` 等）、`artifacts`（`composeBundle`、
   `cliBinary`、`thirdPartyMediaManifest`）與 `upgrade`。
 - manifest 不含 Temporal UI image、OCI archive 或 native bundle 的欄位。
@@ -467,10 +558,10 @@ decision 040。
   schema（`CurrentSchemaVersion`），`upgrade.from` 是從 `OldestUpgradableSchemaVersion` 到它之前的每一個版本；
   `schemaVersions.playbookManifest` 取自 `api-server/modules/manifest.json`。`downgradeSupported` 固定為 `false`。
 - `swallowctl` 讀 `version` 與 `images` 中的 `api`、`dashboard`、`mongo`、`postgres`、`temporalServer`、
-  `prometheus`、`promLabelProxy`，缺任一項即拒絕；`upgrade` 另讀 `schemaVersions.mongo` 與 `upgrade`（§3.3）。其餘欄位目前沒有 consumer。`cli` image
+  `prometheus`、`promLabelProxy`、`pulp`、`pulpWeb`，缺任一項即拒絕；`upgrade` 另讀 `schemaVersions.mongo` 與 `upgrade`（§3.3）。其餘欄位目前沒有 consumer。`cli` image
   只用於組裝 release 時取出 CLI。
 - `deploy/release/release-manifest.example.json` 是格式範例；`validate.sh` 檢查它的 `images` key 集合與
-  registry 前綴（swallow image 在 GHCR；runtime image 在 `docker.io`，prom-label-proxy 在 `quay.io`），以及 schema
+  registry 前綴（swallow image 在 GHCR；runtime image（含 Pulp 的兩個）在 `docker.io`，prom-label-proxy 在 `quay.io`），以及 schema
   欄位與 `migration.go` 的
   兩個常數一致；另檢查每個 runtime image 都固定在 `runtime-images.env`，且 production `compose.yaml` 要求的每個
   image 變數都由 `swallowctl` 從 manifest 寫入。
@@ -539,7 +630,7 @@ decision 040。
 
 - `install` 與 `upgrade` 把 environment 中有設定的 user settings 寫入 `.env`（environment 優先，與
   Compose 相同），讓之後的 `upgrade` 或直接的 `docker compose up` 看到相同的值：`SWALLOW_ADDRESS`、
-  `SWALLOW_MAAS_URL`、`SWALLOW_BOOT_MEDIA_BASE_URL`、`SWALLOW_HTTP_PORT`、`SWALLOW_POSTGRES_HOST_PORT`、
+  `SWALLOW_MAAS_URL`、`SWALLOW_BOOT_MEDIA_BASE_URL`、`SWALLOW_HTTP_PORT`、`SWALLOW_PULP_PORT`、`SWALLOW_POSTGRES_HOST_PORT`、
   `SWALLOW_MAAS_IMAGE_TIMEOUT`、`SWALLOW_SITE_NAME`、`SWALLOW_TEMPORAL_UI_IMAGE`、`SWALLOW_TEMPORAL_UI_PORT`、
   `SWALLOW_NTP_UPSTREAM`、`SWALLOW_NTP_ALLOW`、`SWALLOW_PROMETHEUS_RETENTION`。多行的值（例如
   `SWALLOW_SSH_KNOWN_HOSTS`）不寫入 `.env`。
@@ -553,8 +644,11 @@ decision 040。
 
 - `SWALLOW_ADDRESS` 是 machines 與 BMC 連到這台主機的位址。Compose 以它作為 api-server 與 worker 的
   `SWALLOW_API_NTP_SERVER`（§6.3）與 `SWALLOW_API_MONITORING_SCRAPE_ADDRESSES`，並由它與 `SWALLOW_HTTP_PORT`
-  組出 `SWALLOW_API_PUBLIC_URL`（§2.7）。
-- 第一次安裝後**不支援變更位址**：MAAS 保留第一次初始化時的 URL。
+  組出 `SWALLOW_API_PUBLIC_URL`（§2.7）；由它與 `SWALLOW_PULP_PORT` 組出 Pulp 的 `CONTENT_ORIGIN` 與 `repository`
+  Integration 的 `contentOrigin`（§2.7）。
+- 第一次安裝後**不支援變更位址**：MAAS 保留第一次初始化時的 URL。`SWALLOW_PULP_PORT` 可以經 `upgrade` 改變：
+  Compose 重建 Pulp 的 service，`bootstrap.sh apply` 把 `contentOrigin` 改到新的 port；已佈署的 Server 仍指向舊的
+  port，直到下一支標成 `usesLocalRepository` 的 playbook 在它上面重寫來源（[local-repository.md](local-repository.md) §8.2）。
 
 ### 5.4 共置 MAAS 的 Integration endpoint
 
@@ -694,8 +788,9 @@ lab 事故）。
 | MongoDB replica set（keyFile、啟動、initiate 與 healthcheck） | `deploy/production/mongo-entrypoint.sh` |
 | 共置 MAAS（role／database、snap、init、admin、virsh identity、`ubuntu/noble`） | `deploy/production/local-maas.sh` |
 | Control-Plane NTP Server（install、upstream、check） | `deploy/production/local-ntp.sh` |
-| Installation records（Site、Integration、automation 預設） | `deploy/production/bootstrap.sh` |
+| Installation records（Site、Integration、automation 預設、Local Repository 的 `ubuntu` 來源） | `deploy/production/bootstrap.sh` |
 | Site 的 Prometheus（主設定、exporter discovery 的範本；渲染與重啟在 `swallowctl`） | `deploy/production/prometheus.yml`、`deploy/production/prometheus-exporters.yml.template` |
+| Site 的 Pulp（設定、`pulp-init` 的金鑰／migrate／admin 密碼／signing service、deb Release 簽章、`pulp-web` 的 nginx；database、backup／restore 與 doctor 在 `swallowctl`） | `deploy/production/pulp/settings.py`、`deploy/production/pulp/init.sh`、`deploy/production/pulp/sign-deb-release.sh`、`deploy/production/pulp/nginx.sh`、`deploy/production/pulp/nginx.conf.template` |
 | Dashboard Nginx 設定 | `deploy/production/nginx.conf`（由 `deploy/production/dashboard.Dockerfile` 放入 image） |
 | Image 建置 | `deploy/production/api-server.Dockerfile`、`dashboard.Dockerfile`、`cli.Dockerfile` |
 | Native 範本（未發佈） | `deploy/production/native/` |
@@ -738,20 +833,25 @@ lab 事故）。
   decision 069、
   decision 072、
   decision 072、
-  [decision 058](../decisions/058-deployment-dhcp-and-subnet-dns.md)（deployment dhcp and subnet dns；swallow 不合成 cloud-init）。
+  [decision 058](../decisions/058-deployment-dhcp-and-subnet-dns.md)（deployment dhcp and subnet dns；swallow 不合成 cloud-init）、
+  decision 078（部署只從 Local Repository 取得 artifact）。
 - 語言：glossary [Installation](glossaries/terms/installation.md)、
   [Control-Plane NTP Server](glossaries/terms/control-plane-ntp-server.md)、
   [Time Sync Check](glossaries/terms/time-sync-check.md)、[Site](glossaries/terms/site.md)、
   [Integration](glossaries/terms/integration.md)、[OS Image](glossaries/terms/os-image.md)、
   [OS Deployment](glossaries/terms/os-deployment.md)、[Deployment Key](glossaries/terms/deployment-key.md)、
   [Automation Configuration](glossaries/terms/automation-configuration.md)、
-  [Workflow](glossaries/terms/workflow.md)、[Task](glossaries/terms/task.md)。
+  [Workflow](glossaries/terms/workflow.md)、[Task](glossaries/terms/task.md)、
+  [Local Repository](glossaries/terms/local-repository.md)、[Repository Source](glossaries/terms/repository-source.md)。
 - 規格：[platform-deployment.md](platform-deployment.md)（`ensure-os` 的 Task 組成與 platform 端時鐘檢查）、
-  [monitoring.md](monitoring.md)（Site 的 Prometheus 收集什麼、label 契約）。
+  [monitoring.md](monitoring.md)（Site 的 Prometheus 收集什麼、label 契約）、
+  [local-repository.md](local-repository.md)（Local Repository 存什麼、怎麼收斂、部署怎麼使用）。
 - API 契約（`api-server` 擁有）：
   [provisioning](../../api-server/docs/development/api-contracts/api-server/provisioning.md)、
   [platforms](../../api-server/docs/development/api-contracts/api-server/platforms.md)、
   [site-automation](../../api-server/docs/development/api-contracts/api-server/site-automation.md)、
   [sites-integrations](../../api-server/docs/development/api-contracts/api-server/sites-integrations.md)、
+  [local-repository](../../api-server/docs/development/api-contracts/api-server/local-repository.md)（bootstrap 寫入的
+  預設來源）、
   [discovery-prometheus](../../api-server/docs/development/api-contracts/api-server/discovery-prometheus.md)（Site
   Prometheus 的 http_sd）。

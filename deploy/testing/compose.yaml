@@ -3,6 +3,39 @@ name: swallow-testing
 include:
   - ../production/compose.yaml
 
+services:
+  # Pulp's role and database in the stack's PostgreSQL, which swallowctl creates before Pulp starts
+  # in production. One-shot and idempotent, so it runs on every `up`, before pulp-init migrates the
+  # database; it sets the role's password from pulp_db_password, quoted by psql.
+  pulp-db:
+    image: ${SWALLOW_POSTGRES_IMAGE:?set a digest-pinned SWALLOW_POSTGRES_IMAGE}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ["bash", "-ec"]
+    command:
+      - |
+        export PGPASSWORD="$$(< /run/secrets/temporal_db_password)"
+        psql -h postgres -U temporal -d postgres -v ON_ERROR_STOP=1 -q \
+          -v password="$$(< /run/secrets/pulp_db_password)" <<'SQL'
+        SELECT 'CREATE ROLE pulp LOGIN' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'pulp')\gexec
+        ALTER ROLE pulp WITH LOGIN PASSWORD :'password';
+        SELECT 'CREATE DATABASE pulp OWNER pulp' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'pulp')\gexec
+        SQL
+    secrets:
+      - temporal_db_password
+      - pulp_db_password
+    networks: [control]
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  pulp-init:
+    depends_on:
+      pulp-db:
+        condition: service_completed_successfully
+
 secrets:
   mongo_root_username:
     file: ./secrets/mongo-root-username
@@ -24,3 +57,9 @@ secrets:
   # Temporal database password from its own secrets directory instead of production's.
   temporal_db_password:
     file: ./secrets/temporal-db-password
+  pulp_db_password:
+    file: ./secrets/pulp-db-password
+  pulp_admin_password:
+    file: ./secrets/pulp-admin-password
+  pulp_secret_key:
+    file: ./secrets/pulp-secret-key

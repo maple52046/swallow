@@ -14,14 +14,18 @@ tagged `<component>-<version>`. The runtime services use official images as they
 | `api`, `dashboard`, `cli` | built from this repository (linux/amd64) and pushed to GHCR |
 | MongoDB, PostgreSQL, Temporal Server, Prometheus | the official `mongo`, `postgres`, `temporalio/auto-setup`, and `prom/prometheus` images on Docker Hub, pinned in [`runtime-images.env`](runtime-images.env) |
 | prom-label-proxy | the Prometheus community's `prometheuscommunity/prom-label-proxy` image on Quay, pinned in [`runtime-images.env`](runtime-images.env) |
+| Pulp (the Site's Local Repository) | the Pulp project's `pulp/pulp-minimal` and `pulp/pulp-web` images on Docker Hub, pinned in [`runtime-images.env`](runtime-images.env) |
 
 Installations never use tags: `release-manifest.json` pins every image by digest. Review and
 bump `runtime-images.env` deliberately; the PostgreSQL image also hosts the co-located MAAS
 database, so it must stay PostgreSQL 14 or newer, and the Prometheus image must keep
 `scrape_config_files` and busybox `wget` (the Site's exporter discovery and its health checks
 rely on them). The prom-label-proxy image must keep `-header-name` (it takes the `platform_id`
-from a request header), `-enable-label-apis`, and busybox `wget` (its healthcheck). The optional
-Temporal UI is not part of a
+from a request header), `-enable-label-apis`, and busybox `wget` (its healthcheck). Pulp uses the
+shared PostgreSQL, so it is `pulp-minimal` (the all-in-one image always starts its own database);
+anonymous container pull-through needs `pulp_container` 2.30.1 (or 2.29.3) or later, and
+`pulp-web` is bumped together with `pulp-minimal`. Releases reference the Pulp images by their
+upstream digest and never redistribute them. The optional Temporal UI is not part of a
 release; a user who wants it sets its digest in `production/.env`.
 
 ## Publish a release

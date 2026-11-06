@@ -12,7 +12,10 @@
 #     OS deployment runs can work,
 #   - the in-compose Prometheus as the Site's metrics integration, with the in-compose
 #     prom-label-proxy as its labelProxyUrl setting, the way bootstrap.sh registers a production
-#     installation's Site Prometheus, so the dashboard can read metrics.
+#     installation's Site Prometheus, so the dashboard can read metrics,
+#   - (optional) the in-compose Pulp as the Site's repository integration, with PULP_ORIGIN as its
+#     contentOrigin setting, and the Local Repository's default `ubuntu` source, the way
+#     bootstrap.sh registers a production installation's Local Repository (decision 078).
 #
 # Everything site- or environment-specific (MAAS URL/key, become password, known_hosts) comes from
 # the environment or a .env file, so nothing secret is committed. Values left unset skip
@@ -47,6 +50,12 @@ ssh_user="${SWALLOW_SSH_USER:-ubuntu}"
 ssh_port="${SWALLOW_SSH_PORT:-22}"
 ssh_known_hosts="${SWALLOW_SSH_KNOWN_HOSTS:-}"
 become_password="${SWALLOW_BECOME_PASSWORD:-}"
+
+# The in-compose Pulp (compose.yaml): the api-server calls it through pulp-web on the Compose
+# network, and deployed Servers read content at PULP_ORIGIN, which is also Pulp's CONTENT_ORIGIN.
+pulp_endpoint="http://pulp-web:8080"
+pulp_origin="${PULP_ORIGIN:-}"
+pulp_admin_password="${PULP_ADMIN_PASSWORD:-admin}"
 
 maas_url="${SWALLOW_MAAS_URL:-}"
 maas_credential="${SWALLOW_MAAS_CREDENTIAL:-}"
@@ -106,6 +115,52 @@ else
       -H 'Content-Type: application/json' --data-binary "${patch}" >/dev/null
     printf 'updated metrics integration (%s) -> %s\n' "${metrics_id}" "${prometheus_url}"
   fi
+fi
+
+# --- repository integration -> in-compose Pulp (optional) ---
+# A Site has at most one repository integration: an existing one keeps its id, name, and other
+# settings, and only its endpoint and contentOrigin are repointed when they differ. Its write-only
+# credential is replaced on every run. The default `ubuntu` source is written only while the Local
+# Repository spec has never been written (generation 0), so later edits survive a rerun.
+if [[ -n "${pulp_origin}" ]]; then
+  repository="$(curl "${curl_flags[@]}" "${auth[@]}" "${base_url}/integrations?siteId=${site_id}&kind=repository" |
+    jq -c 'first((.items? // .)[]) // empty')"
+  if [[ -z "${repository}" ]]; then
+    repository_id="$(curl "${curl_flags[@]}" "${auth[@]}" -X POST "${base_url}/integrations" \
+      -H 'Content-Type: application/json' \
+      --data-binary "$(jq -nc \
+        --arg site "${site_id}" --arg endpoint "${pulp_endpoint}" --arg origin "${pulp_origin}" \
+        --arg cred "${pulp_admin_password}" \
+        '{siteId:$site,kind:"repository",providerKind:"pulp",name:"local-repository",endpoint:$endpoint,
+          settings:{contentOrigin:$origin},credential:$cred}')" | jq -er '.id')"
+    printf 'registered repository integration (%s) -> %s, content at %s\n' "${repository_id}" "${pulp_endpoint}" "${pulp_origin}"
+  else
+    repository_id="$(jq -r '.id' <<<"${repository}")"
+    patch="$(jq -c --arg endpoint "${pulp_endpoint}" --arg origin "${pulp_origin}" '
+      (if .endpoint != $endpoint then {endpoint: $endpoint} else {} end) +
+      (if (.settings // {}).contentOrigin != $origin
+        then {settings: ((.settings // {}) + {contentOrigin: $origin})} else {} end)' <<<"${repository}")"
+    if [[ "${patch}" != '{}' ]]; then
+      curl "${curl_flags[@]}" "${auth[@]}" -X PATCH "${base_url}/integrations/${repository_id}" \
+        -H 'Content-Type: application/json' --data-binary "${patch}" >/dev/null
+    fi
+    curl "${curl_flags[@]}" "${auth[@]}" -X PUT "${base_url}/integrations/${repository_id}/credential" \
+      -H 'Content-Type: application/json' \
+      --data-binary "$(jq -nc --arg cred "${pulp_admin_password}" '{credential:$cred}')" >/dev/null
+    printf 'repository integration present (%s) -> %s, content at %s\n' "${repository_id}" "${pulp_endpoint}" "${pulp_origin}"
+  fi
+  generation="$(curl "${curl_flags[@]}" "${auth[@]}" "${base_url}/sites/${site_id}/local-repository" |
+    jq -r '.spec.generation // 0')"
+  if [[ "${generation}" == 0 ]]; then
+    curl "${curl_flags[@]}" "${auth[@]}" -X PUT "${base_url}/sites/${site_id}/local-repository/spec" \
+      -H 'Content-Type: application/json' --data-binary "$(jq -nc '{generation: 0, sources: [{
+        name: "ubuntu", format: "deb", url: "http://archive.ubuntu.com/ubuntu/",
+        suites: ["noble", "noble-updates", "noble-security"], components: ["main", "universe"],
+        architectures: ["amd64"]}]}')" >/dev/null
+    printf "Local Repository: added the default source 'ubuntu'\n"
+  fi
+else
+  printf 'skipping the Local Repository: set PULP_ORIGIN to the address Servers reach this host'"'"'s Pulp at\n'
 fi
 
 # --- MAAS provisioner integration (optional) ---
