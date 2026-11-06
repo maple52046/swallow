@@ -157,7 +157,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 ### Local Repository
 
-- [Local Repository](terms/local-repository.md): The one place a Site's Servers fetch every artifact a deployment installs — `deb`, `rpm` (designed in), `oci`, `python`, `file` — kept by a provider (Pulp) next to the control plane; never a fallback to the Internet.
+- [Local Repository](terms/local-repository.md): A Site's own source of every artifact a deployment installs — `deb`, `rpm` (designed in), `oci`, `python`, `file` — kept by a provider (Pulp) next to the control plane; used when the Site chooses it (`serveDeployments`), otherwise deployments fetch from the declared upstreams; never a fallback in either direction.
 - [Repository Source](terms/repository-source.md): One upstream a Local Repository mirrors (a declared package source) or caches (a pull-through registry host or PyPI) — `pending | syncing | ready | failed`.
 
 ### Automation

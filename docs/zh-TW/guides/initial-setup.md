@@ -6,7 +6,8 @@
 所需的 automation policy。
 
 [Production installation](../installation.md) 已經為 Site `default`、共置的 MAAS、它的
-Prometheus 與它的 local repository 完成步驟 1 到 5。本指南可用來檢查該結果、新增其他 Site，或設定 development stack。
+Prometheus 與它的 local repository（保持關閉，步驟 4 打開它）完成步驟 1 到 5。本指南可用來檢查該結果、新增其他
+Site，或設定 development stack。
 
 ## 1. 建立 Site
 
@@ -69,20 +70,29 @@ Site 的 Prometheus 透過 swallow HTTP service-discovery endpoint 發現 swallo
 exporter，使 scraped series 帶有穩定的 `server_id`、`site`、`platform_id` 與 `exporter` labels。
 這一版其他 Site 沒有 Prometheus。
 
-## 4. 註冊 local repository
+## 4. 選擇部署從哪裡取得
 
-部署只從 Site 的 **local repository** 安裝套件、container image、Python 套件與檔案，從不連到網際網路。
-它和 swallow 執行在一起（Pulp，在同一個 installation 中），每個 artifact 只從上游取得一次，再提供給
-該 Site 的每台 Server。因此部署不受 Site 對外頻寬影響，每台 Server 也都拿到保存在站點上的相同內容；OS 套件
-索引以 Site 自己的金鑰簽章，檔案以宣告的 checksum 驗證。
+這一步是選用的。部署安裝的套件、container image、Python 套件與檔案，都是 swallow 的模組以固定版本宣告的，
+每個 Site 選擇它們從哪裡取得：
 
-Production installation 會把它註冊為 Site 的 `repository` / `pulp` Integration，並把 Ubuntu archive
-加為 Site 的 `ubuntu` 來源。一個 Site 至多一個。其他內容由 swallow 自己的模組宣告，例如 Docker CE 的
-套件庫、k0s binary，以及 Platform 執行的 container image，所以只有 swallow 沒有宣告的東西才需要自己
-加來源。Development stack 要自己註冊：endpoint 是 swallow 連到 Pulp API 的位址，`contentOrigin`
-setting 是 Server 連到它的位址，credential 是 Pulp admin 的密碼。
+- **上游來源**（預設）：每台 Server 從模組宣告的來源取得每個 artifact。檔案以宣告的 checksum 驗證，套件庫
+  以宣告的簽章金鑰驗證，Server 保留自己的 OS 套件來源。
+- **Site 的 local repository**：和 swallow 執行在一起的套件庫（Pulp，在同一個 installation 中）每個 artifact
+  只從上游取得一次，再提供給該 Site 的每台 Server，Server 之後只從它取得。OS 套件索引以 Site 自己的金鑰簽章，
+  檔案以宣告的 checksum 驗證。
 
-需要它的部署在 Site 沒有 local repository 或內容尚未 ready 時會被拒絕，訊息會指出要註冊或等待什麼。
+Production installation 會把 local repository 註冊為 Site 的 `repository` / `pulp` Integration，把 Ubuntu
+archive 加為 Site 的 `ubuntu` 來源，並保持關閉。一個 Site 至多一個。要使用它，在
+**Infrastructure → Local repository** 把 **Artifact source for deployments** 選為 **This local repository**
+（API 的 `serveDeployments`）：local repository 開始取得內容，ready 之後部署才會被接受；在那之前部署會被拒絕，
+訊息會指出要等待或修正什麼。改回 **Upstream sources** 之後，之後的部署再從上游來源取得，local repository 已有的
+內容會保留。已佈署的 Server 在下一次有部署在它上面執行時，跟著 Site 的選擇改變。
+
+除了 `ubuntu` 來源，local repository 的其他內容由 swallow 自己的模組宣告，例如 Docker CE 的套件庫、k0s
+binary，以及 Platform 執行的 container image，所以只有 swallow 沒有宣告的東西才需要自己加來源。Development
+stack 要自己註冊：endpoint 是 swallow 連到 Pulp API 的位址，`contentOrigin` setting 是 Server 連到它的位址，
+credential 是 Pulp admin 的密碼。
+
 **Infrastructure → Local repository** 顯示來源與同步狀態，並可依格式瀏覽內容，標出宣告每一項的模組。
 API 請見 [local repository contract](../../../api-server/docs/development/api-contracts/api-server/local-repository.md)。
 
@@ -104,8 +114,8 @@ Integration，而是 Site-scoped swallow capability。
 ## 6. 驗證 readiness
 
 - Integration sync 有最近的 `lastSucceededAt`，且沒有未處理 error。
-- **Infrastructure → Local repository** 顯示 deployment 會被接受：每個來源、file 與宣告的 image 都是
-  **Ready**。
+- Site 使用 local repository 時，**Infrastructure → Local repository** 顯示 deployment 會被接受：每個來源、
+  file 與宣告的 image 都是 **Ready**。
 - Reconcile 後出現 Servers；以 **Servers → Add servers** 新增更多（見
   [新增 Server](servers-and-infrastructure.md#新增-server)）。
 - Worker 與 Ansible executor healthy。

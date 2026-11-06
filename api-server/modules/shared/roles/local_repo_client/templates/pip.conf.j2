@@ -1,5 +1,0 @@
-# Managed by Swallow (local_repo_client): the Site's Local Repository is this host's Python package
-# index. It serves plain HTTP, so pip must trust its host.
-[global]
-index-url = {{ swallow_local_repository.python_index }}
-trusted-host = {{ swallow_local_repository.python_index | urlsplit('hostname') }}

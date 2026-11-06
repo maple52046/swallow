@@ -1,10 +1,10 @@
 ---
 # The pinned Helm v3 swallow runs on a Kubernetes controller (the AMD GPU Operator and the
-# Kubernetes Platform Grafana). It is downloaded once per version from the Site's Local Repository
-# and verified against the official SHA-256, and it lives under swallow's directory so it never
-# replaces a user's own helm. helm_archives lists the release archive per architecture: its path
-# under swallow_local_repository.files and its SHA-256, which the modules that run helm declare as
-# a file artifact (a content test keeps the two in step).
+# Kubernetes Platform Grafana). It is downloaded once per version from where the run's artifacts
+# come from and verified against the official SHA-256, and it lives under swallow's directory so it
+# never replaces a user's own helm. helm_archives lists the release archive per architecture: its
+# declared path (its key in swallow_artifacts.files) and its SHA-256, which the modules that run
+# helm declare as a file artifact (a content test keeps the two in step).
 helm_version: v3.22.1
 helm_archives:
   amd64:

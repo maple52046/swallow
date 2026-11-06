@@ -1,0 +1,68 @@
+---
+# Point this host at where its run's artifacts come from (defaults/main.yml). Idempotent in both
+# modes: a converged host reruns with no changes, although the package index is refreshed on every
+# run.
+
+- name: Refuse a run without its artifact sources
+  ansible.builtin.fail:
+    msg: >-
+      [artifact_sources_missing] This playbook installs and downloads only what swallow declares,
+      from the sources the run carries, but the run has no swallow_artifacts with a source of
+      local_repository or upstream. Start the Workflow again so swallow hands the run its Site's
+      artifact sources.
+  when: >-
+    swallow_artifacts is not defined or swallow_artifacts is not mapping or
+    (swallow_artifacts.source | default('')) not in ['local_repository', 'upstream']
+
+- name: Read the host's operating system
+  ansible.builtin.setup:
+    gather_subset: [min]
+  when: ansible_facts['os_family'] is not defined
+
+- name: Point apt at the run's deb sources
+  ansible.builtin.include_tasks: apt.yml
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Point pip at the Local Repository's Python index
+  become: true
+  ansible.builtin.template:
+    src: pip.conf.j2
+    dest: "{{ artifact_sources_root }}{{ artifact_sources_pip_conf }}"
+    mode: "0644"
+  when: swallow_artifacts.source == 'local_repository'
+
+- name: Pull k0s's images through the Local Repository
+  ansible.builtin.include_tasks: containerd.yml
+  when:
+    - swallow_artifacts.source == 'local_repository'
+    - artifact_sources_containerd | bool
+
+- name: Converge Docker's insecure registries
+  # From the upstreams every host drops the Local Repository's registry, whichever runtime the run
+  # pulls with.
+  ansible.builtin.include_tasks: docker.yml
+  when: >-
+    (swallow_artifacts.source == 'local_repository' and artifact_sources_docker | bool) or
+    swallow_artifacts.source == 'upstream'
+
+- name: Let Podman pull from the Local Repository's registry
+  when:
+    - swallow_artifacts.source == 'local_repository'
+    - artifact_sources_podman | bool
+  become: true
+  block:
+    - name: Ensure Podman's registries drop-in directory exists
+      ansible.builtin.file:
+        path: "{{ artifact_sources_root }}{{ artifact_sources_podman_registries | dirname }}"
+        state: directory
+        mode: "0755"
+
+    - name: Mark the Local Repository's registry as plain HTTP
+      ansible.builtin.template:
+        src: podman-registries.conf.j2
+        dest: "{{ artifact_sources_root }}{{ artifact_sources_podman_registries }}"
+        mode: "0644"
+
+- name: Stop pointing pip and the container runtimes at the Local Repository
+  ansible.builtin.include_tasks: local_repository_removed.yml
+  when: swallow_artifacts.source == 'upstream'

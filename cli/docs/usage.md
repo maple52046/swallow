@@ -336,7 +336,7 @@ credential:
 ```
 
 A `repository` Integration is the Site's Local Repository, which deployments fetch every artifact
-from; a Site has at most one. `endpoint` is where swallow calls the provider's API,
+from once the Site turns it on; a Site has at most one. `endpoint` is where swallow calls the provider's API,
 `settings.contentOrigin` (required) is where the Site's Servers read content, and the credential is
 the provider's admin password:
 
@@ -351,8 +351,8 @@ settings:
 credential: "REDACTED-PULP-ADMIN-PASSWORD"
 ```
 
-The CLI has no command for the Local Repository itself yet (its content, sync state, and the
-Site's sources); use the Dashboard or the HTTP API.
+The CLI has no command for the Local Repository itself yet (its content, sync state, the Site's
+sources, and whether deployments use it); use the Dashboard or the HTTP API.
 
 ### servers
 

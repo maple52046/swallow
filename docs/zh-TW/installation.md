@@ -28,8 +28,9 @@ Installer 完成時：
 - Site `default` 的 Prometheus 在同一台 VM 上執行，已是該 Site 的 metrics Integration，並收集
   swallow 安裝在該 Site 的 Server 上的 exporter（見 [Monitoring](guides/monitoring.md)）；
 - Site 的 Local Repository（Pulp）在同一台 VM 的 **HTTP port 8080** 上執行，已是該 Site 的 `repository`
-  Integration，第一個來源是 Ubuntu archive：swallow 佈署的每台 Server 都從它取得 OS 套件、container image、
-  Python 套件與檔案，而不是從網際網路；
+  Integration，第一個來源是 Ubuntu archive。它一開始是關閉的：部署從 swallow 的模組宣告的上游來源取得 artifact。
+  為 Site 打開它之後（見[初始設定](guides/initial-setup.md#4-選擇部署從哪裡取得)），swallow 佈署的每台 Server 都從它
+  取得 OS 套件、container image、Python 套件與檔案，而不是從網際網路；
 - VM 在 UDP 123 提供 NTP（MAAS 自己的時間服務），swallow 佈署的每台 Server 都使用它
   （見[時間同步](guides/os-provisioning.md#時間同步)）；
 - `swallow` CLI 已安裝在 `/usr/local/bin/swallow`。
@@ -37,15 +38,16 @@ Installer 完成時：
 ### 前置條件
 
 - 一台可 `sudo` 的乾淨 Ubuntu 24.04 amd64 VM。建議起始規格 4 vCPU、16 GiB RAM、
-  100 GiB disk，再加上 Local Repository 的 cache 空間：它保留 Server 取得過的每個套件、image 與檔案，一次 GPU
-  Platform 的佈署就會增加數十 GiB。
+  100 GiB disk；Site 使用 Local Repository 時再加上它的 cache 空間：它保留 Server 取得過的每個套件、image 與
+  檔案，一次 GPU Platform 的佈署就會增加數十 GiB。
 - 能連到 `github.com`（release）、`ghcr.io`（swallow 自己的 images）、Docker Hub（官方
   MongoDB、PostgreSQL、Temporal、Prometheus 與 Pulp images）、`quay.io`（prom-label-proxy image）、
-  `download.docker.com`、Snap Store 與 `images.maas.io`。佈署時 Local Repository 還要連得到它鏡像的上游：
-  `archive.ubuntu.com`，以及已安裝的模組宣告的來源、registry、PyPI 與下載網站。
+  `download.docker.com`、Snap Store 與 `images.maas.io`。佈署時要連得到已安裝的模組宣告的來源、registry、PyPI 與
+  下載網站：由 Server 連，或在 Site 使用 Local Repository 時由 VM 連（另加 `archive.ubuntu.com`）。
 - 未被占用的 port：80（Dashboard）、8080（Local Repository）、5240（MAAS），以及 loopback 5432（MAAS 用的
-  PostgreSQL）。機器會連 VM 的 UDP 123 對時、連 port 8080 取得它們安裝的每樣東西，也會連 port 80：Platform 自己的
-  Grafana 經 swallow 在那裡讀取 metrics。要用 8080 以外的 port，在第一次安裝前設定 `SWALLOW_PULP_PORT`。
+  PostgreSQL）。機器會連 VM 的 UDP 123 對時；Site 使用 Local Repository 時連 port 8080 取得它們安裝的每樣東西；
+  也會連 port 80：Platform 自己的 Grafana 經 swallow 在那裡讀取 metrics。要用 8080 以外的 port，在第一次安裝前設定
+  `SWALLOW_PULP_PORT`。
 - VM 本身要連得到一個 NTP server。VM 預設跟隨 `ntp.ubuntu.com`；網路連不到它時，以
   `SWALLOW_NTP_UPSTREAM` 指定其他 server，例如
   `curl … | sudo SWALLOW_NTP_UPSTREAM=10.0.0.123 bash`，或之後以

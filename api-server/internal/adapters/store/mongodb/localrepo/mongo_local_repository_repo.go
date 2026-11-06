@@ -92,8 +92,12 @@ type statusDoc struct {
 	Conditions         []convergencestore.ConditionDoc `bson:"conditions,omitempty"`
 }
 
+// specDoc is the user's spec. A record written before serveDeployments existed has no such field
+// and decodes as false, the default, so those Sites fetch from the upstreams until a user turns
+// serving on.
 type specDoc struct {
-	Sources []sourceDoc `bson:"sources"`
+	ServeDeployments bool        `bson:"serveDeployments"`
+	Sources          []sourceDoc `bson:"sources"`
 }
 
 // localRepositoryDoc is one Site's record, keyed by the Site id.
@@ -193,7 +197,7 @@ func (r *MongoLocalRepositoryRepo) Delete(ctx context.Context, siteID string) er
 }
 
 func toSpecDoc(spec localrepodomain.Spec) specDoc {
-	doc := specDoc{Sources: make([]sourceDoc, 0, len(spec.Sources))}
+	doc := specDoc{ServeDeployments: spec.ServeDeployments, Sources: make([]sourceDoc, 0, len(spec.Sources))}
 	for _, source := range spec.Sources {
 		doc.Sources = append(doc.Sources, toSourceDoc(source))
 	}
@@ -259,6 +263,7 @@ func toStatusDoc(status localrepodomain.Status) statusDoc {
 
 func toLocalRepository(doc *localRepositoryDoc) *localrepodomain.LocalRepository {
 	record := &localrepodomain.LocalRepository{SiteID: doc.SiteID, Generation: doc.Generation}
+	record.Spec.ServeDeployments = doc.Spec.ServeDeployments
 	for _, source := range doc.Spec.Sources {
 		record.Spec.Sources = append(record.Spec.Sources, fromSourceDoc(source))
 	}

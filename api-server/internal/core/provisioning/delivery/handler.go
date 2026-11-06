@@ -709,9 +709,9 @@ func RespondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, provisioningdomain.ErrSSHKeyRegistration):
 		return apierror.Respond(c, apierror.New(apierror.CodeProviderUnavailable, err.Error()))
 
-	// The Tasks of a deployment fetch their artifacts from the Site's Local Repository, so one
-	// without a ready repository is refused at acceptance; the message names what to register or
-	// wait for.
+	// The Tasks of a deployment fetch artifacts, so while the Site's Local Repository serves
+	// deployments and is not ready the deployment is refused at acceptance; the message names what
+	// to enable, fix, or wait for.
 	case errors.Is(err, provisioningdomain.ErrDeploymentKeyMissing),
 		errors.Is(err, provisioningdomain.ErrNTPServerMissing),
 		errors.Is(err, localrepodomain.ErrLocalRepositoryUnavailable):

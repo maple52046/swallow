@@ -84,6 +84,22 @@ RETIRED_TERMS = {
     "multipart/form-data": (
         "no route accepts multipart; OS Image upload content is a raw application/octet-stream body"
     ),
+    "usesLocalRepository": (
+        "the manifest flag is fetchesArtifacts; the Site chooses where artifacts come from"
+        " (local-repository.md §8.1)"
+    ),
+    "swallow_local_repository": (
+        "the trusted variable is swallow_artifacts, from either source (local-repository.md §8.1)"
+    ),
+    "local_repo_client": (
+        "the shared role is artifact_sources, for either source (local-repository.md §8.2)"
+    ),
+    "local_repository_missing": (
+        "the role fails with artifact_sources_missing (local-repository.md §8.2)"
+    ),
+    "local_repository_source_missing": (
+        "roles fail with artifact_source_missing for either source (local-repository.md §8.2)"
+    ),
 }
 # Documents whose purpose is to record the retirement itself: a contract change note, the public
 # compatibility page, or the decision and spec section that state a mechanism is retired.
@@ -103,6 +119,11 @@ RETIRED_TERM_RECORDS = {
     ("docs/development/monitoring.md", "exporterOwner"),
     ("api-server/docs/development/api-contracts/api-server/platforms.md", "exporterOwner"),
     ("api-server/docs/development/api-contracts/api-server/software.md", "exporterOwner"),
+    ("api-server/docs/development/api-contracts/api-server/local-repository.md", "usesLocalRepository"),
+    (
+        "api-server/docs/development/api-contracts/api-server/local-repository.md",
+        "swallow_local_repository",
+    ),
 }
 
 # Architecture-review tracking codes are defined only in uncommitted plan drafts, so a committed

@@ -1,0 +1,177 @@
+---
+# The deb sources swallow's modules declare join the host's own apt sources, each trusted only with
+# the signing key its module declares: a downloaded key whose fingerprint differs stops the run
+# before apt reads anything signed by it. The sources a run with the Local Repository set aside are
+# the host's again.
+
+- name: Point apt at the declared upstreams
+  become: true
+  block:
+    - name: Find the apt sources a run with the Local Repository set aside
+      ansible.builtin.find:
+        paths:
+          - "{{ artifact_sources_root }}{{ artifact_sources_apt_sources_dir }}"
+          - "{{ artifact_sources_root }}{{ artifact_sources_apt_sources_list | dirname }}"
+        patterns:
+          - "*.list{{ artifact_sources_disabled_suffix }}"
+          - "*.sources{{ artifact_sources_disabled_suffix }}"
+      register: artifact_sources_set_aside
+
+    - name: Restore them
+      # A source the host has configured again under its name meanwhile stays the host's.
+      ansible.builtin.command:
+        argv:
+          - mv
+          - "{{ item }}"
+          - "{{ item | regex_replace(artifact_sources_disabled_suffix | regex_escape ~ '$', '') }}"
+        creates: "{{ item | regex_replace(artifact_sources_disabled_suffix | regex_escape ~ '$', '') }}"
+      loop: "{{ artifact_sources_set_aside.files | map(attribute='path') | sort }}"
+
+    - name: Find the host's own apt sources
+      ansible.builtin.find:
+        paths: "{{ artifact_sources_root }}{{ artifact_sources_apt_sources_dir }}"
+        patterns: ["*.list", "*.sources"]
+        excludes: ["{{ artifact_sources_apt_sources | basename }}"]
+      register: artifact_sources_host_sources
+
+    - name: Read the host's own apt sources
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop: >-
+        {{ [artifact_sources_root ~ artifact_sources_apt_sources_list]
+           + (artifact_sources_host_sources.files | map(attribute='path') | sort) }}
+      register: artifact_sources_host_source_files
+      failed_when: false
+
+    - name: Start from no declared source
+      ansible.builtin.set_fact:
+        artifact_sources_deb: []
+        artifact_sources_host_apt: >-
+          {{ artifact_sources_host_source_files.results | selectattr('content', 'defined')
+             | map(attribute='content') | map('b64decode') | join('\n') }}
+
+    - name: Add each declared source the host does not configure itself
+      # apt refuses to read any source while one URI is configured twice with different Signed-By
+      # keys, and hosts that installed Docker CE or Grafana from their upstream carry such a file
+      # with its own key: the host's file serves that source instead.
+      ansible.builtin.set_fact:
+        artifact_sources_deb: "{{ artifact_sources_deb + [item] }}"
+      loop: "{{ swallow_artifacts.deb }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: >-
+        artifact_sources_host_apt is not search('(?m)^[ \t]*[^#\s].*'
+          ~ (item.uri | regex_replace('/+$', '') | regex_escape) ~ '/?(\s|$)')
+
+    - name: Install each added source's verified signing key
+      when: artifact_sources_deb | length > 0
+      block:
+        - name: Create a scratch directory for the downloaded keys
+          ansible.builtin.tempfile:
+            state: directory
+            suffix: .swallow-keys
+          register: artifact_sources_key_dir
+          changed_when: false
+
+        - name: Download each declared signing key
+          ansible.builtin.get_url:
+            url: "{{ item.signing_key_url }}"
+            dest: "{{ artifact_sources_key_dir.path }}/{{ item.name }}.key"
+            mode: "0600"
+          loop: "{{ artifact_sources_deb }}"
+          loop_control:
+            label: "{{ item.name }}"
+          register: artifact_sources_key_download
+          until: artifact_sources_key_download is succeeded
+          retries: 5
+          delay: 10
+          changed_when: false
+
+        - name: Read each downloaded key's fingerprints
+          ansible.builtin.command:
+            argv:
+              - gpg
+              - --batch
+              - --no-tty
+              - --homedir
+              - "{{ artifact_sources_key_dir.path }}"
+              - --no-keyring
+              - --show-keys
+              - --with-colons
+              - "{{ artifact_sources_key_dir.path }}/{{ item.name }}.key"
+          loop: "{{ artifact_sources_deb }}"
+          loop_control:
+            label: "{{ item.name }}"
+          register: artifact_sources_key_listing
+          changed_when: false
+          failed_when: false
+
+        - name: Refuse a signing key gpg cannot read
+          ansible.builtin.fail:
+            msg: >-
+              [artifact_signing_key_unverifiable] swallow cannot read the signing key of the
+              {{ item.item.name }} deb source ({{ item.item.signing_key_url }}) to verify it:
+              {{ (item.stderr | default('', true)) or (item.msg | default('')) }}. The host needs
+              gpg, and the URL must serve an OpenPGP public key.
+          loop: "{{ artifact_sources_key_listing.results }}"
+          loop_control:
+            label: "{{ item.item.name }}"
+          when: item.rc | default(1) != 0
+
+        - name: Refuse a signing key that is not the declared one
+          # Every primary key in the file must be the declared one: apt trusts each key a keyring
+          # holds.
+          ansible.builtin.fail:
+            msg: >-
+              [artifact_signing_key_mismatch] The signing key served at {{ item.item.signing_key_url }}
+              for the {{ item.item.name }} deb source is {{ artifact_sources_fingerprints | join(', ') }},
+              not {{ item.item.signing_key_fingerprint }}, the key its module declares, so swallow
+              does not trust it. When the upstream has rotated its key, the module must declare the
+              new one.
+          loop: "{{ artifact_sources_key_listing.results }}"
+          loop_control:
+            label: "{{ item.item.name }}"
+          vars:
+            artifact_sources_fingerprints: >-
+              {{ item.stdout | regex_findall('(?m)^pub:.*\n^fpr:(?:[^:\n]*:){8}([0-9A-Fa-f]+):')
+                 | map('upper') | list }}
+          when: >-
+            artifact_sources_fingerprints !=
+            [item.item.signing_key_fingerprint | upper | replace(' ', '')]
+
+        - name: Convert each verified key to a binary keyring
+          # apt reads a Signed-By file as a binary keyring unless its name ends in .asc; dearmoring
+          # a binary key leaves it as it is.
+          ansible.builtin.command:
+            argv:
+              - gpg
+              - --batch
+              - --no-tty
+              - --homedir
+              - "{{ artifact_sources_key_dir.path }}"
+              - --yes
+              - --output
+              - "{{ artifact_sources_key_dir.path }}/{{ item.name }}.gpg"
+              - --dearmor
+              - "{{ artifact_sources_key_dir.path }}/{{ item.name }}.key"
+          loop: "{{ artifact_sources_deb }}"
+          loop_control:
+            label: "{{ item.name }}"
+          changed_when: false
+
+        - name: Install each verified key
+          ansible.builtin.copy:
+            src: "{{ artifact_sources_key_dir.path }}/{{ item.name }}.gpg"
+            dest: "{{ artifact_sources_root }}{{ artifact_sources_upstream_keyring_prefix }}{{ item.name }}.gpg"
+            remote_src: true
+            mode: "0644"
+          loop: "{{ artifact_sources_deb }}"
+          loop_control:
+            label: "{{ item.name }}"
+      always:
+        - name: Remove the scratch directory
+          ansible.builtin.file:
+            path: "{{ artifact_sources_key_dir.path }}"
+            state: absent
+          changed_when: false
+          when: artifact_sources_key_dir.path is defined

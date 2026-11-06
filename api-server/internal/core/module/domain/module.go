@@ -83,9 +83,9 @@ type Manifest struct {
 	Capabilities []string `json:"capabilities"`
 	// Routes are the path prefixes under the API the module serves.
 	Routes []string `json:"routes"`
-	// Artifacts are what the module's host automation fetches, all of it from the Site's Local
-	// Repository. Unlike the lists above they are not owned: modules may declare the same source
-	// or file when the declarations agree.
+	// Artifacts are what the module's host automation fetches, from the Site's Local Repository or
+	// from the upstreams they name. Unlike the lists above they are not owned: modules may declare
+	// the same source or file when the declarations agree.
 	Artifacts Artifacts `json:"artifacts,omitempty"`
 }
 
@@ -114,7 +114,8 @@ var (
 )
 
 // ParseManifest decodes a module.json, refusing unknown fields so a misspelled key is an error
-// rather than a silently ignored declaration, and validates it.
+// rather than a silently ignored declaration, writes its artifact signing key fingerprints in upper
+// case, and validates it.
 func ParseManifest(data []byte) (Manifest, error) {
 	var manifest Manifest
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -122,6 +123,7 @@ func ParseManifest(data []byte) (Manifest, error) {
 	if err := decoder.Decode(&manifest); err != nil {
 		return Manifest{}, fmt.Errorf("%w: %v", ErrInvalidManifest, err)
 	}
+	manifest.Artifacts.normalize()
 	if err := manifest.Validate(); err != nil {
 		return Manifest{}, err
 	}

@@ -165,7 +165,8 @@ API, and its credential is the provider's admin password. The installation regis
 | `contentOrigin` | URL with a scheme, host, and port and no path | Where the Site's Servers read the Local Repository's content, which may differ from `endpoint` (an address only the control plane reaches). The host addresses a deployment receives are built on it. Required: without one the worker cannot converge the Local Repository (its `realized` condition is `content_origin_missing`, or `integration_invalid` for a malformed one), and browsing its content is `400 validation_error` naming the setting. |
 
 Disabling the Integration pauses the Local Repository: the worker stops converging it, its last
-observed state is kept, and deployments that fetch from it are refused until it is enabled again.
+observed state is kept, and while its spec serves deployments they are refused until it is
+enabled again (a disabled Integration does not switch them to the upstreams).
 Deleting it clears the observed state; the Site's spec (its user sources) is kept for the next
 `repository` Integration of the Site.
 

@@ -180,9 +180,10 @@ docker compose up -d api-server worker
 
 ## Local Repository
 
-Deployments fetch their packages, files, container images, and Python packages from the Site's
-Local Repository, the dev Pulp, and one that does is refused when it is accepted while the Site has
-no ready Local Repository.
+The dev Site uses its Local Repository, the dev Pulp, by default: deployments fetch their packages,
+files, container images, and Python packages from it, and one that does is refused when it is
+accepted while the Local Repository is not ready. A production Site starts from the upstreams
+instead.
 Pulp writes absolute URLs on its origin, which is also where lab Servers reach it, so set
 `PULP_ORIGIN` in `.env` to this host's address on `PULP_HTTP_PORT` as the Servers see it and
 recreate the Pulp services; the default, `http://localhost:8080`, reaches only this host. For the
@@ -194,11 +195,14 @@ echo PULP_ORIGIN=http://10.170.168.20:8080 >> .env && docker compose up -d && ba
 
 With `PULP_ORIGIN` set, `seed.sh` registers Pulp as the Site's `repository` Integration (provider
 kind `pulp`, endpoint `http://pulp-web:8080`, setting `contentOrigin` equal to `PULP_ORIGIN`, and
-the Pulp admin password, `PULP_ADMIN_PASSWORD`, default `admin`, as its credential) and adds the
-Site's `ubuntu` source (the Ubuntu archive) to a Local Repository spec that has never been written,
-as a production installation does; see
-[local-repository.md](../../docs/development/local-repository.md) §4.1 and §5.2. The first sync of
-the Ubuntu archive takes a while; the Local Repository page under Infrastructure shows its progress.
+the Pulp admin password, `PULP_ADMIN_PASSWORD`, default `admin`, as its credential) and writes a
+Local Repository spec that has never been written: the Site's `ubuntu` source (the Ubuntu archive),
+as a production installation does, with `serveDeployments` `true`, where a production installation
+writes `false`; see [local-repository.md](../../docs/development/local-repository.md) §2.1, §4.1,
+and §5.2. The first sync of the Ubuntu archive takes a while; the Local Repository page under
+Infrastructure shows its progress. To deploy from the upstreams instead, choose **Upstream sources**
+as the **Artifact source for deployments** on that page; a rerun of `seed.sh` keeps your choice. Without `PULP_ORIGIN` the Site has no
+`repository` Integration and deploys from the upstreams.
 
 ## Node Exporter controller
 

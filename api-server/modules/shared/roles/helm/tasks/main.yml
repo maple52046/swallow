@@ -7,7 +7,7 @@
     helm_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] | default(ansible_architecture) }}"
     helm_binary: "{{ helm_home }}/{{ helm_version }}/helm"
 
-- name: Refuse an architecture the Local Repository holds no helm for
+- name: Refuse an architecture swallow declares no helm for
   ansible.builtin.fail:
     msg: "[helm_unsupported_architecture] swallow pins helm {{ helm_version }} for {{ helm_archives.keys() | join(', ') }}, not {{ helm_arch }}"
   when: helm_arch not in helm_archives
@@ -20,9 +20,9 @@
     group: root
     mode: "0755"
 
-- name: Download the pinned helm release from the Local Repository
+- name: Download the pinned helm release
   ansible.builtin.get_url:
-    url: "{{ swallow_local_repository.files }}{{ helm_archives[helm_arch].path }}"
+    url: "{{ swallow_artifacts.files[helm_archives[helm_arch].path] }}"
     dest: "{{ helm_home }}/{{ helm_archives[helm_arch].path | basename }}"
     checksum: "sha256:{{ helm_archives[helm_arch].sha256 }}"
     mode: "0644"

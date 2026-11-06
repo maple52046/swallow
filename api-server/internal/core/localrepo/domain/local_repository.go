@@ -43,10 +43,17 @@ type LocalRepository struct {
 	Status     Status
 }
 
-// Spec is the user's part of a Site's Local Repository: the Repository Sources added beyond what
-// the modules declare (the OS package archive, for example).
+// Spec is the user's part of a Site's Local Repository: whether the Site's deployments fetch their
+// artifacts from it, and the Repository Sources added beyond what the modules declare (the OS
+// package archive, for example).
+//
+// ServeDeployments false, the zero value and the default of a record written before the field
+// existed, means deployments fetch every artifact from the upstream its module declares and the
+// controller converges nothing; true means they fetch from the Local Repository and are refused
+// while it is not ready, never falling back to the upstreams.
 type Spec struct {
-	Sources []Source
+	ServeDeployments bool
+	Sources          []Source
 }
 
 // Status is what the controller last observed of the Site's repository through IntegrationID, at
@@ -70,8 +77,9 @@ type Status struct {
 }
 
 // ConditionReady is the Local Repository's own condition type: true when deployments that fetch
-// from it are accepted, which needs the Integration enabled, every effective source, file, and
-// declared image ready, and the host addresses read. Its false reason is the first thing in the way.
+// from it are accepted, which needs the spec to serve deployments, the Integration enabled, every
+// effective source, file, and declared image ready, and the host addresses read. Its false reason
+// is the first thing in the way.
 const ConditionReady convergence.ConditionType = "ready"
 
 // The Local Repository's condition reasons, beside the shared convergence reasons
@@ -96,6 +104,9 @@ const (
 	ReasonContentOriginMissing = "content_origin_missing"
 	// ReasonIntegrationInvalid: the provider adapter refused the Integration's configuration.
 	ReasonIntegrationInvalid = "integration_invalid"
+	// ReasonNotServing: the spec does not serve deployments (Spec.ServeDeployments is false), so the
+	// Site's deployments fetch from the upstreams and the controller converges nothing.
+	ReasonNotServing = "not_serving"
 	// ReasonIntegrationDisabled: the Integration is disabled, which pauses the Local Repository.
 	ReasonIntegrationDisabled = "integration_disabled"
 	// ReasonNotObserved: no pass has completed on the Integration yet.
@@ -180,9 +191,11 @@ var (
 	ErrInvalidSpec = errors.New("invalid local repository spec")
 	// ErrInvalidContentQuery means a content query is malformed; the wrapped message says what.
 	ErrInvalidContentQuery = errors.New("invalid local repository content query")
-	// ErrLocalRepositoryUnavailable refuses automation that must fetch its artifacts from the Site's
-	// Local Repository while the Site has none ready: no enabled `repository` Integration, or a
-	// source, file, or declared image it must serve is not ready yet. The wrapped message names what
-	// to register or wait for. It is a state conflict the user resolves outside the request (409).
+	// ErrLocalRepositoryUnavailable refuses automation that fetches artifacts while the Site's Local
+	// Repository serves deployments (Spec.ServeDeployments) and is not ready: its Integration is
+	// disabled, its last pass was stopped, or a source, file, or declared image it must serve is not
+	// ready yet. A Site whose Local Repository does not serve deployments, or that has none, fetches
+	// from the upstreams and is never refused with it. The wrapped message names what to enable, fix,
+	// or wait for. It is a state conflict the user resolves outside the request (409).
 	ErrLocalRepositoryUnavailable = errors.New("the site's local repository is not ready")
 )

@@ -51,8 +51,9 @@ type sourceItem struct {
 }
 
 type specItem struct {
-	Generation int64        `json:"generation"`
-	Sources    []sourceItem `json:"sources"`
+	Generation       int64        `json:"generation"`
+	ServeDeployments bool         `json:"serveDeployments"`
+	Sources          []sourceItem `json:"sources"`
 }
 
 type effectiveSourceItem struct {
@@ -124,9 +125,13 @@ type sourceRequest struct {
 	Architectures []string `json:"architectures"`
 }
 
+// putSpecRequest is the LocalRepositorySpecWrite schema. generation and serveDeployments are
+// pointers so a missing one is told apart from 0 and false: both are required, so an older writer
+// that leaves serveDeployments out cannot switch a Site's deployments to the upstreams.
 type putSpecRequest struct {
-	Generation *int64          `json:"generation"`
-	Sources    []sourceRequest `json:"sources"`
+	Generation       *int64          `json:"generation"`
+	ServeDeployments *bool           `json:"serveDeployments"`
+	Sources          []sourceRequest `json:"sources"`
 }
 
 // Get serves GET /sites/{siteId}/local-repository with the stored spec and status; it never calls
@@ -164,8 +169,9 @@ func (h *Handler) Browse(c *fiber.Ctx) error {
 	return c.JSON(pagination.NewResult(items, result.Total, page))
 }
 
-// PutSpec serves PUT /sites/{siteId}/local-repository/spec: it replaces the user's sources when the
-// body's generation is the stored one and answers with the Local Repository.
+// PutSpec serves PUT /sites/{siteId}/local-repository/spec: it replaces the user's spec (whether it
+// serves deployments, and the sources) when the body's generation is the stored one and answers
+// with the Local Repository.
 func (h *Handler) PutSpec(c *fiber.Ctx) error {
 	var req putSpecRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -174,6 +180,9 @@ func (h *Handler) PutSpec(c *fiber.Ctx) error {
 	if req.Generation == nil {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "generation is required."))
 	}
+	if req.ServeDeployments == nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "serveDeployments is required."))
+	}
 	sources := make([]localrepodomain.Source, 0, len(req.Sources))
 	for _, source := range req.Sources {
 		sources = append(sources, localrepodomain.Source{
@@ -181,7 +190,9 @@ func (h *Handler) PutSpec(c *fiber.Ctx) error {
 			Suites: source.Suites, Components: source.Components, Architectures: source.Architectures,
 		})
 	}
-	view, err := h.service.PutSpec(c.Context(), c.Params("siteId"), application.PutSpecInput{Generation: *req.Generation, Sources: sources})
+	view, err := h.service.PutSpec(c.Context(), c.Params("siteId"), application.PutSpecInput{
+		Generation: *req.Generation, ServeDeployments: *req.ServeDeployments, Sources: sources,
+	})
 	if err != nil {
 		return respondError(c, err)
 	}
@@ -227,7 +238,7 @@ func toResponse(view *application.View) localRepositoryResponse {
 		IntegrationID:      view.Integration.ID,
 		Ready:              view.Ready,
 		ContentOrigin:      wire.String(view.Integration.Setting(localrepodomain.SettingContentOrigin, "")),
-		Spec:               specItem{Generation: view.Generation, Sources: []sourceItem{}},
+		Spec:               specItem{Generation: view.Generation, ServeDeployments: view.Spec.ServeDeployments, Sources: []sourceItem{}},
 		Sources:            []effectiveSourceItem{},
 		Files:              []fileItem{},
 		Images:             []imageItem{},

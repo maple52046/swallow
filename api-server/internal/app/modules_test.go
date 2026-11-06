@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	localrepodomain "github.com/maple52046/swallow/internal/core/localrepo/domain"
 	moduledomain "github.com/maple52046/swallow/internal/core/module/domain"
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
@@ -229,6 +230,33 @@ func TestCompiledModuleArtifactsAreValid(t *testing.T) {
 		declares := len(artifacts.Sources)+len(artifacts.Files)+len(artifacts.Images)+len(artifacts.Python) > 0
 		if declared[module.Manifest.ID] != declares {
 			t.Errorf("Artifacts() lists module %s: %v, want %v", module.Manifest.Ref(), declared[module.Manifest.ID], declares)
+		}
+	}
+}
+
+// Every OS package source a compiled module declares reaches the Local Repository's declarations
+// with its signing key, so a Site that fetches from the upstreams can verify each one; the shipped
+// keys are the ones confirmed against their upstreams.
+func TestComposedDeclarationsCarryTheSigningKeyOfEverySource(t *testing.T) {
+	keys := map[string]localrepodomain.SigningKey{}
+	for _, declaration := range testModules(t).artifacts {
+		for _, source := range declaration.Sources {
+			if source.Format != localrepodomain.FormatDeb && source.Format != localrepodomain.FormatRPM {
+				continue
+			}
+			key, ok := declaration.SigningKeys[source.Name]
+			if !ok || key.URL == "" || key.Fingerprint == "" {
+				t.Errorf("module %s source %s has no signing key in its composed declaration (%+v)", declaration.ModuleID, source.Name, declaration.SigningKeys)
+			}
+			keys[source.Name] = key
+		}
+	}
+	for name, want := range map[string]localrepodomain.SigningKey{
+		"docker-ce": {URL: "https://download.docker.com/linux/ubuntu/gpg", Fingerprint: "9DC858229FC7DD38854AE2D88D81803C0EBFCD88"},
+		"grafana":   {URL: "https://apt.grafana.com/gpg.key", Fingerprint: "B53AE77BADB630A683046005963FA27710458545"},
+	} {
+		if got := keys[name]; got != want {
+			t.Errorf("source %s signing key = %+v, want %+v", name, got, want)
 		}
 	}
 }

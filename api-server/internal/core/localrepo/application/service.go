@@ -22,11 +22,14 @@ const MaxContentPageSize = 100
 // dots of a registry host.
 var sourceNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?$`)
 
-// PutSpecInput is a user's replacement spec: the generation the writer read and the full list of
-// the Site's own Repository Sources, still unvalidated.
+// PutSpecInput is a user's replacement spec: the generation the writer read, whether the Site's
+// deployments fetch from the Local Repository, and the full list of the Site's own Repository
+// Sources, still unvalidated. The delivery requires ServeDeployments on the wire, so a writer never
+// turns serving off by leaving it out.
 type PutSpecInput struct {
-	Generation int64
-	Sources    []localrepodomain.Source
+	Generation       int64
+	ServeDeployments bool
+	Sources          []localrepodomain.Source
 }
 
 // Service is the Local Repository use cases the API serves (contract local-repository.md): read a
@@ -99,10 +102,10 @@ func (s *Service) Browse(ctx context.Context, siteID string, query localrepodoma
 	return repository.Browse(ctx, query)
 }
 
-// PutSpec validates input and stores its sources as the Site's spec when input.Generation is the
-// stored generation, returning the Site's Local Repository. An invalid source, or one that
-// contradicts what a module declares, is ErrInvalidSpec; a stale generation is
-// ErrGenerationConflict. The provider is not called; the controller converges the new spec.
+// PutSpec validates input and stores it as the Site's spec when input.Generation is the stored
+// generation, returning the Site's Local Repository. An invalid source, or one that contradicts
+// what a module declares, is ErrInvalidSpec; a stale generation is ErrGenerationConflict. The
+// provider is not called; the controller converges the new spec while it serves deployments.
 func (s *Service) PutSpec(ctx context.Context, siteID string, input PutSpecInput) (*View, error) {
 	sources, err := normalizeSources(input.Sources)
 	if err != nil {
@@ -124,7 +127,7 @@ func (s *Service) PutSpec(ctx context.Context, siteID string, input PutSpecInput
 	if err != nil {
 		return nil, err
 	}
-	record, err := s.records.PutSpec(ctx, siteID, input.Generation, localrepodomain.Spec{Sources: sources})
+	record, err := s.records.PutSpec(ctx, siteID, input.Generation, localrepodomain.Spec{ServeDeployments: input.ServeDeployments, Sources: sources})
 	if err != nil {
 		return nil, err
 	}

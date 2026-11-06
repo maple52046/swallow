@@ -2,9 +2,9 @@ import { expect, test, type Page } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
 // User journeys for Infrastructure → Local repository (decision 078, contract local-repository.md):
-// a Site's sync state, its content, the user's sources, and a convergence request. site-a has the
-// `repo-a` Pulp Integration when a scenario is set; site-b never has one. Every request is served by
-// deterministic fixtures; no backend or Pulp is contacted.
+// a Site's sync state, where its deployments fetch artifacts, its content, the user's sources, and a
+// convergence request. site-a has the `repo-a` Pulp Integration when a scenario is set; site-b never
+// has one. Every request is served by deterministic fixtures; no backend or Pulp is contacted.
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -142,7 +142,7 @@ test('a Site without a Local Repository explains why and registers one from Inte
   await page.goto('/infrastructure/local-repository?site=site-b')
 
   await expect(page.getByText('This Site has no Local Repository')).toBeVisible()
-  await expect(page.getByText(/Deployments fetch every package, image, and file from the Site's Local Repository/)).toBeVisible()
+  await expect(page.getByText(/This Site's deployments fetch each package, image, and file from the upstream source its module declares/)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Sync now' })).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Register a repository' }).click()
@@ -257,6 +257,7 @@ test('Manage user sources adds a deb source and saves the whole list with its ge
   await expect(page.getByText('User sources saved')).toBeVisible()
   expect(writes).toEqual([{
     generation: 1,
+    serveDeployments: true,
     sources: [
       ubuntuSource,
       { name: 'ubuntu-ports', format: 'deb', url: 'http://ports.ubuntu.com/ubuntu-ports', suites: ['noble', 'noble-updates'], components: ['main'], architectures: ['arm64'] },
@@ -279,7 +280,7 @@ test('a stale generation reloads the sources and asks for the change again inste
 
   await dialog.getByRole('button', { name: 'Remove source ubuntu' }).click()
   await dialog.getByRole('button', { name: 'Save sources' }).click()
-  await expect(dialog.getByText('The user sources changed since you opened this dialog')).toBeVisible()
+  await expect(dialog.getByText("This Site's Local Repository changed since you opened this dialog")).toBeVisible()
   await expect(dialog.getByText('Nothing was saved. The list now shows the current sources; make your change again.')).toBeVisible()
   // Another admin's `ports` source arrived with the newer generation; the removal was not applied.
   const current = dialog.getByRole('list', { name: 'Your sources' })
@@ -294,4 +295,137 @@ test('a stale generation reloads the sources and asks for the change again inste
   expect(writes[1].sources).toEqual([
     { name: 'ports', format: 'deb', url: 'http://ports.ubuntu.com/ubuntu-ports', suites: ['noble'], components: ['main'], architectures: ['arm64'] },
   ])
+})
+
+test('switching deployments to the upstream sources asks first and writes the whole spec', async ({ page }) => {
+  await installApiFixtures(page, { localRepository: 'ready' })
+  const writes = recordSpecWrites(page)
+  await page.goto('/infrastructure/local-repository?site=site-a')
+
+  const setting = page.getByRole('radiogroup', { name: 'Artifact source for deployments' })
+  const upstream = setting.getByRole('radio', { name: /^Upstream sources/ })
+  const local = setting.getByRole('radio', { name: /^This local repository/ })
+  await expect(local).toBeChecked()
+
+  // Cancelling leaves the stored choice and writes nothing.
+  await setting.getByText('Upstream sources', { exact: true }).click()
+  const confirm = page.getByRole('alertdialog', { name: 'Fetch deployment artifacts from the upstream sources?' })
+  await expect(confirm).toContainText('Swallow stops synchronizing this repository and keeps what it already holds.')
+  await expect(confirm.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  await confirm.getByRole('button', { name: 'Cancel' }).click()
+  await expect(confirm).toHaveCount(0)
+  await expect(local).toBeChecked()
+  expect(writes).toEqual([])
+
+  await setting.getByText('Upstream sources', { exact: true }).click()
+  await confirm.getByRole('button', { name: 'Use the upstream sources' }).click()
+  await expect(page.getByText('Deployments use the upstream sources', { exact: true })).toBeVisible()
+  expect(writes).toEqual([{ generation: 1, serveDeployments: false, sources: [ubuntuSource] }])
+
+  // The page now reads as a Site that fetches from the upstreams, not as a failed repository.
+  await expect(upstream).toBeChecked()
+  await expect(page.getByText('Deployments fetch each artifact from the upstream source its module declares.')).toBeVisible()
+  await expect(page.getByText('Not synchronizing', { exact: true })).toBeVisible()
+  await expect(page.getByText('Generation 2 saved, synchronized once deployments use this repository')).toBeVisible()
+  await expect(page.getByText('Not ready', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Sync now' })).toHaveCount(0)
+})
+
+test('a Site that fetches from the upstream sources reads the last observation without alarms', async ({ page }) => {
+  await installApiFixtures(page, { localRepository: 'not-serving' })
+  await page.goto('/infrastructure/local-repository?site=site-a')
+
+  await expect(page.getByRole('radio', { name: /^Upstream sources/ })).toBeChecked()
+  await expect(page.getByText('Deployments fetch each artifact from the upstream source its module declares.')).toBeVisible()
+  await expect(page.getByText('The repository is not synchronized while deployments use the upstream sources; what it already holds is kept.')).toBeVisible()
+  await expect(page.getByText('Not ready', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Sync failed', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Sync now' })).toHaveCount(0)
+  // Nothing converges, so the page does not poll.
+  await expect(page.getByText('Updating every 5 s while it converges')).toHaveCount(0)
+
+  // Items keep their last observed state, as facts rather than as work in progress or failures.
+  const sources = page.getByRole('table', { name: 'Repository sources' })
+  const dockerCe = sources.getByRole('row', { name: /^docker-ce/ })
+  await expect(dockerCe).toContainText('Last sync failed')
+  await expect(dockerCe).toContainText('sync failed: 404 Not Found')
+  const grafana = sources.getByRole('row', { name: /^grafana/ })
+  await expect(grafana).toContainText('Not fetched')
+  // The progress message of a fetch that no longer runs is left out.
+  await expect(grafana).not.toContainText('Downloading package indexes')
+  await expect(sources.getByRole('row', { name: /^ubuntu/ })).toContainText('Ready')
+  await expect(sources.getByText('Failed', { exact: true })).toHaveCount(0)
+  await expect(sources.getByText('Syncing', { exact: true })).toHaveCount(0)
+  const kubeProxy = page.getByRole('table', { name: 'Declared images' }).getByRole('row', { name: /kube-proxy/ })
+  await expect(kubeProxy).toContainText('Not fetched')
+  await expect(page.getByRole('table', { name: 'Declared files' }).getByRole('row', { name: /k0s-v1\.36\.3/ })).toContainText('Not fetched')
+  await expect(page.locator('.sw-local-repository .sw-progress-spinner')).toHaveCount(0)
+})
+
+test('switching deployments to the local repository starts its synchronization', async ({ page }) => {
+  await installApiFixtures(page, { localRepository: 'not-serving' })
+  const writes = recordSpecWrites(page)
+  await page.goto('/infrastructure/local-repository?site=site-a')
+
+  const setting = page.getByRole('radiogroup', { name: 'Artifact source for deployments' })
+  await setting.getByText('This local repository', { exact: true }).click()
+  const confirm = page.getByRole('alertdialog', { name: 'Fetch deployment artifacts from this local repository?' })
+  await expect(confirm).toContainText('Swallow starts synchronizing it now, and deployments are refused until it is ready.')
+  await expect(confirm).toContainText('Deployments already accepted keep the source they were accepted with.')
+  await confirm.getByRole('button', { name: 'Use this local repository' }).click()
+
+  await expect(page.getByText('Deployments use the local repository', { exact: true })).toBeVisible()
+  expect(writes).toEqual([{ generation: 1, serveDeployments: true, sources: [ubuntuSource] }])
+  await expect(setting.getByRole('radio', { name: /^This local repository/ })).toBeChecked()
+  // Readiness reads as today again: not ready yet, the polling cue, and the items in progress.
+  await expect(page.getByText('Not ready', { exact: true })).toBeVisible()
+  await expect(page.getByText('Updating every 5 s while it converges')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Sync now' })).toBeVisible()
+  const sources = page.getByRole('table', { name: 'Repository sources' })
+  await expect(sources.getByRole('row', { name: /^grafana/ })).toContainText('Syncing')
+  await expect(sources.getByRole('row', { name: /^docker-ce/ })).toContainText('Failed')
+  // Until the worker judges the new generation, its earlier `not_serving` judgement reads as waiting.
+  await expect(page.getByText('The worker has not checked the repository since deployments started using it; it synchronizes it shortly.')).toBeVisible()
+  await expect(page.getByText('the spec does not serve deployments')).toHaveCount(0)
+  // Then the API's own explanation of what is in the way.
+  await expect(page.getByText(/source docker-ce failed: 404 Not Found; source docker\.io is pending/)).toBeVisible({ timeout: 10_000 })
+})
+
+test('the setting refuses to overwrite a spec someone else changed and shows the current one', async ({ page }) => {
+  await installApiFixtures(page, { localRepository: 'ready', localRepositorySpecConflict: true })
+  const writes = recordSpecWrites(page)
+  await page.goto('/infrastructure/local-repository?site=site-a')
+
+  const setting = page.getByRole('radiogroup', { name: 'Artifact source for deployments' })
+  await setting.getByText('Upstream sources', { exact: true }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Use the upstream sources' }).click()
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  await expect(page.getByText("This Site's Local Repository changed since the page read it")).toBeVisible()
+  await expect(page.getByText('Nothing was saved. The choice below is the current one; change it again if you still want to.')).toBeVisible()
+  await expect(setting.getByRole('radio', { name: /^This local repository/ })).toBeChecked()
+
+  // The next attempt is made on the newer generation, with the other admin's sources kept.
+  await setting.getByText('Upstream sources', { exact: true }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Use the upstream sources' }).click()
+  await expect(page.getByText('Deployments use the upstream sources', { exact: true })).toBeVisible()
+  expect(writes.map((body) => [body.generation, body.serveDeployments])).toEqual([[1, false], [2, false]])
+  expect(writes[1].sources).toEqual([
+    ubuntuSource,
+    { name: 'ports', format: 'deb', url: 'http://ports.ubuntu.com/ubuntu-ports', suites: ['noble'], components: ['main'], architectures: ['arm64'] },
+  ])
+})
+
+test('Manage user sources keeps where deployments fetch artifacts', async ({ page }) => {
+  await installApiFixtures(page, { localRepository: 'not-serving' })
+  const writes = recordSpecWrites(page)
+  await page.goto('/infrastructure/local-repository?site=site-a')
+  await page.getByRole('button', { name: 'Manage user sources' }).click()
+
+  const dialog = page.getByRole('dialog', { name: 'Manage user sources' })
+  await dialog.getByRole('button', { name: 'Remove source ubuntu' }).click()
+  await dialog.getByRole('button', { name: 'Save sources' }).click()
+  await expect(page.getByText('User sources saved')).toBeVisible()
+  await expect(page.getByText("The worker syncs new sources once this Site's deployments use the local repository.")).toBeVisible()
+  expect(writes).toEqual([{ generation: 1, serveDeployments: false, sources: [] }])
+  await expect(page.getByRole('radio', { name: /^Upstream sources/ })).toBeChecked()
 })

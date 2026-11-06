@@ -35,8 +35,11 @@ const ControllerName = "local-repository"
 // provider_unreachable and retried with backoff; an Integration without a credential or a content
 // origin, a credential the provider refuses, or a configuration the adapter refuses is
 // realized=false with that reason and requires_attention=true, and is tried again when the
-// Integration changes or at the next resync. A disabled Integration is paused: nothing is converged
-// and only ready=false integration_disabled is recorded. A Site whose Integration is gone has its
+// Integration changes or at the next resync. A spec that does not serve deployments, and a disabled
+// Integration, pause the Local Repository: nothing is converged (nothing synced, fetched, or
+// removed, so what the provider holds stays), the items and realized keep their last observation,
+// and only ready=false is recorded, not_serving before integration_disabled; a spec write that
+// turns serving on wakes the controller like any other. A Site whose Integration is gone has its
 // status cleared, and its record deleted once the Site is gone too.
 type Controller struct {
 	sites        sitedomain.SiteRepository
@@ -160,20 +163,19 @@ func (c *Controller) Reconcile(ctx context.Context, request convergence.Request)
 		return c.forget(ctx, siteID, record)
 	}
 	site := siteState{siteID: siteID, integration: integration}
-	var spec localrepodomain.Spec
 	if record != nil {
-		site.generation, spec = record.Generation, record.Spec
+		site.generation, site.spec = record.Generation, record.Spec
 		if record.Status.IntegrationID == integration.ID {
 			site.previous = record.Status
 		}
 	}
 	site.previous.IntegrationID = integration.ID
-	site.effective = Effective(c.modules, spec.Sources)
+	site.effective = Effective(c.modules, site.spec.Sources)
 	for _, conflict := range site.effective.Conflicts {
 		c.log.Warn("declaration left out of the local repository", "site", siteID, "conflict", conflict.Message())
 	}
 
-	if !integration.Enabled {
+	if !site.spec.ServeDeployments || !integration.Enabled {
 		return c.recordConditions(ctx, site, nil)
 	}
 	if strings.TrimSpace(integration.Setting(localrepodomain.SettingContentOrigin, "")) == "" {
@@ -218,13 +220,14 @@ func (c *Controller) Reconcile(ctx context.Context, request convergence.Request)
 	return nil
 }
 
-// siteState is what one Reconcile of a Site works from: its repository Integration, its spec
-// generation and effective spec, and the status last recorded for that Integration (with the
+// siteState is what one Reconcile of a Site works from: its repository Integration, its spec with
+// its generation and effective spec, and the status last recorded for that Integration (with the
 // Integration filled in, so conditions recorded before any complete pass belong to it).
 type siteState struct {
 	siteID      string
 	integration *sitedomain.Integration
 	generation  int64
+	spec        localrepodomain.Spec
 	effective   EffectiveSpec
 	previous    localrepodomain.Status
 }
@@ -325,7 +328,7 @@ func (c *Controller) judge(site siteState, conditions []convergence.Condition, s
 		set(convergence.ConditionRequiresAttention, attention)
 	}
 	status.Conditions = conditions
-	view := buildView(site.siteID, site.integration, &localrepodomain.LocalRepository{Generation: site.generation, Status: status}, site.effective)
+	view := buildView(site.siteID, site.integration, &localrepodomain.LocalRepository{Generation: site.generation, Spec: site.spec, Status: status}, site.effective)
 	if view.Ready {
 		set(localrepodomain.ConditionReady, judgement{status: convergence.ConditionTrue, reason: localrepodomain.ReasonReady})
 	} else {

@@ -30,9 +30,11 @@ When the installer finishes:
   and collects the exporters swallow installs on the Site's Servers (see
   [Monitoring](guides/monitoring.md));
 - the Site's Local Repository (Pulp) runs on the same VM on **HTTP port 8080** and is the Site's
-  `repository` Integration, with the Ubuntu archive as its first source: every Server swallow
-  deploys takes its OS packages, container images, Python packages, and files from it instead of
-  the Internet;
+  `repository` Integration, with the Ubuntu archive as its first source. It starts off: deployments
+  fetch their artifacts from the upstream sources swallow's modules declare. Once you turn it on
+  for the Site (see [Initial setup](guides/initial-setup.md#4-choose-where-deployments-fetch-from)),
+  every Server swallow deploys takes its OS packages, container images, Python packages, and files
+  from it instead of the Internet;
 - the VM serves NTP on UDP 123 (MAAS's own time service), and every Server swallow deploys
   uses it (see [Time synchronization](guides/os-provisioning.md#time-synchronization));
 - the `swallow` CLI is installed at `/usr/local/bin/swallow`.
@@ -40,17 +42,20 @@ When the installer finishes:
 ### Prerequisites
 
 - A clean Ubuntu 24.04 amd64 VM with `sudo`. A practical starting size is 4 vCPU,
-  16 GiB RAM, and 100 GiB disk, plus room for the Local Repository's cache: it keeps every
-  package, image, and file the Servers fetched, which a GPU Platform deployment grows by tens of GiB.
+  16 GiB RAM, and 100 GiB disk, plus room for the Local Repository's cache when the Site uses it:
+  it keeps every package, image, and file the Servers fetched, which a GPU Platform deployment
+  grows by tens of GiB.
 - Outbound access to `github.com` (the release), `ghcr.io` (swallow's own images), Docker Hub
   (the official MongoDB, PostgreSQL, Temporal, Prometheus, and Pulp images), `quay.io` (the
   prom-label-proxy image), `download.docker.com`, the Snap Store, and `images.maas.io`. To deploy,
-  the Local Repository also needs the upstreams it mirrors: `archive.ubuntu.com` and the sources,
-  registries, PyPI, and download sites the installed modules declare.
+  the sources, registries, PyPI, and download sites the installed modules declare must be
+  reachable: from the Servers, or, when the Site uses its Local Repository, from the VM, together
+  with `archive.ubuntu.com`.
 - Free ports: 80 (Dashboard), 8080 (Local Repository), 5240 (MAAS), and loopback 5432
   (PostgreSQL for MAAS). Machines reach the VM's NTP on UDP 123, port 8080, where they fetch
-  everything they install, and port 80, where a Platform's own Grafana reads its metrics through
-  swallow. Set `SWALLOW_PULP_PORT` before the first install to use another port than 8080.
+  everything they install when the Site uses its Local Repository, and port 80, where a Platform's
+  own Grafana reads its metrics through swallow. Set `SWALLOW_PULP_PORT` before the first install to
+  use another port than 8080.
 - A reachable NTP server for the VM itself. The VM follows `ntp.ubuntu.com` by default; on a
   network that cannot reach it, pass another one with `SWALLOW_NTP_UPSTREAM`, for example
   `curl … | sudo SWALLOW_NTP_UPSTREAM=10.0.0.123 bash`, or change it later with

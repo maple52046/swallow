@@ -1,0 +1,121 @@
+---
+# Docker Engine pulls from the Local Repository's registry, which serves plain HTTP, by its address
+# (<registry>/docker.io/<image>), so with the Local Repository that registry is one of Docker's
+# insecure registries, and from the upstreams it is not. The role changes only the entry it added
+# and recorded: every other key and entry in daemon.json stays as the user or the image wrote it.
+
+- name: Converge Docker's insecure registries
+  become: true
+  block:
+    - name: Read Docker's daemon configuration
+      ansible.builtin.slurp:
+        src: "{{ artifact_sources_root }}{{ artifact_sources_docker_daemon }}"
+      register: artifact_sources_daemon
+      failed_when: false
+
+    - name: Read the registry the role added earlier
+      ansible.builtin.slurp:
+        src: "{{ artifact_sources_root }}{{ artifact_sources_docker_registry_record }}"
+      register: artifact_sources_registry_record
+      failed_when: false
+
+    - name: Parse Docker's daemon configuration
+      ansible.builtin.set_fact:
+        artifact_sources_daemon_config: >-
+          {{ (artifact_sources_daemon.content | b64decode | trim | default('{}', true) | from_json)
+             if artifact_sources_daemon.content is defined else {} }}
+        artifact_sources_recorded_registry: >-
+          {{ (artifact_sources_registry_record.content | b64decode | trim)
+             if artifact_sources_registry_record.content is defined else '' }}
+        artifact_sources_wanted_registry: >-
+          {{ swallow_artifacts.registry if swallow_artifacts.source == 'local_repository' else '' }}
+
+    - name: Work out Docker's insecure registries
+      # An entry that was already there when the role wanted it is the user's, so it is not recorded.
+      ansible.builtin.set_fact:
+        artifact_sources_current_insecure: "{{ artifact_sources_daemon_config['insecure-registries'] | default([]) }}"
+        artifact_sources_kept_insecure: >-
+          {{ artifact_sources_daemon_config['insecure-registries'] | default([])
+             | reject('in', [artifact_sources_recorded_registry]
+                            if artifact_sources_recorded_registry not in ['', artifact_sources_wanted_registry] else [])
+             | list }}
+
+    - name: Decide whether the role adds the Local Repository's registry
+      ansible.builtin.set_fact:
+        artifact_sources_adds_registry: >-
+          {{ artifact_sources_wanted_registry | length > 0
+             and artifact_sources_wanted_registry not in artifact_sources_kept_insecure }}
+
+    - name: Settle the insecure registries and the role's record
+      ansible.builtin.set_fact:
+        artifact_sources_insecure: >-
+          {{ artifact_sources_kept_insecure
+             + ([artifact_sources_wanted_registry] if artifact_sources_adds_registry | bool else []) }}
+        artifact_sources_record: >-
+          {{ artifact_sources_wanted_registry
+             if (artifact_sources_adds_registry | bool
+                 or (artifact_sources_wanted_registry | length > 0
+                     and artifact_sources_recorded_registry == artifact_sources_wanted_registry))
+             else '' }}
+
+    - name: Ensure Docker's configuration directory exists
+      ansible.builtin.file:
+        path: "{{ artifact_sources_root }}{{ artifact_sources_docker_daemon | dirname }}"
+        state: directory
+        mode: "0755"
+      when: artifact_sources_insecure != artifact_sources_current_insecure
+
+    - name: Write Docker's insecure registries
+      # An emptied list drops the key, so a daemon.json the role created reads as before.
+      ansible.builtin.copy:
+        dest: "{{ artifact_sources_root }}{{ artifact_sources_docker_daemon }}"
+        content: |
+          {{ ((artifact_sources_daemon_config | combine({'insecure-registries': artifact_sources_insecure}))
+              if artifact_sources_insecure | length > 0
+              else (artifact_sources_daemon_config | dict2items
+                    | rejectattr('key', 'equalto', 'insecure-registries') | items2dict))
+             | to_nice_json }}
+        mode: "0644"
+      register: artifact_sources_daemon_written
+      when: artifact_sources_insecure != artifact_sources_current_insecure
+
+    - name: Ensure the record's directory exists
+      ansible.builtin.file:
+        path: "{{ artifact_sources_root }}{{ artifact_sources_docker_registry_record | dirname }}"
+        state: directory
+        mode: "0755"
+      when: artifact_sources_record | length > 0
+
+    - name: Record the registry the role added
+      ansible.builtin.copy:
+        dest: "{{ artifact_sources_root }}{{ artifact_sources_docker_registry_record }}"
+        content: "{{ artifact_sources_record }}\n"
+        mode: "0644"
+      when: artifact_sources_record | length > 0
+
+    - name: Forget a registry the role no longer adds
+      ansible.builtin.file:
+        path: "{{ artifact_sources_root }}{{ artifact_sources_docker_registry_record }}"
+        state: absent
+      when: artifact_sources_record | length == 0
+
+    - name: Read whether Docker is running
+      ansible.builtin.command:
+        argv: [systemctl, is-active, docker.service]
+      register: artifact_sources_docker_active
+      changed_when: false
+      failed_when: false
+      when:
+        - artifact_sources_daemon_written is changed
+        - artifact_sources_root | length == 0
+
+    - name: Reload Docker to read the registries
+      # dockerd rereads insecure-registries on SIGHUP, so its containers keep running. A Docker that
+      # is not running, or not installed yet, reads the file when it starts.
+      ansible.builtin.systemd_service:
+        name: docker.service
+        state: reloaded
+      when:
+        - artifact_sources_daemon_written is changed
+        - artifact_sources_root | length == 0
+        - artifact_sources_docker_active.stdout | default('') | trim == 'active'

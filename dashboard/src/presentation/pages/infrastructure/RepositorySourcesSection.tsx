@@ -4,7 +4,7 @@ import { SectionSurface, StickyTableFrame } from '@/presentation/components/Cons
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { formatDateTime, formatRelative } from '@/shared/utils/time'
 import { declarersText, formatContentCount, wordListText } from './localRepositoryPresentation'
-import { RepositorySyncStatus } from './RepositorySyncStatus'
+import { RepositorySyncMessageField, RepositorySyncStatus } from './RepositorySyncStatus'
 
 /** A deb source's suites, components, and architectures on one line each; other formats have none. */
 function SourceScope({ source }: { source: RepositorySource }) {
@@ -29,11 +29,13 @@ function LastSynced({ at }: { at: string | null }) {
  * module declares, the user's sources, and the pull-through caches swallow derives, in the API's
  * order (by name). Each row shows who declared it — a module by its id, the user's spec as "User" —
  * and the worker's last observation: the state with the provider's message as text, the last
- * successful sync, and how many items it serves (`—` when unknown). Read-only: the user's own
+ * successful sync, and how many items it serves (`—` when unknown). `synchronizing` is whether the
+ * worker converges the repository (its spec serves deployments); when it does not, the states read as
+ * the last observation rather than as work in progress or failures. Read-only: the user's own
  * sources are edited through the User sources section, and a module's change with the module.
  * Desktop rows and mobile cards show the same facts.
  */
-export function RepositorySourcesSection({ sources }: { sources: readonly RepositorySource[] }) {
+export function RepositorySourcesSection({ sources, synchronizing }: { sources: readonly RepositorySource[]; synchronizing: boolean }) {
   return (
     <SectionSurface
       title="Repository sources"
@@ -74,7 +76,9 @@ export function RepositorySourcesSection({ sources }: { sources: readonly Reposi
                       <Table.Cell className="sw-mono">{source.format}</Table.Cell>
                       <Table.Cell><SourceScope source={source} /></Table.Cell>
                       <Table.Cell>{declarersText(source.declaredBy)}</Table.Cell>
-                      <Table.Cell maxW="20rem"><RepositorySyncStatus state={source.state} message={source.message} /></Table.Cell>
+                      <Table.Cell maxW="20rem">
+                        <RepositorySyncStatus state={source.state} message={source.message} synchronizing={synchronizing} />
+                      </Table.Cell>
                       <Table.Cell><LastSynced at={source.lastSyncedAt} /></Table.Cell>
                       <Table.Cell textAlign="end">{formatContentCount(source.contentCount)}</Table.Cell>
                     </Table.Row>
@@ -90,7 +94,7 @@ export function RepositorySourcesSection({ sources }: { sources: readonly Reposi
                   key={source.name}
                   title={source.name}
                   description={<span className="sw-mono sw-local-repository__wrap">{source.url}</span>}
-                  status={<RepositorySyncStatus state={source.state} message={null} />}
+                  status={<RepositorySyncStatus state={source.state} message={null} synchronizing={synchronizing} />}
                 >
                   <ResourceCardField label="Format">{source.format}</ResourceCardField>
                   <ResourceCardField label="Declared by">{declarersText(source.declaredBy)}</ResourceCardField>
@@ -99,11 +103,7 @@ export function RepositorySourcesSection({ sources }: { sources: readonly Reposi
                   {(source.suites.length > 0 || source.components.length > 0) && (
                     <ResourceCardField label="Suites and components"><SourceScope source={source} /></ResourceCardField>
                   )}
-                  {source.message && (
-                    <ResourceCardField label={source.state === 'failed' ? 'Failure' : 'Message'}>
-                      <Text color={source.state === 'failed' ? 'fg.error' : 'fg.muted'}>{source.message}</Text>
-                    </ResourceCardField>
-                  )}
+                  <RepositorySyncMessageField state={source.state} message={source.message} synchronizing={synchronizing} />
                 </ResourceCard>
               ))}
             </div>

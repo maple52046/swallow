@@ -125,8 +125,8 @@ paths:
             the `container` method's runtime is not `installed` on a target or differs from
             `spec.containerRuntime`; a target Server is absent or not in provisioning state
             `deployed`; when the Workflow is created, a target already has active durable work
-            or is locked; or the Site's Local Repository is not ready for the install
-            (local-repository.md).
+            or is locked; or the Site's Local Repository serves deployments and is not ready for
+            the install (local-repository.md).
           content:
             application/json:
               schema:

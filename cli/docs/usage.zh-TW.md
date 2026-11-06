@@ -324,8 +324,8 @@ credential:
   apiKey: "REDACTED-MAAS-API-KEY"
 ```
 
-`repository` Integration 是 Site 的 Local Repository，部署的所有 artifact 都從它取得；一個 Site
-至多一個。`endpoint` 是 swallow 呼叫 provider API 的位址，`settings.contentOrigin`（必填）是
+`repository` Integration 是 Site 的 Local Repository，Site 打開它之後部署的所有 artifact 都從它取得；
+一個 Site 至多一個。`endpoint` 是 swallow 呼叫 provider API 的位址，`settings.contentOrigin`（必填）是
 Site 的 Server 讀取內容的位址，credential 是 provider 的 admin 密碼：
 
 ```yaml
@@ -339,8 +339,8 @@ settings:
 credential: "REDACTED-PULP-ADMIN-PASSWORD"
 ```
 
-CLI 目前還沒有 Local Repository 本身的指令（內容、同步狀態與 Site 的來源）；請使用 Dashboard 或
-HTTP API。
+CLI 目前還沒有 Local Repository 本身的指令（內容、同步狀態、Site 的來源，以及是否用它部署）；請使用
+Dashboard 或 HTTP API。
 
 ### servers
 

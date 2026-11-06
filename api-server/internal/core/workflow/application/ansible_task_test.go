@@ -74,7 +74,7 @@ func (stubAnsibleConfigurations) Credential(context.Context, string) (workflowdo
 type stubCatalog struct{}
 
 func (stubCatalog) Resolve(name string) (string, error) { return "/playbooks/" + name, nil }
-func (stubCatalog) UsesLocalRepository(string) bool     { return false }
+func (stubCatalog) FetchesArtifacts(string) bool        { return false }
 
 type stubInventory struct{}
 

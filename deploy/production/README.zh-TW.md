@@ -58,8 +58,9 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
    `http://prom-label-proxy:8080`；已有 metrics Integration 時改指到這裡並保留它的其他 settings，從不建立第二個）；把
    installation 的 Pulp 註冊為它的 `repository` Integration（`local-repository`、`http://pulp-web:8080`，setting
    `contentOrigin` 為 `http://<SWALLOW_ADDRESS>:<SWALLOW_PULP_PORT>`，credential 為 Pulp admin 密碼）；Local Repository
-   的 spec 從未寫入過時寫入預設來源 `ubuntu`（Ubuntu archive 的 `noble`、`noble-updates` 與 `noble-security`），之後
-   刪光所有來源也會保留；Site 尚無
+   的 spec 從未寫入過時寫入第一份 spec：預設來源 `ubuntu`（Ubuntu archive 的 `noble`、`noble-updates` 與
+   `noble-security`），`serveDeployments` 為 `false`，所以在你打開 Local Repository 之前 Site 從上游佈署，之後的修改
+   （打開它、刪光所有來源）也會保留；Site 尚無
    automation 設定時寫入預設值（啟用、Deployment Key、無 playbook mapping）；再等待 Integration 同步與 catalog 出現
    `ubuntu/noble`；
 8. 為 Site 渲染 Prometheus 的 exporter discovery：以 Site 的 id 從
@@ -87,15 +88,18 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
 | Temporal UI | Compose profile `diagnostics` | `127.0.0.1:${SWALLOW_TEMPORAL_UI_PORT:-8233}`，預設不啟動 |
 
 Installation 提供 plain HTTP。要開放到受信任的管理網路之外前，請在 port 80 前面加上
-TLS terminator。佈署出去的 Server 會連 UDP 123 對時，也會連 `SWALLOW_PULP_PORT` 的 Local Repository，若主機有防火牆，
-兩者都必須對機器網路開放。
+TLS terminator。佈署出去的 Server 會連 UDP 123 對時；Site 使用 Local Repository 時，也會連 `SWALLOW_PULP_PORT` 的
+Local Repository，若主機有防火牆，兩者都必須對機器網路開放。
 
-Local Repository 是 Site 自己的來源，部署安裝的每樣東西都從這裡取得：OS 套件（Ubuntu archive 與廠商的
+Local Repository 是 Site 自己的來源，可以提供部署安裝的每樣東西：OS 套件（Ubuntu archive 與廠商的
 archive，以這個 installation 的金鑰簽章）、container image（每個 registry 一個 pull-through cache）、Python 套件
-（PyPI 的 pull-through cache），以及以宣告的 sha256 驗證的檔案。佈署出去的 Server 只從
-`http://<SWALLOW_ADDRESS>:<SWALLOW_PULP_PORT>` 取得；Pulp 只從上游取得一次，把取得的內容保留在 volume `pulp-data`，
-所以磁碟要留出這份 cache 的空間。Dashboard 的 Local repository 頁顯示它的內容與同步狀態。同一個 port 上的 Pulp
-REST API 需要 Pulp admin 密碼（`secrets/pulp-admin-password`）。
+（PyPI 的 pull-through cache），以及以宣告的 sha256 驗證的檔案。Site 一開始不使用它：部署從 swallow 的模組宣告的
+上游取得每個 artifact（檔案以 sha256 驗證，廠商的套件庫以宣告的簽章金鑰驗證），Server 保留自己的 OS 套件來源。在
+Dashboard 的 Local repository 頁把 Site 的 **Artifact source for deployments** 選為 **This local repository**（API 的
+`serveDeployments`）之後，佈署出去的 Server 在它 ready 時只從
+`http://<SWALLOW_ADDRESS>:<SWALLOW_PULP_PORT>` 取得，ready 之前部署會被拒絕。Pulp 只從上游取得一次，把取得的內容保留在
+volume `pulp-data`，所以磁碟要留出這份 cache 的空間。Dashboard 的 Local repository 頁顯示它的內容與同步狀態。同一個
+port 上的 Pulp REST API 需要 Pulp admin 密碼（`secrets/pulp-admin-password`）。
 
 Platform Grafana（Slurm 的在 controller 上，Kubernetes 的在叢集內）經 `http://<SWALLOW_ADDRESS>:<SWALLOW_HTTP_PORT>` 的 API 讀取 Site 的
 Prometheus（Compose 以 `SWALLOW_API_PUBLIC_URL` 交給 api-server），Omnistat 只允許從 `SWALLOW_ADDRESS`
@@ -194,9 +198,10 @@ dependency 順序維持每個條件：條件不符時重啟
   拒絕，除非 `--force`。它先 pull 新 image，停止 API、worker 與 Ansible executor，備份到
   `backups/pre-upgrade-<已安裝版本>-<時間>`（保留到你手動刪除），再 migrate、啟動 stack、確保
   Control-Plane NTP Server 與它的上游、MAAS rack 的 `virsh` SSH key 並記錄到 Integration、metrics
-  Integration 與 Prometheus 的 exporter discovery、repository Integration 與 Local Repository 的預設來源，最後重新
-  執行 `doctor`。Local Repository 之前的 installation 在這裡得到 Pulp 的 database、services 與 Integration；新的 Pulp
-  image 在 stack 啟動時遷移它的 database，在備份之後。`install.sh` 在解壓任何東西之前就拒絕降級。
+  Integration 與 Prometheus 的 exporter discovery、repository Integration 與 Local Repository 的第一份 spec，最後重新
+  執行 `doctor`。Local Repository 之前的 installation 在這裡得到 Pulp 的 database、services 與 Integration；它的 Site
+  的 spec 不 serve deployments，所以在你打開 Local Repository 之前部署仍從上游取得。新的 Pulp image 在 stack 啟動時
+  遷移它的 database，在備份之後。`install.sh` 在解壓任何東西之前就拒絕降級。
 - `sudo ./swallowctl ntp upstream [show | set SERVER... | default]` 顯示、設定或重設 NTP server
   的上游。`set` 與 `default` 會先套用，成功後才寫入 `.env`。MAAS 的 `ntp_servers` 由 swallowctl
   管理：在 MAAS UI 設定的值，會在下次 install、upgrade 或 ensure 時被取代。

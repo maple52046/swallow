@@ -18,7 +18,7 @@ current session in the browser.
 | Workflows | Durable execution state, Jobs, Tasks, events, logs, cancel, rerun, and retry |
 | Change Plans | Plans for destructive Platform changes: the ones waiting for approval or rejection, the record of approved ones, and the safety switch |
 | Monitoring | Fleet health, usage charts for selected Servers, Pools, Zones, and Platforms, current metrics, optional Grafana links, and (in development) alerts and silences |
-| Infrastructure | Sites, Integrations, Zones, Pools, credentials, automation settings, and the Site's local repository (its sources, sync state, and content; see [Initial setup](initial-setup.md#4-register-the-local-repository)) |
+| Infrastructure | Sites, Integrations, Zones, Pools, credentials, automation settings, and the Site's local repository (where deployments fetch artifacts, its sources, sync state, and content; see [Initial setup](initial-setup.md#4-register-the-local-repository)) |
 | SSH keys (account menu) | The deployment key, your access keys, and their provisioner sync status — see [SSH keys](ssh-keys.md) |
 | API keys (account menu) | Keys that let scripts, CI, and the CLI call swallow as you without a password — see [API keys](api-keys.md) |
 
@@ -106,16 +106,28 @@ result arrives as a notification.
 ## Local repository
 
 **Infrastructure → Local repository** shows the scoped Site's local repository,
-where its Servers fetch every package, image, and file a deployment installs.
-Choose a Site first; an installation with one Site opens it directly.
+its own copy of the packages, images, and files its deployments install, and
+where those deployments fetch them from. Choose a Site first; an installation
+with one Site opens it directly.
 
-- The status block says whether deployments that fetch from the repository are
-  accepted and, when they are not, what is in the way, in the API's words. It also
-  shows the content origin Servers read it at (with a copy button), the Site's
-  `repository` Integration and whether it is paused, and when swallow last
-  observed the repository. When swallow cannot use the Integration's credential
-  or content origin, an alert links to the Integration settings tab where you
-  fix it.
+- **Artifact source for deployments** chooses where the Site's deployments fetch
+  their artifacts: **Upstream sources** (each artifact from the upstream source
+  its module declares; Servers keep their own OS package sources) or **This
+  local repository** (every artifact from this repository; deployments are
+  accepted once it is ready). Until someone changes it, deployments use the
+  upstream sources. Choosing the other option asks you to confirm first;
+  deployments already accepted keep the source they were accepted with, and you
+  can switch back at any time. If someone else changed the repository after the
+  page read it, nothing is saved and the page shows the current choice.
+- While deployments use this repository, the status block says whether
+  deployments that fetch from it are accepted and, when they are not, what is in
+  the way, in the API's words. When swallow cannot use the Integration's
+  credential or content origin, an alert links to the Integration settings tab
+  where you fix it. While deployments use the upstream sources, the status block
+  says so and that the repository is not synchronized; what it already holds is
+  kept. Either way it shows the content origin Servers read it at (with a copy
+  button), the Site's `repository` Integration and whether it is paused, and when
+  swallow last observed the repository.
 - **Repository sources** lists every source: the ones swallow's modules declare
   (named by module), the ones you added (**User**), and the pull-through caches
   for container registries and PyPI. Each shows its state (**Pending**,
@@ -128,21 +140,26 @@ Choose a Site first; an installation with one Site opens it directly.
   cache is ready, and the repository stays not ready, so deployments wait, until
   every image is stored; an interrupted or failed fetch is started again. The
   declared Python packages follow. While anything is still syncing, the page
-  refreshes every 5 seconds.
+  refreshes every 5 seconds. While deployments use the upstream sources, each
+  source, file, and image keeps the state swallow last observed: **Ready**,
+  **Not fetched**, or **Last sync failed** with the provider's message.
 - **Sync now** asks swallow to converge the repository right away instead of at
-  its next periodic check; the states update as swallow observes them.
+  its next periodic check; the states update as swallow observes them. It is
+  offered while deployments use this repository.
 - **User sources** shows the sources you asked for. **Manage user sources** adds
   a Debian or Ubuntu archive (name, URL, suites, components, and optional
-  architectures) or removes one of yours, then saves the whole list. Sources a
-  module declares are listed as not editable. If someone else changed the
-  sources after you opened the dialog, nothing is saved: the dialog shows the
-  current list, and you make your change again.
+  architectures) or removes one of yours, then saves the whole list; where
+  deployments fetch artifacts stays as it is. Sources a module declares are
+  listed as not editable. If someone else changed the repository after you
+  opened the dialog, nothing is saved: the dialog shows the current list, and
+  you make your change again.
 - **Content** browses what the repository serves by format (OS packages,
   container images, Python packages, files), one page at a time, optionally
   narrowed to one source or a name. The format, source, search, and page stay in
   the URL, so you can share the view.
 
-A Site without a local repository explains that deployments need one.
+A Site without a local repository explains that its deployments fetch each
+artifact from the upstream source its module declares.
 **Register a repository** opens Create integration on the Integrations page with
 the Repository role and the Pulp provider: the endpoint is where swallow reaches
 Pulp's API, **Content origin** is the address Servers read it at

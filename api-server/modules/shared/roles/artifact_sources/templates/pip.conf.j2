@@ -1,0 +1,5 @@
+# Managed by Swallow (artifact_sources): the Site's Local Repository is this host's Python package
+# index. It serves plain HTTP, so pip must trust its host.
+[global]
+index-url = {{ swallow_artifacts.python_index }}
+trusted-host = {{ swallow_artifacts.python_index | urlsplit('hostname') }}

@@ -14,7 +14,7 @@ tags:
     name: auth
   - description: Preview, approve, or reject what realizing a destructive spec change will do, and read or replace the policy that decides whether a change approved with its submission is approved at once.
     name: change-plans
-  - description: Read a Site's Local Repository (the source every deployment fetches its artifacts from), browse its content, replace the Repository Sources a user adds to it, and ask for an immediate convergence.
+  - description: Read a Site's Local Repository (where its deployments fetch their artifacts from when its spec serves deployments), browse its content, replace its spec, and ask for an immediate convergence.
     name: local-repository
   - description: Read the Extension Modules compiled into the running build, with the spec schema a module declares, so a client can render a generic settings form and details for a module it has no dedicated screens for.
     name: modules
@@ -2107,7 +2107,7 @@ paths:
       tags:
         - platforms
     post:
-      description: 'Requires the `admin` role. The spec is validated as a deployment would be (the Deployment Key, topology, targets, network, and features) before anything is written; then the Platform is stored at generation 1 with its members claimed, and its install is the returned Change Plan (platforms.md, Create A Platform): approved with the request when it sends `approve=true` and the policy allows it, waiting for approval otherwise. Nothing touches a machine until the plan is approved. 400 for an invalid body, spec, topology, target, network, or feature; 404 for an unknown Site; 409 when the installation has no Deployment Key, the Site''s Local Repository is not ready (local-repository.md), the name is taken, or a target is claimed, locked, or held by another Workflow; 503 when Site automation is not configured.'
+      description: 'Requires the `admin` role. The spec is validated as a deployment would be (the Deployment Key, topology, targets, network, and features) before anything is written; then the Platform is stored at generation 1 with its members claimed, and its install is the returned Change Plan (platforms.md, Create A Platform): approved with the request when it sends `approve=true` and the policy allows it, waiting for approval otherwise. Nothing touches a machine until the plan is approved. 400 for an invalid body, spec, topology, target, network, or feature; 404 for an unknown Site; 409 when the installation has no Deployment Key, the Site''s Local Repository serves deployments and is not ready (local-repository.md), the name is taken, or a target is claimed, locked, or held by another Workflow; 503 when Site automation is not configured.'
       operationId: createPlatform
       parameters:
         - $ref: '#/components/parameters/ApproveChange'
@@ -7112,7 +7112,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`conflict`: a mutually exclusive kind is present on a target; a target is a Kubernetes Platform member and the kind refuses members; a target has a Platform Claim and the kind refuses claimed Servers; a target lacks the AMD compute GPUs the kind requires; the `container` method''s runtime is not `installed` on a target or differs from `spec.containerRuntime`; a target Server is absent or not in provisioning state `deployed`; when the Workflow is created, a target already has active durable work or is locked; or the Site''s Local Repository is not ready for the install (local-repository.md).'
+          description: '`conflict`: a mutually exclusive kind is present on a target; a target is a Kubernetes Platform member and the kind refuses members; a target has a Platform Claim and the kind refuses claimed Servers; a target lacks the AMD compute GPUs the kind requires; the `container` method''s runtime is not `installed` on a target or differs from `spec.containerRuntime`; a target Server is absent or not in provisioning state `deployed`; when the Workflow is created, a target already has active durable work or is locked; or the Site''s Local Repository serves deployments and is not ready for the install (local-repository.md).'
         "503":
           content:
             application/json:
@@ -8346,7 +8346,7 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
-      description: A target is already in unfinished work, a target is protected by its Server Lock, a target is not in the provisioning state the kind requires, the intent contradicts a Platform policy, or the playbook fetches from the Site's Local Repository and it is not ready (`conflict`).
+      description: A target is already in unfinished work, a target is protected by its Server Lock, a target is not in the provisioning state the kind requires, the intent contradicts a Platform policy, or the playbook fetches artifacts while the Site's Local Repository serves deployments and is not ready (`conflict`).
     WorkflowCreateRejected:
       content:
         application/json:
@@ -10760,7 +10760,7 @@ components:
             type: object
           type: array
         ready:
-          description: 'Every source, file, and image is `ready` on the enabled Integration and the host addresses were read: deployments that fetch from the Local Repository are accepted.'
+          description: The spec serves deployments and every source, file, and image is `ready` on the enabled Integration with the host addresses read. While the spec serves deployments, the ones that fetch artifacts are accepted exactly while it is true.
           type: boolean
         siteId:
           type: string
@@ -10820,12 +10820,16 @@ components:
               description: The spec generation; `0` before the first write.
               format: int64
               type: integer
+            serveDeployments:
+              description: Whether the Site's deployments fetch their artifacts from this Local Repository; `false` (the default) fetches them from the upstreams the modules declare.
+              type: boolean
             sources:
               items:
                 $ref: '#/components/schemas/LocalRepositorySpecSource'
               type: array
           required:
             - generation
+            - serveDeployments
             - sources
           type: object
       required:
@@ -10939,6 +10943,9 @@ components:
           format: int64
           minimum: 0
           type: integer
+        serveDeployments:
+          description: Whether the Site's deployments fetch their artifacts from this Local Repository (`true`) or from the upstreams the modules declare (`false`).
+          type: boolean
         sources:
           items:
             properties:
@@ -10973,6 +10980,7 @@ components:
           type: array
       required:
         - generation
+        - serveDeployments
         - sources
       type: object
     LocalRepositorySyncState:

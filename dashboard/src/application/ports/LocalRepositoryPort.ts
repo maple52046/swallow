@@ -17,9 +17,15 @@ export interface LocalRepositoryContentQuery {
   pageSize: number
 }
 
-/** The user's sources to store, with the spec generation they were based on. */
+/**
+ * A whole spec to store (`PUT .../spec` replaces it): the generation the writer read, whether the
+ * Site's deployments fetch from the Local Repository, and the user's sources. A writer that changes
+ * only one part sends the other as it read it, with that read's generation, so a concurrent change
+ * to either part is refused rather than undone.
+ */
 export interface LocalRepositorySpecWrite {
   generation: number
+  serveDeployments: boolean
   sources: readonly RepositorySourceSpec[]
 }
 
@@ -46,11 +52,12 @@ export interface LocalRepositoryPort {
    */
   browseContent(siteId: string, query: LocalRepositoryContentQuery): Promise<LocalRepositoryContentPage>
   /**
-   * Replaces the user's sources as a whole and resolves the stored Local Repository; the worker
-   * converges the provider afterwards, so new sources read `pending` until it observes them. Rejects
-   * with `LocalRepositorySpecConflictError` when `generation` is not the stored one (nothing was
-   * written), and with `validation_error` for an invalid source or one that contradicts a module's
-   * declaration.
+   * Replaces the whole spec and resolves the stored Local Repository. While the spec serves
+   * deployments the worker converges the provider afterwards, so new sources read `pending` until it
+   * observes them; turning `serveDeployments` on starts that convergence, and turning it off stops
+   * it. Rejects with `LocalRepositorySpecConflictError` when `generation` is not the stored one
+   * (nothing was written), and with `validation_error` for an invalid source or one that contradicts
+   * a module's declaration.
    */
   replaceSpec(siteId: string, spec: LocalRepositorySpecWrite): Promise<LocalRepository>
   /**

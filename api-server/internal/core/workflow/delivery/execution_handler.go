@@ -236,7 +236,8 @@ func respondExecutionError(c *fiber.Ctx, err error) error {
 		errors.Is(err, workflowdomain.ErrTaskRetryUnsafe),
 		errors.Is(err, workflowdomain.ErrTargetLocked),
 		errors.Is(err, workflowdomain.ErrTargetStateInvalid),
-		// The playbook fetches its artifacts from the Site's Local Repository, which is not ready.
+		// The playbook fetches artifacts while the Site's Local Repository serves deployments and is
+		// not ready.
 		errors.Is(err, localrepodomain.ErrLocalRepositoryUnavailable),
 		errors.Is(err, serverdomain.ErrServerLocked):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))

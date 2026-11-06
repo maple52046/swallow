@@ -12,8 +12,8 @@
 #   swallow_omnistat_grafana_port     that Grafana's port
 #   swallow_omnistat_system_name      label for omnistat-query reports
 #   swallow_slurm_gpu_compute_ids     compute nodes with AMD GPUs (AMD SMI collection)
-#   swallow_local_repository          the Site's Local Repository: build packages, the source
-#                                     archive, and the Python index
+#   swallow_artifacts                 where build packages, the source archive, and the Python
+#                                     packages come from
 # The Site Prometheus scrapes the exporters, so each compute node proves only that its own exporter
 # answers on the loopback address. On success it writes {grafanaUrl} to the run's result file.
 # Idempotent.
@@ -24,11 +24,11 @@
   roles:
     - role: package_maintenance_hold
 
-- name: Point every target at the Site's Local Repository
+- name: Point every target at the run's artifact sources
   hosts: all
   gather_facts: false
   roles:
-    - role: local_repo_client
+    - role: artifact_sources
 
 - name: Classify the Omnistat hosts
   hosts: all

@@ -1,8 +1,8 @@
 ---
-# Install the pinned k0s binary from the Site's Local Repository. The guard is the version the
-# installed binary reports, not its presence, so a truncated or other-version file is replaced and a
-# rerun at the pinned version changes nothing. Replacing the file does not restart a running k0s;
-# changing the version of a cluster is a separate, out-of-scope operation.
+# Install the pinned k0s binary from where the run's artifacts come from. The guard is the version
+# the installed binary reports, not its presence, so a truncated or other-version file is replaced
+# and a rerun at the pinned version changes nothing. Replacing the file does not restart a running
+# k0s; changing the version of a cluster is a separate, out-of-scope operation.
 
 - name: Resolve the pinned k0s release
   ansible.builtin.set_fact:
@@ -11,12 +11,12 @@
          [{'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] | default(ansible_architecture)]
          | default({}) }}
 
-- name: Refuse a k0s release the Local Repository does not hold
+- name: Refuse a k0s release swallow does not declare
   ansible.builtin.fail:
     msg: >-
       [k0s_version_unavailable] k0s {{ swallow_k0s_version }} for {{ ansible_architecture }} is not
-      in the Site's Local Repository, which holds only the releases swallow declares
-      ({{ k0s_binary_releases | list | join(', ') }}).
+      a release swallow declares ({{ k0s_binary_releases | list | join(', ') }}), and a run fetches
+      only declared artifacts.
   when: k0s_binary_release.path is not defined
 
 - name: Read the installed k0s version
@@ -26,11 +26,11 @@
   changed_when: false
   failed_when: false
 
-- name: Install k0s from the Local Repository
+- name: Install the pinned k0s
   # get_url checks the SHA-256 of the download before it moves the file into place, so an
   # interrupted or corrupted download never replaces the binary.
   ansible.builtin.get_url:
-    url: "{{ swallow_local_repository.files }}{{ k0s_binary_release.path }}"
+    url: "{{ swallow_artifacts.files[k0s_binary_release.path] }}"
     checksum: "sha256:{{ k0s_binary_release.sha256 }}"
     dest: "{{ k0s_binary_path }}"
     mode: "0755"

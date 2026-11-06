@@ -48,9 +48,9 @@
     - "{{ omnistat_prefix }}"
     - "{{ omnistat_config_dir }}"
 
-- name: Download the pinned Omnistat source from the Local Repository
+- name: Download the pinned Omnistat source
   ansible.builtin.get_url:
-    url: "{{ swallow_local_repository.files }}{{ omnistat_sources[omnistat_version].path }}"
+    url: "{{ swallow_artifacts.files[omnistat_sources[omnistat_version].path] }}"
     checksum: "sha256:{{ omnistat_sources[omnistat_version].sha256 }}"
     dest: "{{ omnistat_prefix }}/omnistat-{{ omnistat_version }}.tar.gz"
     mode: "0644"
@@ -110,20 +110,21 @@
 
 - name: Install Omnistat into the virtual environment
   # Rebuilt when the source changed or a patch was applied, or when a previous run never finished.
+  # The Local Repository's Python index serves plain HTTP, so pip trusts its host; a run from the
+  # upstreams carries no index and pip uses its default one.
   ansible.builtin.command:
     argv:
       - "{{ omnistat_venv }}/bin/pip"
       - install
       - --no-cache-dir
-      - --index-url
-      - "{{ swallow_local_repository.python_index }}"
-      - --trusted-host
-      - "{{ swallow_local_repository.python_index | urlsplit('hostname') }}"
       - --constraint
       - "{{ omnistat_prefix }}/{{ omnistat_sources[omnistat_version].constraints }}"
       - "{{ omnistat_src }}"
-  environment:
-    PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  environment: >-
+    {{ {'PIP_DISABLE_PIP_VERSION_CHECK': '1'}
+       | combine({'PIP_INDEX_URL': swallow_artifacts.python_index,
+                  'PIP_TRUSTED_HOST': swallow_artifacts.python_index | urlsplit('hostname')}
+                 if swallow_artifacts.python_index | default('') | length > 0 else {}) }}
   when: >-
     omnistat_unpacked is changed or omnistat_patched is changed or
     not omnistat_monitor_binary.stat.exists

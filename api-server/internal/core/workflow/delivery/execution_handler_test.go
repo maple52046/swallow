@@ -225,7 +225,7 @@ func (contractAutomation) FindBySiteID(_ context.Context, siteID string) (*workf
 type contractCatalog struct{}
 
 func (contractCatalog) Resolve(name string) (string, error) { return "playbooks/" + name, nil }
-func (contractCatalog) UsesLocalRepository(string) bool     { return false }
+func (contractCatalog) FetchesArtifacts(string) bool        { return false }
 
 // contractRunner serves fixed retained output and per-host results for any run.
 type contractRunner struct {

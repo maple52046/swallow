@@ -63,9 +63,44 @@ func TestLocalRepositorySpecWritesAreConditionalOnTheGeneration(t *testing.T) {
 	if err := repo.SetStatus(ctx, "site-a", localrepodomain.Status{IntegrationID: "repo-1", ObservedGeneration: 1}); err != nil {
 		t.Fatalf("SetStatus: %v", err)
 	}
-	replaced, err := repo.PutSpec(ctx, "site-a", 1, localrepodomain.Spec{})
-	if err != nil || replaced.Generation != 2 || len(replaced.Spec.Sources) != 0 || replaced.Status.IntegrationID != "repo-1" {
-		t.Fatalf("second PutSpec = %+v, %v; want generation 2, no sources, the status kept", replaced, err)
+	replaced, err := repo.PutSpec(ctx, "site-a", 1, localrepodomain.Spec{ServeDeployments: true})
+	if err != nil || replaced.Generation != 2 || !replaced.Spec.ServeDeployments || len(replaced.Spec.Sources) != 0 || replaced.Status.IntegrationID != "repo-1" {
+		t.Fatalf("second PutSpec = %+v, %v; want generation 2 serving deployments, no sources, the status kept", replaced, err)
+	}
+	if stored, err := repo.Get(ctx, "site-a"); err != nil || !stored.Spec.ServeDeployments {
+		t.Fatalf("Get after serving = %+v, %v; want the spec serving deployments", stored, err)
+	}
+	if off, err := repo.PutSpec(ctx, "site-a", 2, ubuntu); err != nil || off.Spec.ServeDeployments || !reflect.DeepEqual(off.Spec, ubuntu) {
+		t.Fatalf("PutSpec turning serving off = %+v, %v; want the spec not serving", off, err)
+	}
+}
+
+// A record written before the spec had serveDeployments reads as not serving deployments, the
+// default, with its sources intact.
+func TestLocalRepositorySpecWithoutServeDeploymentsReadsAsNotServing(t *testing.T) {
+	ctx := context.Background()
+	repo := NewMongoLocalRepositoryRepo(localRepositoryTestDatabase(t))
+	if _, err := repo.col.InsertOne(ctx, bson.M{
+		"_id": "site-d", "generation": int64(3),
+		"spec": bson.M{"sources": bson.A{bson.M{
+			"name": "ubuntu", "format": "deb", "url": "http://archive.example/ubuntu/", "suites": bson.A{"noble"}, "components": bson.A{"main"},
+		}}},
+		"status": bson.M{"integrationId": "repo-1", "observedGeneration": int64(3)},
+	}); err != nil {
+		t.Fatalf("InsertOne: %v", err)
+	}
+	stored, err := repo.Get(ctx, "site-d")
+	if err != nil {
+		t.Fatalf("Get of a record without serveDeployments: %v", err)
+	}
+	if stored.Spec.ServeDeployments || stored.Generation != 3 || len(stored.Spec.Sources) != 1 || stored.Spec.Sources[0].Name != "ubuntu" {
+		t.Errorf("Get = generation %d spec %+v; want generation 3, not serving, the ubuntu source", stored.Generation, stored.Spec)
+	}
+	if err := repo.SetStatus(ctx, "site-e", localrepodomain.Status{IntegrationID: "repo-2"}); err != nil {
+		t.Fatalf("SetStatus of a new Site: %v", err)
+	}
+	if created, err := repo.Get(ctx, "site-e"); err != nil || created.Spec.ServeDeployments {
+		t.Errorf("record a status write created = %+v, %v; want it not serving deployments", created, err)
 	}
 }
 

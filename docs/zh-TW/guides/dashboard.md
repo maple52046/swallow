@@ -17,7 +17,7 @@ published HTTP API，browser 內只保存 UI preference 與目前 session。
 | Workflows | Durable execution、Job、Task、event、log、cancel、rerun 與 retry |
 | Change Plans | Platform 破壞性變更的計畫：等待核准或拒絕的 plan、已核准 plan 的紀錄，以及安全開關 |
 | Monitoring | Fleet health、勾選 Server／Pool／Zone／Platform 的用量圖表、current metrics、選用的 Grafana link，以及（開發中的）alert 與 silence |
-| Infrastructure | Site、Integration、Zone、Pool、credential、automation settings，以及 Site 的 local repository（來源、同步狀態與內容，見[初始設定](initial-setup.md#4-註冊-local-repository)） |
+| Infrastructure | Site、Integration、Zone、Pool、credential、automation settings，以及 Site 的 local repository（deployment 從哪裡取得 artifact、來源、同步狀態與內容，見[初始設定](initial-setup.md#4-註冊-local-repository)） |
 | SSH keys（account menu） | Deployment key、你的 access keys 及其 provisioner sync 狀態，見 [SSH key](ssh-keys.md) |
 | API keys（account menu） | 讓 script、CI 與 CLI 不需要密碼即可以你的身分呼叫 swallow 的 key，見 [API key](api-keys.md) |
 
@@ -90,14 +90,21 @@ ISO 的 card。**Build Boot ISO** 會從所選 Integration endpoint 建議 MAAS 
 ## Local repository
 
 **Infrastructure → Local repository** 顯示目前 scope 的 Site 的 local repository，也就是該 Site
-的 Server 取得 deployment 所安裝的每個 package、image 與 file 的地方。請先選擇 Site；只有一個
-Site 的安裝會直接開啟它。
+自己保存的一份 deployment 所安裝的 package、image 與 file，以及這些 deployment 從哪裡取得它們。
+請先選擇 Site；只有一個 Site 的安裝會直接開啟它。
 
-- 狀態區塊說明從 repository 取得內容的 deployment 是否會被接受；不接受時，以 API 的說法列出卡住
-  的原因。它也顯示 Server 讀取內容的 content origin（附複製按鈕）、Site 的 `repository`
-  Integration 與它是否已暫停，以及 swallow 最後一次觀察 repository 的時間。swallow 無法使用
-  Integration 的 credential 或 content origin 時，會出現一則 alert，連到 Integration settings
-  中修正它的分頁。
+- **Artifact source for deployments** 選擇 Site 的 deployment 從哪裡取得 artifact：**Upstream
+  sources**（每個 artifact 從其模組宣告的上游來源取得；Server 保留自己的 OS package 來源），或
+  **This local repository**（每個 artifact 都從這個 repository 取得；repository ready 之後才接受
+  deployment）。在有人變更之前，deployment 使用上游來源。選擇另一個選項時會先請你確認；已接受的
+  deployment 維持接受時的來源，之後也可以隨時切換回來。若在頁面讀取之後有其他人改了 repository，
+  什麼都不會儲存，頁面會顯示目前的選擇。
+- deployment 使用這個 repository 時，狀態區塊說明從 repository 取得內容的 deployment 是否會被
+  接受；不接受時，以 API 的說法列出卡住的原因。swallow 無法使用 Integration 的 credential 或
+  content origin 時，會出現一則 alert，連到 Integration settings 中修正它的分頁。deployment 使用
+  上游來源時，狀態區塊會說明這一點，以及 repository 不會同步；它已保存的內容會保留。無論哪一種，
+  它都顯示 Server 讀取內容的 content origin（附複製按鈕）、Site 的 `repository` Integration 與它
+  是否已暫停，以及 swallow 最後一次觀察 repository 的時間。
 - **Repository sources** 列出每個來源：swallow 模組宣告的（以模組名稱標示）、你加入的
   （**User**），以及 container registry 與 PyPI 的 pull-through cache。每個來源都顯示狀態
   （**Pending**、**Syncing**、**Ready** 或 **Failed**）與 provider 的訊息、最後一次成功同步的
@@ -105,18 +112,21 @@ Site 的安裝會直接開啟它。
   **Declared images** 列出模組宣告的 container image，每個都顯示狀態、抓取失敗時 provider 的訊息，
   以及每一層都儲存後的大小。swallow 在 image 的 registry cache ready 之後預先抓取它；在每個 image
   都儲存之前 repository 不是 ready，deployment 會等待；中斷或失敗的抓取會重新開始。其後是宣告的
-  Python package。只要還有項目在同步，頁面每 5 秒更新一次。
+  Python package。只要還有項目在同步，頁面每 5 秒更新一次。deployment 使用上游來源時，每個來源、
+  file 與 image 維持 swallow 最後一次觀察到的狀態：**Ready**、**Not fetched**，或附 provider 訊息的
+  **Last sync failed**。
 - **Sync now** 請 swallow 立即收斂 repository，而不是等下一次定期檢查；狀態會在 swallow 觀察到
-  結果時更新。
+  結果時更新。只有 deployment 使用這個 repository 時才會出現。
 - **User sources** 顯示你要求的來源。**Manage user sources** 可加入 Debian 或 Ubuntu archive
-  （名稱、URL、suite、component 與選填的 architecture），或移除你的來源，然後儲存整份清單。模組
-  宣告的來源會標示為不可在此編輯。若在你開啟 dialog 之後有其他人改了來源，什麼都不會儲存：dialog
-  會顯示目前的清單，請重新做一次你的變更。
+  （名稱、URL、suite、component 與選填的 architecture），或移除你的來源，然後儲存整份清單；deployment
+  從哪裡取得 artifact 維持不變。模組宣告的來源會標示為不可在此編輯。若在你開啟 dialog 之後有其他人
+  改了 repository，什麼都不會儲存：dialog 會顯示目前的清單，請重新做一次你的變更。
 - **Content** 依 format（OS package、container image、Python package、file）逐頁瀏覽
   repository 提供的內容，也可以只看一個來源或依名稱搜尋。Format、來源、搜尋與頁碼都保存在 URL，
   可直接分享。
 
-沒有 local repository 的 Site 會說明 deployment 需要它。**Register a repository** 會在
+沒有 local repository 的 Site 會說明：它的 deployment 從模組宣告的上游來源取得每個 artifact。
+**Register a repository** 會在
 Integrations 頁面開啟 Create integration，並預先選好 Repository role 與 Pulp provider：endpoint
 是 swallow 呼叫 Pulp API 的位址，**Content origin** 是 Server 讀取內容的位址
 （`http://host:port`），credential 則是 Pulp 的 admin 密碼。

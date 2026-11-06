@@ -42,9 +42,9 @@ decision 040、
 - 監控的設計（exporter 的安裝、label 契約、多租戶）：見 [monitoring.md](monitoring.md)；installation 只部署
   installation Site 的 Prometheus 與它前面的 prom-label-proxy，並把它們登錄為該 Site 的 metrics Integration
   （§2.2、§2.5）。
-- [Local Repository](glossaries/terms/local-repository.md) 的設計（存什麼、怎麼收斂、部署怎麼使用）：見
+- [Local Repository](glossaries/terms/local-repository.md) 的設計（存什麼、怎麼收斂、Site 怎麼選擇部署是否使用它）：見
   [local-repository.md](local-repository.md)；installation 只部署 installation Site 的 Pulp，把它登錄為該 Site 的
-  `repository` Integration，並寫入 Site 預設的 `ubuntu` 來源（§2.2、§2.5）。
+  `repository` Integration，並寫入 Site 的第一份 spec：預設的 `ubuntu` 來源，`serveDeployments` 為 `false`（§2.2、§2.5）。
 - 多主機拓樸、TLS、離線（air-gapped）安裝與 native（systemd）安裝：目前都不支援（§2.6、§4.5）。
 
 ---
@@ -121,8 +121,9 @@ decision 040、
   - 它只在每個請求時需要 Prometheus，所以只等 `prometheus` 啟動，不等它 healthy。healthcheck 以 image 的
     busybox `wget` 查詢 `/healthz`。不保存任何狀態，沒有 volume。
 - Pulp 是 installation Site 的 [Local Repository](glossaries/terms/local-repository.md)（[local-repository.md](local-repository.md)）：
-  比照 Prometheus，隨控制平面部署，由 bootstrap 登錄為該 Site 的 `repository` Integration（§2.5）。部署出去的
-  Server 從它取得 OS 套件、container image、Python 套件與檔案，不連網際網路。
+  比照 Prometheus，每個 installation 都隨控制平面部署，由 bootstrap 登錄為該 Site 的 `repository` Integration（§2.5）。
+  Site 打開它（`serveDeployments`）之後，部署出去的 Server 從它取得 OS 套件、container image、Python 套件與檔案，不連
+  網際網路；打開之前，部署從模組宣告的上游取得（[local-repository.md](local-repository.md) §2.1）。
   - 用 `pulp-minimal` image，API、content app 與 worker 分開執行，資料庫在共用的 PostgreSQL（§2.3）；all-in-one
     image 一律啟動自己的 PostgreSQL，所以不用。`pulp-web` 把它們放在同一個位址之下。
   - 設定檔是 bundle 的 `pulp/settings.py`，從 `/run/secrets` 讀 secret `pulp-secret-key`（Django secret key）與
@@ -207,10 +208,11 @@ site-automation、local-repository、ssh-keys、provisioning）收斂 swallow �
    `http://<SWALLOW_ADDRESS>:<SWALLOW_PULP_PORT>`（§2.7），credential 為 secret `pulp-admin-password`（Pulp 的
    `admin`）。一個 Site 至多一個：已存在時保留它的 id、名稱與其他 settings，只在 endpoint 或 `contentOrigin`
    不同時以一次 `PATCH` 改指到這裡（`contentOrigin` 合併進目前的 settings），並每次替換 write-only credential。
-7. Site 的 Local Repository spec 從未寫入過（`generation` 為 `0`）時，才以 `generation` `0` 寫入預設的 user 來源 `ubuntu`
-   （`http://archive.ubuntu.com/ubuntu/`，suites `noble`、`noble-updates`、`noble-security`，components `main`、
-   `universe`，`amd64`；[local-repository.md](local-repository.md) §5.2）。寫過就不動，user 之後的修改（包括刪光
-   所有來源）每次重跑都保留；同時有其他第一次寫入時以 `409` 失敗，下一次重跑重新讀取。
+7. Site 的 Local Repository spec 從未寫入過（`generation` 為 `0`）時，才以 `generation` `0` 寫入 `serveDeployments`
+   `false` 與預設的 user 來源 `ubuntu`（`http://archive.ubuntu.com/ubuntu/`，suites `noble`、`noble-updates`、
+   `noble-security`，components `main`、`universe`，`amd64`；[local-repository.md](local-repository.md) §2.1、§5.2）：
+   Site 先從上游取得 artifact，user 打開 `serveDeployments` 之後才使用 Local Repository。寫過就不動，user 之後的修改
+   （包括打開 `serveDeployments` 或刪光所有來源）每次重跑都保留；同時有其他第一次寫入時以 `409` 失敗，下一次重跑重新讀取。
 8. Site 沒有 [Automation Configuration](glossaries/terms/automation-configuration.md) 時才寫入預設：
    啟用、`sshPort` 22、沒有 `playbookMappings`，`knownHosts` 為 `SWALLOW_SSH_KNOWN_HOSTS` 或一行註解
    （executor 每次執行時自行掃描 target 的 host key）；不寫 Site credential（automation 一律使用 Deployment
@@ -236,7 +238,7 @@ site-automation、local-repository、ssh-keys、provisioning）收斂 swallow �
 
 ### 2.7 部署出去的 Server 與控制平面互相連到的位址
 
-Server 從 installation Site 的 Local Repository 取得每個 artifact，連到 `pulp-web` 發佈的 port：
+Site 使用 Local Repository 時，Server 從它取得每個 artifact，連到 `pulp-web` 發佈的 port：
 
 | 位址 | 記在哪裡 | production 的值 |
 | --- | --- | --- |
@@ -280,16 +282,16 @@ Platform 自己的 Grafana 與 Omnistat 裝在 Server 上，它們和控制平�
 - prom-label-proxy 只在 `control`：它不驗證身分，所以除了 control network 不得有其他入口。
 - 主機是 swallow 與其 provisioner 共同的單一 failure domain。
 - 安裝需要對外連線：GHCR、Docker Hub 與 Quay（image）、`images.maas.io`（`ubuntu/noble`）、snap store（MAAS），
-  以及主機缺 Docker 時的 Docker apt repository。部署需要 Pulp 連得到 Local Repository 鏡像與快取的上游：Site 的
-  來源（預設 `archive.ubuntu.com`）與模組宣告的來源、檔案、registry 與 PyPI；Server 的部署不從網際網路取得
-  artifact。
+  以及主機缺 Docker 時的 Docker apt repository。部署需要連得到模組宣告的上游（來源、檔案、registry 與 PyPI）：Site
+  使用 Local Repository 時由 Pulp 連（另加 Site 的來源，預設 `archive.ubuntu.com`），Server 的部署不從網際網路取得
+  artifact；否則由 Server 自己連，OS 套件也經主機自己的來源取得。
 
 ### 設計理由
 
 單一 VM、MAAS 與 Pulp 共用 Compose 的 PostgreSQL instance（而非第二個 PostgreSQL 或 host PostgreSQL）、不用
 `maas-test-db`、紀錄經已發佈 API 建立、先以 plain HTTP 提供、Pulp 以自己的 port 對 Server 發佈：見
-decision 040。Server 只從 Local Repository 取得 artifact：見 [decision 078](../decisions/078-local-repository.md)（local
-repository）。
+decision 040。每個 Site 選擇部署是否從 Local Repository 取得 artifact：見
+[decision 078](../decisions/078-local-repository.md)（local repository）。
 
 ---
 
@@ -337,7 +339,8 @@ repository）。
 7. 把 bundle 的 CLI 安裝為 `/usr/local/bin/swallow`。
 8. 共置 MAAS：`local-maas.sh install` 與 `ensure-image`（§2.4）。
 9. 時間：`local-ntp.sh install` 與 `upstream`（§6.1、§6.2）。
-10. `bootstrap.sh apply`（§2.5），其中包含 `repository` Integration 與 Site 預設的 `ubuntu` 來源。
+10. `bootstrap.sh apply`（§2.5），其中包含 `repository` Integration 與 Site 的第一份 Local Repository spec（`ubuntu`
+    來源，`serveDeployments` 為 `false`）。
 11. Prometheus 的 exporter discovery：以 installation Site 的 id 渲染 `swallow-exporters` job，需要時重啟
     Prometheus，等它載入這個 job（§2.2）。
 12. `doctor`；通過才寫入 `state/installed`。
@@ -361,7 +364,8 @@ repository）。
 - 啟動 MongoDB 與 PostgreSQL 並等兩者 healthy。replica set 之前的 installation 在這一步轉換：補上的
   `mongo-keyfile` 與新的 mongo 設定讓 container 重建，healthcheck 在既有資料上執行 `rs.initiate`（資料保留）。
 - 建立或補齊 Pulp 的 role 與 database（§2.3）。Local Repository 之前的 installation 在這一步得到它的 database，由
-  `up -d` 啟動 Pulp 的 service，並由之後的 `bootstrap.sh apply` 得到 `repository` Integration 與 `ubuntu` 來源；
+  `up -d` 啟動 Pulp 的 service，並由之後的 `bootstrap.sh apply` 得到 `repository` Integration 與第一份 spec（`ubuntu`
+  來源，`serveDeployments` 為 `false`）；
   `prepare-secrets.sh` 已補上三個 Pulp secret。換了 Pulp image 時，`pulp-init` 在 `up -d` 時遷移它的 database，在
   備份之後。
 - `swallow-api migrate --backup-confirmed`（確認已有備份，允許破壞性的 schema 變更：v3 的 Platform rename、
@@ -647,8 +651,9 @@ repository）。
   組出 `SWALLOW_API_PUBLIC_URL`（§2.7）；由它與 `SWALLOW_PULP_PORT` 組出 Pulp 的 `CONTENT_ORIGIN` 與 `repository`
   Integration 的 `contentOrigin`（§2.7）。
 - 第一次安裝後**不支援變更位址**：MAAS 保留第一次初始化時的 URL。`SWALLOW_PULP_PORT` 可以經 `upgrade` 改變：
-  Compose 重建 Pulp 的 service，`bootstrap.sh apply` 把 `contentOrigin` 改到新的 port；已佈署的 Server 仍指向舊的
-  port，直到下一支標成 `usesLocalRepository` 的 playbook 在它上面重寫來源（[local-repository.md](local-repository.md) §8.2）。
+  Compose 重建 Pulp 的 service，`bootstrap.sh apply` 把 `contentOrigin` 改到新的 port；已佈署、使用 Local Repository 的
+  Server 仍指向舊的 port，直到下一支標成 `fetchesArtifacts` 的 playbook 在它上面重寫來源
+  （[local-repository.md](local-repository.md) §8.2）。
 
 ### 5.4 共置 MAAS 的 Integration endpoint
 
@@ -788,7 +793,7 @@ lab 事故）。
 | MongoDB replica set（keyFile、啟動、initiate 與 healthcheck） | `deploy/production/mongo-entrypoint.sh` |
 | 共置 MAAS（role／database、snap、init、admin、virsh identity、`ubuntu/noble`） | `deploy/production/local-maas.sh` |
 | Control-Plane NTP Server（install、upstream、check） | `deploy/production/local-ntp.sh` |
-| Installation records（Site、Integration、automation 預設、Local Repository 的 `ubuntu` 來源） | `deploy/production/bootstrap.sh` |
+| Installation records（Site、Integration、automation 預設、Local Repository 的第一份 spec） | `deploy/production/bootstrap.sh` |
 | Site 的 Prometheus（主設定、exporter discovery 的範本；渲染與重啟在 `swallowctl`） | `deploy/production/prometheus.yml`、`deploy/production/prometheus-exporters.yml.template` |
 | Site 的 Pulp（設定、`pulp-init` 的金鑰／migrate／admin 密碼／signing service、deb Release 簽章、`pulp-web` 的 nginx；database、backup／restore 與 doctor 在 `swallowctl`） | `deploy/production/pulp/settings.py`、`deploy/production/pulp/init.sh`、`deploy/production/pulp/sign-deb-release.sh`、`deploy/production/pulp/nginx.sh`、`deploy/production/pulp/nginx.conf.template` |
 | Dashboard Nginx 設定 | `deploy/production/nginx.conf`（由 `deploy/production/dashboard.Dockerfile` 放入 image） |
@@ -834,7 +839,7 @@ lab 事故）。
   decision 072、
   decision 072、
   [decision 058](../decisions/058-deployment-dhcp-and-subnet-dns.md)（deployment dhcp and subnet dns；swallow 不合成 cloud-init）、
-  decision 078（部署只從 Local Repository 取得 artifact）。
+  decision 078（每個 Site 選擇部署是否從 Local Repository 取得 artifact）。
 - 語言：glossary [Installation](glossaries/terms/installation.md)、
   [Control-Plane NTP Server](glossaries/terms/control-plane-ntp-server.md)、
   [Time Sync Check](glossaries/terms/time-sync-check.md)、[Site](glossaries/terms/site.md)、
@@ -845,13 +850,13 @@ lab 事故）。
   [Local Repository](glossaries/terms/local-repository.md)、[Repository Source](glossaries/terms/repository-source.md)。
 - 規格：[platform-deployment.md](platform-deployment.md)（`ensure-os` 的 Task 組成與 platform 端時鐘檢查）、
   [monitoring.md](monitoring.md)（Site 的 Prometheus 收集什麼、label 契約）、
-  [local-repository.md](local-repository.md)（Local Repository 存什麼、怎麼收斂、部署怎麼使用）。
+  [local-repository.md](local-repository.md)（Local Repository 存什麼、怎麼收斂、Site 怎麼選擇部署是否使用它）。
 - API 契約（`api-server` 擁有）：
   [provisioning](../../api-server/docs/development/api-contracts/api-server/provisioning.md)、
   [platforms](../../api-server/docs/development/api-contracts/api-server/platforms.md)、
   [site-automation](../../api-server/docs/development/api-contracts/api-server/site-automation.md)、
   [sites-integrations](../../api-server/docs/development/api-contracts/api-server/sites-integrations.md)、
   [local-repository](../../api-server/docs/development/api-contracts/api-server/local-repository.md)（bootstrap 寫入的
-  預設來源）、
+  第一份 spec）、
   [discovery-prometheus](../../api-server/docs/development/api-contracts/api-server/discovery-prometheus.md)（Site
   Prometheus 的 http_sd）。

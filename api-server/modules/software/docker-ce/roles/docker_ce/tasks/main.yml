@@ -1,8 +1,8 @@
 ---
-# Install or remove Docker CE. OS-aware and builtin-only: Debian/Ubuntu use apt and the Local
-# Repository's docker-ce source (the playbook's local_repo_client wrote the apt sources and Docker's
-# insecure registry); RHEL family (Rocky/RHEL/Alibaba Cloud Linux) use dnf + the Docker CE yum
-# repository. Idempotent: a converged host produces no changes. os_family branching mirrors the
+# Install or remove Docker CE. OS-aware and builtin-only: Debian/Ubuntu use apt and the docker-ce
+# deb source the module declares (the playbook's artifact_sources wrote the apt sources and, with
+# the Local Repository, Docker's insecure registry); RHEL family (Rocky/RHEL/Alibaba Cloud Linux)
+# use dnf + the Docker CE yum repository. Idempotent: a converged host produces no changes. os_family branching mirrors the
 # platform playbooks, so one software kind serves both image families under one Site.
 #
 # This role is the single source of the Docker CE install path so the standalone software deploy and
@@ -13,12 +13,13 @@
   when: docker_ce_state == 'present' and ansible_facts['os_family'] == 'Debian'
   become: true
   block:
-    - name: Refuse a Local Repository without the Docker CE source
+    - name: Refuse a run without the Docker CE source
       ansible.builtin.fail:
         msg: >-
-          [local_repository_source_missing] The Site's Local Repository has no {{ docker_ce_apt_source }}
-          deb source, which the docker-ce module declares. Wait until the source is ready and retry.
-      when: docker_ce_apt_source not in (swallow_local_repository.deb | map(attribute='name'))
+          [artifact_source_missing] The run's artifact sources have no {{ docker_ce_apt_source }} deb
+          source, which the docker-ce module declares, so apt cannot install Docker CE. Start the
+          Workflow again so swallow hands the run its Site's current sources.
+      when: docker_ce_apt_source not in (swallow_artifacts.deb | map(attribute='name'))
 
     - name: Install Docker CE packages (apt)
       # An empty docker_ce_version installs the latest available; a pinned version applies the

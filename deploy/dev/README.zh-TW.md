@@ -164,8 +164,9 @@ docker compose up -d api-server worker
 
 ## Local Repository
 
-部署從 Site 的 Local Repository（開發環境的 Pulp）取得套件、檔案、container image 與 Python 套件；Site 沒有
-ready 的 Local Repository 時，這類部署在受理時就被拒絕。Pulp 以它的 origin 寫出絕對 URL，lab 的 Server 也從這個位址連到它，
+開發站預設使用 Site 的 Local Repository（開發環境的 Pulp）：部署從它取得套件、檔案、container image 與 Python
+套件，Local Repository 還沒 ready 時，這類部署在受理時就被拒絕。production 的 Site 則一開始從上游取得。
+Pulp 以它的 origin 寫出絕對 URL，lab 的 Server 也從這個位址連到它，
 所以要在 `.env` 把 `PULP_ORIGIN` 設成 Server 看到的、這台主機在 `PULP_HTTP_PORT` 的位址，並重建 Pulp 的 services；
 預設的 `http://localhost:8080` 只有這台主機自己連得到。lab 的設定：
 
@@ -175,9 +176,12 @@ echo PULP_ORIGIN=http://10.170.168.20:8080 >> .env && docker compose up -d && ba
 
 設了 `PULP_ORIGIN` 時，`seed.sh` 會把 Pulp 登錄為 Site 的 `repository` Integration（provider kind `pulp`、endpoint
 `http://pulp-web:8080`、setting `contentOrigin` 等於 `PULP_ORIGIN`，credential 是 Pulp 的 admin 密碼
-`PULP_ADMIN_PASSWORD`，預設 `admin`），並比照 production installation，在從未寫入過的 Local Repository spec 加上 Site 的
-`ubuntu` 來源（Ubuntu archive）；見 [local-repository.md](../../docs/development/local-repository.md) §4.1 與 §5.2。
-Ubuntu archive 的第一次同步要一段時間，進度在 Infrastructure 的 Local Repository 頁面。
+`PULP_ADMIN_PASSWORD`，預設 `admin`），並在從未寫入過的 Local Repository spec 寫入：比照 production installation 的
+Site `ubuntu` 來源（Ubuntu archive），以及 `serveDeployments` `true`（production installation 寫入 `false`）；見
+[local-repository.md](../../docs/development/local-repository.md) §2.1、§4.1 與 §5.2。Ubuntu archive 的第一次同步要
+一段時間，進度在 Infrastructure 的 Local Repository 頁面。要改從上游部署，在該頁把 **Artifact source for
+deployments** 選為 **Upstream sources**；重跑
+`seed.sh` 會保留你的選擇。沒有設 `PULP_ORIGIN` 時，Site 沒有 `repository` Integration，從上游部署。
 
 ## Node Exporter controller
 

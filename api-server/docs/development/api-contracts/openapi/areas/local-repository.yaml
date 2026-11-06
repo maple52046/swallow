@@ -3,8 +3,8 @@
 tags:
   - name: local-repository
     description: >-
-      Read a Site's Local Repository (the source every deployment fetches its artifacts from), browse
-      its content, replace the Repository Sources a user adds to it, and ask for an immediate
+      Read a Site's Local Repository (where its deployments fetch their artifacts from when its spec
+      serves deployments), browse its content, replace its spec, and ask for an immediate
       convergence.
 paths:
   /api/v1/sites/{siteId}/local-repository:
@@ -238,13 +238,18 @@ components:
             type: string
     LocalRepositorySpecWrite:
       type: object
-      required: [generation, sources]
+      required: [generation, serveDeployments, sources]
       properties:
         generation:
           type: integer
           format: int64
           minimum: 0
           description: The spec generation the writer read; `0` before the first write.
+        serveDeployments:
+          type: boolean
+          description: >-
+            Whether the Site's deployments fetch their artifacts from this Local Repository (`true`)
+            or from the upstreams the modules declare (`false`).
         sources:
           type: array
           items:
@@ -288,20 +293,26 @@ components:
         ready:
           type: boolean
           description: >-
-            Every source, file, and image is `ready` on the enabled Integration and the host
-            addresses were read: deployments that fetch from the Local Repository are accepted.
+            The spec serves deployments and every source, file, and image is `ready` on the enabled
+            Integration with the host addresses read. While the spec serves deployments, the ones
+            that fetch artifacts are accepted exactly while it is true.
         contentOrigin:
           type: string
           nullable: true
           description: The Integration's `contentOrigin` setting, where hosts read content; null when unset.
         spec:
           type: object
-          required: [generation, sources]
+          required: [generation, serveDeployments, sources]
           properties:
             generation:
               type: integer
               format: int64
               description: The spec generation; `0` before the first write.
+            serveDeployments:
+              type: boolean
+              description: >-
+                Whether the Site's deployments fetch their artifacts from this Local Repository;
+                `false` (the default) fetches them from the upstreams the modules declare.
             sources:
               type: array
               items:

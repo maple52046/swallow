@@ -5,8 +5,8 @@
 # variables:
 #   swallow_ntp_servers       ordered list of IP addresses or host names; the api-server validates
 #                             its SWALLOW_API_NTP_SERVER and freezes it into the Workflow at acceptance
-#   swallow_local_repository  the Site's Local Repository, the only source chrony may come from
-#                             (role local_repo_client)
+#   swallow_artifacts         where chrony may come from: the Site's Local Repository or the
+#                             distribution's archive (role artifact_sources)
 #
 # The play configures the time client the OS already has (systemd-timesyncd, else chrony, else
 # ntpd), installs chrony only when there is none, and stops every other client, so every provisioned
@@ -23,13 +23,13 @@
   roles:
     - role: package_maintenance_hold
 
-- name: Point every target at the Site's Local Repository
+- name: Point every target at the run's artifact sources
   # Also the first swallow play to do so on a freshly provisioned Server; every later playbook
   # reconverges it.
   hosts: all
   gather_facts: false
   roles:
-    - role: local_repo_client
+    - role: artifact_sources
 
 - name: Configure time synchronization
   hosts: all

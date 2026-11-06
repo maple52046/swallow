@@ -52,7 +52,7 @@ interface DebSourceContext {
 /**
  * Why a typed `deb` source cannot join the user's sources, per field.
  *
- * It mirrors the contract's rules (local-repository.md, Replace The User's Sources) only so the
+ * It mirrors the contract's rules (local-repository.md, Replace The Spec) only so the
  * dialog can flag a typo before the write: a valid name not already in the list, an `http`/`https`
  * URL with a host and without credentials (the spec is shown in plain text), at least one suite and
  * one component, and each word listed once. A name a module (or a pull-through source) already uses

@@ -33,17 +33,21 @@ interface UserSourcesDialogProps {
 }
 
 /**
- * The working copy of the user's sources: the spec generation and list it was based on, and the
- * list as edited. Saving sends `sources` with `generation`.
+ * The working copy of the user's sources: the spec generation, list, and `serveDeployments` it was
+ * based on, and the list as edited. Saving replaces the whole spec, so it sends the edited `sources`
+ * with that `generation` and that `serveDeployments` unchanged; this dialog never changes where
+ * deployments fetch from.
  */
 interface SpecDraft {
   generation: number
+  serveDeployments: boolean
   base: readonly RepositorySourceSpec[]
   sources: readonly RepositorySourceSpec[]
 }
 
 function draftOf(repository: LocalRepository): SpecDraft {
-  return { generation: repository.spec.generation, base: repository.spec.sources, sources: repository.spec.sources }
+  const { generation, serveDeployments, sources } = repository.spec
+  return { generation, serveDeployments, base: sources, sources }
 }
 
 const ADD_FIELDS: ReadonlyArray<{ field: keyof DebSourceDraft; label: string; placeholder: string; help?: string; required: boolean }> = [
@@ -55,18 +59,20 @@ const ADD_FIELDS: ReadonlyArray<{ field: keyof DebSourceDraft; label: string; pl
 ]
 
 /**
- * Manage user sources: the one place the dashboard changes a Site's Local Repository spec. A user
- * removes any of their sources and adds Debian/Ubuntu (`deb`) sources — name, URL, suites,
- * components, and optional architectures — to a working copy, then saves the whole list in one
- * `PUT .../spec` with the generation it was based on. Sources only modules declare (including the
- * derived pull-through sources) are listed read-only with a lock, because they change with the
- * module, not here.
+ * Manage user sources: where the dashboard changes the user's Repository Sources of a Site's Local
+ * Repository spec. A user removes any of their sources and adds Debian/Ubuntu (`deb`) sources —
+ * name, URL, suites, components, and optional architectures — to a working copy, then saves the
+ * whole list in one `PUT .../spec` with the generation and the `serveDeployments` it was based on:
+ * the write replaces the whole spec, and where deployments fetch from is changed only by
+ * `ArtifactSourceSection`. Sources only modules declare (including the derived pull-through sources)
+ * are listed read-only with a lock, because they change with the module, not here.
  *
  * - Each added source is checked with {@link debSourceProblems} first; the API's own refusal (for
  *   example a contradiction it finds) shows in the dialog with its request ID.
- * - A `409` means the sources changed since they were read: nothing was written, the page reads the
- *   repository again, and once the newer generation arrives the working copy restarts from it with a
- *   warning, so another admin's change is never overwritten silently. The Add form keeps its fields.
+ * - A `409` means the spec (the sources, or where deployments fetch from) changed since it was read:
+ *   nothing was written, the page reads the repository again, and once the newer generation arrives
+ *   the working copy restarts from it with a warning, so another admin's change is never overwritten
+ *   silently. The Add form keeps its fields.
  * - Enter in an Add field adds the source rather than saving, since the two are separate steps.
  * - Dismissal is blocked while saving.
  */
@@ -121,7 +127,11 @@ export function UserSourcesDialog({ siteId, repository, onClose, onSaved, onConf
     setSaving(true)
     setError(null)
     try {
-      const saved = await localRepository.replaceSpec(siteId, { generation: draft.generation, sources: draft.sources })
+      const saved = await localRepository.replaceSpec(siteId, {
+        generation: draft.generation,
+        serveDeployments: draft.serveDeployments,
+        sources: draft.sources,
+      })
       onSaved(saved)
     } catch (caught) {
       if (caught instanceof LocalRepositorySpecConflictError) {
@@ -142,7 +152,11 @@ export function UserSourcesDialog({ siteId, repository, onClose, onSaved, onConf
       size="xl"
       closeOnInteractOutside={!saving}
       title="Manage user sources"
-      description="Add or remove the sources you asked this Site's Local Repository to mirror. Changes apply when you save; new sources read Pending until the worker syncs them."
+      description={`Add or remove the sources you asked this Site's Local Repository to mirror. Changes apply when you save; ${
+        draft.serveDeployments
+          ? 'new sources read Pending until the worker syncs them.'
+          : "the worker syncs new sources once this Site's deployments use the local repository."
+      }`}
       footer={
         <>
           <Button variant="ghost" onClick={close} disabled={saving}>
@@ -156,7 +170,7 @@ export function UserSourcesDialog({ siteId, repository, onClose, onSaved, onConf
     >
       <Stack gap="5">
         {conflict && (
-          <Alert status="warning" title="The user sources changed since you opened this dialog">
+          <Alert status="warning" title="This Site's Local Repository changed since you opened this dialog">
             {conflict === 'waiting'
               ? 'Nothing was saved. Loading the current sources…'
               : 'Nothing was saved. The list now shows the current sources; make your change again.'}

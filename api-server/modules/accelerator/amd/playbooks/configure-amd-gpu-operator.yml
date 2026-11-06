@@ -7,9 +7,9 @@
 # load-bearing: the cluster-level checks pass before anything changes, the old allocation mode is
 # switched off before the DRA links are removed, the driver and links are ready before the
 # DeviceConfig starts the operands, and with the metrics exporter on every managed node's exporter
-# answers on its address before the run succeeds. helm and every operator image come from the Site's
-# Local Repository (swallow_local_repository): helm by its file URL, the images through k0s's
-# containerd registry mirrors.
+# answers on its address before the run succeeds. helm and every operator image come from where the
+# run's artifacts come from (swallow_artifacts): helm by its file URL, the images by their own
+# names, which with the Local Repository k0s's containerd resolves through its registry mirrors.
 
 - name: Hold the OS's automatic package maintenance
   hosts: all
@@ -17,13 +17,13 @@
   roles:
     - role: package_maintenance_hold
 
-- name: Point every target at the Site's Local Repository
+- name: Point every target at the run's artifact sources
   hosts: all
   gather_facts: false
   roles:
-    - role: local_repo_client
+    - role: artifact_sources
       vars:
-        local_repo_client_containerd: true
+        artifact_sources_containerd: true
 
 - name: Read every target
   hosts: all

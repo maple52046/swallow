@@ -42,10 +42,12 @@ type ImageView struct {
 // the effective spec joined with the recorded status, the controller's conditions, and whether the
 // repository is ready. It is built from the store alone and never calls the provider.
 //
-// Ready means the Site's repository Integration is enabled, the controller's last pass on it was
-// not stopped by the Integration or its provider, every effective source, file, and declared image
-// is ready, and its addresses were read; otherwise NotReady lists the causes in that order, each with
-// a condition reason and a sentence telling a user what to fix, enable, or wait for.
+// Ready means the spec serves deployments, the Site's repository Integration is enabled, the
+// controller's last pass on it was not stopped by the Integration or its provider, every effective
+// source, file, and declared image is ready, and its addresses were read; otherwise NotReady lists
+// the causes in that order, each with a condition reason and a sentence telling a user what to
+// change, fix, enable, or wait for. Deployments are refused for a view that is not Ready only while
+// its spec serves deployments; otherwise they fetch from the upstreams.
 type View struct {
 	SiteID             string
 	Integration        *sitedomain.Integration
@@ -96,6 +98,9 @@ func buildView(siteID string, integration *sitedomain.Integration, record *local
 	cause := func(reason, message string) {
 		view.NotReady = append(view.NotReady, NotReadyCause{Reason: reason, Message: message})
 	}
+	if !view.Spec.ServeDeployments {
+		cause(localrepodomain.ReasonNotServing, "its spec does not serve deployments, which fetch their artifacts from the upstreams")
+	}
 	if !integration.Enabled {
 		cause(localrepodomain.ReasonIntegrationDisabled, fmt.Sprintf("its repository integration %s is disabled; enable it", integration.Name))
 	}
@@ -106,7 +111,10 @@ func buildView(siteID string, integration *sitedomain.Integration, record *local
 		blocked = true
 	}
 	observed := status.ObservedAt != nil
-	if !observed && !blocked {
+	// A spec that does not serve deployments is not converged, so what the worker has or has not
+	// fetched is no reason of its own; only the settings in the way are.
+	judged := observed && view.Spec.ServeDeployments
+	if !observed && !blocked && view.Spec.ServeDeployments {
 		cause(localrepodomain.ReasonNotObserved, "it has not been observed yet; wait for the worker to converge it")
 	}
 	for _, source := range effective.Sources {
@@ -115,7 +123,7 @@ func buildView(siteID string, integration *sitedomain.Integration, record *local
 			item.State, item.Message = found.State, found.Message
 			item.LastSyncedAt, item.ContentCount = found.LastSyncedAt, found.ContentCount
 		}
-		if item.State != localrepodomain.SyncReady && observed {
+		if item.State != localrepodomain.SyncReady && judged {
 			cause(itemReason(item.State, localrepodomain.ReasonSourceFailed), notReady("source "+source.Name, item.State, item.Message))
 		}
 		view.Sources = append(view.Sources, item)
@@ -125,7 +133,7 @@ func buildView(siteID string, integration *sitedomain.Integration, record *local
 		if found, ok := observedFile(status, file.File); ok {
 			item.State, item.Message, item.SizeBytes = found.State, found.Message, found.SizeBytes
 		}
-		if item.State != localrepodomain.SyncReady && observed {
+		if item.State != localrepodomain.SyncReady && judged {
 			cause(itemReason(item.State, localrepodomain.ReasonFileFailed), notReady("file "+file.Path, item.State, item.Message))
 		}
 		view.Files = append(view.Files, item)
@@ -135,12 +143,12 @@ func buildView(siteID string, integration *sitedomain.Integration, record *local
 		if found, ok := observedImage(status, image.Reference); ok {
 			item.State, item.Message, item.SizeBytes = found.State, found.Message, found.SizeBytes
 		}
-		if item.State != localrepodomain.SyncReady && observed {
+		if item.State != localrepodomain.SyncReady && judged {
 			cause(itemReason(item.State, localrepodomain.ReasonImageFailed), notReady("image "+image.Reference, item.State, item.Message))
 		}
 		view.Images = append(view.Images, item)
 	}
-	if observed && status.Endpoints == nil {
+	if judged && status.Endpoints == nil {
 		cause(localrepodomain.ReasonEndpointsUnknown, "its addresses have not been read yet")
 	}
 	view.Ready = len(view.NotReady) == 0

@@ -31,7 +31,11 @@
         "url": "https://apt.grafana.com",
         "suites": ["stable"],
         "components": ["main"],
-        "architectures": ["amd64"]
+        "architectures": ["amd64"],
+        "signingKey": {
+          "url": "https://apt.grafana.com/gpg.key",
+          "fingerprint": "B53AE77BADB630A683046005963FA27710458545"
+        }
       }
     ],
     "images": [

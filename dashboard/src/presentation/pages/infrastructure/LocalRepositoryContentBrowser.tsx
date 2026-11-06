@@ -268,7 +268,7 @@ export function LocalRepositoryContentBrowser({ siteId, sources }: LocalReposito
                 <ResourceCard key={itemKey(item)} title={<span className="sw-local-repository__wrap">{item.name}</span>}>
                   {columns.map((column) => (
                     <ResourceCardField key={column.field} label={column.header}>
-                      <span className={column.mono ? 'sw-mono' : undefined}>{column.render(item)}</span>
+                      <span className={column.mono ? 'sw-mono sw-local-repository__wrap' : 'sw-local-repository__wrap'}>{column.render(item)}</span>
                     </ResourceCardField>
                   ))}
                 </ResourceCard>

@@ -663,9 +663,10 @@ MAAS rack, which is the swallow host too. The Server's `deployment` result still
 [site-automation.md](site-automation.md)). OS image verification does not configure time: it
 returns the Server afterwards.
 
-**Local Repository.** An `ansible` Task whose playbook fetches its artifacts from the Site's Local
-Repository is accepted only while that repository is ready; otherwise acceptance fails with
-`409 conflict` and a message naming what to register or wait for
+**Local Repository.** An `ansible` Task whose playbook fetches artifacts is refused at acceptance
+with `409 conflict` while the Site's Local Repository serves deployments and is not ready, with a
+message naming what to enable, fix, or wait for; a Site whose Local Repository does not serve
+deployments, or that has none, fetches them from the upstreams the modules declare
 ([local-repository.md](local-repository.md#deployments)).
 
 **Node Exporter.** Every OS deployment also installs the Node Exporter as Managed Software

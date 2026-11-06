@@ -1,10 +1,10 @@
 ---
 # Verify the SchedMD Slurm packages are already present from the user's image. Slurm is
-# not installed here: SchedMD recommends user-built deb/rpm, and the Site's Local Repository
-# mirrors only upstream sources, none of which provides slurm-smd, so the packages are baked
-# into the MAAS image. Other supporting software (for example MUNGE, or MariaDB for future
-# accounting) is apt-installed from the Local Repository by later roles; only the slurm-smd
-# packages are required to pre-exist.
+# not installed here: SchedMD recommends user-built deb/rpm, and none of the package sources a
+# run uses (the Site's Local Repository or the distribution's archive) provides slurm-smd, so
+# the packages are baked into the MAAS image. Other supporting software (for example MUNGE, or
+# MariaDB for future accounting) is apt-installed from those sources by later roles; only the
+# slurm-smd packages are required to pre-exist.
 
 - name: Query the installed slurm-smd package version
   ansible.builtin.command:

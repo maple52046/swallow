@@ -143,7 +143,7 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 | [075](075-module-contract-v1.md) | 模組契約 v1：每個模組以 `module.json` 宣告自己並以一個 root Go package 提供 hook，composition root 為三個 process 組出同一個 registry，模組之間只經由 core 的 port 依賴 | — |
 | [076](076-change-plans.md) | Change Plan 是 convergence context 的獨立文件，每個資源最多一份未完成；破壞性的 spec 寫入與 plan 同一個 transaction，整份核准，由資源的 controller 重算後 apply 成 Workflow，24 小時到期 | — |
 | [077](077-task-diagnostics-and-wait-policy.md) | Task 失敗帶有兩層的 Task Diagnostic，存在 store、經 API 提供，遮蔽 secret 但保留原因，並以結構化 log 關聯；每個等待宣告觀察來源、Failure Class 分類與預算，等待中發佈觀察，permanent 立即失敗 | — |
-| [078](078-local-repository.md) | 部署需要的 artifact 一律從 Site 的 Local Repository 取得：它是 provider 類別（目前是 Pulp 3），與控制平面共置、以 `repository` Integration 登錄；swallow 擁有它必須包含的內容（模組宣告與 Site 的來源），由 controller 收斂；沒有 ready 的 Local Repository 時拒絕部署，不退回網際網路 | — |
+| [078](078-local-repository.md) | 每個 Site 以 `serveDeployments`（預設關閉）決定部署從它的 Local Repository 取得 artifact，或從模組宣告的上游取得並驗證：Local Repository 是 provider 類別（目前是 Pulp 3），與控制平面共置、每個 installation 都安裝並以 `repository` Integration 登錄；swallow 擁有它必須包含的內容（模組宣告與 Site 的來源），由 controller 收斂；Site 選了它而它沒有 ready 時拒絕部署，不退回上游 | — |
 
 ### 已併入的編號
 

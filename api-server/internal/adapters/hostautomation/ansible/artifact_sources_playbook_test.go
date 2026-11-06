@@ -12,29 +12,30 @@ import (
 	"testing"
 )
 
-// localRepositoryRole is the shared role that points a host's apt, pip, and container runtimes at
-// its Site's Local Repository; every playbook marked usesLocalRepository runs it first.
-const localRepositoryRole = "local_repo_client"
+// artifactSourcesRole is the shared role that points a host's apt, pip, and container runtimes at
+// where its run's artifacts come from (the Site's Local Repository or the declared upstreams);
+// every playbook marked fetchesArtifacts runs it first.
+const artifactSourcesRole = "artifact_sources"
 
-// localRepositoryEntry is a manifest entry with the flag that makes swallow hand the playbook the
-// trusted variable swallow_local_repository, and refuse the run while the Site has no ready Local
-// Repository. The tests read the flag from the shipped JSON so they hold whatever Go type the
-// catalog gives it.
-type localRepositoryEntry struct {
-	Name                string `json:"name"`
-	Path                string `json:"path"`
-	UsesLocalRepository bool   `json:"usesLocalRepository"`
+// artifactsEntry is a manifest entry with the flag that makes swallow hand the playbook the trusted
+// variable swallow_artifacts, and refuse the run while the Site serves deployments from a Local
+// Repository that is not ready. The tests read the flag from the shipped JSON so they hold whatever
+// Go type the catalog gives it.
+type artifactsEntry struct {
+	Name             string `json:"name"`
+	Path             string `json:"path"`
+	FetchesArtifacts bool   `json:"fetchesArtifacts"`
 }
 
-// readLocalRepositoryEntries parses the shipped manifest's entries, aliases included.
-func readLocalRepositoryEntries(t *testing.T) []localRepositoryEntry {
+// readArtifactsEntries parses the shipped manifest's entries, aliases included.
+func readArtifactsEntries(t *testing.T) []artifactsEntry {
 	t.Helper()
 	raw, err := os.ReadFile(shippedManifest)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var manifest struct {
-		Playbooks []localRepositoryEntry `json:"playbooks"`
+		Playbooks []artifactsEntry `json:"playbooks"`
 	}
 	if err := json.Unmarshal(raw, &manifest); err != nil {
 		t.Fatal(err)
@@ -94,14 +95,14 @@ func includedRole(task map[string]any) string {
 }
 
 // fetchWalk follows a playbook in execution order (per play: pre_tasks, roles, tasks, post_tasks)
-// and records each unit that fetches, and where the Local Repository role runs among them.
+// and records each unit that fetches, and where the artifact sources role runs among them.
 type fetchWalk struct {
 	t      *testing.T
 	search []string        // the run's roles path (rolesPath)
 	cache  map[string]bool // role name: whether it, or a role it pulls in, fetches
-	// fetches are the units that fetch, in execution order; local_repo_client is not one of them.
+	// fetches are the units that fetch, in execution order; artifact_sources is not one of them.
 	fetches []string
-	// pointedAt is how many fetches ran before the first local_repo_client, or -1 while it has not
+	// pointedAt is how many fetches ran before the first artifact_sources, or -1 while it has not
 	// run; pointedHosts is the hosts: of the play that ran it.
 	pointedAt    int
 	pointedHosts any
@@ -136,10 +137,10 @@ func walkPlaybookFetches(t *testing.T, path string) *fetchWalk {
 	return walk
 }
 
-// role records a role a play lists or a task includes: local_repo_client marks where the host is
-// pointed at the Local Repository, and any other role is a fetch when it, or a role it pulls in, is.
+// role records a role a play lists or a task includes: artifact_sources marks where the host is
+// pointed at its artifact sources, and any other role is a fetch when it, or a role it pulls in, is.
 func (w *fetchWalk) role(name string, hosts any) {
-	if name == localRepositoryRole {
+	if name == artifactSourcesRole {
 		if w.pointedAt < 0 {
 			w.pointedAt, w.pointedHosts = len(w.fetches), hosts
 		}
@@ -199,7 +200,7 @@ func (w *fetchWalk) roleFetches(name string, visiting map[string]bool) bool {
 		fetches = fetches || tasksFetch(tasks)
 	}
 	for nested := range nestedRoles(w.t, dir) {
-		fetches = fetches || (nested != localRepositoryRole && w.roleFetches(nested, visiting))
+		fetches = fetches || (nested != artifactSourcesRole && w.roleFetches(nested, visiting))
 	}
 	w.cache[name] = fetches
 	return fetches
@@ -224,13 +225,14 @@ func tasksFetch(items []any) bool {
 	return false
 }
 
-// A playbook that takes content from the Local Repository points every target at it before it
-// installs, downloads, or pulls anything: otherwise that first fetch still goes to the internet
-// (the distribution's apt sources, a registry, PyPI) or finds no package at all.
-func TestLocalRepositoryPlaybooksPointAtItBeforeFetching(t *testing.T) {
+// A playbook that fetches artifacts points every target at their sources before it installs,
+// downloads, or pulls anything: otherwise that first fetch still goes where the host pointed before
+// (the distribution's apt sources while the Site serves from its Local Repository, a registry, PyPI)
+// or finds no package at all.
+func TestArtifactPlaybooksPointAtTheirSourcesBeforeFetching(t *testing.T) {
 	flagged := 0
-	for _, entry := range readLocalRepositoryEntries(t) {
-		if !entry.UsesLocalRepository {
+	for _, entry := range readArtifactsEntries(t) {
+		if !entry.FetchesArtifacts {
 			continue
 		}
 		flagged++
@@ -238,75 +240,80 @@ func TestLocalRepositoryPlaybooksPointAtItBeforeFetching(t *testing.T) {
 			walk := walkPlaybookFetches(t, entry.Path)
 			switch {
 			case walk.pointedAt < 0:
-				t.Errorf("%s uses the Local Repository but never runs %s", entry.Path, localRepositoryRole)
+				t.Errorf("%s fetches artifacts but never runs %s", entry.Path, artifactSourcesRole)
 			case walk.pointedAt > 0:
-				t.Errorf("%s runs %v before %s", entry.Path, walk.fetches[:walk.pointedAt], localRepositoryRole)
+				t.Errorf("%s runs %v before %s", entry.Path, walk.fetches[:walk.pointedAt], artifactSourcesRole)
 			case walk.pointedHosts != "all":
-				t.Errorf("%s runs %s on hosts %v, want all so every target is pointed at the Local Repository",
-					entry.Path, localRepositoryRole, walk.pointedHosts)
+				t.Errorf("%s runs %s on hosts %v, want all so every target is pointed at its artifact sources",
+					entry.Path, artifactSourcesRole, walk.pointedHosts)
 			}
 		})
 	}
 	if flagged == 0 {
-		t.Fatal("no manifest playbook is marked usesLocalRepository; is the flag's JSON name right?")
+		t.Fatal("no manifest playbook is marked fetchesArtifacts; is the flag's JSON name right?")
 	}
 }
 
-// localRepositoryNotYet are the manifest playbooks that fetch but do not take their content from
-// the Local Repository yet, with the reason. Removing the reason is the only way to remove an
-// entry, so the list only shrinks deliberately.
-var localRepositoryNotYet = map[string]string{
-	"deploy-prometheus": "the Prometheus Software module is outside the Local Repository's first scope; " +
+// fetchesArtifactsNotYet are the manifest playbooks that fetch but are not marked fetchesArtifacts
+// yet, with the reason. Removing the reason is the only way to remove an entry, so the list only
+// shrinks deliberately.
+var fetchesArtifactsNotYet = map[string]string{
+	"deploy-prometheus": "the Prometheus Software module declares no artifacts yet; " +
 		"its native method still downloads the release from GitHub",
 }
 
-// Every playbook that installs, downloads, or pulls is marked usesLocalRepository, aliases included
+// Every playbook that installs, downloads, or pulls is marked fetchesArtifacts, aliases included
 // (a Workflow accepted under an old name retries under it), so a new playbook cannot quietly fetch
-// from the internet. An uninstall playbook only removes what an install put there; roles it shares
-// with the install path make its static content look like a fetch, so it is not checked.
-func TestFetchingPlaybooksUseTheLocalRepository(t *testing.T) {
+// something swallow does not declare. An uninstall playbook only removes what an install put there;
+// roles it shares with the install path make its static content look like a fetch, so it is not
+// checked.
+func TestFetchingPlaybooksAreMarkedFetchesArtifacts(t *testing.T) {
 	names := map[string]bool{}
-	for _, entry := range readLocalRepositoryEntries(t) {
+	for _, entry := range readArtifactsEntries(t) {
 		names[entry.Name] = true
 		if strings.HasPrefix(entry.Name, "uninstall-") {
 			continue
 		}
 		fetches := walkPlaybookFetches(t, entry.Path).fetches
-		if reason, ok := localRepositoryNotYet[entry.Name]; ok {
-			if entry.UsesLocalRepository {
-				t.Errorf("%s is marked usesLocalRepository; drop it from localRepositoryNotYet (%s)", entry.Name, reason)
+		if reason, ok := fetchesArtifactsNotYet[entry.Name]; ok {
+			if entry.FetchesArtifacts {
+				t.Errorf("%s is marked fetchesArtifacts; drop it from fetchesArtifactsNotYet (%s)", entry.Name, reason)
 			}
 			continue
 		}
-		if len(fetches) > 0 && !entry.UsesLocalRepository {
-			t.Errorf("%s (%s) fetches (%v) but is not marked usesLocalRepository", entry.Name, entry.Path, fetches)
+		if len(fetches) > 0 && !entry.FetchesArtifacts {
+			t.Errorf("%s (%s) fetches (%v) but is not marked fetchesArtifacts", entry.Name, entry.Path, fetches)
 		}
-		if len(fetches) == 0 && entry.UsesLocalRepository {
-			t.Errorf("%s (%s) is marked usesLocalRepository but fetches nothing", entry.Name, entry.Path)
+		if len(fetches) == 0 && entry.FetchesArtifacts {
+			t.Errorf("%s (%s) is marked fetchesArtifacts but fetches nothing", entry.Name, entry.Path)
 		}
 	}
-	for name := range localRepositoryNotYet {
+	for name := range fetchesArtifactsNotYet {
 		if !names[name] {
-			t.Errorf("localRepositoryNotYet names %s, which the manifest no longer has", name)
+			t.Errorf("fetchesArtifactsNotYet names %s, which the manifest no longer has", name)
 		}
 	}
 }
 
-// The playbooks that pull images say which container runtime local_repo_client configures: k0s's
-// containerd must resolve every image through the Local Repository's mirrors before k0s starts, and
-// a Docker or Podman must accept its plain-HTTP registry.
-func TestLocalRepositoryPlaybooksConfigureTheirContainerRuntime(t *testing.T) {
+// grafanaDefaultVersion reads the release the grafana role installs when the run names none.
+var grafanaDefaultVersion = regexp.MustCompile(`default\('([^']+)'`)
+
+// The playbooks that pull images say which container runtime artifact_sources configures: with the
+// Local Repository, k0s's containerd must resolve every image through its mirrors before k0s
+// starts, and a Docker or Podman must accept its plain-HTTP registry. An image a Docker or Podman
+// runs is the declared reference as the run's artifact sources map it.
+func TestArtifactPlaybooksConfigureTheirContainerRuntime(t *testing.T) {
 	cases := []struct {
 		playbook string
 		required string
 	}{
-		{playbook: "deploy-kubernetes.yml", required: "local_repo_client_containerd: true"},
-		{playbook: "configure-kubernetes-grafana.yml", required: "local_repo_client_containerd: true"},
-		{playbook: "configure-amd-gpu-operator.yml", required: "local_repo_client_containerd: true"},
-		{playbook: "deploy-docker-ce.yml", required: "local_repo_client_docker: true"},
-		{playbook: "deploy-podman.yml", required: "local_repo_client_podman: true"},
-		{playbook: "deploy-grafana.yml", required: "local_repo_client_docker: \"{{ grafana_container_runtime_used | trim == 'docker-ce' }}\""},
-		{playbook: "deploy-grafana.yml", required: "local_repo_client_podman: \"{{ grafana_container_runtime_used | trim == 'podman' }}\""},
+		{playbook: "deploy-kubernetes.yml", required: "artifact_sources_containerd: true"},
+		{playbook: "configure-kubernetes-grafana.yml", required: "artifact_sources_containerd: true"},
+		{playbook: "configure-amd-gpu-operator.yml", required: "artifact_sources_containerd: true"},
+		{playbook: "deploy-docker-ce.yml", required: "artifact_sources_docker: true"},
+		{playbook: "deploy-podman.yml", required: "artifact_sources_podman: true"},
+		{playbook: "deploy-grafana.yml", required: "artifact_sources_docker: \"{{ grafana_container_runtime_used | trim == 'docker-ce' }}\""},
+		{playbook: "deploy-grafana.yml", required: "artifact_sources_podman: \"{{ grafana_container_runtime_used | trim == 'podman' }}\""},
 	}
 	for _, tc := range cases {
 		raw, err := os.ReadFile(shippedFile(t, tc.playbook))
@@ -314,7 +321,7 @@ func TestLocalRepositoryPlaybooksConfigureTheirContainerRuntime(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !strings.Contains(string(raw), tc.required) {
-			t.Errorf("%s does not pass %q to %s", tc.playbook, tc.required, localRepositoryRole)
+			t.Errorf("%s does not pass %q to %s", tc.playbook, tc.required, artifactSourcesRole)
 		}
 	}
 	// The k0s units start in the bootstrap and join roles, so the mirrors must be written before them.
@@ -322,16 +329,54 @@ func TestLocalRepositoryPlaybooksConfigureTheirContainerRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pointed := strings.Index(string(raw), "role: "+localRepositoryRole)
+	pointed := strings.Index(string(raw), "role: "+artifactSourcesRole)
 	for _, starts := range []string{"role: k0s_controller_bootstrap", "role: k0s_controller_join", "role: k0s_worker_join"} {
 		if at := strings.Index(string(raw), starts); pointed < 0 || at < 0 || at < pointed {
-			t.Errorf("deploy-kubernetes.yml must run %s before %s", localRepositoryRole, starts)
+			t.Errorf("deploy-kubernetes.yml must run %s before %s", artifactSourcesRole, starts)
 		}
 	}
-	// Images a Docker or Podman pulls are addressed at the Local Repository's registry.
-	if got := readRoleDefaults(t, "grafana")["grafana_image"]; !strings.HasPrefix(fmt.Sprint(got), "{{ swallow_local_repository.registry }}/") {
-		t.Errorf("grafana_image = %v, want an image under {{ swallow_local_repository.registry }}/", got)
+
+	defaults := readRoleDefaults(t, "grafana")
+	if got := fmt.Sprint(defaults["grafana_image"]); !strings.HasPrefix(got, "{{ swallow_artifacts.images[grafana_image_reference]") {
+		t.Errorf("grafana_image = %s, want the reference to pull from swallow_artifacts.images[grafana_image_reference]", got)
 	}
+	version := grafanaDefaultVersion.FindStringSubmatch(fmt.Sprint(defaults["grafana_version"]))
+	if version == nil {
+		t.Fatalf("grafana_version = %v, want a default release", defaults["grafana_version"])
+	}
+	reference := strings.ReplaceAll(fmt.Sprint(defaults["grafana_image_reference"]), "{{ grafana_version }}", version[1])
+	if declared := readDeclaredImages(t, "grafana"); !declared[reference] {
+		t.Errorf("the grafana role runs %s by default, which the grafana module does not declare (%v)", reference, declared)
+	}
+}
+
+// readDeclaredImages reads the image artifacts the module id declares in its module.json.
+func readDeclaredImages(t *testing.T, id string) map[string]bool {
+	t.Helper()
+	for _, module := range moduleDirs(t) {
+		if filepath.Base(module) != id {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(module, "module.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var manifest struct {
+			Artifacts struct {
+				Images []string `json:"images"`
+			} `json:"artifacts"`
+		}
+		if err := json.Unmarshal(raw, &manifest); err != nil {
+			t.Fatalf("%s: %v", filepath.Join(module, "module.json"), err)
+		}
+		images := map[string]bool{}
+		for _, image := range manifest.Artifacts.Images {
+			images[image] = true
+		}
+		return images
+	}
+	t.Fatalf("no module %s", id)
+	return nil
 }
 
 // contentURL matches the literal part of an http(s) URL in shipped content, up to the first
@@ -349,7 +394,7 @@ var internetURLAllowlist = map[string]map[string]string{
 		"https://rpm.grafana.com": "RHEL family: Grafana's yum repository (native method) until the Local Repository serves rpm",
 	},
 	filepath.Join("roles", "prometheus", "defaults", "main.yml"): {
-		"https://github.com/prometheus/prometheus/releases/download/v": localRepositoryNotYet["deploy-prometheus"],
+		"https://github.com/prometheus/prometheus/releases/download/v": fetchesArtifactsNotYet["deploy-prometheus"],
 	},
 	filepath.Join("roles", "omnistat", "templates", "omnistat.service.j2"): {
 		"https://rocm.github.io/omnistat/": "the unit's Documentation= link, which nothing fetches",
@@ -357,7 +402,15 @@ var internetURLAllowlist = map[string]map[string]string{
 }
 
 // downloadNotYet are the roles whose get_url tasks may still download from elsewhere, with the reason.
-var downloadNotYet = map[string]string{"prometheus": localRepositoryNotYet["deploy-prometheus"]}
+var downloadNotYet = map[string]string{"prometheus": fetchesArtifactsNotYet["deploy-prometheus"]}
+
+// declaredFileURL is how a role downloads a declared file: by its declared path in
+// swallow_artifacts.files, which maps it to the Local Repository or the file's upstream URL.
+const declaredFileURL = "{{ swallow_artifacts.files["
+
+// signingKeyURL is the one download artifact_sources makes: the signing key a module declares for
+// its upstream deb source, verified against the declared fingerprint before apt trusts it.
+const signingKeyURL = "{{ item.signing_key_url }}"
 
 // unscannedContent reports whether a shipped file is data a role copies or applies as it is
 // (archives, dashboards and other JSON, patches, licenses) rather than content that runs or renders.
@@ -380,11 +433,12 @@ func bundlePath(module, path string) string {
 	return filepath.FromSlash(rel)
 }
 
-// A host fetches only from its Site's Local Repository: no shipped role or playbook writes a
-// literal internet URL outside a comment, and every download takes its URL from
-// swallow_local_repository.files. The allowlist names what remains and why; an entry that no
-// longer matches fails too, so it is removed when its URL goes.
-func TestShippedContentFetchesOnlyFromTheLocalRepository(t *testing.T) {
+// A host fetches only what swallow declares, from where its run's artifact sources say: no shipped
+// role or playbook writes a literal internet URL outside a comment, and every download takes its
+// URL from swallow_artifacts.files (artifact_sources downloads only the declared signing keys). The
+// allowlist names what remains and why; an entry that no longer matches fails too, so it is
+// removed when its URL goes.
+func TestShippedContentFetchesOnlyDeclaredArtifacts(t *testing.T) {
 	used := map[string]bool{}
 	for _, module := range moduleDirs(t) {
 		for _, sub := range []string{"playbooks", "roles"} {
@@ -415,7 +469,7 @@ func TestShippedContentFetchesOnlyFromTheLocalRepository(t *testing.T) {
 							used[file+" "+match[0]] = true
 							continue
 						}
-						t.Errorf("%s:%d writes the internet URL %s; take it from swallow_local_repository instead",
+						t.Errorf("%s:%d writes the internet URL %s; declare the artifact and take it from swallow_artifacts instead",
 							file, number+1, match[0])
 					}
 				}
@@ -444,8 +498,13 @@ func TestShippedContentFetchesOnlyFromTheLocalRepository(t *testing.T) {
 				var tasks []any
 				readYAML(t, file, &tasks)
 				for _, url := range downloadURLs(tasks) {
-					if !strings.HasPrefix(url, "{{ swallow_local_repository.files }}") && downloadNotYet[filepath.Base(dir)] == "" {
-						t.Errorf("%s downloads %s; take it from {{ swallow_local_repository.files }}", bundlePath(module, file), url)
+					switch role := filepath.Base(dir); {
+					case role == artifactSourcesRole:
+						if url != signingKeyURL {
+							t.Errorf("%s downloads %s; %s downloads only %s", bundlePath(module, file), url, role, signingKeyURL)
+						}
+					case !strings.HasPrefix(url, declaredFileURL) && downloadNotYet[role] == "":
+						t.Errorf("%s downloads %s; take it from %s<declared path>] }}", bundlePath(module, file), url, declaredFileURL)
 					}
 				}
 			}
@@ -476,7 +535,7 @@ func downloadURLs(items []any) []string {
 }
 
 // pinnedFiles collects every mapping with a string path and sha256 in a role's defaults: a file the
-// role downloads from swallow_local_repository.files and verifies.
+// role downloads through swallow_artifacts.files and verifies.
 func pinnedFiles(value any, into map[string]string) {
 	switch node := value.(type) {
 	case map[string]any:
@@ -495,8 +554,8 @@ func pinnedFiles(value any, into map[string]string) {
 	}
 }
 
-// declaredFile is a file artifact a module declares in its module.json: the Local Repository holds
-// it at path, verified against sha256.
+// declaredFile is a file artifact a module declares in its module.json: a run fetches it by path,
+// from the Local Repository or its upstream URL, and verifies it against sha256.
 type declaredFile struct {
 	module string
 	sha256 string
@@ -533,9 +592,9 @@ func readDeclaredFiles(t *testing.T) map[string][]declaredFile {
 	return declared
 }
 
-// The Local Repository holds only what modules declare, so every file a role pins (path and
-// SHA-256 in its defaults) is a module's file artifact with the same checksum: a role and its
-// declaration cannot drift apart, and a version bump updates both.
+// A run fetches only the files modules declare, so every file a role pins (path and SHA-256 in its
+// defaults) is a module's file artifact with the same checksum: a role and its declaration cannot
+// drift apart, and a version bump updates both.
 func TestPinnedFilesAreDeclaredModuleArtifacts(t *testing.T) {
 	declared := readDeclaredFiles(t)
 	found := map[string]bool{}

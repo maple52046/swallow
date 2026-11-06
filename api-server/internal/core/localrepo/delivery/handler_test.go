@@ -153,6 +153,9 @@ func TestGetLocalRepository(t *testing.T) {
 	if body["ready"] != false || body["integrationId"] != "repo-1" || body["contentOrigin"] != "http://10.0.0.5:8080" {
 		t.Errorf("GET = %v; want not ready, repo-1, the content origin", body)
 	}
+	if spec, _ := body["spec"].(map[string]any); spec["serveDeployments"] != false || spec["generation"] != float64(0) {
+		t.Errorf("GET spec = %v; want generation 0 not serving deployments before the first write", body["spec"])
+	}
 	sources, _ := body["sources"].([]any)
 	if len(sources) != 3 {
 		t.Fatalf("sources = %v; want docker-ce, pypi, quay.io", sources)
@@ -191,25 +194,28 @@ func TestGetLocalRepository(t *testing.T) {
 	}
 }
 
-// PUT stores the sources at the generation read and refuses a stale generation, a missing one, and
-// an invalid source.
+// PUT stores the spec at the generation read and refuses a stale generation, a missing generation
+// or serveDeployments, and an invalid source.
 func TestPutLocalRepositorySpec(t *testing.T) {
 	app := newHandlerApp(t, nil)
 	ubuntu := `{"name": "ubuntu", "format": "deb", "url": "http://archive.example/ubuntu/", "suites": ["noble"], "components": ["main"]}`
-	resp, body := doRequest(t, app, http.MethodPut, "/api/v1/sites/site-1/local-repository/spec", `{"generation": 0, "sources": [`+ubuntu+`]}`)
+	resp, body := doRequest(t, app, http.MethodPut, "/api/v1/sites/site-1/local-repository/spec",
+		`{"generation": 0, "serveDeployments": true, "sources": [`+ubuntu+`]}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("PUT status = %d, body %v", resp.StatusCode, body)
 	}
-	if spec, _ := body["spec"].(map[string]any); spec["generation"] != float64(1) {
-		t.Errorf("PUT spec = %v, want generation 1", body["spec"])
+	if spec, _ := body["spec"].(map[string]any); spec["generation"] != float64(1) || spec["serveDeployments"] != true {
+		t.Errorf("PUT spec = %v, want generation 1 serving deployments", body["spec"])
 	}
 	for _, tc := range []struct {
 		name, body string
 		want       int
 	}{
-		{"stale generation", `{"generation": 0, "sources": []}`, http.StatusConflict},
-		{"no generation", `{"sources": []}`, http.StatusBadRequest},
-		{"invalid source", `{"generation": 1, "sources": [{"name": "x", "format": "deb", "url": "ftp://x"}]}`, http.StatusBadRequest},
+		{"stale generation", `{"generation": 0, "serveDeployments": true, "sources": []}`, http.StatusConflict},
+		{"no generation", `{"serveDeployments": true, "sources": []}`, http.StatusBadRequest},
+		{"no serveDeployments", `{"generation": 1, "sources": []}`, http.StatusBadRequest},
+		{"serveDeployments not a boolean", `{"generation": 1, "serveDeployments": "yes", "sources": []}`, http.StatusBadRequest},
+		{"invalid source", `{"generation": 1, "serveDeployments": false, "sources": [{"name": "x", "format": "deb", "url": "ftp://x"}]}`, http.StatusBadRequest},
 		{"not JSON", `{`, http.StatusBadRequest},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -217,6 +223,11 @@ func TestPutLocalRepositorySpec(t *testing.T) {
 				t.Errorf("PUT %s = %d %v, want %d", tc.body, resp.StatusCode, body, tc.want)
 			}
 		})
+	}
+
+	resp, body = doRequest(t, app, http.MethodPut, "/api/v1/sites/site-1/local-repository/spec", `{"generation": 1, "serveDeployments": false, "sources": []}`)
+	if spec, _ := body["spec"].(map[string]any); resp.StatusCode != http.StatusOK || spec["generation"] != float64(2) || spec["serveDeployments"] != false {
+		t.Errorf("PUT turning serving off = %d %v, want generation 2 not serving deployments", resp.StatusCode, body)
 	}
 }
 

@@ -1,17 +1,13 @@
-import { useState } from 'react'
-import { Field, RadioCard } from '@chakra-ui/react'
+import { Field } from '@chakra-ui/react'
 import type { DeploymentNetworkMode } from '@/domain/provisioning/types'
+import { ChoiceCardGroup, type ChoiceCardOption } from '@/presentation/components/ChoiceCardGroup'
 
 /**
  * The three deployment addressing intents in the order a user weighs them (glossary Network
  * Configuration). Descriptions state who assigns the address and where DNS comes from, because
  * that is what tells Automatic and DHCP apart on a site-DHCP network (decision 058).
  */
-const ADDRESSING_MODE_OPTIONS: ReadonlyArray<{
-  value: DeploymentNetworkMode
-  label: string
-  description: string
-}> = [
+const ADDRESSING_MODE_OPTIONS: ReadonlyArray<ChoiceCardOption<DeploymentNetworkMode>> = [
   {
     value: 'automatic',
     label: 'Automatic',
@@ -28,8 +24,6 @@ const ADDRESSING_MODE_OPTIONS: ReadonlyArray<{
     description: 'Choose a NIC, subnet, and unique IPv4 address for every Server.',
   },
 ]
-
-const ADDRESSING_MODES: ReadonlySet<string> = new Set(ADDRESSING_MODE_OPTIONS.map((option) => option.value))
 
 interface AddressingModeFieldProps {
   value: DeploymentNetworkMode
@@ -55,42 +49,11 @@ export function AddressingModeField({
   label = 'Addressing mode',
   helperText,
 }: AddressingModeFieldProps) {
-  const [keyboardNavigation, setKeyboardNavigation] = useState(false)
-
   return (
     // Every consumer places the field in a two-column form grid; three cards need the whole row.
     <Field.Root required className="sw-addressing-mode-field">
       <Field.Label>{label}</Field.Label>
-      <RadioCard.Root
-        aria-label={label}
-        colorPalette="brand"
-        value={value}
-        disabled={disabled}
-        className="sw-deployment-choice-grid sw-deployment-choice-grid--three"
-        data-focus-modality={keyboardNavigation ? 'keyboard' : 'pointer'}
-        onKeyDownCapture={() => setKeyboardNavigation(true)}
-        onPointerDownCapture={() => setKeyboardNavigation(false)}
-        onValueChange={(details) => {
-          // The radio group only emits the values rendered below; the set check makes the
-          // assertion safe even if Chakra emits null on a cleared selection.
-          if (details.value && ADDRESSING_MODES.has(details.value)) {
-            onChange(details.value as DeploymentNetworkMode)
-          }
-        }}
-      >
-        {ADDRESSING_MODE_OPTIONS.map((option) => (
-          <RadioCard.Item key={option.value} value={option.value}>
-            <RadioCard.ItemHiddenInput />
-            <RadioCard.ItemControl className="sw-deployment-choice-card">
-              <RadioCard.ItemContent className="sw-deployment-choice-card__content">
-                <RadioCard.ItemText className="sw-deployment-choice-card__title">{option.label}</RadioCard.ItemText>
-                <RadioCard.ItemDescription className="sw-deployment-choice-card__description">{option.description}</RadioCard.ItemDescription>
-              </RadioCard.ItemContent>
-              <RadioCard.ItemIndicator />
-            </RadioCard.ItemControl>
-          </RadioCard.Item>
-        ))}
-      </RadioCard.Root>
+      <ChoiceCardGroup label={label} options={ADDRESSING_MODE_OPTIONS} value={value} onChange={onChange} disabled={disabled} columns={3} />
       {helperText && <Field.HelperText>{helperText}</Field.HelperText>}
     </Field.Root>
   )

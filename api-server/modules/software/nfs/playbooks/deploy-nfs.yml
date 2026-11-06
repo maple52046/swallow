@@ -20,11 +20,11 @@
   roles:
     - role: package_maintenance_hold
 
-- name: Point every target at the Site's Local Repository
+- name: Point every target at the run's artifact sources
   hosts: all
   gather_facts: false
   roles:
-    - role: local_repo_client
+    - role: artifact_sources
 
 - name: Classify NFS nodes by assigned role
   hosts: all

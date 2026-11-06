@@ -3,16 +3,26 @@ package domain
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 )
 
-const testDigest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+const (
+	testDigest      = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	testFingerprint = "9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
+)
+
+// testSigningKey returns a valid signing key a test may change.
+func testSigningKey() *ArtifactSigningKey {
+	return &ArtifactSigningKey{URL: "https://packages.example.com/debian/gpg", Fingerprint: testFingerprint}
+}
 
 func validArtifacts() Artifacts {
 	return Artifacts{
 		Sources: []ArtifactSource{{
 			Name: "example", Format: ArtifactFormatDeb, URL: "https://packages.example.com/debian",
 			Suites: []string{"noble", "noble-updates"}, Components: []string{"main"}, Architectures: []string{"amd64"},
+			SigningKey: testSigningKey(),
 		}},
 		Files: []FileArtifact{{
 			Path: "tool/v1.2.3+build.1/tool-1.2.3~24.04_amd64.tar.gz", URL: "https://downloads.example.com/tool/v1.2.3/tool.tar.gz", SHA256: testDigest,
@@ -36,7 +46,7 @@ func TestArtifactsValidateAcceptsWellFormedDeclarations(t *testing.T) {
 		t.Errorf("empty Artifacts.Validate() = %v, want nil", err)
 	}
 	for _, source := range []ArtifactSource{
-		{Name: "rpms", Format: ArtifactFormatRPM, URL: "http://packages.example.com/el9", Architectures: []string{"x86_64"}},
+		{Name: "rpms", Format: ArtifactFormatRPM, URL: "http://packages.example.com/el9", Architectures: []string{"x86_64"}, SigningKey: testSigningKey()},
 		{Name: "images", Format: ArtifactFormatOCI, URL: "https://registry.example.com"},
 		{Name: "index", Format: ArtifactFormatPython, URL: "https://pypi.example.com/"},
 		{Name: "downloads", Format: ArtifactFormatFile, URL: "https://downloads.example.com/"},
@@ -69,10 +79,27 @@ func TestArtifactsValidateRefusesMalformedDeclarations(t *testing.T) {
 		"oci source with architectures": func(a *Artifacts) {
 			a.Sources[0] = ArtifactSource{Name: "images", Format: ArtifactFormatOCI, URL: "https://registry.example.com", Architectures: []string{"amd64"}}
 		},
-		"duplicate source name": func(a *Artifacts) { a.Sources = append(a.Sources, a.Sources[0]) },
-		"absolute file path":    func(a *Artifacts) { a.Files[0].Path = "/tool/tool.tar.gz" },
-		"file path escapes":     func(a *Artifacts) { a.Files[0].Path = "tool/../../etc/passwd" },
-		"file path dot element": func(a *Artifacts) { a.Files[0].Path = "tool/./tool.tar.gz" },
+		"deb source without signing key": func(a *Artifacts) { a.Sources[0].SigningKey = nil },
+		"rpm source without signing key": func(a *Artifacts) {
+			a.Sources[0] = ArtifactSource{Name: "rpms", Format: ArtifactFormatRPM, URL: "https://packages.example.com/el9"}
+		},
+		"oci source with signing key": func(a *Artifacts) {
+			a.Sources[0] = ArtifactSource{Name: "images", Format: ArtifactFormatOCI, URL: "https://registry.example.com", SigningKey: testSigningKey()}
+		},
+		"signing key over http":      func(a *Artifacts) { a.Sources[0].SigningKey.URL = "http://packages.example.com/debian/gpg" },
+		"signing key without URL":    func(a *Artifacts) { a.Sources[0].SigningKey.URL = "" },
+		"signing key URL with token": func(a *Artifacts) { a.Sources[0].SigningKey.URL = "https://packages.example.com/gpg?token=x" },
+		"signing key URL with user info": func(a *Artifacts) {
+			a.Sources[0].SigningKey.URL = "https://user:secret@packages.example.com/gpg"
+		},
+		"fingerprint too short":  func(a *Artifacts) { a.Sources[0].SigningKey.Fingerprint = testFingerprint[:39] },
+		"fingerprint not hex":    func(a *Artifacts) { a.Sources[0].SigningKey.Fingerprint = "G" + testFingerprint[1:] },
+		"fingerprint with space": func(a *Artifacts) { a.Sources[0].SigningKey.Fingerprint = "9DC8 5822" + testFingerprint[8:] },
+		"no fingerprint":         func(a *Artifacts) { a.Sources[0].SigningKey.Fingerprint = "" },
+		"duplicate source name":  func(a *Artifacts) { a.Sources = append(a.Sources, a.Sources[0]) },
+		"absolute file path":     func(a *Artifacts) { a.Files[0].Path = "/tool/tool.tar.gz" },
+		"file path escapes":      func(a *Artifacts) { a.Files[0].Path = "tool/../../etc/passwd" },
+		"file path dot element":  func(a *Artifacts) { a.Files[0].Path = "tool/./tool.tar.gz" },
 		"file path empty element": func(a *Artifacts) {
 			a.Files[0].Path = "tool//tool.tar.gz"
 		},
@@ -129,19 +156,29 @@ func TestManifestRefusesInvalidArtifacts(t *testing.T) {
 	if _, err := ParseManifest([]byte(`{"contractVersion":1,"kind":"software","id":"nfs","version":"0.1.0","artifacts":{"image":["registry.example.com/app:1"]}}`)); !errors.Is(err, ErrInvalidManifest) {
 		t.Errorf("misspelled artifacts key: error = %v, want ErrInvalidManifest", err)
 	}
+	if _, err := ParseManifest([]byte(`{"contractVersion":1,"kind":"software","id":"nfs","version":"0.1.0",
+		"artifacts":{"sources":[{"name":"example","format":"deb","url":"https://packages.example.com/debian","suites":["noble"],"components":["main"],
+		"signingKey":{"url":"https://packages.example.com/gpg","fingerprint":"` + testFingerprint + `","keyring":"x"}}]}}`)); !errors.Is(err, ErrInvalidManifest) {
+		t.Errorf("unknown signingKey key: error = %v, want ErrInvalidManifest", err)
+	}
 	parsed, err := ParseManifest([]byte(`{"contractVersion":1,"kind":"software","id":"nfs","version":"0.1.0",
-		"artifacts":{"sources":[{"name":"example","format":"deb","url":"https://packages.example.com/debian","suites":["noble"],"components":["main"],"architectures":["amd64"]}],
+		"artifacts":{"sources":[{"name":"example","format":"deb","url":"https://packages.example.com/debian","suites":["noble"],"components":["main"],"architectures":["amd64"],
+		"signingKey":{"url":"https://packages.example.com/debian/gpg","fingerprint":"` + strings.ToLower(testFingerprint) + `"}}],
 		"files":[{"path":"tool/tool.tar.gz","url":"https://downloads.example.com/tool.tar.gz","sha256":"` + testDigest + `"}],
 		"images":["registry.example.com/team/app:1.2.3"],"python":["numpy==2.5.4"]}}`))
 	if err != nil {
 		t.Fatalf("ParseManifest(valid artifacts) error = %v", err)
 	}
 	want := ArtifactSource{Name: "example", Format: "deb", URL: "https://packages.example.com/debian",
-		Suites: []string{"noble"}, Components: []string{"main"}, Architectures: []string{"amd64"}}
+		Suites: []string{"noble"}, Components: []string{"main"}, Architectures: []string{"amd64"}, SigningKey: testSigningKey()}
 	if got := parsed.Artifacts.Sources; len(got) != 1 || got[0].Name != want.Name || got[0].URL != want.URL ||
 		!slices.Equal(got[0].Suites, want.Suites) || !slices.Equal(got[0].Components, want.Components) ||
 		!slices.Equal(got[0].Architectures, want.Architectures) {
 		t.Errorf("ParseManifest() sources = %+v, want [%+v]", got, want)
+	}
+	// A fingerprint is stored the way gpg prints it, whatever case the manifest wrote it in.
+	if got := parsed.Artifacts.Sources[0].SigningKey; got == nil || *got != *want.SigningKey {
+		t.Errorf("ParseManifest() signingKey = %+v, want %+v", got, want.SigningKey)
 	}
 	if got := parsed.Artifacts.Files; len(got) != 1 || got[0] != (FileArtifact{Path: "tool/tool.tar.gz", URL: "https://downloads.example.com/tool.tar.gz", SHA256: testDigest}) {
 		t.Errorf("ParseManifest() files = %+v", got)
@@ -155,13 +192,19 @@ func TestManifestRefusesInvalidArtifacts(t *testing.T) {
 // must mean the same content; what a deb source mirrors may differ, because the consumer merges it.
 func TestNewRegistryChecksSharedArtifacts(t *testing.T) {
 	source := ArtifactSource{Name: "shared", Format: ArtifactFormatDeb, URL: "https://packages.example.com/debian",
-		Suites: []string{"noble"}, Components: []string{"main"}}
+		Suites: []string{"noble"}, Components: []string{"main"}, SigningKey: testSigningKey()}
 	file := FileArtifact{Path: "tool/tool.tar.gz", URL: "https://downloads.example.com/tool.tar.gz", SHA256: testDigest}
 	conflicts := map[string]func(b *Artifacts){
 		"source with another format": func(b *Artifacts) {
-			b.Sources[0] = ArtifactSource{Name: "shared", Format: ArtifactFormatRPM, URL: source.URL}
+			b.Sources[0] = ArtifactSource{Name: "shared", Format: ArtifactFormatRPM, URL: source.URL, SigningKey: testSigningKey()}
 		},
-		"source with another URL":  func(b *Artifacts) { b.Sources[0].URL = "https://mirror.example.com/debian" },
+		"source with another URL": func(b *Artifacts) { b.Sources[0].URL = "https://mirror.example.com/debian" },
+		"source with another signing key URL": func(b *Artifacts) {
+			b.Sources[0].SigningKey.URL = "https://mirror.example.com/debian/gpg"
+		},
+		"source with another fingerprint": func(b *Artifacts) {
+			b.Sources[0].SigningKey.Fingerprint = "0" + testFingerprint[1:]
+		},
 		"file with another URL":    func(b *Artifacts) { b.Files[0].URL = "https://mirror.example.com/tool.tar.gz" },
 		"file with another digest": func(b *Artifacts) { b.Files[0].SHA256 = "f" + testDigest[1:] },
 	}
@@ -181,7 +224,8 @@ func TestNewRegistryChecksSharedArtifacts(t *testing.T) {
 	a.Artifacts = Artifacts{Sources: []ArtifactSource{source}, Files: []FileArtifact{file}}
 	b.Artifacts = Artifacts{
 		Sources: []ArtifactSource{{Name: "shared", Format: ArtifactFormatDeb, URL: source.URL,
-			Suites: []string{"noble-updates"}, Components: []string{"universe"}, Architectures: []string{"arm64"}}},
+			Suites: []string{"noble-updates"}, Components: []string{"universe"}, Architectures: []string{"arm64"},
+			SigningKey: &ArtifactSigningKey{URL: source.SigningKey.URL, Fingerprint: strings.ToLower(testFingerprint)}}},
 		Files: []FileArtifact{file},
 	}
 	if _, err := NewRegistry(Module{Manifest: a}, Module{Manifest: b}); err != nil {
@@ -206,9 +250,11 @@ func TestRegistryArtifactsAreOrderedByModuleIDAndCopied(t *testing.T) {
 		t.Fatalf("Artifacts() module ids = %v, want %v (a module without declarations is left out)", ids, want)
 	}
 	declared[0].Artifacts.Sources[0].Suites[0] = "changed"
+	declared[0].Artifacts.Sources[0].SigningKey.URL = "changed"
 	declared[0].Artifacts.Images[0] = "changed"
 	again := registry.Artifacts()
-	if again[0].Artifacts.Sources[0].Suites[0] != "noble" || again[0].Artifacts.Images[0] != validArtifacts().Images[0] {
+	if again[0].Artifacts.Sources[0].Suites[0] != "noble" || again[0].Artifacts.Images[0] != validArtifacts().Images[0] ||
+		*again[0].Artifacts.Sources[0].SigningKey != *testSigningKey() {
 		t.Errorf("Artifacts() after the caller changed its copy = %+v, want the registered declaration", again[0].Artifacts)
 	}
 }

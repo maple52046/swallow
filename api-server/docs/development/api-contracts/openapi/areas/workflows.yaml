@@ -448,8 +448,8 @@ components:
       description: >-
         A target is already in unfinished work, a target is protected by its Server Lock, a
         target is not in the provisioning state the kind requires, the intent contradicts a
-        Platform policy, or the playbook fetches from the Site's Local Repository and it is not
-        ready (`conflict`).
+        Platform policy, or the playbook fetches artifacts while the Site's Local Repository
+        serves deployments and is not ready (`conflict`).
       content:
         application/json:
           schema:

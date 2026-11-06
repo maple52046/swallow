@@ -1,6 +1,7 @@
 package ansible
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -15,31 +16,36 @@ type playbookManifest struct {
 	Playbooks     []playbookManifestEntry `json:"playbooks"`
 }
 
-// playbookManifestEntry is one allowlisted playbook. UsesLocalRepository (optional, false when
-// absent) marks a playbook whose hosts fetch every artifact from the Site's Local Repository.
+// playbookManifestEntry is one allowlisted playbook. FetchesArtifacts (optional, false when
+// absent) marks a playbook whose hosts install or download the artifacts its modules declare, so
+// it receives the trusted variable that says where to fetch them from.
 type playbookManifestEntry struct {
-	Name                string `json:"name"`
-	Path                string `json:"path"`
-	UsesLocalRepository bool   `json:"usesLocalRepository,omitempty"`
+	Name             string `json:"name"`
+	Path             string `json:"path"`
+	FetchesArtifacts bool   `json:"fetchesArtifacts,omitempty"`
 }
 
 // ManifestCatalog is an immutable allowlist shipped with the release. Its root is the modules
 // root: every manifest path is a module's playbook (see playbookModule), and the run takes its
 // roles from that module and the shared roles only (see rolesPath).
 type ManifestCatalog struct {
-	root            string
-	paths           map[string]string
-	localRepository map[string]bool
+	root             string
+	paths            map[string]string
+	fetchesArtifacts map[string]bool
 }
 
-// LoadManifestCatalog validates the manifest and every referenced path.
+// LoadManifestCatalog validates the manifest and every referenced path. An unknown key is refused
+// rather than ignored: a misspelled or retired flag would otherwise silently run a playbook without
+// the trusted variable it reads.
 func LoadManifestCatalog(manifestPath, projectRoot string) (*ManifestCatalog, error) {
 	raw, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return nil, fmt.Errorf("read playbook manifest: %w", err)
 	}
 	var manifest playbookManifest
-	if err := json.Unmarshal(raw, &manifest); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&manifest); err != nil {
 		return nil, fmt.Errorf("parse playbook manifest: %w", err)
 	}
 	if manifest.SchemaVersion != 1 {
@@ -49,7 +55,7 @@ func LoadManifestCatalog(manifestPath, projectRoot string) (*ManifestCatalog, er
 	if err != nil {
 		return nil, err
 	}
-	catalog := &ManifestCatalog{root: root, paths: make(map[string]string, len(manifest.Playbooks)), localRepository: map[string]bool{}}
+	catalog := &ManifestCatalog{root: root, paths: make(map[string]string, len(manifest.Playbooks)), fetchesArtifacts: map[string]bool{}}
 	for _, entry := range manifest.Playbooks {
 		if entry.Name == "" || entry.Path == "" {
 			return nil, fmt.Errorf("playbook manifest entries require name and path")
@@ -69,17 +75,17 @@ func LoadManifestCatalog(manifestPath, projectRoot string) (*ManifestCatalog, er
 			return nil, fmt.Errorf("manifest playbook %q: %w", entry.Name, statErr)
 		}
 		catalog.paths[entry.Name] = clean
-		if entry.UsesLocalRepository {
-			catalog.localRepository[entry.Name] = true
+		if entry.FetchesArtifacts {
+			catalog.fetchesArtifacts[entry.Name] = true
 		}
 	}
 	return catalog, nil
 }
 
-// UsesLocalRepository implements workflowdomain.PlaybookCatalog from the entry's
-// usesLocalRepository flag.
-func (c *ManifestCatalog) UsesLocalRepository(name string) bool {
-	return c.localRepository[name]
+// FetchesArtifacts implements workflowdomain.PlaybookCatalog from the entry's fetchesArtifacts
+// flag.
+func (c *ManifestCatalog) FetchesArtifacts(name string) bool {
+	return c.fetchesArtifacts[name]
 }
 
 // Resolve returns a manifest-owned relative path, never a user path.

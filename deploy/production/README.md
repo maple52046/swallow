@@ -63,9 +63,11 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
    existing metrics Integration is repointed and keeps its other settings, never duplicated),
    the installation's Pulp as its `repository` Integration (`local-repository`,
    `http://pulp-web:8080`, with the setting `contentOrigin` `http://<SWALLOW_ADDRESS>:<SWALLOW_PULP_PORT>`
-   and the Pulp admin password as its credential), the Local Repository's default source `ubuntu`
-   (the Ubuntu archive, `noble`, `noble-updates`, and `noble-security`) while its spec has never
-   been written, so removing every source later is kept,
+   and the Pulp admin password as its credential), the Local Repository's first spec while its spec
+   has never been written: the default source `ubuntu` (the Ubuntu archive, `noble`,
+   `noble-updates`, and `noble-security`) with `serveDeployments` `false`, so the Site deploys from
+   the upstreams until you turn the Local Repository on, and later changes (turning it on, removing
+   every source) are kept,
    Site automation defaults (enabled, Deployment Key, no playbook mappings) when the Site has
    none; then waits for the Integration sync and the `ubuntu/noble` catalog entry;
 8. renders the Prometheus exporter discovery for the Site: the `swallow-exporters` job, from
@@ -94,18 +96,23 @@ It never creates an SSH Access Key: the user adds their own in the Dashboard.
 | Temporal UI | Compose profile `diagnostics` | `127.0.0.1:${SWALLOW_TEMPORAL_UI_PORT:-8233}`, off by default |
 
 The installation serves plain HTTP. Put a TLS terminator in front of port 80 before exposing
-it beyond a trusted management network. Deployed Servers reach the NTP server on UDP 123 and the
-Local Repository on `SWALLOW_PULP_PORT`, so a host firewall must allow both from the machine
-networks.
+it beyond a trusted management network. Deployed Servers reach the NTP server on UDP 123 and, when
+the Site uses its Local Repository, the Local Repository on `SWALLOW_PULP_PORT`, so a host firewall
+must allow both from the machine networks.
 
 The Local Repository is the Site's own source of everything a deployment installs: OS packages
 (the Ubuntu archive and vendor archives, signed with this installation's key), container images
 (a pull-through cache per registry), Python packages (a pull-through cache of PyPI), and files
-verified against their declared sha256. Deployed Servers fetch only from it, at
-`http://<SWALLOW_ADDRESS>:<SWALLOW_PULP_PORT>`; Pulp fetches from the upstreams once and keeps
-what it fetched in the volume `pulp-data`, so the disk must have room for that cache. The
-Dashboard's Local repository page shows its content and sync state. Pulp's own REST API on the same
-port needs the Pulp admin password (`secrets/pulp-admin-password`).
+verified against their declared sha256. The Site starts without using it: deployments fetch each
+artifact from the upstream swallow's modules declare (files verified by their sha256, vendor
+package archives by their declared signing keys), and Servers keep their own OS package sources.
+Choosing **This local repository** as the Site's **Artifact source for deployments** on the
+Dashboard's Local repository page (`serveDeployments` in the API) makes deployed Servers fetch only
+from it, at `http://<SWALLOW_ADDRESS>:<SWALLOW_PULP_PORT>`, once it is ready; deployments are
+refused until then. Pulp fetches from the upstreams once and keeps what it
+fetched in the volume `pulp-data`, so the disk must have room for that cache. The Dashboard's Local
+repository page shows its content and sync state. Pulp's own REST API on the same port needs the
+Pulp admin password (`secrets/pulp-admin-password`).
 
 A Platform's own Grafana, on a Slurm controller or in a Kubernetes cluster, reads the Site Prometheus through the API at
 `http://<SWALLOW_ADDRESS>:<SWALLOW_HTTP_PORT>` (Compose passes it as `SWALLOW_API_PUBLIC_URL`), and
@@ -220,9 +227,11 @@ applies a changed `.env` (that is `upgrade`), and it never cancels or retries Wo
   `backups/pre-upgrade-<installed version>-<time>` (kept until you remove it), migrates, starts
   the stack, ensures the Control-Plane NTP Server and its upstream, the MAAS rack's `virsh` SSH
   key and its record on the Integration, the metrics Integration and the Prometheus exporter
-  discovery, the repository Integration and the Local Repository's default source, and reruns
+  discovery, the repository Integration and the Local Repository's first spec, and reruns
   `doctor`. An installation from before the Local Repository gets Pulp's database, services, and
-  Integration here; a new Pulp image migrates its database when the stack starts, after the backup.
+  Integration here; its Site's spec does not serve deployments, so they keep fetching from the
+  upstreams until you turn the Local Repository on. A new Pulp image migrates its database when the
+  stack starts, after the backup.
   `install.sh` refuses a downgrade before it extracts anything.
 - `sudo ./swallowctl ntp upstream [show | set SERVER... | default]` shows, sets, or resets the
   NTP server's upstream. `set` and `default` apply the change first and record it in `.env` only

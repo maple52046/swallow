@@ -1,4 +1,4 @@
-# 078. Deployments fetch every artifact from the Site's Local Repository, a provider swallow converges
+# 078. Each Site chooses whether its deployments fetch from its Local Repository, a provider swallow converges
 
 - Status: Accepted
 - Date: 2026-11-06
@@ -27,12 +27,25 @@ The user also asked that what the Site holds is not hard-coded: modules declare 
 users can add more, and container images and Python packages come through pull-through caches
 rather than from a set of images someone maintains.
 
+The first form of this decision made every deployment fetch from the Local Repository. On
+2026-11-06 the user decided that the installation still installs it and registers it on every Site,
+but each Site chooses whether its deployments use it, and that the choice starts off.
+
 ## Decision
 
-1. **Every artifact a deployment installs comes from the Site's Local Repository.** Roles contain no
-   Internet URL: what a module's playbooks fetch is declared in its `module.json` and read from the
-   Local Repository. A deployment whose playbooks use it is refused at acceptance while the Site's
-   Local Repository is not ready; swallow never falls back to the Internet.
+1. **Each Site chooses where its deployments fetch their artifacts.** Roles contain no Internet URL:
+   everything a module's playbooks fetch is declared in its `module.json` — files with their sha256,
+   deb sources with the signing key that verifies them, container images, and pinned Python
+   requirements. The Site's Local Repository spec has `serveDeployments`, `false` by default:
+   - While it is `false`, or while the Site has no `repository` Integration, every artifact comes
+     from the upstream its module declares (files verified by their sha256, deb sources by their
+     declared keys), and each host keeps its own OS package sources.
+   - While it is `true`, every artifact comes from the Local Repository, and a deployment whose
+     playbooks fetch artifacts is refused at acceptance while the Local Repository is not ready.
+
+   The choice is not a fallback: swallow never sends a Site that chose the Local Repository to the
+   upstreams because the Local Repository is not ready, and disabling its Integration pauses it
+   without changing the Site's choice.
 2. **The Local Repository is a provider category.** The core defines its port (`Repository`, in
    `internal/core/localrepo/domain`) in neutral vocabulary; its formats are `deb`, `rpm`, `oci`,
    `python`, and `file`. Pulp 3 is its adapter (`internal/adapters/localrepo/pulp`); the names
@@ -40,20 +53,24 @@ rather than from a set of images someone maintains.
    Site's Integration of kind `repository` (provider kind `pulp`), at most one per Site. The
    Integration's endpoint is where swallow calls the provider's API, its `contentOrigin` setting is
    where Servers read content, and its credential is the provider's admin password.
-3. **It is co-located with the control plane.** Pulp runs as services of the production and the
-   development Compose installations, and Servers fetch from it at
-   `http://<SWALLOW_ADDRESS>:<port>`. In production its database lives in the shared PostgreSQL
-   ([decision 040](040-single-vm-production-installation.md) (single VM production installation)),
-   and the installation registers the Integration and the Site's Ubuntu source.
+3. **It is co-located with the control plane and installed on every installation.** Pulp runs as
+   services of the production and the development Compose installations, and Servers fetch from it
+   at `http://<SWALLOW_ADDRESS>:<port>`. In production its database lives in the shared PostgreSQL
+   ([decision 040](040-single-vm-production-installation.md) (single VM production installation)).
+   The installation registers the Integration and writes the Site's first spec: the Site's Ubuntu
+   source, with `serveDeployments` `false`. A user turns it on for the Site.
 4. **swallow owns what the Local Repository must contain; the provider owns the artifacts.** The
    content it must hold is the union of the module declarations (`module.json` `artifacts`: package
    sources, files, images, and Python requirements) and the Site's user Repository Sources, a spec
    with a `generation` written through the API. The Ubuntu archive `ubuntu` is a Site source, not a
-   module declaration, because it belongs to the OS the Site deploys rather than to any module. A
-   controller in the worker converges that content into the provider through the port and records
-   each source's and file's observed state, as the Provisioner HTTP Proxy controller does
+   module declaration, because it belongs to the OS the Site deploys rather than to any module. While
+   the spec serves deployments, a controller in the worker converges that content into the provider
+   through the port and records each source's, file's, and image's observed state, as the
+   Provisioner HTTP Proxy controller does
    ([decision 071](071-provisioner-realized-desired-state.md) (provisioner realized desired state)).
-   swallow stores no artifact itself.
+   While it does not, the controller leaves the provider alone (nothing is synchronized or fetched,
+   and what it already holds stays) and records the Local Repository as not ready because it does not
+   serve deployments. swallow stores no artifact itself.
 5. **Each format uses the provider mechanism that fetches it once and keeps it at the Site.**
    - `oci`: a pull-through cache per registry host that a declared image names (`docker.io`,
      `quay.io`, and so on); the declared images are fetched in advance.
@@ -67,11 +84,16 @@ rather than from a set of images someone maintains.
    - `rpm` has the same source shape and is designed in; its adapter branch and the dnf client are
      added when swallow deploys an RPM-based OS. arm64 content and offline import bundles (Pulp's
      import and export) come later.
-6. **Hosts are pointed at it by one shared role.** A playbook flagged `usesLocalRepository` in the
-   release manifest receives the Local Repository's addresses as the trusted variable
-   `swallow_local_repository`, and the shared role `local_repo_client` points apt, pip, and the
-   container runtimes (containerd, Docker, Podman) at it. Content tests fail a role that contains
-   an Internet URL.
+6. **Hosts are pointed at the chosen source by one shared role.** A playbook flagged
+   `fetchesArtifacts` in the release manifest receives the trusted variable `swallow_artifacts`,
+   frozen at acceptance: which source the Site chose and, for every declared file and image, where
+   to fetch it. The shared role `artifact_sources` configures the host for that source. From the
+   Local Repository it points apt (verified by the Site's key, with the host's other apt sources
+   disabled), pip, and the container runtimes (containerd, Docker, Podman) at it. From the upstreams
+   it adds each declared deb source with its declared key, verified against the declared
+   fingerprint, keeps the host's OS sources, and removes what it wrote for the Local Repository, so a
+   host converges to the Site's current choice the next time such a playbook runs on it. Content
+   tests fail a role that contains an Internet URL.
 7. **Pulp is used unmodified, as a separate service, over HTTP.** pulpcore and its deb, container,
    python, file, and rpm plugins are licensed GPLv2-or-later. swallow neither modifies nor links
    them and talks to them only through their HTTP API, so commercial use is allowed. A release that
@@ -93,21 +115,34 @@ rather than from a set of images someone maintains.
   hold, not the artifacts.
 - **Keep the provisioner's apt proxy (MAAS's built-in proxy).** Rejected: it covers apt only, pins
   nothing, and still fetches from the upstream on every miss.
+- **Every deployment fetches from the Local Repository** (the first form of this decision).
+  Replaced by the Site's choice, by the user's decision of 2026-11-06.
+- **Fetch from the upstreams while a chosen Local Repository is not ready.** Rejected: a Site that
+  chose the Local Repository would reach the Internet without saying so, which is a same-shaped
+  substitute for a missing capability; the deployment is refused and names what to wait for or fix.
 
 ## Consequences
 
-- Each artifact crosses the Internet once per Site, so deployment time no longer grows with the
-  number of Servers times the outbound bandwidth, and content stays the same between deployments.
-  A Site without Internet access can later import content instead of synchronizing it.
-- Deployments depend on the Local Repository: a Site without a ready one cannot run them, and the
-  first request for an artifact waits for the provider to fetch it.
-- Modules must declare every artifact their playbooks fetch; installing another version is a
-  `module.json` change. The module contract
+- While a Site uses its Local Repository, each artifact crosses the Internet once per Site, so
+  deployment time no longer grows with the number of Servers times the outbound bandwidth, and
+  content stays the same between deployments. A Site without Internet access can later import
+  content instead of synchronizing it.
+- A Site that uses it cannot deploy until it is ready, and the first request for an artifact waits
+  for the provider to fetch it. A Site that does not use it deploys from the upstreams: its Servers
+  need to reach them, and the artifacts are still pinned and verified, files by their sha256 and deb
+  sources by their declared keys.
+- Modules must declare every artifact their playbooks fetch, and the signing key of every deb
+  source they declare; installing another version is a `module.json` change. The module contract
   ([decision 075](075-module-contract-v1.md) (module contract v1)) gains `artifacts`.
-- The installation gains the Pulp services, a database in the shared PostgreSQL, and a signing key
-  per Site, and decision 040 is revised accordingly.
-- Hosts configured by `local_repo_client` use only the Local Repository: the distribution's package
-  sources are disabled there, and apt reaches the repository directly rather than through the
-  provisioner's proxy.
+- Every installation gains the Pulp services, a database in the shared PostgreSQL, and a signing key
+  per Site, whether or not its Site uses them, and decision 040 is revised accordingly.
+- Hosts configured for the Local Repository use only it: the distribution's package sources are
+  disabled there, and apt reaches the repository directly rather than through the provisioner's
+  proxy. They return to their own sources when a playbook that fetches artifacts runs on them after
+  the Site turned the Local Repository off.
 - `oci` and `python` content is served over plain HTTP like the rest of the installation; `deb`
   content is verified by the Site's signature and files by their sha256.
+
+## Revision history
+
+- 2026-11-06: each Site chooses with `serveDeployments` (off by default; the installation registers the Integration with it off) whether its deployments fetch from the Local Repository or from the upstreams their modules declare, with module-declared deb sources verified by their declared signing keys; the manifest flag, trusted variable, and shared role became `fetchesArtifacts`, `swallow_artifacts`, and `artifact_sources`.

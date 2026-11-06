@@ -23,9 +23,10 @@ Site 的 Local Repository（Pulp）與 production 相同，發佈在每個介面
 production 由 `swallowctl` 在共用的 PostgreSQL 建立 Pulp 的 role 與 database；這裡由一次性的
 `pulp-db` service 在每次 `up` 時建立，排在 `pulp-init` 遷移 database 之前。`seed.sh` 比照 production
 的 `bootstrap.sh`，把 Pulp 登錄為 testing Site 的 `repository` Integration，並寫入 Local Repository
-的預設來源 `ubuntu`。Integration 的 `contentOrigin` 就是 Pulp 自己的 origin
+的第一份 spec：預設來源 `ubuntu`，`serveDeployments` 為 `false`。打開 `serveDeployments` 之前，Site 從上游部署，Pulp
+也不同步任何東西。Integration 的 `contentOrigin` 就是 Pulp 自己的 origin
 `http://<SWALLOW_ADDRESS>:<SWALLOW_PULP_PORT>`，`SWALLOW_ADDRESS` 沒有設定時是 `localhost`：要讓 Server
-從這個 stack 取得內容時，先在 `.env` 設定 `SWALLOW_ADDRESS` 再 `up`。之後 Pulp 從網際網路同步這些來源，
+從這個 stack 取得內容時，先在 `.env` 設定 `SWALLOW_ADDRESS` 再 `up`。打開之後 Pulp 從網際網路同步這些來源，
 `seed.sh` 不等它完成。
 
 設定 `COMPOSE_PROJECT_NAME` 可在同一台主機上執行多個互相隔離的 stack；用完請以

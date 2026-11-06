@@ -119,12 +119,13 @@ type AutomationConfigurationRepository interface {
 
 // PlaybookCatalog resolves only release-manifest entries.
 //
-// UsesLocalRepository reports whether the manifest marks the playbook as fetching its artifacts
-// from the Site's Local Repository, so accepting it requires a ready Local Repository and injects
-// the trusted var that points its hosts there; it is false for a name the manifest does not list.
+// FetchesArtifacts reports whether the manifest marks the playbook as installing or downloading
+// the artifacts its modules declare, so accepting it resolves where the Site's artifacts come from
+// and injects the trusted var that says so (refused while the Site's Local Repository serves
+// deployments and is not ready); it is false for a name the manifest does not list.
 type PlaybookCatalog interface {
 	Resolve(name string) (string, error)
-	UsesLocalRepository(name string) bool
+	FetchesArtifacts(name string) bool
 }
 
 // RunnerInput contains all ephemeral material required for one local run.

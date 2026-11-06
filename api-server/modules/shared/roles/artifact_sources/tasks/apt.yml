@@ -1,0 +1,66 @@
+---
+# Debian family: one deb822 file holds every apt source the role adds, each stanza with the key that
+# signs it. With the Local Repository its sources replace every other apt source of the host; from
+# the upstreams the declared sources join the host's own.
+
+- name: Ensure the apt keyring directory exists
+  become: true
+  ansible.builtin.file:
+    path: "{{ artifact_sources_root }}{{ artifact_sources_keyring | dirname }}"
+    state: directory
+    mode: "0755"
+
+- name: Point apt at the Local Repository
+  ansible.builtin.include_tasks: apt_local_repository.yml
+  when: swallow_artifacts.source == 'local_repository'
+
+- name: Point apt at the declared upstreams
+  ansible.builtin.include_tasks: apt_upstream.yml
+  when: swallow_artifacts.source == 'upstream'
+
+- name: Converge the role's apt sources
+  become: true
+  block:
+    - name: Write the run's apt sources
+      ansible.builtin.template:
+        src: apt.sources.j2
+        dest: "{{ artifact_sources_root }}{{ artifact_sources_apt_sources }}"
+        mode: "0644"
+
+    - name: Stop trusting and reaching the Local Repository directly
+      ansible.builtin.file:
+        path: "{{ artifact_sources_root }}{{ item }}"
+        state: absent
+      loop:
+        - "{{ artifact_sources_keyring }}"
+        - "{{ artifact_sources_apt_conf }}"
+      when: swallow_artifacts.source == 'upstream'
+
+    - name: Find the upstream signing keys the role installed
+      ansible.builtin.find:
+        paths: "{{ artifact_sources_root }}{{ artifact_sources_upstream_keyring_prefix | dirname }}"
+        patterns: ["{{ artifact_sources_upstream_keyring_prefix | basename }}*.gpg"]
+      register: artifact_sources_installed_keys
+
+    - name: Remove the keys of sources the run does not add
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ artifact_sources_installed_keys.files | map(attribute='path') | sort }}"
+      when: >-
+        swallow_artifacts.source == 'local_repository' or
+        (item | basename) not in (artifact_sources_deb | map(attribute='name')
+                                  | map('regex_replace', '^', artifact_sources_upstream_keyring_prefix | basename)
+                                  | map('regex_replace', '$', '.gpg'))
+
+    - name: Refresh the package index
+      # Every run refreshes it: the cache may still hold what the sources of the other mode served.
+      ansible.builtin.apt:
+        update_cache: true
+        lock_timeout: 300
+      register: artifact_sources_index
+      until: artifact_sources_index is succeeded
+      retries: 30
+      delay: 10
+      changed_when: false
+      when: artifact_sources_root | length == 0

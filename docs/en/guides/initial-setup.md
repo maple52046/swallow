@@ -6,7 +6,8 @@ Initial setup establishes the Site boundary, external Integrations, and the
 automation policy required before swallow can manage Servers.
 
 The [production installation](../installation.md) already performs steps 1 to 5 for the
-Site `default` with its co-located MAAS, its Prometheus, and its local repository. Use this guide to review that result, to add more
+Site `default` with its co-located MAAS, its Prometheus, and its local repository, which it leaves off
+(step 4 turns it on). Use this guide to review that result, to add more
 Sites, or to set up a development stack.
 
 ## 1. Create the Site
@@ -78,27 +79,39 @@ swallow's HTTP service-discovery endpoint, so scraped series receive stable `ser
 `site`, `platform_id`, and `exporter` labels. In this version other Sites have no
 Prometheus.
 
-## 4. Register the local repository
+## 4. Choose where deployments fetch from
 
-Deployments install packages, container images, Python packages, and files only
-from the Site's **local repository**, never from the Internet. It runs next to
-swallow (Pulp, in the same installation), fetches each artifact from its upstream
-once, and serves it to every Server of the Site. Deployments therefore do not
-depend on the Site's Internet bandwidth, and every Server gets the same content,
-kept at the Site; OS package indexes are signed with the Site's own key and
-files are checked against their declared checksums.
+This step is optional. Deployments install packages, container images, Python
+packages, and files that swallow's modules declare at fixed versions, and each
+Site chooses where they come from:
 
-The production installation registers it as the Site's `repository` / `pulp`
-Integration and adds the Ubuntu archive as the Site's `ubuntu` source. A Site has
-at most one. Everything else it holds is declared by swallow's own modules, for
-example the Docker CE package archive, the k0s binary, and the container images a
-Platform runs, so you add a source only for something swallow does not declare.
-For a development stack, register it yourself: the endpoint is where swallow
-reaches Pulp's API, the `contentOrigin` setting is the address Servers reach it
-at, and the credential is the Pulp admin password.
+- **Upstream sources**, the default: each Server fetches every artifact from the
+  source its module declares. Files are checked against their declared checksums
+  and package archives against their declared signing keys, and the Server keeps
+  its own OS package sources.
+- **The Site's local repository**: a repository next to swallow (Pulp, in the
+  same installation) fetches each artifact from its upstream once and serves it
+  to every Server of the Site, which then fetches only from it. OS package
+  indexes are signed with the Site's own key and files are checked against their
+  declared checksums.
 
-A deployment that needs it is refused while the Site has no local repository or
-its content is not ready yet; the message names what to register or wait for.
+The production installation registers the local repository as the Site's
+`repository` / `pulp` Integration, adds the Ubuntu archive as the Site's `ubuntu`
+source, and leaves it off. A Site has at most one. To use it, choose **This local
+repository** as the **Artifact source for deployments** under **Infrastructure →
+Local repository** (`serveDeployments` in the API): the local repository starts
+fetching its content, and deployments are accepted once it is ready. Until then they are refused, and the message names what to wait for or
+fix. Choosing **Upstream sources** again makes later deployments fetch from the
+upstream sources; what the local repository already holds is kept. A deployed Server follows the
+Site's choice the next time a deployment runs on it.
+
+Everything the local repository holds besides the `ubuntu` source is declared by
+swallow's own modules, for example the Docker CE package archive, the k0s binary,
+and the container images a Platform runs, so you add a source only for something
+swallow does not declare. For a development stack, register it yourself: the
+endpoint is where swallow reaches Pulp's API, the `contentOrigin` setting is the
+address Servers reach it at, and the credential is the Pulp admin password.
+
 **Infrastructure → Local repository** shows its sources and their sync state and
 lets you browse its content by format, with the module that declared each item.
 See the [local repository contract](../../../api-server/docs/development/api-contracts/api-server/local-repository.md)
@@ -124,8 +137,9 @@ external Integration; it is a Site-scoped swallow capability.
 ## 6. Verify readiness
 
 - Integration sync has a recent `lastSucceededAt` and no unresolved error.
-- **Infrastructure → Local repository** says deployments are accepted: every
-  source, file, and declared image is **Ready**.
+- When the Site uses its local repository, **Infrastructure → Local repository**
+  says deployments are accepted: every source, file, and declared image is
+  **Ready**.
 - Servers appear after reconcile; add more with **Servers → Add servers** (see
   [Add servers](servers-and-infrastructure.md#add-servers)).
 - Worker and Ansible executor are healthy.

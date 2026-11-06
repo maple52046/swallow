@@ -2,11 +2,12 @@
 # Omnistat system-mode exporter on a Slurm compute node (decision 063). Intent arrives as trusted
 # swallow_omnistat_* vars from the Slurm deployment; nothing here is a user choice.
 omnistat_version: "{{ swallow_omnistat_version | default('1.15.0', true) }}"
-# Pinned upstream source per version: the GitHub tag archive's path under
-# swallow_local_repository.files and its SHA-256 (the slurm module declares the same file artifact,
-# which a content test keeps in step), and the patches swallow maintains for it (decision 064: each
-# is checked and applied on its own, so a patch added later reaches a node that already carries the
-# earlier ones). Its Python dependencies come from the Local Repository's Python index.
+# Pinned upstream source per version: the GitHub tag archive's declared path (its key in
+# swallow_artifacts.files) and its SHA-256 (the slurm module declares the same file artifact, which
+# a content test keeps in step), and the patches swallow maintains for it (decision 064: each is
+# checked and applied on its own, so a patch added later reaches a node that already carries the
+# earlier ones). Its Python dependencies come from the run's Python index: the Local Repository's,
+# or pip's default from the upstreams.
 omnistat_sources:
   "1.15.0":
     path: omnistat/v1.15.0.tar.gz

@@ -9,8 +9,7 @@
 #   swallow_grafana_prometheus_url    datasource URL; empty reads the Prometheus on this Server
 #   swallow_grafana_prometheus_port   that Prometheus's port, used for the empty-URL default
 #   swallow_grafana_dashboards        swallow-shipped dashboard bundles to provision
-#   swallow_local_repository          the Site's Local Repository: the image, or on Debian the
-#                                     package
+#   swallow_artifacts                 where the image, or on Debian the package, comes from
 # and, as a secret var, swallow_grafana_datasource_token: the bearer token the datasource sends (a
 # Platform's monitoring token for swallow's metrics gateway). A run on one Server writes
 # {grafanaUrl}, the requested bundles' landing dashboard (the root without a bundle), to the run's
@@ -23,7 +22,7 @@
   roles:
     - role: package_maintenance_hold
 
-- name: Point every target at the Site's Local Repository
+- name: Point every target at the run's artifact sources
   hosts: all
   gather_facts: false
   vars:
@@ -32,10 +31,10 @@
       {{ swallow_grafana_container_runtime | default('docker-ce', true)
          if (swallow_grafana_install_method | default('container', true)) == 'container' else '' }}
   roles:
-    - role: local_repo_client
+    - role: artifact_sources
       vars:
-        local_repo_client_docker: "{{ grafana_container_runtime_used | trim == 'docker-ce' }}"
-        local_repo_client_podman: "{{ grafana_container_runtime_used | trim == 'podman' }}"
+        artifact_sources_docker: "{{ grafana_container_runtime_used | trim == 'docker-ce' }}"
+        artifact_sources_podman: "{{ grafana_container_runtime_used | trim == 'podman' }}"
 
 - name: Install Grafana
   hosts: all

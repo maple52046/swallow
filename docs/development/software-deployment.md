@@ -116,8 +116,9 @@ catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴�
 可用的 runtime kind。Prometheus／Grafana：
 
 - `container`（預設）：官方 image（`docker.io/prom/prometheus:v<version>`、
-  `docker.io/grafana/grafana:<version>`；Grafana 的 image 宣告在模組的 `artifacts.images`，經 Site 的 Local Repository
-  的 registry 以 `<registry>/docker.io/grafana/grafana:<version>` 拉取），`docker-ce` 上用 Docker Compose project，`podman` 上用
+  `docker.io/grafana/grafana:<version>`；Grafana 的 image 宣告在模組的 `artifacts.images`，以
+  `swallow_artifacts.images` 對應的 reference 拉取：Site 使用 Local Repository 時是
+  `<registry>/docker.io/grafana/grafana:<version>`，否則是原本的 reference），`docker-ce` 上用 Docker Compose project，`podman` 上用
   Quadlet unit（`/etc/containers/systemd/swallow-<kind>-container.container`，systemd 擁有生命週期，
   需 Podman ≥ 4.4）。獨立 install 時 runtime 必須已在每個 target `installed` 且一致；省略
   `containerRuntime` 即採 target 上已裝的 runtime，不滿足回 409。被 platform 組入時由同一個 Workflow
@@ -361,16 +362,17 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
 ### 4.5 撰寫 software playbook 的硬規則
 
 先遵守[模組撰寫指南](module-authoring.md)的共通規則（§4：冪等、只依賴契約、以 serverId 為身分、排序留在
-playbook、依賴鎖定、不逃出內容根目錄、結果與 secret 走契約、只從 Local Repository 取得；§5：改套件的 playbook 取得與釋放
+playbook、依賴鎖定、不逃出內容根目錄、結果與 secret 走契約、只取宣告的 artifact；§5：改套件的 playbook 取得與釋放
 `package_maintenance_hold`，套件 task 要重試）、登錄方式（§2）與 role 的解析（§3）。software 另外要滿足：
 
 1. 契約是 §4.1 的 inventory 與 §4.2 的 trusted vars；每個 kind 的 install 與 uninstall playbook 都要登錄
    （`TestEverySoftwareKindHasRegisteredPlaybooks`）。
-2. 套件與 image 都來自 Site 的 Local Repository（[local-repository.md](local-repository.md) §8）：發行版的套件來自 Site
-   的 `ubuntu` 來源，第三方的 deb repository（例如 Docker CE 的 `docker-ce`）由模組宣告、由 Local Repository 鏡像。spec
-   指定 `version` 時 pin 該版本，未指定時安裝 Local Repository 中該來源目前的版本（Docker CE、Podman）。Prometheus 模組
-   還不在 Local Repository 的範圍內，RHEL 系列的 dnf 分支在 Local Repository 提供 rpm 之前仍用上游的 repository
-   （[模組撰寫指南](module-authoring.md) §4 第 8 條的例外）；沒有網際網路的 Site 以離線匯入取得內容是後續
+2. 套件與 image 都從 Site 選擇的來源取得（[local-repository.md](local-repository.md) §8）：Site 使用 Local Repository
+   時，發行版的套件來自 Site 的 `ubuntu` 來源，第三方的 deb repository（例如 Docker CE 的 `docker-ce`）由模組宣告、由
+   Local Repository 鏡像；否則發行版的套件來自主機自己的 OS 來源，第三方的 deb repository 以模組宣告的 URL 與
+   `signingKey` 加到主機。spec 指定 `version` 時 pin 該版本，未指定時安裝該來源目前的版本（Docker CE、Podman）。
+   Prometheus 模組還不在 artifact 宣告的範圍內，RHEL 系列的 dnf 分支在 Local Repository 提供 rpm 之前仍用上游的
+   repository（[模組撰寫指南](module-authoring.md) §4 第 8 條的例外）；沒有網際網路的 Site 以離線匯入取得內容是後續
    （local-repository.md §9）。
 
 ### 4.6 Docker CE 的 Engine API 與 Docker Host Explorer
@@ -496,8 +498,8 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
   workload storage 仍留在 `slurm_*` roles。過渡期存在「兩套 NFS 故事」——**generic NFS ≠ Slurm
   managed state NFS**，直到 slice 2 收斂。
 - 不做 k8s + Docker runtime、不做 PostgreSQL / LDAP、不把 software 做成 Platform 形狀的聚合、
-  不做持續 package 輪詢。（Slurm launcher 的組入已由 decision 063 實作，見 §5。套件來自 Site 的 Local Repository，見
-  §4.5；它的離線匯入見 [local-repository.md](local-repository.md) §9。）
+  不做持續 package 輪詢。（Slurm launcher 的組入已由 decision 063 實作，見 §5。套件從 Site 選擇的來源取得，見
+  §4.5；Local Repository 的離線匯入見 [local-repository.md](local-repository.md) §9。）
 - **Docker Engine API 的 hardening**：listener 的 TLS／mTLS 認證，或改由 api-server 經 SSH tunnel 連 local
   socket；做的時候一併處理 Registry Credential 的明文傳輸。
 - **Swarm 與 fleet 級 Docker 管理**：Docker Swarm 或跨 Server 的 Docker 檢視可能需要 swallow 保存 Docker 資料，

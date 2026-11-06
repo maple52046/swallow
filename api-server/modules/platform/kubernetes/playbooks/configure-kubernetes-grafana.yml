@@ -10,8 +10,9 @@
 # and, as a secret var, swallow_grafana_datasource_token: the Platform's monitoring token. The
 # inventory is the Platform's deployment targets. The run writes {grafanaUrl}, the requested
 # bundles' landing dashboard, to its result file once Grafana serves every provisioned dashboard.
-# helm and the Grafana image come from the Site's Local Repository (swallow_local_repository): helm
-# by its file URL, the image through k0s's containerd registry mirrors.
+# helm and the Grafana image come from where the run's artifacts come from (swallow_artifacts): helm
+# by its file URL, the image by its own name, which with the Local Repository k0s's containerd
+# resolves through its registry mirrors.
 # Idempotent: a converged cluster reruns with no changes.
 
 - name: Hold the OS's automatic package maintenance
@@ -20,13 +21,13 @@
   roles:
     - role: package_maintenance_hold
 
-- name: Point every target at the Site's Local Repository
+- name: Point every target at the run's artifact sources
   hosts: all
   gather_facts: false
   roles:
-    - role: local_repo_client
+    - role: artifact_sources
       vars:
-        local_repo_client_containerd: true
+        artifact_sources_containerd: true
 
 - name: Read every target
   hosts: all

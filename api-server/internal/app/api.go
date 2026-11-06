@@ -449,7 +449,8 @@ func RunAPI(cfg config.APIConfig) error {
 	}
 	// Local Repository: the API reads and writes each Site's spec, browses content live through the
 	// Site's repository Integration, and resolves at acceptance where a deployment's hosts fetch
-	// their artifacts; the worker's controller converges the provider.
+	// their artifacts (the Local Repository or the upstreams); the worker's controller converges the
+	// provider.
 	localRepositories := localrepostore.NewMongoLocalRepositoryRepo(db)
 	localRepositoryProviders := pulp.NewRepositoryFactory(integrationRepo, nil)
 	localRepositoryHandler := localrepodelivery.NewHandler(localrepoapp.NewService(

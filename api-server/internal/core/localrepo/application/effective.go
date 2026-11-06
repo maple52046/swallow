@@ -18,9 +18,13 @@ const (
 
 // EffectiveSource is one Repository Source the Site's repository must serve, and who asked for it:
 // DeclaredBy holds localrepodomain.DeclaredByModule values and DeclaredByUser, in declaration order.
+// SigningKey is the key a module declares the upstream signed with, zero for a source no module
+// declares (a user's, or a pull-through source swallow derives); it is not part of what the
+// provider is asked to serve.
 type EffectiveSource struct {
 	localrepodomain.Source
 	DeclaredBy []string
+	SigningKey localrepodomain.SigningKey
 }
 
 // EffectiveFile is one File the Site's repository must serve, and the modules that declared it.
@@ -81,7 +85,8 @@ type EffectiveSpec struct {
 //
 //   - Sources merge by name: the first declaration fixes the format and URL, and a later one with
 //     the same format and URL adds its suites, components, and architectures (a union in order of
-//     appearance) and its declarer. One with another format or URL is a Conflict and left out.
+//     appearance) and its declarer. One with another format or URL is a Conflict and left out. A
+//     module's signing key of the source is kept; the registry has made the modules agree on it.
 //   - Files merge by path; a later one with another URL or checksum is a Conflict and left out.
 //   - Images and Python requirements merge by their text.
 //   - Each registry host an image names gets an oci source named after the host, at
@@ -96,7 +101,7 @@ func Effective(modules []localrepodomain.ModuleDeclaration, user []localrepodoma
 	for _, module := range modules {
 		by := localrepodomain.DeclaredByModule(module.ModuleID)
 		for _, source := range module.Sources {
-			merger.addSource(source, []string{by}, false)
+			merger.addSource(source, module.SigningKeys[source.Name], []string{by}, false)
 		}
 		for _, file := range module.Files {
 			merger.addFile(file, by)
@@ -109,7 +114,7 @@ func Effective(modules []localrepodomain.ModuleDeclaration, user []localrepodoma
 		}
 	}
 	for _, source := range user {
-		merger.addSource(source, []string{localrepodomain.DeclaredByUser}, false)
+		merger.addSource(source, localrepodomain.SigningKey{}, []string{localrepodomain.DeclaredByUser}, false)
 	}
 	hosts := map[string][]string{}
 	var hostOrder []string
@@ -124,14 +129,14 @@ func Effective(modules []localrepodomain.ModuleDeclaration, user []localrepodoma
 		hosts[host] = appendUnique(hosts[host], merger.images.by[reference]...)
 	}
 	for _, host := range hostOrder {
-		merger.addSource(localrepodomain.Source{Name: host, Format: localrepodomain.FormatOCI, URL: "https://" + host}, hosts[host], true)
+		merger.addSource(localrepodomain.Source{Name: host, Format: localrepodomain.FormatOCI, URL: "https://" + host}, localrepodomain.SigningKey{}, hosts[host], true)
 	}
 	if len(merger.python.order) > 0 {
 		var by []string
 		for _, requirement := range merger.python.order {
 			by = appendUnique(by, merger.python.by[requirement]...)
 		}
-		merger.addSource(localrepodomain.Source{Name: pythonSourceName, Format: localrepodomain.FormatPython, URL: pythonSourceURL}, by, true)
+		merger.addSource(localrepodomain.Source{Name: pythonSourceName, Format: localrepodomain.FormatPython, URL: pythonSourceURL}, localrepodomain.SigningKey{}, by, true)
 	}
 	return merger.spec()
 }
@@ -167,12 +172,13 @@ func newMerger() *merger {
 	}
 }
 
-// addSource merges one source declaration. implicit marks a source swallow derives from images or
-// Python requirements, which defers to a declared source of the same name and format.
-func (m *merger) addSource(source localrepodomain.Source, by []string, implicit bool) {
+// addSource merges one source declaration and the signing key its declarer names (zero for none).
+// implicit marks a source swallow derives from images or Python requirements, which defers to a
+// declared source of the same name and format.
+func (m *merger) addSource(source localrepodomain.Source, key localrepodomain.SigningKey, by []string, implicit bool) {
 	current, exists := m.sources[source.Name]
 	if !exists {
-		copied := EffectiveSource{Source: cloneSource(source), DeclaredBy: append([]string(nil), by...)}
+		copied := EffectiveSource{Source: cloneSource(source), DeclaredBy: append([]string(nil), by...), SigningKey: key}
 		m.sources[source.Name] = &copied
 		m.sourceOrder = append(m.sourceOrder, source.Name)
 		return
@@ -195,6 +201,9 @@ func (m *merger) addSource(source localrepodomain.Source, by []string, implicit 
 	current.Components = appendUnique(current.Components, source.Components...)
 	current.Architectures = appendUnique(current.Architectures, source.Architectures...)
 	current.DeclaredBy = appendUnique(current.DeclaredBy, by...)
+	if current.SigningKey == (localrepodomain.SigningKey{}) {
+		current.SigningKey = key
+	}
 }
 
 // addFile merges one file declaration; the checksum compares case-insensitively because it is hex.

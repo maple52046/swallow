@@ -1165,8 +1165,8 @@ converge_local_ntp() {
 
 # converge_installation_records reapplies the idempotent bootstrap (Site, MAAS Integration, the
 # Site Prometheus as the metrics Integration, the Pulp as the repository Integration, and the Site
-# automation defaults and the Local Repository's default source, each written only when the Site
-# has none) when its read-only verify fails.
+# automation defaults and the Local Repository's first spec, each written only when the Site has
+# none) when its read-only verify fails.
 converge_installation_records() {
   if "${script_dir}/bootstrap.sh" verify >/dev/null 2>&1; then
     printf 'ok    installation records exist\n'

@@ -823,7 +823,7 @@ export interface paths {
         put?: never;
         /**
          * Create a Platform from its spec and propose its install as a Change Plan.
-         * @description Requires the `admin` role. The spec is validated as a deployment would be (the Deployment Key, topology, targets, network, and features) before anything is written; then the Platform is stored at generation 1 with its members claimed, and its install is the returned Change Plan (platforms.md, Create A Platform): approved with the request when it sends `approve=true` and the policy allows it, waiting for approval otherwise. Nothing touches a machine until the plan is approved. 400 for an invalid body, spec, topology, target, network, or feature; 404 for an unknown Site; 409 when the installation has no Deployment Key, the Site's Local Repository is not ready (local-repository.md), the name is taken, or a target is claimed, locked, or held by another Workflow; 503 when Site automation is not configured.
+         * @description Requires the `admin` role. The spec is validated as a deployment would be (the Deployment Key, topology, targets, network, and features) before anything is written; then the Platform is stored at generation 1 with its members claimed, and its install is the returned Change Plan (platforms.md, Create A Platform): approved with the request when it sends `approve=true` and the policy allows it, waiting for approval otherwise. Nothing touches a machine until the plan is approved. 400 for an invalid body, spec, topology, target, network, or feature; 404 for an unknown Site; 409 when the installation has no Deployment Key, the Site's Local Repository serves deployments and is not ready (local-repository.md), the name is taken, or a target is claimed, locked, or held by another Workflow; 503 when Site automation is not configured.
          */
         post: operations["createPlatform"];
         delete?: never;
@@ -5004,7 +5004,7 @@ export interface components {
                 declaredBy: components["schemas"]["LocalRepositoryDeclaredBy"];
                 requirement: string;
             }[];
-            /** @description Every source, file, and image is `ready` on the enabled Integration and the host addresses were read: deployments that fetch from the Local Repository are accepted. */
+            /** @description The spec serves deployments and every source, file, and image is `ready` on the enabled Integration with the host addresses read. While the spec serves deployments, the ones that fetch artifacts are accepted exactly while it is true. */
             ready: boolean;
             siteId: string;
             /** @description The effective Repository Sources, ordered by name. */
@@ -5028,6 +5028,8 @@ export interface components {
                  * @description The spec generation; `0` before the first write.
                  */
                 generation: number;
+                /** @description Whether the Site's deployments fetch their artifacts from this Local Repository; `false` (the default) fetches them from the upstreams the modules declare. */
+                serveDeployments: boolean;
                 sources: components["schemas"]["LocalRepositorySpecSource"][];
             };
         };
@@ -5069,6 +5071,8 @@ export interface components {
              * @description The spec generation the writer read; `0` before the first write.
              */
             generation: number;
+            /** @description Whether the Site's deployments fetch their artifacts from this Local Repository (`true`) or from the upstreams the modules declare (`false`). */
+            serveDeployments: boolean;
             sources: {
                 /** @description Optional for `deb` and `rpm`; not allowed for other formats. */
                 architectures?: string[];
@@ -7254,7 +7258,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description A target is already in unfinished work, a target is protected by its Server Lock, a target is not in the provisioning state the kind requires, the intent contradicts a Platform policy, or the playbook fetches from the Site's Local Repository and it is not ready (`conflict`). */
+        /** @description A target is already in unfinished work, a target is protected by its Server Lock, a target is not in the provisioning state the kind requires, the intent contradicts a Platform policy, or the playbook fetches artifacts while the Site's Local Repository serves deployments and is not ready (`conflict`). */
         WorkflowCreateConflict: {
             headers: {
                 [name: string]: unknown;
@@ -14974,7 +14978,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `conflict`: a mutually exclusive kind is present on a target; a target is a Kubernetes Platform member and the kind refuses members; a target has a Platform Claim and the kind refuses claimed Servers; a target lacks the AMD compute GPUs the kind requires; the `container` method's runtime is not `installed` on a target or differs from `spec.containerRuntime`; a target Server is absent or not in provisioning state `deployed`; when the Workflow is created, a target already has active durable work or is locked; or the Site's Local Repository is not ready for the install (local-repository.md). */
+            /** @description `conflict`: a mutually exclusive kind is present on a target; a target is a Kubernetes Platform member and the kind refuses members; a target has a Platform Claim and the kind refuses claimed Servers; a target lacks the AMD compute GPUs the kind requires; the `container` method's runtime is not `installed` on a target or differs from `spec.containerRuntime`; a target Server is absent or not in provisioning state `deployed`; when the Workflow is created, a target already has active durable work or is locked; or the Site's Local Repository serves deployments and is not ready for the install (local-repository.md). */
             409: {
                 headers: {
                     [name: string]: unknown;

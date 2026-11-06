@@ -63,7 +63,7 @@ func TestAMDGPUOperatorPlaybookHonoursTheTrustedContract(t *testing.T) {
 		{
 			path: filepath.Join("roles", "helm", "tasks", "main.yml"),
 			required: []string{
-				"url: \"{{ swallow_local_repository.files }}{{ helm_archives[helm_arch].path }}\"",
+				"url: \"{{ swallow_artifacts.files[helm_archives[helm_arch].path] }}\"",
 				"checksum: \"sha256:{{ helm_archives[helm_arch].sha256 }}\"",
 				"helm_binary: \"{{ helm_home }}/{{ helm_version }}/helm\"",
 			},

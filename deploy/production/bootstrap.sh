@@ -11,8 +11,9 @@
 #           metrics Integration with the installation's prom-label-proxy as its labelProxyUrl
 #           setting, register (or re-key) the installation's Pulp as the Site's repository
 #           Integration with the address Servers reach it at as its contentOrigin setting, write
-#           the Local Repository's default source only while its spec has never been written and
-#           the Site automation defaults only when the Site has none, then wait for the Integration to sync and for the official
+#           the Local Repository's first spec (the default source, not yet serving deployments)
+#           only while its spec has never been written and the Site automation defaults only when
+#           the Site has none, then wait for the Integration to sync and for the official
 #           ubuntu/noble amd64 OS Image to appear complete in the catalog
 #   verify  read-only checks for `swallowctl doctor`
 #   site-id read-only: print the installation Site's id, which swallowctl renders into the
@@ -47,7 +48,7 @@ label_proxy_url="http://prom-label-proxy:8080"
 pulp_endpoint="http://pulp-web:8080"
 pulp_content_origin="http://${SWALLOW_ADDRESS:-}:${SWALLOW_PULP_PORT:-8080}"
 # The Site's OS package source is a user source of the Local Repository, not a module declaration;
-# apply writes it into a spec that has never been written.
+# apply writes it into a spec that has never been written, with serveDeployments false.
 ubuntu_source='{"name":"ubuntu","format":"deb","url":"http://archive.ubuntu.com/ubuntu/",
   "suites":["noble","noble-updates","noble-security"],"components":["main","universe"],
   "architectures":["amd64"]}'
@@ -247,12 +248,14 @@ repository_integration_reads_pulp() {
     '.endpoint == $endpoint and .settings.contentOrigin == $origin' >/dev/null
 }
 
-# ensure_repository_sources writes the Site's default user source, the Ubuntu archive deployed
-# Servers take their OS packages from, only while the Local Repository spec has never been written
-# (generation 0), so a user's later edits survive every rerun, removing every source included. The
-# write carries the generation it read: a concurrent change refuses it (409), and the next apply
-# reads again.
-ensure_repository_sources() {
+# ensure_repository_spec writes the Site's first Local Repository spec only while it has never been
+# written (generation 0), so a user's later edits survive every rerun, turning serveDeployments on
+# or removing every source included. That spec does not serve deployments: the Site's deployments
+# fetch their artifacts from the upstreams their modules declare until a user turns it on. It holds
+# the default user source, the Ubuntu archive deployed Servers take their OS packages from once it
+# does. The write carries the generation it read: a concurrent change refuses it (409), and the
+# next apply reads again.
+ensure_repository_spec() {
   local site_id="$1" status body spec
   body="$(mktemp)"
   status="$(api_status "/sites/${site_id}/local-repository" "${body}")"
@@ -264,8 +267,8 @@ ensure_repository_sources() {
     return 0
   fi
   api PUT "/sites/${site_id}/local-repository/spec" --data-binary "$(jq -nc \
-    --argjson source "${ubuntu_source}" '{generation:0,sources:[$source]}')" >/dev/null
-  log "Local Repository: added the default source 'ubuntu' ($(jq -r '.url' <<<"${ubuntu_source}"))"
+    --argjson source "${ubuntu_source}" '{generation:0,serveDeployments:false,sources:[$source]}')" >/dev/null
+  log "Local Repository: added the default source 'ubuntu' ($(jq -r '.url' <<<"${ubuntu_source}")); deployments fetch from the upstreams until it is turned on"
 }
 
 # ensure_automation writes defaults only for a Site with no configuration, so a user's
@@ -336,7 +339,7 @@ apply() {
   ensure_virsh_key "${integration_id}"
   ensure_metrics_integration "${site_id}"
   ensure_repository_integration "${site_id}"
-  ensure_repository_sources "${site_id}"
+  ensure_repository_spec "${site_id}"
   ensure_automation "${site_id}"
   deployment_key_present || die 'the Deployment Key is missing; run swallowctl install'
   wait_until 'MAAS Integration sync' integration_synced "${integration_id}" ||

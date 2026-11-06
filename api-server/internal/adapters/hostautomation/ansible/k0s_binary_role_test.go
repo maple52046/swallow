@@ -11,10 +11,10 @@ import (
 	"testing"
 )
 
-// k0s_binary installs the pinned k0s from the Local Repository's files and treats a binary as
-// installed only when it reports the pinned version, so a truncated download left by an earlier run
-// is replaced instead of failing every later step (DF-96). A rerun at the pinned version changes
-// nothing, and a version the Local Repository does not hold fails before any download.
+// k0s_binary installs the pinned k0s from the URL the run's artifact sources give its declared path
+// and treats a binary as installed only when it reports the pinned version, so a truncated download
+// left by an earlier run is replaced instead of failing every later step (DF-96). A rerun at the
+// pinned version changes nothing, and a version swallow does not declare fails before any download.
 func TestK0sBinaryInstallsTheVersionItVerifies(t *testing.T) {
 	t.Parallel()
 	const version = "v1.0.0+k0s.0"
@@ -35,10 +35,10 @@ func TestK0sBinaryInstallsTheVersionItVerifies(t *testing.T) {
 	release := map[string]any{"path": path, "sha256": hex.EncodeToString(sum[:])}
 	vars := func(pinned string) map[string]any {
 		return map[string]any{
-			"swallow_k0s_version":      pinned,
-			"swallow_local_repository": map[string]any{"files": server.URL + "/files/"},
-			"k0s_binary_path":          installed,
-			"k0s_binary_releases":      map[string]any{version: map[string]any{"amd64": release, "arm64": release}},
+			"swallow_k0s_version": pinned,
+			"swallow_artifacts":   map[string]any{"files": map[string]any{path: server.URL + "/files/" + path}},
+			"k0s_binary_path":     installed,
+			"k0s_binary_releases": map[string]any{version: map[string]any{"amd64": release, "arm64": release}},
 		}
 	}
 
@@ -63,6 +63,6 @@ func TestK0sBinaryInstallsTheVersionItVerifies(t *testing.T) {
 	}
 
 	if out, _, failed := run.run(vars("v9.9.9+k0s.0")); failed == 0 || !strings.Contains(out, "[k0s_version_unavailable]") {
-		t.Errorf("a version the Local Repository does not hold = %d failed tasks, want [k0s_version_unavailable]:\n%s", failed, out)
+		t.Errorf("a version swallow does not declare = %d failed tasks, want [k0s_version_unavailable]:\n%s", failed, out)
 	}
 }

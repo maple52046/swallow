@@ -83,25 +83,30 @@ api-server/modules/
   用到其他關鍵字時拒絕啟動。屬性的順序就是通用表單的欄位順序。Software 模組的屬性必須剛好是 catalog entry 的
   `SpecFields`，core 在 hook 的 `ValidateSpec` 之前以 schema 檢查型別與未知欄位，所以 hook 只需要寫跨欄位或依 role 的規則。
   dashboard 對有 schema 而沒有專屬畫面的模組產生通用的表單與詳情（目前是 NFS）。
-- `artifacts` 是模組的 host automation 要取得的全部內容，部署時都由 Site 的 Local Repository 提供，主機不直接連網際網路。
-  型別與檢查在 `internal/core/module/domain` 的 `Artifacts`：
-  - `sources`：Local Repository 鏡像的上游套件來源。`name` 是 kebab-case，在 Site 內唯一；`format` 是 `deb`、`rpm`、
-    `oci`、`python` 或 `file`（目前模組只宣告 `deb`）；`url`；deb 必須有 `suites` 與 `components`，其他格式不得有；
-    `architectures` 可省略，只用於 deb 與 rpm。
+- `artifacts` 是模組的 host automation 要取得的全部內容。部署時由 Site 選擇的來源提供：Site 的 Local Repository，或這裡
+  宣告的上游（[local-repository.md](local-repository.md) §2.1）。型別與檢查在 `internal/core/module/domain` 的 `Artifacts`：
+  - `sources`：上游套件來源，Site 使用 Local Repository 時由它鏡像，否則主機直接使用。`name` 是 kebab-case，在 Site 內
+    唯一；`format` 是 `deb`、`rpm`、`oci`、`python` 或 `file`（目前模組只宣告 `deb`）；`url`；deb 必須有 `suites` 與
+    `components`，其他格式不得有；`architectures` 可省略，只用於 deb 與 rpm。deb 與 rpm 必須有 `signingKey`，其他格式
+    不得有：上游簽它的 metadata 的公鑰，`url` 是 https 的下載位址，`fingerprint` 是它的 OpenPGP fingerprint（40 個十六進位
+    字，不帶空白；以大寫保存），例如 docker-ce 的
+    `{"url": "https://download.docker.com/linux/ubuntu/gpg", "fingerprint": "9DC858229FC7DD38854AE2D88D81803C0EBFCD88"}`。
+    從上游取得時，主機下載這把金鑰、確認 fingerprint 之後才以它驗證來源；宣告前先下載金鑰，以 gpg 讀出 fingerprint。
   - `files`：單一檔案。`path` 是相對路徑（不以 `/` 開頭、不含 `.` 或 `..`、只用不需要 URL 跳脫的字元），慣例是
-    `<名稱>/<版本>/<檔名>`；`url` 是上游位址；`sha256` 是 64 個小寫十六進位字元。role 以 Local Repository 的檔案根目錄加上
-    `path` 取得檔案，並以宣告的 sha256 驗證。
+    `<名稱>/<版本>/<檔名>`；`url` 是上游位址；`sha256` 是 64 個小寫十六進位字元。role 以
+    `swallow_artifacts.files['<path>']` 取得檔案（Local Repository 或 `url`），並以宣告的 sha256 驗證。
   - `images`：完整的 image reference，必須寫出 registry host，並有 tag、`@sha256:` digest 或兩者，例如
     `docker.io/library/busybox:1.36`，不能寫 `busybox:1.36`。
   - `python`：固定版本的 requirement，`name==version`；同一個 project（名稱依 index 的規則正規化後）只出現一次。
   - `url` 都必須是絕對的 http 或 https URL，不得帶 user info、query 或 fragment。
-  - role 只從 Local Repository 取得 artifact，而且只取宣告過的：它下載的檔案、引用的 image 與設定的套件來源都必須
-    出現在 `artifacts`，新增或升級時同時改宣告。image 與 Python 套件在 Local Repository 是 pull-through，宣告的清單決定
-    預先抓取哪些；container runtime 或 pip 自己解析出的間接依賴不必逐一宣告。
-  - OS 套件不在這裡宣告：發行版 archive 的套件來自 Site 的 OS 套件來源（Site 的 user 宣告的 `ubuntu` 來源），模組只宣告
-    OS 來源以外的東西。共用 role 的 artifact 由使用它的一個模組宣告（例如共用的 `helm` 由 kubernetes 模組宣告）。
-  - 兩個模組可以宣告同一個 source 或 file，但內容必須一致：同名的 source 有相同的 `format` 與 `url`（`suites`、
-    `components`、`architectures` 可以不同，Local Repository 取聯集），同一個 `path` 的 file 有相同的 `url` 與 `sha256`；
+  - role 只取宣告過的 artifact，而且只從 `swallow_artifacts` 指出的位址取得：它下載的檔案、引用的 image 與設定的套件
+    來源都必須出現在 `artifacts`，新增或升級時同時改宣告。image 與 Python 套件在 Local Repository 是 pull-through，宣告的
+    清單決定預先抓取哪些；container runtime 或 pip 自己解析出的間接依賴不必逐一宣告。
+  - OS 套件不在這裡宣告：發行版 archive 的套件來自 Site 的 OS 套件來源（Site 使用 Local Repository 時是 Site 的 user 宣告
+    的 `ubuntu` 來源，否則是主機自己的 OS 套件來源），模組只宣告 OS 來源以外的東西。共用 role 的 artifact 由使用它的一個
+    模組宣告（例如共用的 `helm` 由 kubernetes 模組宣告）。
+  - 兩個模組可以宣告同一個 source 或 file，但內容必須一致：同名的 source 有相同的 `format`、`url` 與 `signingKey`
+    （`suites`、`components`、`architectures` 可以不同，取聯集），同一個 `path` 的 file 有相同的 `url` 與 `sha256`；
     不一致時 registry 建立失敗，process 拒絕啟動。
 - 每個模組目錄在 `.github/CODEOWNERS` 有一行負責人（目前全部是同一人；後列的規則優先，所以模組的行放在通用的行
   之後），review 依此分派。
@@ -214,26 +219,33 @@ SELinux、哪些 role 依 OS 分支）見 platform-deployment §2.3。
 6. **不逃出內容根目錄**：不得引用 `modules/` 以外的路徑，也不得使用其他模組的 role（§3）。
 7. **結果與 secret 走契約**：需要回傳結果時只寫 `swallow_result_path` 的 `result.json`；secret 只經 sealed secret
    ref 傳入，不得寫入 log 或 history（處理 secret 的 task 加 `no_log: true`）。
-8. **只從 Local Repository 取得**：主機要的套件、檔案、image 與 Python 套件都來自 Site 的 Local Repository（trusted var
-   `swallow_local_repository`），不連網際網路，版本固定。trusted var 的形狀與受理時的拒絕見
-   [local-repository.md](local-repository.md) §8。
-   - 會安裝套件、下載檔案或拉 image 的 playbook，在 manifest 的 entry 標 `"usesLocalRepository": true`：swallow 才會注入
-     這個 var，Site 沒有 ready 的 Local Repository 時在受理時就拒絕。別名的 entry 也要標。
-   - 這類 playbook 在取得 hold（§5）之後的下一個 play 以 `hosts: all` 執行共用 role `local_repo_client`，之前不得有任何套件、
-     下載或拉 image 的 task。它寫入 apt 的 sources（deb822 加 `Signed-By`；主機其他的 apt sources，包括 image 帶的，改名為
-     `.disabled-by-swallow`，可以還原）、讓 apt 不經 proxy 連它的設定與 `/etc/pip.conf`；container runtime 依 playbook 傳入的
-     變數設定：`local_repo_client_containerd`（k0s 的 containerd 經 mirror 解析 image，必須在 k0s 啟動之前）、
-     `local_repo_client_docker`（`daemon.json` 的 `insecure-registries`）、`local_repo_client_podman`。
-   - role 下載的檔案在 defaults 寫成 `path` 與 `sha256`，以 `{{ swallow_local_repository.files }}<path>` 下載、以 `get_url` 的
-     `checksum` 驗證；同一個檔案必須是模組 `module.json` 宣告的 artifact（§1.1），path 與 sha256 相同。第三方的 deb
-     repository 宣告成模組的 source，role 只確認它在 `swallow_local_repository.deb` 裡，不自己加 apt key 或 repository。
-     image 在 Kubernetes 上寫原本的名稱（containerd 經 mirror 解析），在 Docker、Podman 上寫成
-     `{{ swallow_local_repository.registry }}/<registry>/<image>`；pip 用 Local Repository 的 index。
-   - 內容測試 `local_repository_playbook_test.go` 強制：標記的 playbook 先執行 `local_repo_client`；`uninstall-*` 以外會取得
-     內容的 playbook 都有標記；role 與 playbook 不寫網際網路的 URL（註解除外）；每個 `get_url` 都從
-     `swallow_local_repository.files` 下載；role 固定的檔案與模組的宣告一致。
+8. **只取宣告的 artifact，從 `swallow_artifacts` 取得**：主機要的套件、檔案、image 與 Python 套件都是模組宣告的固定
+   版本，從 trusted var `swallow_artifacts` 指出的位址取得：Site 使用 Local Repository 時是它，否則是宣告的上游。role 不寫
+   網際網路的 URL，兩種來源用同一份 role。trusted var 的形狀與受理時的拒絕見 [local-repository.md](local-repository.md)
+   §8.1，`artifact_sources` 在兩種來源下怎麼設定主機見同一份的 §8.2。
+   - 會安裝套件、下載檔案或拉 image 的 playbook，在 manifest 的 entry 標 `"fetchesArtifacts": true`：swallow 才會注入
+     這個 var；Site 使用 Local Repository 而它沒有 ready 時，在受理時就拒絕。別名的 entry 也要標。
+   - 這類 playbook 在取得 hold（§5）之後的下一個 play 以 `hosts: all` 執行共用 role `artifact_sources`，之前不得有任何套件、
+     下載或拉 image 的 task。它依 `swallow_artifacts.source` 設定主機的 apt、pip 與 container runtime：從 Local Repository
+     取得時把它們指向 Local Repository（主機其他的 apt sources，包括 image 帶的，改名為 `.disabled-by-swallow`，可以還原）；
+     從上游取得時以宣告的金鑰（確認 fingerprint，主機需要 gpg）加入宣告的 deb 來源，保留主機的 OS 來源，並移除前一種
+     模式寫過的設定。playbook 以變數指出它的 run 用哪些 container runtime 拉 image：`artifact_sources_containerd`（k0s 的
+     containerd 經 mirror 解析 image，必須在 k0s 啟動之前）、`artifact_sources_docker`（`daemon.json` 的
+     `insecure-registries`）、`artifact_sources_podman`。`artifact_sources_root` 是給內容測試的路徑前綴，playbook 不設。
+   - role 下載的檔案在 defaults 寫成 `path` 與 `sha256`，以 `{{ swallow_artifacts.files['<宣告的 path>'] }}` 下載、以
+     `get_url` 的 `checksum: "sha256:<sha256>"` 驗證；同一個檔案必須是模組 `module.json` 宣告的 artifact（§1.1），path 與
+     sha256 相同。
+   - 第三方的 deb repository 宣告成模組的 source（帶 `signingKey`），role 只以名稱確認它在 `swallow_artifacts.deb` 裡
+     （沒有時以 `[artifact_source_missing]` 失敗，比照 `docker_ce` 與 `grafana`），不自己加 apt key 或 repository。
+   - image 在 Kubernetes 上寫原本的名稱（從 Local Repository 取得時 containerd 經 mirror 解析），在 Docker、Podman 上寫成
+     `{{ swallow_artifacts.images['<宣告的 reference>'] }}`。
+   - pip 只在 `swallow_artifacts.python_index` 不是空字串時指定 index，否則用 pip 自己的預設 index；例如 `omnistat` 只在
+     這時以 `PIP_INDEX_URL` 與 `PIP_TRUSTED_HOST` 環境變數傳給它的安裝步驟。
+   - 內容測試 `artifact_sources_playbook_test.go` 強制：`uninstall-*` 以外會取得內容的 playbook 都有標記；標記的 playbook
+     先執行 `artifact_sources`；role 與 playbook 不寫網際網路的 URL（註解除外），每個 `get_url` 都從
+     `swallow_artifacts.files` 下載；role 固定的檔案與模組的宣告一致（§6）。
    - 過渡期的例外列在該測試的 allowlist，並附理由：RHEL 系列的 dnf 分支還用上游的 yum repository（Local Repository
-     還沒有 rpm），Prometheus 模組還不在 Local Repository 的範圍內。
+     還沒有 rpm），Prometheus 模組還不在 artifact 宣告的範圍內。
 9. **改套件時暫緩 OS 的套件維護**：見 §5。
 
 ## 5. 改套件的內容
@@ -249,9 +261,10 @@ SELinux、哪些 role 依 OS 分支）見 platform-deployment §2.3。
   `apt_repository`，以及執行 `apt-get`、`apt`、`dpkg`、`dnf`、`yum` 安裝、移除、升級或更新索引的
   `command`、`shell`、`raw`。`yum_repository` 只寫入 `.repo` 檔、不執行 dnf，不算套件 task；之後從新 repository
   安裝的 `dnf` task 才是。
-- `local_repo_client` 會刷新套件索引，所以執行它的 playbook 都依本節取得與釋放 hold。
-- 需要第三方的 deb repository 時，在模組的 `module.json` 以 `artifacts.sources` 宣告它（§1.1），由 Local Repository 鏡像，
-  role 只安裝套件（§4 第 8 條）。RHEL 系列在 Local Repository 提供 rpm 之前，仍以 `yum_repository` 加上游的 repository，
+- `artifact_sources` 會刷新套件索引，所以執行它的 playbook 都依本節取得與釋放 hold。
+- 需要第三方的 deb repository 時，在模組的 `module.json` 以 `artifacts.sources` 宣告它與它的 `signingKey`（§1.1），由
+  `artifact_sources` 加到主機（Local Repository 的鏡像或上游本身），role 只安裝套件（§4 第 8 條）。RHEL 系列在 Local
+  Repository 提供 rpm 之前，仍以 `yum_repository` 加上游的 repository，
   開啟 `gpgcheck` 並指定 `gpgkey`（比照 `docker_ce` role），並把它的 URL 列入 §4 第 8 條的 allowlist。
 
 ## 6. 測試
@@ -268,19 +281,21 @@ bash。
 | `module_roles_test.go` 的 `TestShippedRoleNamesAreUnique`、`TestShippedPlaybookFileNamesAreUnique` | role 名稱與 playbook 檔名在模組之間唯一 |
 | `package_hold_playbook_test.go` | 改套件的 playbook 取得與釋放 hold；每個套件 task 都重試；hold 只改執行期狀態 |
 | `playbook_catalog_test.go` | manifest 的路徑符合模組佈局；roles path 只含自己模組與 `shared/` |
-| `local_repository_playbook_test.go` 的 `TestFetchingPlaybooksUseTheLocalRepository`、`TestLocalRepositoryPlaybooksPointAtItBeforeFetching` | `uninstall-*` 以外會安裝、下載或拉 image 的 playbook（別名也算）都標 `usesLocalRepository`；標記的 playbook 在任何取得之前先以 `hosts: all` 執行 `local_repo_client`。還沒改用 Local Repository 的 playbook 列在 `localRepositoryNotYet` 並寫出理由 |
-| `local_repository_playbook_test.go` 的 `TestShippedContentFetchesOnlyFromTheLocalRepository`、`TestPinnedFilesAreDeclaredModuleArtifacts` | role 與 playbook 在註解以外不寫網際網路的 URL（例外列在 `internetURLAllowlist` 並寫出理由，不再相符的項目也會失敗），每個 `get_url` 都從 `swallow_local_repository.files` 下載；role 在 defaults 固定的檔案（path 與 sha256）都是模組宣告的 file artifact，checksum 相同 |
-| `local_repository_playbook_test.go` 的 `TestLocalRepositoryPlaybooksConfigureTheirContainerRuntime` | 拉 image 的 playbook 把自己的 container runtime 交給 `local_repo_client`，`deploy-kubernetes.yml` 在 k0s 啟動之前寫好 mirror，Docker 上的 Grafana image 以 Local Repository 的 registry 為前綴。playbook 清單寫死在測試中，新增拉 image 的 playbook 時一併加上 |
+| `artifact_sources_playbook_test.go` 的 `TestFetchingPlaybooksAreMarkedFetchesArtifacts`、`TestArtifactPlaybooksPointAtTheirSourcesBeforeFetching` | `uninstall-*` 以外會安裝、下載或拉 image 的 playbook（別名也算）都標 `fetchesArtifacts`；標記的 playbook 在任何取得之前先以 `hosts: all` 執行 `artifact_sources`。還沒標記的 playbook 列在 `fetchesArtifactsNotYet` 並寫出理由 |
+| `artifact_sources_playbook_test.go` 的 `TestShippedContentFetchesOnlyDeclaredArtifacts`、`TestPinnedFilesAreDeclaredModuleArtifacts` | role 與 playbook 在註解以外不寫網際網路的 URL（例外列在 `internetURLAllowlist` 並寫出理由，不再相符的項目也會失敗），每個 `get_url` 都從 `swallow_artifacts.files` 下載；role 在 defaults 固定的檔案（path 與 sha256）都是模組宣告的 file artifact，checksum 相同 |
+| `artifact_sources_playbook_test.go` 的 `TestArtifactPlaybooksConfigureTheirContainerRuntime` | 拉 image 的 playbook 把自己的 container runtime 交給 `artifact_sources`，`deploy-kubernetes.yml` 在 k0s 啟動之前寫好 mirror，Docker 上的 Grafana image 取自 `swallow_artifacts.images`。playbook 清單寫死在測試中，新增拉 image 的 playbook 時一併加上 |
+| `playbook_catalog_artifacts_test.go` | manifest catalog 回報哪些 playbook 標了 `fetchesArtifacts`，並拒絕 schema 沒有的 key（包括退役的舊旗標） |
 | `internal/app/software_deployment_adapter_test.go` 的 `TestEverySoftwareKindHasRegisteredPlaybooks` | 每種 Managed Software 的 install 與 uninstall playbook 都已登錄 |
 | `internal/app/modules_test.go` | 每個模組目錄都是編入的模組；manifest 的 playbook 與 allowlist 一致；每個 Workflow kind 與 completion 型別只屬於 core 或一個模組 |
 
 **helper**（`content_test.go`、`module_roles_test.go`）：`moduleDirs`、`roleDir(name)`（找出擁有該 role 的模組）、
 `shippedFile(rel)`（`deploy-slurm.yml` 或 `roles/<role>/<file>` 對應到實際檔案）、`readShippedManifest`、
 `roleClosure`、`readYAML`；`slurm_job_hooks_playbook_test.go` 的 `slurmPlaybookFile` 以 `shippedFile` 讀檔，其他測試
-也在用。`local_repo_client_role_test.go` 提供執行 role 的 helper：`newRoleRun(t, role, gatherFacts)` 以該 role 所在模組與
+也在用。`artifact_sources_role_test.go` 提供執行 role 的 helper：`newRoleRun(t, role, gatherFacts)` 以該 role 所在模組與
 `shared/` 的 roles path 組出一個只跑它的 play（沒有 `ansible-playbook` 時 skip），`run(vars)` 以 extra vars 在 localhost
-執行、不 become，回傳輸出與 recap 的 changed、failed；`writeScratch`、`readScratch` 讀寫暫存目錄的檔案，
-`testLocalRepository()` 是 api-server 交出的 `swallow_local_repository`。
+執行、不 become，回傳輸出與 recap 的 changed、failed；`writeScratch`、`readScratch` 讀寫暫存目錄的檔案。同一個檔案的
+`testLocalRepository()` 是 api-server 在 Local Repository 模式交出的 `swallow_artifacts`，`testUpstreams(keys, fingerprint)`
+是上游模式的（docker-ce 與 grafana 的 deb 來源，金鑰在 `keys`）。
 
 **新內容要加的測試**：為 playbook 依賴的契約寫一個 `<topic>_playbook_test.go`，斷言它引用了必要的 trusted var、play
 的順序，以及禁止的操作（例如不得 reboot 記憶體根目錄的主機）；範例是 `k0s_topology_playbook_test.go`。以
@@ -288,10 +303,18 @@ bash。
 AMD 模組的 chart 路徑，搬移該 role 時要一併修改。
 
 role 的行為要實際執行才看得出來時（改寫主機設定、冪等、下載與驗證），以 `newRoleRun` 在 localhost 執行它，並把 role 的路徑
-變數指到暫存目錄：`local_repo_client_role_test.go`（`local_repo_client` 改寫 apt、pip、containerd 與 Docker 的設定，第二次
-執行沒有變更，沒有 `swallow_local_repository` 時不碰主機；只在 Debian 系列的主機執行）與 `k0s_binary_role_test.go`
-（`k0s_binary` 從 httptest server 扮演的 Local Repository 下載，只把回報固定版本的 binary 當成已安裝，所以會取代上次
-中斷留下的檔案，Local Repository 沒有的版本在下載前就失敗）是範例。
+變數指到暫存目錄（`artifact_sources` 是 `artifact_sources_root`）。範例：
+
+- `artifact_sources_role_test.go`，兩種模式都實際執行，只在 Debian 系列的主機執行（上游模式另外需要 gpg）：
+  - `TestArtifactSourcesPointsTheHostAtTheLocalRepository`：從 Local Repository 取得時改寫 apt、pip、containerd 與
+    Docker 的設定（Docker 保留 `daemon.json` 的其他設定），第二次執行沒有變更；沒有 `swallow_artifacts` 或 `source`
+    不認得時在碰主機之前就停下。
+  - `TestArtifactSourcesAddsTheDeclaredUpstreams`：從上游取得時以 httptest 提供的金鑰加入宣告的來源，主機自己已設定的
+    URI 留給主機的檔案，第二次執行沒有變更；金鑰不是宣告的那一把或 gpg 讀不了時，在 apt 信任它之前停下。
+  - `TestArtifactSourcesSwitchesModesBothWays`：切到上游時移除為 Local Repository 寫的設定，切回時主機與第一次執行
+    後完全相同，兩種模式都冪等。
+- `k0s_binary_role_test.go`：`k0s_binary` 從 httptest server 扮演的來源下載，只把回報固定版本的 binary 當成已安裝，
+  所以會取代上次中斷留下的檔案，來源沒有的版本在下載前就失敗。
 
 端到端的驗證在 lab 以真機進行，規則（可用哪些機器、事先確認什麼）見 skill
 [`skills/lab-verification/SKILL.md`](../../skills/lab-verification/SKILL.md)。

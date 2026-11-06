@@ -91,15 +91,28 @@ func TestServicePutSpec(t *testing.T) {
 	if _, err := f.service.PutSpec(ctx, "site-2", PutSpecInput{Sources: []localrepodomain.Source{ubuntu}}); !errors.Is(err, localrepodomain.ErrNoRepositoryIntegration) {
 		t.Errorf("PutSpec(site-2) = %v, want ErrNoRepositoryIntegration", err)
 	}
-	view, err := f.service.PutSpec(ctx, "site-1", PutSpecInput{Generation: 0, Sources: []localrepodomain.Source{ubuntu}})
+	view, err := f.service.PutSpec(ctx, "site-1", PutSpecInput{Generation: 0, ServeDeployments: true, Sources: []localrepodomain.Source{ubuntu}})
 	if err != nil {
 		t.Fatalf("PutSpec: %v", err)
 	}
 	want := debSource("ubuntu", "http://archive.example/ubuntu/", []string{"noble", "noble-updates"}, []string{"main"})
 	want.Architectures = []string{"amd64"}
-	if view.Generation != 1 || !reflect.DeepEqual(view.Spec.Sources, []localrepodomain.Source{want}) || len(view.Sources) != 3 {
-		t.Errorf("PutSpec = generation %d spec %+v, %d sources; want generation 1, the trimmed source, three effective sources",
-			view.Generation, view.Spec.Sources, len(view.Sources))
+	if view.Generation != 1 || !view.Spec.ServeDeployments || !reflect.DeepEqual(view.Spec.Sources, []localrepodomain.Source{want}) || len(view.Sources) != 3 {
+		t.Errorf("PutSpec = generation %d spec %+v, %d sources; want generation 1 serving deployments, the trimmed source, three effective sources",
+			view.Generation, view.Spec, len(view.Sources))
+	}
+	// Until the controller observes the new spec, the first thing in the way is that; turning
+	// serving off makes not serving the first.
+	if view.Ready || view.NotReady[0].Reason != localrepodomain.ReasonNotObserved {
+		t.Errorf("PutSpec serving: ready %v, causes %+v; want not ready, not_observed first", view.Ready, view.NotReady)
+	}
+	view, err = f.service.PutSpec(ctx, "site-1", PutSpecInput{Generation: 1, Sources: []localrepodomain.Source{ubuntu}})
+	if err != nil || view.Spec.ServeDeployments || view.Ready || view.NotReady[0].Reason != localrepodomain.ReasonNotServing {
+		t.Errorf("PutSpec turning serving off = %+v, %v; want not serving, not_serving first", view, err)
+	}
+	// Nothing converges while not serving, so the unobserved spec and its pending items are no cause.
+	if len(view.NotReady) != 1 {
+		t.Errorf("PutSpec turning serving off: causes %+v, want only not_serving", view.NotReady)
 	}
 }
 

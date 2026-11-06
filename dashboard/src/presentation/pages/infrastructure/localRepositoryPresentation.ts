@@ -13,21 +13,62 @@ export interface SyncStatePresentation {
   label: string
 }
 
-const SYNC_STATES: Record<LocalRepositorySyncState, SyncStatePresentation> = {
-  pending: { badgeStatus: 'pending', label: 'Pending' },
+/**
+ * How one observed state of a Repository Source, file, or declared image reads: its badge, whether
+ * a fetch is running or waiting (a spinner), and how the provider's message reads — `error` for a
+ * failure's reason (error text, labelled "Failure"), `muted` for a note (labelled "Message"), or
+ * `null` when it is not shown at all.
+ */
+export interface ItemSyncPresentation extends SyncStatePresentation {
+  inProgress: boolean
+  messageTone: 'error' | 'muted' | null
+}
+
+const SYNC_STATES: Record<LocalRepositorySyncState, ItemSyncPresentation> = {
+  pending: { badgeStatus: 'pending', label: 'Pending', inProgress: true, messageTone: 'muted' },
   // `running` gives the in-progress colour; the label keeps the contract's word.
-  syncing: { badgeStatus: 'running', label: 'Syncing' },
-  ready: { badgeStatus: 'ready', label: 'Ready' },
-  failed: { badgeStatus: 'failed', label: 'Failed' },
+  syncing: { badgeStatus: 'running', label: 'Syncing', inProgress: true, messageTone: 'muted' },
+  ready: { badgeStatus: 'ready', label: 'Ready', inProgress: false, messageTone: 'muted' },
+  failed: { badgeStatus: 'failed', label: 'Failed', inProgress: false, messageTone: 'error' },
+}
+
+// While the spec does not serve deployments the worker fetches nothing, so the recorded states are
+// only the last observation: a `pending` or `syncing` item is not being fetched, and a `failed` one
+// is not retried. They read as neutral facts rather than as work in progress or as a fault; the
+// progress message of a fetch that no longer runs is left out, and a failure's reason stays muted.
+const UNSYNCHRONIZED_STATES: Record<LocalRepositorySyncState, ItemSyncPresentation> = {
+  pending: { badgeStatus: 'offline', label: 'Not fetched', inProgress: false, messageTone: null },
+  syncing: { badgeStatus: 'offline', label: 'Not fetched', inProgress: false, messageTone: null },
+  ready: SYNC_STATES.ready,
+  failed: { badgeStatus: 'offline', label: 'Last sync failed', inProgress: false, messageTone: 'muted' },
 }
 
 /**
- * The badge of a Repository Source's, file's, or declared image's observed state. A value a newer
- * API adds reads as a neutral badge with its raw text rather than as a failure.
+ * The presentation of a Repository Source's, file's, or declared image's observed state.
+ * `synchronizing` is whether the worker converges the repository, which is while its spec serves
+ * deployments; when it does not, the state is shown as the last observation (see
+ * `UNSYNCHRONIZED_STATES`). A value a newer API adds reads as a neutral badge with its raw text
+ * rather than as a failure.
  */
-export function syncStatePresentation(state: string): SyncStatePresentation {
+export function syncStatePresentation(state: string, synchronizing: boolean): ItemSyncPresentation {
+  const states = synchronizing ? SYNC_STATES : UNSYNCHRONIZED_STATES
   // The cast only types the lookup; a value outside the set misses it and takes the fallback.
-  return SYNC_STATES[state as LocalRepositorySyncState] ?? { badgeStatus: 'unknown', label: state }
+  return states[state as LocalRepositorySyncState] ?? { badgeStatus: 'unknown', label: state, inProgress: false, messageTone: 'muted' }
+}
+
+/**
+ * The `ready` condition's message for a repository whose spec serves deployments but that is not
+ * ready (local-repository.md, Conditions). `not_serving` can only be a judgement from before the
+ * spec started serving deployments — the worker has not looked at the new generation yet — so it
+ * reads as waiting for the worker rather than as the stale message. Without a message, the text
+ * says what a missing judgement means; `judged` is whether the worker has recorded any condition.
+ */
+export function notReadyText(ready: Condition | undefined, judged: boolean): string {
+  if (ready?.status === 'false' && ready.reason === 'not_serving') {
+    return 'The worker has not checked the repository since deployments started using it; it synchronizes it shortly.'
+  }
+  if (ready?.status === 'false' && ready.message) return ready.message
+  return judged ? 'Deployments that fetch from it are refused until it is ready.' : 'The worker has not looked at this Integration yet.'
 }
 
 /**

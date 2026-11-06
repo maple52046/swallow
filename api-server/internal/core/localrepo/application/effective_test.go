@@ -28,6 +28,25 @@ func TestEffectiveMergesSourcesOfOneName(t *testing.T) {
 	}
 }
 
+// A module's signing key travels with its source, also when the user's spec adds to the source or a
+// later module without the key is merged into it; a source no module declares has none.
+func TestEffectiveKeepsTheModulesSigningKey(t *testing.T) {
+	key := localrepodomain.SigningKey{URL: "https://download.example/ubuntu/gpg", Fingerprint: "9DC858229FC7DD38854AE2D88D81803C0EBFCD88"}
+	modules := []localrepodomain.ModuleDeclaration{
+		{ModuleID: "amd", Sources: []localrepodomain.Source{debSource("docker-ce", "https://download.example/ubuntu", []string{"noble"}, []string{"stable"})}},
+		{ModuleID: "docker-ce", Sources: []localrepodomain.Source{debSource("docker-ce", "https://download.example/ubuntu", []string{"noble"}, []string{"stable"})},
+			SigningKeys: map[string]localrepodomain.SigningKey{"docker-ce": key}},
+	}
+	user := []localrepodomain.Source{
+		debSource("docker-ce", "https://download.example/ubuntu", []string{"noble"}, []string{"test"}),
+		debSource("ubuntu", "http://archive.example/ubuntu/", []string{"noble"}, []string{"main"}),
+	}
+	spec := Effective(modules, user)
+	if len(spec.Sources) != 2 || spec.Sources[0].SigningKey != key || spec.Sources[1].SigningKey != (localrepodomain.SigningKey{}) {
+		t.Errorf("Effective sources = %+v; want docker-ce with the module's key and ubuntu with none", spec.Sources)
+	}
+}
+
 // A later declaration with another format or URL is left out as a conflict naming both sides; one
 // from the user's spec is a conflict the spec write refuses.
 func TestEffectiveLeavesOutContradictingDeclarations(t *testing.T) {

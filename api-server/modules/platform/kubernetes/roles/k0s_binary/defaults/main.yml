@@ -1,7 +1,7 @@
 ---
-# The k0s releases the Site's Local Repository holds, by version and architecture: the file's path
-# under swallow_local_repository.files and its SHA-256. The kubernetes module declares each one as a
-# file artifact with the same path and checksum, which a content test keeps in step.
+# The k0s releases swallow declares, by version and architecture: the file's declared path (its key
+# in swallow_artifacts.files) and its SHA-256. The kubernetes module declares each one as a file
+# artifact with the same path and checksum, which a content test keeps in step.
 k0s_binary_releases:
   "v1.36.3+k0s.2":
     amd64:

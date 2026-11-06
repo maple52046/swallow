@@ -232,7 +232,7 @@ func respondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, workflowdomain.ErrTargetsBusy),
 		errors.Is(err, workflowdomain.ErrTargetLocked),
 		errors.Is(err, workflowdomain.ErrTargetStateInvalid),
-		// The install fetches its artifacts from the Site's Local Repository, which is not ready.
+		// The Site's Local Repository serves deployments and is not ready for the kind's playbook.
 		errors.Is(err, localrepodomain.ErrLocalRepositoryUnavailable),
 		errors.Is(err, serverdomain.ErrServerLocked):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))

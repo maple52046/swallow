@@ -4,7 +4,7 @@ import { SectionSurface, StickyTableFrame } from '@/presentation/components/Cons
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { declarersText, formatReportedSize, shortDigest } from './localRepositoryPresentation'
-import { RepositorySyncStatus } from './RepositorySyncStatus'
+import { RepositorySyncMessageField, RepositorySyncStatus } from './RepositorySyncStatus'
 
 /** A file's declared sha256, shortened for the table, with the full value one click away. */
 function Digest({ file }: { file: LocalRepositoryFile }) {
@@ -21,9 +21,11 @@ function Digest({ file }: { file: LocalRepositoryFile }) {
  * once from its URL and checked against its declared sha256, so the table shows the digest
  * (shortened, with a copy action for the full value), who declared it, the worker's observed state
  * with the provider's message as text (a checksum mismatch reads there), and the size once fetched
- * (`—` before). Read-only: files change with the module that declares them.
+ * (`—` before). `synchronizing` is whether the worker converges the repository (its spec serves
+ * deployments); when it does not, the states read as the last observation. Read-only: files change
+ * with the module that declares them.
  */
-export function RepositoryFilesSection({ files }: { files: readonly LocalRepositoryFile[] }) {
+export function RepositoryFilesSection({ files, synchronizing }: { files: readonly LocalRepositoryFile[]; synchronizing: boolean }) {
   return (
     <SectionSurface
       title="Files"
@@ -61,7 +63,9 @@ export function RepositoryFilesSection({ files }: { files: readonly LocalReposit
                       </Table.Cell>
                       <Table.Cell><Digest file={file} /></Table.Cell>
                       <Table.Cell>{declarersText(file.declaredBy)}</Table.Cell>
-                      <Table.Cell maxW="20rem"><RepositorySyncStatus state={file.state} message={file.message} /></Table.Cell>
+                      <Table.Cell maxW="20rem">
+                        <RepositorySyncStatus state={file.state} message={file.message} synchronizing={synchronizing} />
+                      </Table.Cell>
                       <Table.Cell textAlign="end">{formatReportedSize(file.sizeBytes)}</Table.Cell>
                     </Table.Row>
                   ))}
@@ -76,16 +80,12 @@ export function RepositoryFilesSection({ files }: { files: readonly LocalReposit
                   key={file.path}
                   title={<span className="sw-mono sw-local-repository__wrap">{file.path}</span>}
                   description={<span className="sw-mono sw-local-repository__wrap">{file.url}</span>}
-                  status={<RepositorySyncStatus state={file.state} message={null} />}
+                  status={<RepositorySyncStatus state={file.state} message={null} synchronizing={synchronizing} />}
                 >
                   <ResourceCardField label="sha256"><Digest file={file} /></ResourceCardField>
                   <ResourceCardField label="Size">{formatReportedSize(file.sizeBytes)}</ResourceCardField>
                   <ResourceCardField label="Declared by">{declarersText(file.declaredBy)}</ResourceCardField>
-                  {file.message && (
-                    <ResourceCardField label={file.state === 'failed' ? 'Failure' : 'Message'}>
-                      <Text color={file.state === 'failed' ? 'fg.error' : 'fg.muted'}>{file.message}</Text>
-                    </ResourceCardField>
-                  )}
+                  <RepositorySyncMessageField state={file.state} message={file.message} synchronizing={synchronizing} />
                 </ResourceCard>
               ))}
             </div>

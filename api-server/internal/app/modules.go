@@ -70,8 +70,8 @@ type composedModules struct {
 	credentials []platformdomain.CredentialReader
 	// platforms are the Platform modules' platform hooks, by Platform type.
 	platforms map[platformdomain.PlatformType]platformdomain.PlatformModule
-	// artifacts are the modules' declarations of what their deployments fetch from the Site's
-	// Local Repository.
+	// artifacts are the modules' declarations of what their deployments fetch, from the Site's
+	// Local Repository or from these upstreams.
 	artifacts []localrepodomain.ModuleDeclaration
 }
 
@@ -115,7 +115,8 @@ func composeModules() (composedModules, error) {
 }
 
 // localRepositoryDeclarations restates the modules' artifact declarations in the Local Repository's
-// terms. The registry has validated them and their agreement across modules.
+// terms, with each OS package source's signing key. The registry has validated them and their
+// agreement across modules.
 func localRepositoryDeclarations(registry *moduledomain.Registry) []localrepodomain.ModuleDeclaration {
 	var declarations []localrepodomain.ModuleDeclaration
 	for _, declared := range registry.Artifacts() {
@@ -127,6 +128,12 @@ func localRepositoryDeclarations(registry *moduledomain.Registry) []localrepodom
 				Name: source.Name, Format: localrepodomain.Format(source.Format), URL: source.URL,
 				Suites: source.Suites, Components: source.Components, Architectures: source.Architectures,
 			})
+			if key := source.SigningKey; key != nil {
+				if declaration.SigningKeys == nil {
+					declaration.SigningKeys = map[string]localrepodomain.SigningKey{}
+				}
+				declaration.SigningKeys[source.Name] = localrepodomain.SigningKey{URL: key.URL, Fingerprint: key.Fingerprint}
+			}
 		}
 		for _, file := range declared.Artifacts.Files {
 			declaration.Files = append(declaration.Files, localrepodomain.File{Path: file.Path, URL: file.URL, SHA256: file.SHA256})

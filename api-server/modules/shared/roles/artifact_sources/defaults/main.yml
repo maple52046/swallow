@@ -1,0 +1,52 @@
+---
+# Point a host's apt, pip, and container runtimes at where its run's artifacts come from, which
+# arrives only as the trusted variable swallow_artifacts. Its source is the Site's choice:
+#   local_repository  the Site's Local Repository serves every artifact: its deb sources under the
+#                     Site's signing key, its registry and per-upstream mirrors, its Python index
+#   upstream          each artifact comes from the upstream its module declares: the declared deb
+#                     sources, each verified with its own declared signing key, next to the host's
+#                     own apt sources
+# A run in either mode removes what the other wrote, so a host follows its Site's current choice.
+# Every playbook manifest.json marks fetchesArtifacts runs this role before it installs or
+# downloads anything. The caller says which container runtimes its run pulls images with; with the
+# Local Repository the role points them at its registry:
+#   artifact_sources_containerd  k0s's containerd on a Kubernetes node (/etc/k0s/containerd.d)
+#   artifact_sources_docker      Docker Engine (insecure-registries in /etc/docker/daemon.json)
+#   artifact_sources_podman      Podman (a registries.conf.d drop-in)
+artifact_sources_containerd: false
+artifact_sources_docker: false
+artifact_sources_podman: false
+
+# Prefixed to every path the role writes; empty on a host. A content test points it at a scratch
+# directory, where the role leaves the real package index and Docker service alone.
+artifact_sources_root: ""
+
+# Every other apt source of the host, which the Local Repository's sources replace: sources.list and
+# each *.list and *.sources file in the sources directory, whether the distribution, the image (a GPU
+# vendor's archive, for example), or a user added it, since apt would otherwise still fetch their
+# indices from the Internet on every update. A file with an active line is renamed with the suffix
+# rather than deleted, and a run from the upstreams renames it back; an archive hosts still need
+# while the Site uses its Local Repository belongs there as a user source.
+artifact_sources_apt_sources_list: /etc/apt/sources.list
+artifact_sources_apt_sources_dir: /etc/apt/sources.list.d
+artifact_sources_disabled_suffix: .disabled-by-swallow
+
+# Converged hosts carry these paths, so renaming one would leave the old file active next to the
+# new one. The sources file holds the role's apt sources in either mode.
+artifact_sources_keyring: /etc/apt/keyrings/swallow-local-repository.asc
+# Each upstream deb source's verified key, binary, at <prefix><name>.gpg.
+artifact_sources_upstream_keyring_prefix: /etc/apt/keyrings/swallow-upstream-
+artifact_sources_apt_sources: /etc/apt/sources.list.d/swallow-local-repository.sources
+artifact_sources_apt_conf: /etc/apt/apt.conf.d/90swallow-local-repository
+artifact_sources_pip_conf: /etc/pip.conf
+# k0s reads every *.toml directly in /etc/k0s/containerd.d as a containerd drop-in, so the registry
+# hosts files live one level below it. swallow owns the hosts directory: containerd reads it only
+# through swallow's drop-in.
+artifact_sources_containerd_dropin: /etc/k0s/containerd.d/swallow-registry-mirrors.toml
+artifact_sources_containerd_hosts: /etc/k0s/containerd.d/certs.d
+artifact_sources_docker_daemon: /etc/docker/daemon.json
+# The registry the role added to Docker's insecure-registries, which daemon.json cannot mark as
+# swallow's: a later run removes exactly that entry when the registry changes or the Site stops
+# using its Local Repository.
+artifact_sources_docker_registry_record: /var/lib/swallow/artifact-sources/docker-insecure-registry
+artifact_sources_podman_registries: /etc/containers/registries.conf.d/50-swallow-local-repository.conf

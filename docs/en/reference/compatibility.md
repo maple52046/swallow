@@ -14,8 +14,9 @@ the explicit one-release migration notes in those contracts.
   Docker Compose plus a co-located MAAS 3.6 region+rack. It consumes immutable image
   digests, generates restricted secrets, and serves plain HTTP on port 80, and the Site's Local
   Repository (Pulp 3) for deployed Servers on port 8080; TLS terminates in front of it when
-  required. It needs outbound access to GHCR, Docker Hub, Quay, and `images.maas.io`, and its
-  Local Repository to the upstreams it mirrors.
+  required. It needs outbound access to GHCR, Docker Hub, Quay, and `images.maas.io`. Deployments
+  need the upstream sources swallow's modules declare, reached by the Servers, or by the Local
+  Repository when the Site uses it.
 - The installation synchronizes only the official `ubuntu/noble` amd64 OS Image;
   third-party images and offline MAAS image media are not automated.
 - Development Compose is the contributor path.

@@ -287,14 +287,14 @@ func RunWorker(cfg config.APIConfig) error {
 		return fmt.Errorf("subnet DNS repo init: %w", err)
 	}
 	// The Local Repository controller converges each Site's repository Integration to what the
-	// modules declare and the Site's spec adds; the Workflows this process accepts read the status it
-	// records to point their hosts there.
+	// modules declare and the Site's spec adds, while the spec serves deployments; the Workflows this
+	// process accepts read the spec and the status it records to say where their hosts fetch.
 	localRepositories := localrepostore.NewMongoLocalRepositoryRepo(db)
 	platformOps, err := workerPlatformOperations(cfg, db, transactor, modules, workerPlatformDeps{
 		platformService: platformFinalizer, platforms: platforms, servers: servers, operations: operations,
 		workflows: workflows, automation: automationConfigurations, providers: providers,
 		deployments: deployments, software: softwareAssignments, bootISOs: bootISOs, keys: sshKeys,
-		localRepository: localrepoapp.NewResolver(integrations, localRepositories, modules.artifacts),
+		artifacts: localrepoapp.NewResolver(integrations, localRepositories, modules.artifacts),
 	})
 	if err != nil {
 		return err

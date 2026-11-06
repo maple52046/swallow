@@ -5,7 +5,7 @@
 # directory and slurmrestd API version. The Slurm packages are expected to be present from the
 # user's image (SchedMD slurm-smd), so this playbook only configures and starts the
 # cluster and returns a slurmrestd reader credential. The packages it does install (MUNGE, NFS,
-# crun, OpenMPI) come from the Site's Local Repository (swallow_local_repository). It is
+# crun, OpenMPI) come from where the run's artifacts come from (swallow_artifacts). It is
 # idempotent: a converged cluster reruns with no changes.
 #
 # Addresses, not DNS: every host is keyed by serverId (inventory_hostname); slurm.conf uses
@@ -18,11 +18,11 @@
   roles:
     - role: package_maintenance_hold
 
-- name: Point every node at the Site's Local Repository
+- name: Point every node at the run's artifact sources
   hosts: all
   gather_facts: false
   roles:
-    - role: local_repo_client
+    - role: artifact_sources
 
 - name: Classify Slurm nodes by assigned daemon
   hosts: all

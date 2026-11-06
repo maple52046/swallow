@@ -12,6 +12,7 @@ import { LoadingState } from '@/presentation/components/LoadingState'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { Select } from '@/presentation/components/ui/select'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { ArtifactSourceSection } from './ArtifactSourceSection'
 import { InfrastructureHeader } from './InfrastructureHeader'
 import { LocalRepositoryContentBrowser } from './LocalRepositoryContentBrowser'
 import { LocalRepositorySummary } from './LocalRepositorySummary'
@@ -25,7 +26,8 @@ import { UserSourcesSection } from './UserSourcesSection'
 
 /**
  * Infrastructure → Local repository (`/infrastructure/local-repository`): one Site's Local
- * Repository, the place its Servers fetch every artifact a deployment installs (decision 078).
+ * Repository, its own copy of every artifact a deployment installs, and the setting that decides
+ * whether its deployments fetch from it or from the upstreams the modules declare (decision 078).
  *
  * A Local Repository belongs to one Site, so the page needs one: the global Site scope when set,
  * or the only Site of an installation that has one. With several Sites and none scoped it asks for
@@ -77,16 +79,20 @@ export function LocalRepositoryPage() {
  * The Local repository workspace of one Site, keyed by the Site so switching scope starts clean.
  *
  * - Loading, a failed first read (with retry), and a Site without a `repository` Integration are
- *   exclusive states; the last explains that deployments need a Local Repository and opens Create
- *   integration on the Integrations page with the Repository role preselected.
- * - When the repository is read, the page shows its status, the effective sources and their
- *   observed state, the user's sources (the spec), the declared files and images with their
- *   observed state, the declared Python packages, and the content browser. It re-reads while
- *   anything syncs (see `useLocalRepository`).
+ *   exclusive states; the last explains that the Site's deployments fetch from the upstreams and
+ *   opens Create integration on the Integrations page with the Repository role preselected.
+ * - When the repository is read, the page shows its status, where deployments fetch artifacts (the
+ *   setting, see `ArtifactSourceSection`), the effective sources and their observed state, the
+ *   user's sources, the declared files and images with their observed state, the declared Python
+ *   packages, and the content browser. It re-reads while anything syncs (see `useLocalRepository`).
+ *   While the spec does not serve deployments the worker converges nothing, so the observed states
+ *   read as the last observation (`synchronizing`), and nothing polls.
  * - "Sync now" asks the worker to converge now (`POST .../sync`); the request returns at once and
- *   the page keeps re-reading until the worker records its next observation.
- * - "Manage user sources" writes the spec with its generation; a stale generation re-reads the
- *   repository and the dialog shows the current sources (see `UserSourcesDialog`).
+ *   the page keeps re-reading until the worker records its next observation. It is offered only
+ *   while the spec serves deployments, since otherwise the worker does not converge the repository.
+ * - The setting and "Manage user sources" each write the whole spec with the generation they read;
+ *   a stale generation re-reads the repository and each says nothing was saved (see
+ *   `ArtifactSourceSection` and `UserSourcesDialog`).
  */
 function LocalRepositoryWorkspace({ siteId }: { siteId: string }) {
   const { localRepository } = useApp()
@@ -118,7 +124,13 @@ function LocalRepositoryWorkspace({ siteId }: { siteId: string }) {
   const handleSaved = (saved: LocalRepository) => {
     setManaging(false)
     replace(saved)
-    showToast({ tone: 'success', title: 'User sources saved', description: 'New sources read Pending until the worker syncs them.' })
+    showToast({
+      tone: 'success',
+      title: 'User sources saved',
+      description: saved.spec.serveDeployments
+        ? 'New sources read Pending until the worker syncs them.'
+        : "The worker syncs new sources once this Site's deployments use the local repository.",
+    })
   }
 
   const registerRepository = () => {
@@ -129,7 +141,7 @@ function LocalRepositoryWorkspace({ siteId }: { siteId: string }) {
     <div className="console-page sw-local-repository">
       <InfrastructureHeader
         actions={
-          state.status === 'ready' ? (
+          state.status === 'ready' && state.repository.spec.serveDeployments ? (
             <Button colorPalette="brand" onClick={() => void requestSync()} loading={requestingSync} disabled={requestingSync}>
               <RefreshCw size={16} aria-hidden />
               Sync now
@@ -143,17 +155,18 @@ function LocalRepositoryWorkspace({ siteId }: { siteId: string }) {
         <EmptyState
           icon={<DatabaseZap />}
           title="This Site has no Local Repository"
-          message="Deployments fetch every package, image, and file from the Site's Local Repository and are refused until it has one. Register a Repository integration (Pulp) for this Site on the Integrations page."
+          message="This Site's deployments fetch each package, image, and file from the upstream source its module declares. Register a Repository integration (Pulp) for this Site on the Integrations page to give it one."
           action={{ label: 'Register a repository', onClick: registerRepository }}
         />
       )}
       {state.status === 'ready' && (
         <>
           <LocalRepositorySummary repository={state.repository} refreshError={state.refreshError} />
-          <RepositorySourcesSection sources={state.repository.sources} />
+          <ArtifactSourceSection siteId={siteId} repository={state.repository} onSaved={replace} onConflict={reload} />
+          <RepositorySourcesSection sources={state.repository.sources} synchronizing={state.repository.spec.serveDeployments} />
           <UserSourcesSection spec={state.repository.spec} onManage={() => setManaging(true)} />
-          <RepositoryFilesSection files={state.repository.files} />
-          <RepositoryImagesSection images={state.repository.images} />
+          <RepositoryFilesSection files={state.repository.files} synchronizing={state.repository.spec.serveDeployments} />
+          <RepositoryImagesSection images={state.repository.images} synchronizing={state.repository.spec.serveDeployments} />
           <RepositoryDeclarationsSection python={state.repository.python} />
           <LocalRepositoryContentBrowser siteId={siteId} sources={state.repository.sources} />
           {managing && (

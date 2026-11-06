@@ -8,7 +8,7 @@
 #   swallow_device_metrics_exporter_version           pinned exporter release
 #   swallow_device_metrics_exporter_port              exporter port on every exporter host
 #   swallow_device_metrics_exporter_job_attribution   none (standalone) or slurm
-#   swallow_local_repository                          the Site's Local Repository (the package)
+#   swallow_artifacts                                 where the package comes from
 # and, from a Slurm deployment only:
 #   swallow_device_metrics_exporter_compute_ids       GPU compute nodes (serverIds) that run it
 #   swallow_device_metrics_exporter_cluster_name      the Slurm cluster name, the cluster_name label
@@ -28,11 +28,11 @@
   roles:
     - role: package_maintenance_hold
 
-- name: Point every target at the Site's Local Repository
+- name: Point every target at the run's artifact sources
   hosts: all
   gather_facts: false
   roles:
-    - role: local_repo_client
+    - role: artifact_sources
 
 - name: Classify the Device Metrics Exporter hosts
   hosts: all

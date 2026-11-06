@@ -202,8 +202,9 @@ core 檔案的廠商詞彙數仍不得增加。新的平台或廠商名稱要寫
 - Job／Task 範本。
 - 狀態規則：如何從 observed 推導 conditions 與功能狀態。
 - 需要的 provider capability。
-- 部署要取得的 artifact（`artifacts`）：套件來源、帶 sha256 的檔案、container image 與固定版本的 Python 套件，都由
-  Site 的 Local Repository 提供；OS 套件來自 Site 的 OS 套件來源，不由模組宣告。
+- 部署要取得的 artifact（`artifacts`）：帶簽章金鑰的套件來源、帶 sha256 的檔案、container image 與固定版本的 Python
+  套件，由 Site 選擇的來源提供（Site 的 Local Repository，或宣告的上游）；OS 套件來自 Site 或主機的 OS 套件來源，不由模組
+  宣告。
 - Platform 模組：相容的 Accelerator 模組；Software 模組：互斥或相依的其他軟體。
 
 manifest 是資料；core 以讀取 manifest 的方式載入模組，契約版本不相容時拒絕載入。

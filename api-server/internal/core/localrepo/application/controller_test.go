@@ -87,7 +87,7 @@ func (f controllerFixture) record(t *testing.T, siteID string) *localrepodomain.
 // run again soon, and once everything is settled it does not.
 func TestControllerEnsuresTheEffectiveSpecAndRetriesWhileSyncing(t *testing.T) {
 	f := newControllerFixture(repositoryIntegrationOf("site-1"))
-	f.records.Put(localrepodomain.LocalRepository{SiteID: "site-1", Generation: 2, Spec: localrepodomain.Spec{Sources: []localrepodomain.Source{
+	f.records.Put(localrepodomain.LocalRepository{SiteID: "site-1", Generation: 2, Spec: localrepodomain.Spec{ServeDeployments: true, Sources: []localrepodomain.Source{
 		debSource("ubuntu", "http://archive.example/ubuntu/", []string{"noble"}, []string{"main"}),
 	}}})
 	f.repository.sourceState["ubuntu"] = localrepodomain.SyncSyncing
@@ -141,7 +141,7 @@ func TestControllerEnsuresTheEffectiveSpecAndRetriesWhileSyncing(t *testing.T) {
 func TestControllerObservesDeclaredImagesUntilStored(t *testing.T) {
 	const image = "quay.io/k0sproject/pause:3.10"
 	f := newControllerFixture(repositoryIntegrationOf("site-1"))
-	f.records.Put(localrepodomain.LocalRepository{SiteID: "site-1", Generation: 1})
+	f.records.Put(servingRecord("site-1"))
 	imageState := func() localrepodomain.ImageStatus {
 		t.Helper()
 		images := f.record(t, "site-1").Status.Images
@@ -214,6 +214,7 @@ func TestControllerObservesDeclaredImagesUntilStored(t *testing.T) {
 // items stay as last observed.
 func TestControllerRecordsRefusalsAndKeepsStatusWhenUnreachable(t *testing.T) {
 	f := newControllerFixture(repositoryIntegrationOf("site-1"))
+	f.records.Put(servingRecord("site-1"))
 	f.repository.errs["source docker-ce"] = refused("The upstream URL does not answer.")
 	if err := f.reconcile(t, "site-1"); err != nil {
 		t.Fatalf("Reconcile with a refused source = %v, want nil (a refusal is recorded, not retried)", err)
@@ -274,7 +275,7 @@ func TestControllerRecordsWhyAPassStopped(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			integration := repositoryIntegrationOf("site-1")
 			f := newControllerFixture(integration)
-			f.records.Put(localrepodomain.LocalRepository{SiteID: "site-1", Generation: 1})
+			f.records.Put(servingRecord("site-1"))
 			tc.setup(f, integration)
 			err := f.reconcile(t, "site-1")
 			if (err != nil) != tc.retried {
@@ -304,7 +305,8 @@ func TestControllerRemovesRetiredSources(t *testing.T) {
 	observed := func(name string, format localrepodomain.Format) localrepodomain.ObservedSource {
 		return localrepodomain.ObservedSource{Source: localrepodomain.Source{Name: name, Format: format, URL: "https://x.example"}}
 	}
-	f.records.Put(localrepodomain.LocalRepository{SiteID: "site-1", Status: localrepodomain.Status{
+	serving := localrepodomain.Spec{ServeDeployments: true}
+	f.records.Put(localrepodomain.LocalRepository{SiteID: "site-1", Spec: serving, Status: localrepodomain.Status{
 		IntegrationID: "repo-site-1",
 		Sources:       []localrepodomain.ObservedSource{observed("docker-ce", localrepodomain.FormatDeb), observed("old", localrepodomain.FormatDeb), observed("quay.io", localrepodomain.FormatPython)},
 	}})
@@ -316,7 +318,7 @@ func TestControllerRemovesRetiredSources(t *testing.T) {
 	}
 
 	f.repository.removed = nil
-	f.records.Put(localrepodomain.LocalRepository{SiteID: "site-1", Status: localrepodomain.Status{
+	f.records.Put(localrepodomain.LocalRepository{SiteID: "site-1", Spec: serving, Status: localrepodomain.Status{
 		IntegrationID: "repo-previous", Sources: []localrepodomain.ObservedSource{observed("old", localrepodomain.FormatDeb)},
 	}})
 	if err := f.reconcile(t, "site-1"); err != nil {
@@ -351,6 +353,7 @@ func TestControllerForgetsAndPauses(t *testing.T) {
 	disabled := repositoryIntegrationOf("site-1")
 	disabled.Enabled = false
 	paused := newControllerFixture(disabled)
+	paused.records.Put(servingRecord("site-1"))
 	for range 2 {
 		if err := paused.reconcile(t, "site-1"); err != nil {
 			t.Fatalf("Reconcile of a disabled Integration: %v", err)
@@ -360,6 +363,71 @@ func TestControllerForgetsAndPauses(t *testing.T) {
 		t.Errorf("disabled: ensured %v, %d status writes; want nothing ensured and one write", paused.repository.ensured, paused.records.StatusWrites)
 	}
 	wantCondition(t, paused.record(t, "site-1"), localrepodomain.ConditionReady, convergence.ConditionFalse, localrepodomain.ReasonIntegrationDisabled, "is disabled")
+}
+
+// A spec that does not serve deployments, written or not, pauses the Local Repository like a
+// disabled Integration: the provider is not called (nothing synced, fetched, or removed), the items
+// and realized keep their last observation, and only ready=false not_serving is recorded, ahead of
+// integration_disabled. The spec write that turns serving on wakes the controller, which converges.
+func TestControllerDoesNotConvergeASpecThatDoesNotServe(t *testing.T) {
+	f := newControllerFixture(repositoryIntegrationOf("site-1"))
+	if err := f.reconcile(t, "site-1"); err != nil {
+		t.Fatalf("Reconcile before any spec write: %v", err)
+	}
+	if len(f.repository.ensured) > 0 {
+		t.Errorf("ensured %v before any spec write, want nothing: a spec serves only once a user says so", f.repository.ensured)
+	}
+	wantCondition(t, f.record(t, "site-1"), localrepodomain.ConditionReady, convergence.ConditionFalse, localrepodomain.ReasonNotServing, "does not serve deployments")
+
+	served := servingRecord("site-1")
+	if _, err := f.records.PutSpec(context.Background(), "site-1", 0, served.Spec); err != nil {
+		t.Fatalf("PutSpec: %v", err)
+	}
+	if err := f.reconcile(t, "site-1"); err != nil {
+		t.Fatalf("Reconcile while serving: %v", err)
+	}
+	observed := f.record(t, "site-1")
+	wantCondition(t, observed, localrepodomain.ConditionReady, convergence.ConditionTrue, localrepodomain.ReasonReady, "")
+
+	f.now = f.now.Add(time.Minute)
+	f.repository.ensured = nil
+	writes := f.records.StatusWrites
+	if _, err := f.records.PutSpec(context.Background(), "site-1", observed.Generation, localrepodomain.Spec{Sources: served.Spec.Sources}); err != nil {
+		t.Fatalf("PutSpec turning serving off: %v", err)
+	}
+	keys, err := f.controller.KeysForChange(context.Background(), store.Change{Collection: localrepodomain.Collection, Key: "site-1", Operation: store.ChangeUpdate})
+	if err != nil || !slices.Equal(keys, []string{"site-1"}) {
+		t.Fatalf("KeysForChange after the spec write = %v, %v; want site-1", keys, err)
+	}
+	for range 2 {
+		if err := f.reconcile(t, "site-1"); err != nil {
+			t.Fatalf("Reconcile of a spec that does not serve: %v", err)
+		}
+	}
+	paused := f.record(t, "site-1")
+	if len(f.repository.ensured) > 0 || len(f.repository.removed) > 0 || f.records.StatusWrites != writes+1 {
+		t.Errorf("not serving: ensured %v, removed %v, %d status writes; want nothing called and one write",
+			f.repository.ensured, f.repository.removed, f.records.StatusWrites-writes)
+	}
+	if !reflect.DeepEqual(paused.Status.Sources, observed.Status.Sources) || !paused.Status.ObservedAt.Equal(*observed.Status.ObservedAt) {
+		t.Errorf("status items changed while not serving: %+v", paused.Status)
+	}
+	wantCondition(t, paused, localrepodomain.ConditionReady, convergence.ConditionFalse, localrepodomain.ReasonNotServing, "does not serve deployments")
+	if realized := condition(t, paused, convergence.ConditionRealized); realized.Status != convergence.ConditionTrue || realized.Reason != convergence.ReasonConverged {
+		t.Errorf("realized = %+v, want its last judgement kept", realized)
+	}
+
+	f.integrations.byID["repo-site-1"].Enabled = false
+	if err := f.reconcile(t, "site-1"); err != nil {
+		t.Fatalf("Reconcile of a disabled Integration that does not serve: %v", err)
+	}
+	wantCondition(t, f.record(t, "site-1"), localrepodomain.ConditionReady, convergence.ConditionFalse, localrepodomain.ReasonNotServing, "is disabled")
+}
+
+// servingRecord is siteID's record at generation 1 with a spec that serves deployments and no
+// source of the user's.
+func servingRecord(siteID string) localrepodomain.LocalRepository {
+	return localrepodomain.LocalRepository{SiteID: siteID, Generation: 1, Spec: localrepodomain.Spec{ServeDeployments: true}}
 }
 
 // The controller's own status writes do not wake it; a spec write, a request for it, and a change of

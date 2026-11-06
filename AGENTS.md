@@ -98,11 +98,13 @@ Add the spec of each area the task touches:
   `api-server/modules/shared/`, `module.json`, module hooks, a module's dashboard screens, the module
   directory layout); installing packages inside a playbook belongs here:
   `docs/development/module-authoring.md`.
-- The Local Repository (the Site's source of every artifact a deployment installs: its Repository Sources,
-  how module `artifacts` declarations and Site sources converge into the provider, the Pulp adapter, how
-  playbooks reach it through `swallow_local_repository`, the refusal of deployments without it):
-  `docs/development/local-repository.md`. Declaring a module's `artifacts` or writing a role that fetches
-  from it reads module-authoring (above) instead.
+- The Local Repository and where deployments fetch their artifacts (the Site's choice, `serveDeployments`,
+  between its Local Repository and the upstreams modules declare; its Repository Sources, how module
+  `artifacts` declarations and Site sources converge into the provider, the Pulp adapter, how playbooks
+  receive their sources through `swallow_artifacts` and the `artifact_sources` role, the refusal of
+  deployments while a chosen Local Repository is not ready): `docs/development/local-repository.md`.
+  Declaring a module's `artifacts` or writing a role that fetches them reads module-authoring (above)
+  instead.
 - OS provisioning (OS Images and their verification, Deployment Templates, OS deployment and its
   network intent, Release / Recover / Rescue, Zones and Pools, the Provisioner HTTP Proxy, Subnet DNS):
   `docs/development/os-provisioning.md`.

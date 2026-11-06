@@ -3,7 +3,7 @@ import type { LocalRepositoryImage } from '@/domain/localRepository/types'
 import { SectionSurface, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { declarersText, formatReportedSize } from './localRepositoryPresentation'
-import { RepositorySyncStatus } from './RepositorySyncStatus'
+import { RepositorySyncMessageField, RepositorySyncStatus } from './RepositorySyncStatus'
 
 /**
  * The container images the modules declare in a Site's Local Repository, ordered by reference, as
@@ -11,10 +11,12 @@ import { RepositorySyncStatus } from './RepositorySyncStatus'
  * source and counts toward the repository's readiness, so the table shows the observed state with
  * the provider's message as text (`Pending` while its source is not ready, `Failed` with the reason
  * when a fetch failed), the total size once every layer is stored (`—` before), and who declared it.
- * The states and sizes are the API's; the dashboard derives nothing. Read-only: images change with
- * the module that declares them. Desktop rows and mobile cards show the same facts.
+ * The states and sizes are the API's; the dashboard derives nothing. `synchronizing` is whether the
+ * worker converges the repository (its spec serves deployments); when it does not, the states read
+ * as the last observation. Read-only: images change with the module that declares them. Desktop rows
+ * and mobile cards show the same facts.
  */
-export function RepositoryImagesSection({ images }: { images: readonly LocalRepositoryImage[] }) {
+export function RepositoryImagesSection({ images, synchronizing }: { images: readonly LocalRepositoryImage[]; synchronizing: boolean }) {
   return (
     <SectionSurface
       title="Declared images"
@@ -47,7 +49,9 @@ export function RepositoryImagesSection({ images }: { images: readonly LocalRepo
                         <Text className="sw-mono sw-local-repository__wrap">{image.reference}</Text>
                       </Table.Cell>
                       <Table.Cell>{declarersText(image.declaredBy)}</Table.Cell>
-                      <Table.Cell maxW="24rem"><RepositorySyncStatus state={image.state} message={image.message} /></Table.Cell>
+                      <Table.Cell maxW="24rem">
+                        <RepositorySyncStatus state={image.state} message={image.message} synchronizing={synchronizing} />
+                      </Table.Cell>
                       <Table.Cell textAlign="end">{formatReportedSize(image.sizeBytes)}</Table.Cell>
                     </Table.Row>
                   ))}
@@ -61,15 +65,11 @@ export function RepositoryImagesSection({ images }: { images: readonly LocalRepo
                 <ResourceCard
                   key={image.reference}
                   title={<span className="sw-mono sw-local-repository__wrap">{image.reference}</span>}
-                  status={<RepositorySyncStatus state={image.state} message={null} />}
+                  status={<RepositorySyncStatus state={image.state} message={null} synchronizing={synchronizing} />}
                 >
                   <ResourceCardField label="Size">{formatReportedSize(image.sizeBytes)}</ResourceCardField>
                   <ResourceCardField label="Declared by">{declarersText(image.declaredBy)}</ResourceCardField>
-                  {image.message && (
-                    <ResourceCardField label={image.state === 'failed' ? 'Failure' : 'Message'}>
-                      <Text color={image.state === 'failed' ? 'fg.error' : 'fg.muted'}>{image.message}</Text>
-                    </ResourceCardField>
-                  )}
+                  <RepositorySyncMessageField state={image.state} message={image.message} synchronizing={synchronizing} />
                 </ResourceCard>
               ))}
             </div>

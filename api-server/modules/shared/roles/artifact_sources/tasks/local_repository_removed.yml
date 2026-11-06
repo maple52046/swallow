@@ -1,0 +1,36 @@
+---
+# From the upstreams pip and the container runtimes resolve as they would without swallow, so a run
+# removes what a run with the Local Repository wrote for them, and only that (Docker's entry is
+# docker.yml's).
+
+- name: Stop pointing pip and the container runtimes at the Local Repository
+  become: true
+  block:
+    - name: Read pip's configuration
+      ansible.builtin.slurp:
+        src: "{{ artifact_sources_root }}{{ artifact_sources_pip_conf }}"
+      register: artifact_sources_pip_conf_file
+      failed_when: false
+
+    - name: Remove the pip configuration the role wrote
+      # A pip.conf without the role's marker is the user's. Hosts converged before the role was
+      # renamed carry the marker of its former name.
+      ansible.builtin.file:
+        path: "{{ artifact_sources_root }}{{ artifact_sources_pip_conf }}"
+        state: absent
+      when:
+        - artifact_sources_pip_conf_file.content is defined
+        - >-
+          (artifact_sources_pip_conf_file.content | b64decode)
+          is search('(?m)^# Managed by Swallow \((artifact_sources|local_repo_client)\)')
+
+    - name: Stop resolving k0s's images and Podman's registry through the Local Repository
+      # containerd reads the hosts files at every pull, so a running k0s pulls from the upstreams
+      # at once; it forgets the drop-in when it restarts.
+      ansible.builtin.file:
+        path: "{{ artifact_sources_root }}{{ item }}"
+        state: absent
+      loop:
+        - "{{ artifact_sources_containerd_dropin }}"
+        - "{{ artifact_sources_containerd_hosts }}"
+        - "{{ artifact_sources_podman_registries }}"

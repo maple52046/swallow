@@ -1,9 +1,9 @@
 ---
 # Install the Prometheus Node Exporter on already-provisioned Servers as Managed Software
 # (docs/development/software-deployment.md), from the OS distribution's package, which the Site's
-# Local Repository serves (swallow_local_repository, role local_repo_client). An OS deployment
-# composes it after each provisioned Server's time synchronization. Idempotent: a converged host
-# reruns with no changes. The port swallow's Prometheus discovery scrapes arrives as
+# Local Repository or the distribution's archive serves (swallow_artifacts, role artifact_sources).
+# An OS deployment composes it after each provisioned Server's time synchronization. Idempotent: a
+# converged host reruns with no changes. The port swallow's Prometheus discovery scrapes arrives as
 # swallow_node_exporter_port.
 
 - name: Hold the OS's automatic package maintenance
@@ -12,11 +12,11 @@
   roles:
     - role: package_maintenance_hold
 
-- name: Point every target at the Site's Local Repository
+- name: Point every target at the run's artifact sources
   hosts: all
   gather_facts: false
   roles:
-    - role: local_repo_client
+    - role: artifact_sources
 
 - name: Install the Node Exporter
   hosts: all

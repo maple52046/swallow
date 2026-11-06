@@ -14,6 +14,7 @@ import (
 
 	"github.com/maple52046/swallow/internal/core/convergence"
 	"github.com/maple52046/swallow/internal/core/convergence/convergencetest"
+	localrepodomain "github.com/maple52046/swallow/internal/core/localrepo/domain"
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	"github.com/maple52046/swallow/internal/core/store"
@@ -1156,6 +1157,39 @@ func TestControllerDoesNotRestartAFailedWorkflowAndReportsDrift(t *testing.T) {
 	realized, _ := convergence.FindCondition(platform.Status.Conditions, convergence.ConditionRealized)
 	if realized.Reason != convergence.ReasonFailed {
 		t.Errorf("realized = %+v, want failed", realized)
+	}
+}
+
+// A realization refused at acceptance because the Site's Local Repository serves deployments and is
+// not ready starts nothing; realized reports the refusal with what is in the way, and the next pass
+// once the repository is ready starts the Workflow.
+func TestControllerReportsARealizationTheLocalRepositoryRefused(t *testing.T) {
+	h := newSpecHarness(nil)
+	created, err := h.specs.Create(context.Background(), CreatePlatformSpecInput{
+		SiteID: "site-1", Name: "lab-k0s", Type: platformdomain.PlatformTypeKubernetes, Spec: labSpec(), RequestedBy: "admin",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if _, err := h.plans.Approve(context.Background(), created.Plan.ID, "admin"); err != nil {
+		t.Fatalf("Approve() error = %v", err)
+	}
+	const notReady = "source ubuntu is syncing"
+	h.launcher.err = fmt.Errorf("%w: %s", localrepodomain.ErrLocalRepositoryUnavailable, notReady)
+	if err := h.controller.Reconcile(context.Background(), convergence.Request{Key: created.Platform.ID}); !errors.Is(err, localrepodomain.ErrLocalRepositoryUnavailable) {
+		t.Fatalf("Reconcile() error = %v, want the refusal for the runtime's backoff", err)
+	}
+	platform := h.platforms.platforms[created.Platform.ID]
+	realized, _ := convergence.FindCondition(platform.Status.Conditions, convergence.ConditionRealized)
+	if h.launcher.launches != 0 || realized.Status != convergence.ConditionFalse || realized.Reason != convergence.ReasonFailed ||
+		!strings.Contains(realized.Message, "the site's local repository is not ready: "+notReady) {
+		t.Errorf("launches %d, realized %+v; want nothing started and the refusal reported", h.launcher.launches, realized)
+	}
+
+	h.launcher.err = nil
+	h.reconcile(t, created.Platform.ID)
+	if h.launcher.launches != 1 {
+		t.Errorf("launches = %d once the Local Repository is ready, want the install started", h.launcher.launches)
 	}
 }
 

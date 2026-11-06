@@ -24,11 +24,13 @@ Pulp, the Site's Local Repository, runs as in production and is published on eve
 or the development stack, which both default to 8080). In production `swallowctl` creates Pulp's
 role and database in the shared PostgreSQL; here the one-shot `pulp-db` service does it on every
 `up`, before `pulp-init` migrates the database. `seed.sh` registers Pulp as the testing Site's
-`repository` Integration and writes the Local Repository's default `ubuntu` source, as
-`bootstrap.sh` does in production. The Integration's `contentOrigin` is Pulp's own origin,
-`http://<SWALLOW_ADDRESS>:<SWALLOW_PULP_PORT>`, with `localhost` while `SWALLOW_ADDRESS` is unset:
-set `SWALLOW_ADDRESS` in `.env` before `up` when Servers must fetch from this stack. Pulp then
-synchronizes the sources from the Internet; `seed.sh` does not wait for it.
+`repository` Integration and writes the Local Repository's first spec, the default `ubuntu` source
+with `serveDeployments` `false`, as `bootstrap.sh` does in production: the Site deploys from the
+upstreams and Pulp synchronizes nothing until `serveDeployments` is turned on. The Integration's
+`contentOrigin` is Pulp's own origin, `http://<SWALLOW_ADDRESS>:<SWALLOW_PULP_PORT>`, with
+`localhost` while `SWALLOW_ADDRESS` is unset: set `SWALLOW_ADDRESS` in `.env` before `up` when
+Servers must fetch from this stack. Once it is turned on, Pulp synchronizes the sources from the
+Internet; `seed.sh` does not wait for it.
 
 Set `COMPOSE_PROJECT_NAME` to run several isolated stacks on one host, and remove a stack with
 `docker compose down --volumes` when you are done. Each stack publishes its own Pulp port, so give

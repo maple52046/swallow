@@ -23,9 +23,10 @@ their own view, so a Workflow kind or completion type one process knows can be m
    `version` (SemVer of the module), the playbook names it runs, the Workflow kinds it plans, the Task
    kinds and completion types it declares, the JSON Schema of its spec (when the module defines a
    resource spec), its Go hooks each with the reason data cannot express it, the provider
-   capabilities it needs, the HTTP routes it serves, and the `artifacts` its host automation fetches
-   from the Site's Local Repository (package sources, checksummed files, container images, pinned
-   Python requirements). Artifacts are not owned: two modules may declare the same source or file
+   capabilities it needs, the HTTP routes it serves, and the `artifacts` its host automation fetches,
+   from the Site's Local Repository or from their upstreams as the Site chooses (package sources with
+   their signing keys, checksummed files, container images, pinned Python requirements). Artifacts
+   are not owned: two modules may declare the same source or file
    when the declarations agree, and the registry refuses them when they do not. Adding an optional
    field like this one keeps the contract at v1.
 2. **A module with Go code has one root Go package in its directory** that embeds its `module.json`
@@ -80,3 +81,4 @@ their own view, so a Workflow kind or completion type one process knows can be m
 ## Revision history
 
 - 2026-11-06: added the optional `artifacts` field, so a module declares what deployment fetches and the Site's Local Repository can serve it without the internet; the contract version stays 1.
+- 2026-11-06: a module-declared deb source carries the `signingKey` that verifies it, because a Site that does not use its Local Repository fetches it from its upstream (decision 078); the contract version stays 1.

@@ -10,9 +10,9 @@ The production Compose installation used to stop at swallow itself: MAAS needed 
 image synchronization and the provisioner Integration were manual, and every backend service sat on
 an internal network, so nothing could reach a provisioner or a Server. The goal is that one clean
 Ubuntu 24.04 VM becomes operable with one command: the Dashboard, a synced MAAS Integration,
-Temporal with a polling worker, a working Ansible executor, a deployable `ubuntu/noble` image, and,
-since deployments stopped fetching from the Internet ([decision 078](078-local-repository.md)
-(local repository)), the Local Repository its Servers fetch every artifact from.
+Temporal with a polling worker, a working Ansible executor, a deployable `ubuntu/noble` image, and
+the Site's Local Repository, which the Site can choose to have its Servers fetch every deployment
+artifact from ([decision 078](078-local-repository.md) (local repository)).
 "Production" names the installation contract (digest-pinned images, generated secrets, lifecycle
 tooling), not a multi-host topology.
 
@@ -42,7 +42,8 @@ only in the environment was lost on the next upgrade.
 - **The Site's Local Repository runs on the same VM.** Pulp 3 (`pulp-minimal` for the API, the content
   app, and the workers, `pulp-web` in front) keeps its state in the shared PostgreSQL under its own role
   and database, like MAAS, and the bootstrap registers it as the Site's `repository` Integration with
-  the Site's Ubuntu source (decision 078). `pulp-web` is
+  the Site's Ubuntu source and a spec that does not serve deployments yet: the Site turns it on
+  (decision 078). `pulp-web` is
   the installation's **second external listener, for Servers**, on its own port
   (`SWALLOW_PULP_PORT`, 8080 by default): a container registry must answer `/v2/` at the root of its
   host and port, and Pulp writes absolute URLs on its content origin, so it cannot sit under a path of
@@ -113,13 +114,6 @@ only in the environment was lost on the next upgrade.
   starts its own PostgreSQL, which would be a second database engine and backup path on the VM.
 - **Back up Pulp's artifacts:** rejected; they all come from upstreams, are re-fetched on demand or
   by a repair, and would make every backup as large as the cache.
-- **Serve the Local Repository through the Dashboard's Nginx on port 80:** rejected; the registry's
-  `/v2/` must be at the root of its own host and port, and Pulp's absolute URLs would mix with the
-  API's.
-- **Pulp's all-in-one image, or a PostgreSQL of its own:** rejected; the all-in-one image always
-  starts its own PostgreSQL, which would be a second database engine and backup path on the VM.
-- **Back up Pulp's artifacts:** rejected; they all come from upstreams, are re-fetched on demand or
-  by a repair, and would make every backup as large as the cache.
 - **A crane container fallback:** rejected; under rootless nerdctl it could not read the registry
   login and hung on streamed output.
 - **Publish `swallowctl` alone and let it download its bundle:** rejected; one tool would be both the
@@ -134,12 +128,13 @@ only in the environment was lost on the next upgrade.
 - The VM is a single failure domain for swallow and its provisioner, and plain HTTP exposes the admin
   login unless a TLS terminator fronts it.
 - Installation needs outbound access to GHCR, Docker Hub (anonymous pull limits apply), Quay,
-  `images.maas.io`, and the snap store; an air-gapped site cannot install from a release. Deployments
-  need Pulp to reach the upstreams the Local Repository mirrors (the Ubuntu archive and what the
-  modules declare), and the machine networks to reach the VM's Local Repository port.
+  `images.maas.io`, and the snap store; an air-gapped site cannot install from a release. While the
+  Site uses its Local Repository, deployments need Pulp to reach the upstreams it mirrors (the Ubuntu
+  archive and what the modules declare) and the machine networks to reach the VM's Local Repository
+  port; otherwise the Servers reach those upstreams themselves.
 - The VM's disk holds the Local Repository's cache: every package, image, and file the Site's
-  Servers fetched. After a restore on another host, artifacts are downloaded again before they are
-  served.
+  Servers fetched from it. After a restore on another host, artifacts are downloaded again before
+  they are served.
 - Each runtime image can be traced to its official source by the digest in the manifest.
 - The address cannot change after the first install, because MAAS keeps the URL it was initialized
   with. MAAS DHCP and PXE configuration stays outside the installation.
@@ -153,3 +148,4 @@ only in the environment was lost on the next upgrade.
 - 2026-10-30: decision 069 required MongoDB to run as a single-node replica set in every installation.
 - 2026-11-02: merged decision 040 into this ADR; the body states the current decision.
 - 2026-11-06: added the Site's Local Repository (Pulp on the shared PostgreSQL) to the installation, with `pulp-web` as the second external listener, for Servers, because a container registry must be at the root of its own host and port; its database and keys are backed up, its artifacts are not.
+- 2026-11-06: the bootstrap registers the Local Repository with a spec that does not serve deployments, because each Site now chooses whether its deployments use it (decision 078); removed a duplicated block of alternatives.
