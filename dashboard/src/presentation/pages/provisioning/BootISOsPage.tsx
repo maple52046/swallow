@@ -12,7 +12,6 @@ import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
-import { PageHeader } from '@/presentation/components/PageHeader'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { Alert } from '@/presentation/components/ui/alert'
@@ -20,11 +19,11 @@ import { DescriptionList } from '@/presentation/components/ui/description-list'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { InfrastructureHeader } from '@/presentation/pages/infrastructure/InfrastructureHeader'
 import { formatBytes } from '@/shared/utils/bytes'
 import { formatDateTime, formatRelative } from '@/shared/utils/time'
 import { BuildBootISODialog } from './BuildBootISODialog'
 import './boot-isos.css'
-import { ProvisioningTabs } from './ProvisioningTabs'
 
 interface ReadyBootISOsState {
   status: 'ready'
@@ -73,7 +72,8 @@ function siteHref(siteId: string): string {
 }
 
 /**
- * Optional external-network boot setup for the current Site scope.
+ * Optional external-network boot setup for the current Site scope: the Boot ISOs tab of
+ * Infrastructure (`/infrastructure/boot-isos`; bookmarks of `/provisioning/boot-isos` redirect here).
  *
  * A Boot ISO is only needed when a Server cannot use its provisioner's managed network path. Cards
  * keep serving, usage, chain, and technical facts distinct; a missing ISO is therefore an ordinary
@@ -190,10 +190,7 @@ export function BootISOsPage() {
 
   return (
     <div className="console-page sw-boot-isos-page">
-      <PageHeader
-        title="Boot ISOs"
-        subtitle="Optional network boot media for Servers that use external DHCP instead of their provisioner's managed network."
-        breadcrumbs={[{ label: 'Provisioning', href: scopedHref('/provisioning/images') }, { label: 'Boot ISOs' }]}
+      <InfrastructureHeader
         stackActionsOnMobile
         actions={
           <HStack gap="2" width={{ base: '100%', md: 'auto' }}>
@@ -218,7 +215,6 @@ export function BootISOsPage() {
           </HStack>
         }
       />
-      <ProvisioningTabs />
 
       <section className="sw-boot-iso-setup" aria-labelledby="boot-iso-setup-title">
         <BootPathGuide />

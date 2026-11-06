@@ -113,7 +113,7 @@ static IP 綁定、不清磁碟）。該 Task 的時間軸會說明 Server 是�
 
 破壞性變更（例如 uninstall Platform）會經過一份 Change Plan：列出 swallow 要做的每個動作、哪些是破壞性的、
 預期影響，以及阻擋事項。你在 dashboard 確認的對話框會顯示同樣的影響，確認就是核准這份 plan，所以變更會
-立即開始；CLI 加上 `--approve` 時也一樣。plan 會留在 **Change Plans** 頁面，記錄決定了什麼、由誰決定，以及
+立即開始；CLI 加上 `--approve` 時也一樣。plan 會留在 **Activity → Change Plans** 分頁，記錄決定了什麼、由誰決定，以及
 由哪個 Workflow 執行。
 
 以下情況 plan 會在 **Change Plans** 等 admin 整份核准或拒絕（在該頁，或以 `swallow plans approve`／

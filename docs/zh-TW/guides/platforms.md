@@ -149,8 +149,9 @@ Platform detail 透過 Platform API 讀取 live Slurm state，並把 node 關聯
 
 ## Platform runtime workspace
 
-開啟 `/platforms/<id>` 會保留目前 Site，並重新導向 Platform 的 **Overview**。水平 workspace
-navigation 使用真正的連結，因此 refresh、瀏覽器歷史、鍵盤操作與分享 URL 都會保留目前頁面。
+開啟 `/platforms/<id>` 會保留目前 Site，並重新導向 Platform 的 **Overview**。header 下方的每個分頁
+（名稱旁附圖示，與 Server 詳細頁相同）都有自己的 URL，因此 refresh、瀏覽器歷史與分享 URL 都會保留
+目前分頁；方向鍵可在分頁之間移動。
 
 - **Overview** 採 summary-first：顯示 lifecycle、topology、member matching、已套用 generation、
   sync freshness、runtime access，以及 Platform module 提供的 capabilities；不再重複完整的 OS、

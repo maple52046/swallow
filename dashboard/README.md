@@ -12,22 +12,22 @@ consumer of the provider-owned HTTP contract and binds only real API adapters.
 | `/login` | Authenticate |
 | `/` | Site-scoped overview and attention items |
 | `/servers`, `/servers/:id/*` | Inventory, actions, activity, monitoring, containers, network, storage, PCI |
-| `/provisioning/templates` | Deployment Templates |
-| `/provisioning/images` | OS images, upload, delete, and verification |
-| `/provisioning/boot-isos` | Boot ISOs |
+| `/provisioning/images` | OS Images (under Servers in the sidebar): OS images, upload, delete, and verification |
+| `/provisioning/templates` | OS Images: Deployment Templates |
 | `/platforms`, `/platforms/:id` | Kubernetes/Slurm Platform inventory and detail |
 | `/platforms/deploy` | Platform runtime catalog |
 | `/platforms/deploy/kubernetes`, `/platforms/deploy/slurm`, `/platforms/settings` | Runtime-specific Platform deployment and Slurm requirements |
 | `/software`, `/software/:kind` | Managed Software catalog, deployments, and multi-Server installation |
 | `/software/settings`, `/software/:kind/settings` | Software settings such as registry credentials |
-| `/workflows`, `/workflows/:id` | Durable Workflow list, events, logs, and controls |
-| `/change-plans` | Change Plans waiting for approval |
+| `/workflows`, `/workflows/:id` | Activity: durable Workflow list, events, logs, and controls |
+| `/change-plans` | Activity: Change Plans waiting for approval |
 | `/monitoring` | Health, usage charts (selected Servers, Pool, Zone, Platform), current metrics, optional Grafana, and (in development) alerts and silences |
-| `/infrastructure/*` | Sites, Integrations, Zones, Pools, and the Site's Local repository |
+| `/infrastructure/*` | Sites, Integrations, Zones, Pools, the Site's Local repository, and Boot ISOs |
 | `/account/ssh-keys`, `/account/api-keys` | Your SSH keys and API keys (account menu) |
 
-`/clusters`, `/operations`, and the retired `/provisioning/deploy` page are
-compatibility redirects.
+`/clusters`, `/operations`, the retired `/provisioning/deploy` page, and
+`/provisioning/boot-isos` (now `/infrastructure/boot-isos`) are compatibility
+redirects.
 
 Alerts (the alert list and acknowledging on Monitoring, the Overview Alerts card), OS
 image upload, Deployment Templates, and libvirt virtual machine enrollment are still

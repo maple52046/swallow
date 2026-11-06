@@ -670,10 +670,10 @@ test.describe('user interactions', () => {
     expect(deployBody?.monitoringDashboards).toBe(true)
     expect(deployBody?.gpuDriver).toEqual({ moduleOptions: { pcie_p2p: '0' } })
     expect((deployBody?.slurm as { gpuGresType?: string } | undefined)?.gpuGresType).toBe('mi308x_vf')
-    await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Monitoring' }).click()
+    await page.getByRole('tablist', { name: 'Platform workspace' }).getByRole('tab', { name: 'Monitoring' }).click()
     await expect(page.getByLabel('Omnistat')).toContainText('Installing')
     await expect(page.getByLabel('Omnistat')).toContainText('installed natively')
-    await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Configuration' }).click()
+    await page.getByRole('tablist', { name: 'Platform workspace' }).getByRole('tab', { name: 'Configuration' }).click()
     await expect(page.getByText('GPU GRES type', { exact: true })).toBeVisible()
     await expect(page.getByText('mi308x_vf', { exact: true })).toBeVisible()
     await expect(page.getByText('GPU driver options', { exact: true })).toBeVisible()
@@ -732,10 +732,10 @@ test.describe('user interactions', () => {
     const slurm = deployBody?.slurm as { ociContainers?: boolean; pmix?: boolean } | undefined
     expect(slurm?.ociContainers).toBe(true)
     expect(slurm?.pmix).toBe(true)
-    await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Monitoring' }).click()
+    await page.getByRole('tablist', { name: 'Platform workspace' }).getByRole('tab', { name: 'Monitoring' }).click()
     await expect(page.getByLabel('Device Metrics Exporter')).toContainText('Installing')
     await expect(page.getByLabel('Device Metrics Exporter')).not.toContainText('Platform Grafana')
-    await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Configuration' }).click()
+    await page.getByRole('tablist', { name: 'Platform workspace' }).getByRole('tab', { name: 'Configuration' }).click()
     await expect(page.getByText('Native OCI (srun --container); Docker CE on compute and login nodes', { exact: true })).toBeVisible()
   })
 
@@ -760,7 +760,7 @@ test.describe('user interactions', () => {
       .toHaveAttribute('href', 'http://10.0.0.21:3000/d/fe0ayyeeoxvy8f/overview')
 
     await expect(exporter.getByText('GPU identity collapsed')).toBeVisible()
-    await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Configuration' }).click()
+    await page.getByRole('tablist', { name: 'Platform workspace' }).getByRole('tab', { name: 'Configuration' }).click()
     await expect(page.getByText('OpenMPI with srun --mpi=pmix_v5', { exact: true })).toBeVisible()
   })
 
@@ -1059,22 +1059,31 @@ test.describe('user interactions', () => {
     await page.goto('/platforms/platform-a?site=site-a')
     await expect(page).toHaveURL('/platforms/platform-a/overview?site=site-a')
 
-    const workspace = page.getByRole('navigation', { name: 'Platform workspace' })
-    await expect(workspace.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page')
+    // The shell's tabs frame the module's, each with an icon beside its label.
+    const workspace = page.getByRole('tablist', { name: 'Platform workspace' })
+    await expect(workspace.getByRole('tab')).toHaveText(['Overview', 'Applications', 'Namespaces', 'Cluster', 'Monitoring', 'Configuration', 'Activity'])
+    await expect(workspace.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true')
+    await expect(workspace.getByRole('tab', { name: 'Cluster' }).locator('svg')).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Runtime posture' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Platform details', exact: true })).toHaveCount(0)
     await expect(page.getByRole('table', { name: 'Platform members' })).toHaveCount(0)
 
-    await workspace.getByRole('link', { name: 'Configuration' }).click()
+    await workspace.getByRole('tab', { name: 'Configuration' }).click()
     await expect(page).toHaveURL('/platforms/platform-a/configuration?site=site-a')
+    await expect(workspace.getByRole('tab', { name: 'Configuration' })).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByRole('heading', { name: 'Platform details', exact: true })).toBeVisible()
 
-    await workspace.getByRole('link', { name: 'Activity' }).click()
+    // Arrow keys move to the next tab and open its route.
+    await page.keyboard.press('ArrowRight')
     await expect(page).toHaveURL('/platforms/platform-a/activity?site=site-a')
+    await expect(workspace.getByRole('tab', { name: 'Activity' })).toBeFocused()
+    await expect(workspace.getByRole('tab', { name: 'Activity' })).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByRole('heading', { name: 'Workflow activity', exact: true })).toBeVisible()
     await expect(page.getByRole('table', { name: 'Platform workflows' }).getByRole('link').first()).toBeVisible()
+    // History moves the selection with the URL.
     await page.goBack()
     await expect(page).toHaveURL('/platforms/platform-a/configuration?site=site-a')
+    await expect(workspace.getByRole('tab', { name: 'Configuration' })).toHaveAttribute('aria-selected', 'true')
 
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(workspace).toBeVisible()
@@ -1083,17 +1092,17 @@ test.describe('user interactions', () => {
 
   test('Platform workspace keeps Kubernetes and Slurm language and routes type-specific', async ({ page }) => {
     await page.goto('/platforms/platform-a/overview?site=site-a')
-    const kubernetesWorkspace = page.getByRole('navigation', { name: 'Platform workspace' })
+    const kubernetesWorkspace = page.getByRole('tablist', { name: 'Platform workspace' })
     await expect(page.getByRole('heading', { name: 'Cluster access' })).toBeVisible()
-    await expect(kubernetesWorkspace.getByRole('link', { name: 'Applications' })).toBeVisible()
-    await expect(kubernetesWorkspace.getByRole('link', { name: 'Nodes' })).toHaveCount(0)
+    await expect(kubernetesWorkspace.getByRole('tab', { name: 'Applications' })).toBeVisible()
+    await expect(kubernetesWorkspace.getByRole('tab', { name: 'Nodes' })).toHaveCount(0)
 
     await page.goto('/platforms/platform-slurm/overview?site=site-a')
-    const slurmWorkspace = page.getByRole('navigation', { name: 'Platform workspace' })
+    const slurmWorkspace = page.getByRole('tablist', { name: 'Platform workspace' })
     await expect(page.getByRole('heading', { name: 'Submission access' })).toBeVisible()
-    await expect(slurmWorkspace.getByRole('link', { name: 'Nodes' })).toBeVisible()
-    await expect(slurmWorkspace.getByRole('link', { name: 'Partitions' })).toBeVisible()
-    await expect(slurmWorkspace.getByRole('link', { name: 'Applications' })).toHaveCount(0)
+    await expect(slurmWorkspace.getByRole('tab', { name: 'Nodes' })).toBeVisible()
+    await expect(slurmWorkspace.getByRole('tab', { name: 'Partitions' })).toBeVisible()
+    await expect(slurmWorkspace.getByRole('tab', { name: 'Applications' })).toHaveCount(0)
     await expect(page.getByText(/Kubernetes/)).toHaveCount(0)
   })
 
@@ -1112,7 +1121,7 @@ test.describe('user interactions', () => {
     await expect(nodes.getByRole('row', { name: /slurm-cpt-02/ })).toContainText('allocated')
     await expect(page.getByRole('table', { name: 'Slurm partitions' })).toHaveCount(0)
 
-    await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Partitions' }).click()
+    await page.getByRole('tablist', { name: 'Platform workspace' }).getByRole('tab', { name: 'Partitions' }).click()
     await expect(page).toHaveURL('/platforms/platform-slurm-ha/partitions?site=site-a')
     await expect(page.getByRole('table', { name: 'Slurm partitions' }).getByRole('row', { name: /main/ })).toBeVisible()
   })
@@ -1123,14 +1132,14 @@ test.describe('user interactions', () => {
     await expect(applications.getByRole('row', { name: /nginx/ })).toContainText('Deployment')
     await expect(applications.getByRole('row', { name: /debug/ })).toContainText('Pod')
 
-    const workspace = page.getByRole('navigation', { name: 'Platform workspace' })
-    await workspace.getByRole('link', { name: 'Cluster' }).click()
+    const workspace = page.getByRole('tablist', { name: 'Platform workspace' })
+    await workspace.getByRole('tab', { name: 'Cluster' }).click()
     await expect(page).toHaveURL('/platforms/platform-a/cluster?site=site-a')
     const nodes = page.getByRole('table', { name: 'Kubernetes nodes' })
     await expect(nodes.getByRole('row', { name: /gpu-node-01/ })).toContainText('control-plane')
     await expect(nodes.getByRole('row', { name: /gpu-node-02/ }).getByRole('button', { name: 'Cordon' })).toBeVisible()
 
-    await workspace.getByRole('link', { name: 'Namespaces' }).click()
+    await workspace.getByRole('tab', { name: 'Namespaces' }).click()
     const systemRow = page.getByRole('table', { name: 'Kubernetes namespaces' }).getByRole('row', { name: /kube-system/ })
     await expect(systemRow.getByRole('button', { name: 'Delete' })).toBeDisabled()
   })
@@ -1148,11 +1157,14 @@ test.describe('user interactions', () => {
 
   test('registered or unreachable Kubernetes records do not expose live explorer routes', async ({ page }) => {
     await page.goto('/platforms/platform-b/overview?site=site-a')
-    const workspace = page.getByRole('navigation', { name: 'Platform workspace' })
-    await expect(workspace.getByRole('link', { name: 'Applications' })).toHaveCount(0)
-    await expect(workspace.getByRole('link', { name: 'Cluster' })).toHaveCount(0)
+    const workspace = page.getByRole('tablist', { name: 'Platform workspace' })
+    await expect(workspace.getByRole('tab', { name: 'Applications' })).toHaveCount(0)
+    await expect(workspace.getByRole('tab', { name: 'Cluster' })).toHaveCount(0)
     await page.goto('/platforms/platform-b/applications?site=site-a')
     await expect(page.getByRole('heading', { name: 'Workspace page not found' })).toBeVisible()
+    // No tab is selected for a page the Platform does not have, yet the tabs stay keyboard-reachable.
+    await expect(workspace.getByRole('tab', { selected: true })).toHaveCount(0)
+    await expect(workspace.getByRole('tab', { name: 'Overview' })).toHaveAttribute('tabindex', '0')
   })
 
   test('Overview presents standalone topology without repeating the complete configuration', async ({ page }) => {
@@ -1379,7 +1391,7 @@ test.describe('user interactions', () => {
     await expect(page.getByText(/Provision and verify operating system on srv-4 will retry in Operation op-deploy-failed/)).toBeVisible()
     await expect(page.getByText('Platform deployment is running')).toBeVisible()
     await expect(page.getByText('Deployment failed')).toHaveCount(0)
-    await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Activity' }).click()
+    await page.getByRole('tablist', { name: 'Platform workspace' }).getByRole('tab', { name: 'Activity' }).click()
     await expect(
       page.getByRole('table', { name: 'Platform workflows' })
         .getByRole('row', { name: /Deploy Kubernetes Platform edge-staging/ })

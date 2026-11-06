@@ -8,12 +8,18 @@ import { ErrorState } from '@/presentation/components/ErrorState'
 import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { SectionSurface } from '@/presentation/components/ConsolePrimitives'
-import { PageHeader } from '@/presentation/components/PageHeader'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSettlingRefresh } from '@/presentation/hooks/useSettlingRefresh'
+import { ActivityHeader } from '@/presentation/pages/operations/ActivityHeader'
 import { ChangePlanCard } from './ChangePlanCard'
 import { ChangePlanPolicyCard } from './ChangePlanPolicyCard'
-import { changePlanApprovalScope, changePlanResourceLabel, groupChangePlans, type ChangePlanNames } from './changePlanPresentation'
+import {
+  changePlanApprovalConsequence,
+  changePlanApprovalScope,
+  changePlanResourceLabel,
+  groupChangePlans,
+  type ChangePlanNames,
+} from './changePlanPresentation'
 import { useChangePlanNames } from './useChangePlanNames'
 
 type PageState =
@@ -27,7 +33,7 @@ type Decision = { kind: 'approve' | 'reject'; plan: ChangePlan } | null
 const NO_PLANS: ChangePlan[] = []
 
 /**
- * The Change Plans workspace (route `/change-plans`, decision 076): every destructive change's plan
+ * The Change Plans tab of Activity (route `/change-plans`, decision 076): every destructive change's plan
  * is listed here. A change the user confirmed when submitting it arrives approved and is applied by
  * its controller; a plan that waits — submitted without approval, blocked, proposed by Swallow, or
  * held by the Change Plan policy — is approved or rejected here as a whole. The policy's switch
@@ -114,10 +120,7 @@ export function ChangePlansPage() {
 
   return (
     <div className="console-page">
-      <PageHeader
-        title="Change Plans"
-        subtitle="What each destructive change does, who approved it, and the plans that still wait for approval."
-      />
+      <ActivityHeader subtitle="What each destructive change does, who approved it, and the plans that still wait for approval." />
 
       <ChangePlanPolicyCard />
       {state.status === 'loading' && <LoadingState rows={4} />}
@@ -143,10 +146,7 @@ export function ChangePlansPage() {
         {decision && (
           <Stack gap="2">
             <Text>{changePlanApprovalScope(decision.plan, names)}</Text>
-            <Text>
-              An approved plan cannot be changed. Once its Workflow runs, destructive actions cannot be undone; if the spec
-              changes first, the plan is superseded instead.
-            </Text>
+            <Text>{changePlanApprovalConsequence(decision.plan)}</Text>
           </Stack>
         )}
       </ConfirmDialog>

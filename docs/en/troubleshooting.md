@@ -169,7 +169,7 @@ until it is inspected again. A RAM deployment does not use the disk and is still
 allowed.
 
 1. Rebuild the Server's Boot ISO first if it predates the UEFI hand-off; the
-   Boot ISOs page flags it as needing a rebuild.
+   **Infrastructure → Boot ISOs** flags it as needing a rebuild.
 2. End the deployment that holds the Server. Retrying its failed Task now ends
    the Task with `inspection_required` instead of redeploying; or cancel the
    Workflow.

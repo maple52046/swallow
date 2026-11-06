@@ -197,8 +197,9 @@ nodes back to Server IDs.
 ## Platform runtime workspace
 
 Opening `/platforms/<id>` redirects to the Platform's **Overview** while preserving the
-selected Site. The horizontal workspace navigation uses real links, so refresh, browser
-history, keyboard navigation, and shared URLs keep the current page.
+selected Site. Each tab under the header, an icon beside its name as on a Server's detail
+page, has its own URL, so refresh, browser history, and shared URLs keep the current tab;
+the arrow keys move between tabs.
 
 - **Overview** is summary-first: lifecycle, topology, member matching, applied generation,
   sync freshness, runtime access, and the capabilities supplied by the Platform module.

@@ -96,9 +96,29 @@ export function plannedActionChange(action: PlannedAction): string {
  * gets no count clause rather than "including 0 destructive actions".
  */
 export function changePlanApprovalScope(plan: ChangePlan, names: ChangePlanNames): string {
-  const destructive = plan.actions.filter((action) => action.destructive).length
+  const destructive = destructiveActionCount(plan)
   const including = destructive > 0 ? `, including ${destructive} destructive ${plural(destructive, 'action')}` : ''
   return `Swallow will carry out every action of this plan for ${changePlanResourceLabel(plan.resource, names)}${including}.`
+}
+
+/**
+ * The approval confirmation's consequence statement: an approved plan cannot be changed, and a
+ * spec change before its Workflow runs supersedes it. Only a plan the API marked as having a
+ * destructive action warns that what it does cannot be undone; a plan without one (for example an
+ * install held by the Change Plan policy) says so instead of implying a destructive effect.
+ */
+export function changePlanApprovalConsequence(plan: ChangePlan): string {
+  const destructive = destructiveActionCount(plan)
+  if (destructive === 0) {
+    return 'An approved plan cannot be changed; if the spec changes before its Workflow runs, the plan is superseded. None of its actions is destructive.'
+  }
+  const them = destructive === 1 ? 'its destructive action' : 'its destructive actions'
+  return `An approved plan cannot be changed. Once its Workflow runs, ${them} cannot be undone; if the spec changes first, the plan is superseded instead.`
+}
+
+/** How many of the plan's actions the API marked destructive; the dashboard never classifies them. */
+function destructiveActionCount(plan: ChangePlan): number {
+  return plan.actions.filter((action) => action.destructive).length
 }
 
 /** Plans grouped the way a user works through them: decide, wait for the controller, history. */

@@ -45,12 +45,12 @@ test('Release builds hide in-development features and offer no switch', async ({
   await expect(page.getByRole('heading', { name: 'Current metrics' })).toBeVisible()
 
   // Monitoring Links are Platform data, and the usage-chart shortcut leads to the released console.
-  await page.goto('/platforms/platform-slurm?site=site-a')
-  await expect(page.getByRole('link', { name: 'Platform Grafana' })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'View usage charts' })).toBeVisible()
+  await page.goto('/platforms/platform-slurm/monitoring?site=site-a')
+  await expect(page.getByRole('link', { name: 'Open Platform Grafana' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Open monitoring' })).toBeVisible()
 
   await page.goto('/provisioning/images?site=site-a')
-  await expect(page.getByRole('heading', { name: 'OS images', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'OS Images', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Upload image' })).toHaveCount(0)
   await expect(page.getByRole('tab', { name: 'Templates' })).toHaveCount(0)
 

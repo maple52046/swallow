@@ -129,7 +129,7 @@ test.describe('with every in-development feature hidden (the release view)', () 
     await installApiFixtures(page, { readyServerCount: 1 })
 
     await page.goto('/provisioning/images?site=site-a')
-    await expect(page.getByRole('heading', { name: 'OS images', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'OS Images', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Upload image' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: /Create template/ })).toHaveCount(0)
     // Verifying an existing custom image is not part of upload and stays available.

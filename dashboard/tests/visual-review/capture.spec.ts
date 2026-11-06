@@ -17,11 +17,12 @@ const visualCases = [
   { name: 'servers', path: '/servers?site=site-a', heading: 'Servers', authenticated: true, representative: true },
   { name: 'servers-hardware', path: '/servers?site=site-a&includeAbsent=true', heading: 'Servers', authenticated: true, representative: false },
   { name: 'platform-list', path: '/platforms?site=site-a', heading: 'Platforms', authenticated: true, representative: false },
-  { name: 'workflow-list', path: '/workflows?site=site-a', heading: 'Workflows', authenticated: true, representative: false },
-  { name: 'change-plans', path: '/change-plans?site=site-a', heading: 'Change Plans', authenticated: true, representative: false },
-  { name: 'os-image-list', path: '/provisioning/images?site=site-a', heading: 'OS images', authenticated: true, representative: false },
-  { name: 'boot-isos', path: '/provisioning/boot-isos?site=site-a', heading: 'Boot ISOs', authenticated: true, representative: false },
-  { name: 'boot-isos-needs-rebuild', path: '/provisioning/boot-isos?site=site-a', heading: 'Boot ISOs', authenticated: true, representative: false },
+  { name: 'workflow-list', path: '/workflows?site=site-a', heading: 'Activity', authenticated: true, representative: false },
+  { name: 'change-plans', path: '/change-plans?site=site-a', heading: 'Activity', authenticated: true, representative: false },
+  { name: 'os-image-list', path: '/provisioning/images?site=site-a', heading: 'OS Images', authenticated: true, representative: false },
+  { name: 'os-image-templates', path: '/provisioning/templates?site=site-a', heading: 'OS Images', authenticated: true, representative: false },
+  { name: 'boot-isos', path: '/infrastructure/boot-isos?site=site-a', heading: 'Infrastructure', authenticated: true, representative: false },
+  { name: 'boot-isos-needs-rebuild', path: '/infrastructure/boot-isos?site=site-a', heading: 'Infrastructure', authenticated: true, representative: false },
   { name: 'software-catalog', path: '/software?site=site-a', heading: 'Software', authenticated: true, representative: false },
   { name: 'software-docker-detail', path: '/software/docker-ce?site=site-a', heading: 'Docker CE', authenticated: true, representative: false },
   { name: 'software-nfs-detail', path: '/software/nfs?site=site-a', heading: 'NFS', authenticated: true, representative: false },
@@ -54,6 +55,12 @@ const visualCases = [
   { name: 'platform-selector', path: '/platforms/deploy?site=site-a', heading: 'Deploy platform', authenticated: true, representative: false },
   { name: 'infrastructure', path: '/infrastructure/sites?site=site-a', heading: 'Infrastructure', authenticated: true, representative: false },
 ] as const
+
+/** Cases whose header carries tabs (an area's or a detail page's); see the phone `-top` capture. */
+const TAB_HEADER_CASES: ReadonlySet<string> = new Set([
+  'workflow-list', 'change-plans', 'os-image-list', 'os-image-templates', 'boot-isos', 'infrastructure',
+  'server-detail', 'platform-detail', 'platform-detail-kubernetes-cluster', 'platform-detail-slurm-deployed',
+])
 
 const visualSoftwareAssignments: SoftwareAssignment[] = [
   {
@@ -265,6 +272,11 @@ test.describe('dashboard visual review', () => {
       }
       if (testInfo.project.name.startsWith('mobile-')) await expectNoHorizontalOverflow(page)
       await capture(page, testInfo, visualCase.name)
+      // A long phone page is unreadable at full-page scale; its first screen shows the area header,
+      // its actions, and the tab bar at real scale.
+      if (testInfo.project.name.startsWith('mobile-') && TAB_HEADER_CASES.has(visualCase.name)) {
+        await capture(page, testInfo, `${visualCase.name}-top`, false)
+      }
       if (visualCase.name.startsWith('platform-detail') && testInfo.project.name.startsWith('desktop-')) {
         await page.setViewportSize({ width: 1280, height: 800 })
         await expectNoHorizontalOverflow(page)
@@ -563,7 +575,7 @@ test.describe('AMD GPU Operator visual review', () => {
     await capture(page, testInfo, 'gpu-operator-configure-dialog', false)
     await dialog.getByRole('button', { name: 'Cancel' }).click()
 
-    await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Cluster' }).click()
+    await page.getByRole('tablist', { name: 'Platform workspace' }).getByRole('tab', { name: 'Cluster' }).click()
     await expect(page.getByText('8 × amd.com/gpu')).toBeVisible()
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
@@ -824,7 +836,7 @@ test.describe('Slurm Omnistat visual review', () => {
     await capture(page, testInfo, 'slurm-omnistat-wizard-review')
     await page.getByRole('button', { name: 'Deploy Slurm Platform' }).click()
     await expectPlatformInstallStarted(page)
-    await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Configuration' }).click()
+    await page.getByRole('tablist', { name: 'Platform workspace' }).getByRole('tab', { name: 'Configuration' }).click()
     await expect(page.getByText('GPU GRES type', { exact: true })).toBeVisible()
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
@@ -1898,5 +1910,48 @@ test.describe('Local repository visual review', () => {
       await expect(dialog.getByRole('button', { name: 'Use this local repository' })).toBeVisible()
     })
     await capture(page, testInfo, 'local-repository-artifact-source-dialog', false)
+  })
+})
+
+/**
+ * The sidebar in the layouts the page cases do not show at a readable scale: the expanded rail with
+ * the child entry current, the icon-only rail with the child entry's tooltip (desktop only, the
+ * rail is hidden on a phone), and the mobile drawer (phone only).
+ */
+test.describe('Console navigation visual review', () => {
+  test('sidebar-collapsed-rail @representative', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name.startsWith('mobile-'), 'The desktop rail is hidden on a phone.')
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page)
+    await setAppearance(page, appearance)
+    await page.goto('/provisioning/images?site=site-a')
+    await expect(page.getByRole('heading', { name: 'OS Images', exact: true })).toBeVisible()
+    const rail = page.getByTestId('desktop-navigation')
+    await prepareCapture(page, appearance)
+    await rail.screenshot({ path: testInfo.outputPath(`sidebar-expanded-rail-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide' })
+    await page.getByRole('button', { name: 'Toggle navigation' }).click()
+    await expect.poll(() => rail.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBe(64)
+    await capture(page, testInfo, 'sidebar-collapsed-rail', false)
+    await rail.screenshot({ path: testInfo.outputPath(`sidebar-collapsed-rail-crop-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide' })
+    await rail.getByRole('link', { name: 'OS Images', exact: true }).hover()
+    await expect(page.getByRole('tooltip', { name: 'OS Images (Servers)' })).toBeVisible()
+    await page.screenshot({
+      path: testInfo.outputPath(`sidebar-collapsed-rail-tooltip-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
+      clip: { x: 0, y: 0, width: 420, height: 520 },
+    })
+  })
+
+  test('sidebar-mobile-drawer @representative', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name.startsWith('desktop-'), 'The drawer replaces the rail only on a phone.')
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page)
+    await setAppearance(page, appearance)
+    await page.goto('/change-plans?site=site-a')
+    await expect(page.getByRole('heading', { name: 'Activity', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Open navigation' }).click()
+    const nav = page.getByRole('dialog').getByRole('navigation', { name: 'Primary navigation' })
+    await expect(nav.getByRole('link', { name: 'Activity' })).toHaveAttribute('aria-current', 'page')
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'sidebar-mobile-drawer', false)
   })
 })

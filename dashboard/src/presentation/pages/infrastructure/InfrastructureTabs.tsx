@@ -8,9 +8,14 @@ const TABS = [
   { value: '/infrastructure/zones', label: 'Zones' },
   { value: '/infrastructure/pools', label: 'Pools' },
   { value: '/infrastructure/local-repository', label: 'Local repository' },
+  { value: '/infrastructure/boot-isos', label: 'Boot ISOs' },
 ] as const
 
-/** Keeps Infrastructure resource navigation aligned with the global URL-owned Site scope. */
+/**
+ * Keeps Infrastructure resource navigation aligned with the global URL-owned Site scope. Every tab
+ * is Site wiring an admin sets up once (Boot ISOs included), so the area can later be hidden whole
+ * from roles that do not manage Sites.
+ */
 export function InfrastructureTabs() {
   const location = useLocation()
   const navigate = useNavigate()

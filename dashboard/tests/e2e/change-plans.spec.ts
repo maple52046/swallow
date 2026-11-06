@@ -15,9 +15,10 @@ test.beforeEach(async ({ page }) => {
 test('Change Plans lists each plan with destructive actions, effects, and blockers spelled out', async ({ page }) => {
   await installApiFixtures(page)
   await page.goto('/?site=site-a')
-  await page.getByRole('link', { name: 'Change Plans' }).click()
-  await expect(page).toHaveURL(/\/change-plans/)
-  await expect(page.getByRole('heading', { name: 'Change Plans', exact: true })).toBeVisible()
+  await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Activity' }).click()
+  await page.getByRole('tablist', { name: 'Activity navigation' }).getByRole('tab', { name: 'Change Plans' }).click()
+  await expect(page).toHaveURL('/change-plans?site=site-a')
+  await expect(page.getByRole('heading', { name: 'Activity', level: 1 })).toBeVisible()
 
   const uninstall = page.getByRole('article', { name: 'Change Plan for Platform research-slurm' })
   await expect(uninstall).toContainText('Waiting for approval')
@@ -84,7 +85,7 @@ test('Approving a plan confirms the consequence first and follows it until it is
   // The dialog opens on the safe choice, so Enter alone never approves.
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
   await expect(dialog).toContainText('Swallow will carry out every action of this plan for Platform research-slurm, including 2 destructive actions.')
-  await expect(dialog).toContainText('cannot be undone')
+  await expect(dialog).toContainText('Once its Workflow runs, its destructive actions cannot be undone')
   expect(approved).toBe(false)
   await dialog.getByRole('button', { name: 'Approve plan' }).click()
 
@@ -106,7 +107,7 @@ test('Approving a plan confirms the consequence first and follows it until it is
   expect(serverReads).toHaveLength(serverReadsBefore)
 })
 
-test('The approval statement counts destructive actions in words and omits a zero count', async ({ page }) => {
+test('The approval statement counts destructive actions in words and warns of them only when there are some', async ({ page }) => {
   await installApiFixtures(page)
   const plan = (id: string, destructive: boolean[]) => ({
     id, resource: { kind: 'platform', id: 'platform-b' }, generation: 2, observedAt: '2026-08-27T02:00:00Z',
@@ -128,14 +129,18 @@ test('The approval statement counts destructive actions in words and omits a zer
   await card.getByRole('button', { name: 'Approve plan' }).click()
   const dialog = page.getByRole('alertdialog', { name: 'Approve Change Plan' })
   await expect(dialog).toContainText('for Platform edge-staging, including 1 destructive action.')
+  await expect(dialog).toContainText('Once its Workflow runs, its destructive action cannot be undone')
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await expect(dialog).toBeHidden()
 
+  // A plan without a destructive action (for example an install held by the policy) says so.
   items = [plan('plan-none', [false])]
   await page.reload()
   await page.getByRole('article', { name: 'Change Plan for Platform edge-staging' }).getByRole('button', { name: 'Approve plan' }).click()
   await expect(dialog).toContainText('Swallow will carry out every action of this plan for Platform edge-staging.')
+  await expect(dialog).toContainText('None of its actions is destructive')
   await expect(dialog).not.toContainText('including')
+  await expect(dialog).not.toContainText('cannot be undone')
 })
 
 test('A waiting plan says why it waits', async ({ page }) => {

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { Badge, Button, HStack, Stack, Tabs, Text } from '@chakra-ui/react'
+import { Badge, Button, HStack, Stack, Text } from '@chakra-ui/react'
 import { Activity, ChartLine, CircuitBoard, Container, HardDrive, LayoutDashboard, Network, type LucideIcon } from 'lucide-react'
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { PageHeader } from '@/presentation/components/PageHeader'
+import { WorkspaceTabs, type WorkspaceTabItem } from '@/presentation/components/WorkspaceTabs'
 import { Alert } from '@/presentation/components/ui/alert'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useExperimentalFeatures } from '@/presentation/contexts/ExperimentalFeaturesContext'
@@ -27,9 +28,7 @@ import { useServerDockerAssignment } from './useServerDockerAssignment'
 import { useServerReleaseActivity } from './useServerReleaseActivity'
 
 /** One persistent deep-link tab; the glyph supplements its visible accessible label. */
-interface ServerDetailTab {
-  value: string
-  label: string
+interface ServerDetailTab extends WorkspaceTabItem {
   icon: LucideIcon
   /** In-development feature the tab belongs to; the tab is listed only while it is shown. */
   feature?: ExperimentalFeature
@@ -279,29 +278,12 @@ export function ServerDetailPage() {
           </Stack>
         </Alert>
       )}
-      <Tabs.Root
+      <WorkspaceTabs
         value={current}
-        onValueChange={(details) => navigate(scopedHref(`/servers/${server.id}/${details.value}`))}
-        aria-label="Server details"
-      >
-        <Tabs.List
-          maxW="full"
-          overflowX="auto"
-          overscrollBehaviorX="contain"
-          scrollbarWidth="none"
-          css={{ '&::-webkit-scrollbar': { display: 'none' } }}
-        >
-          {tabs.map((tab) => {
-            const Icon = tab.icon
-            return (
-              <Tabs.Trigger key={tab.value} value={tab.value} flex="none">
-                <Icon size={16} aria-hidden />
-                {tab.label}
-              </Tabs.Trigger>
-            )
-          })}
-        </Tabs.List>
-      </Tabs.Root>
+        items={tabs}
+        label="Server details"
+        onChange={(value) => navigate(scopedHref(`/servers/${server.id}/${value}`))}
+      />
       <Outlet context={{ ...state.data, docker }} />
     </div>
   )

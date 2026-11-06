@@ -41,7 +41,11 @@ import { ProtectedRoute } from './presentation/components/ProtectedRoute'
 import { DeploymentTemplatesPage } from './presentation/pages/provisioning/DeploymentTemplatesPage'
 import { OSImagesPage } from './presentation/pages/provisioning/OSImagesPage'
 import { BootISOsPage } from './presentation/pages/provisioning/BootISOsPage'
-import { LegacyDeployOSRedirect, ProvisioningRedirect } from './presentation/pages/provisioning/ProvisioningRedirect'
+import {
+  LegacyBootISOsRedirect,
+  LegacyDeployOSRedirect,
+  ProvisioningRedirect,
+} from './presentation/pages/provisioning/ProvisioningRedirect'
 import { InfrastructureRedirect } from './presentation/pages/infrastructure/InfrastructureRedirect'
 import { SitesPage } from './presentation/pages/infrastructure/SitesPage'
 import { IntegrationsPage } from './presentation/pages/infrastructure/IntegrationsPage'
@@ -139,7 +143,7 @@ export const router = createBrowserRouter([
         ),
       },
       { path: 'provisioning/images', element: <OSImagesPage /> },
-      { path: 'provisioning/boot-isos', element: <BootISOsPage /> },
+      { path: 'provisioning/boot-isos', element: <LegacyBootISOsRedirect /> },
       { path: 'infrastructure', element: <InfrastructureRedirect /> },
       { path: 'infrastructure/sites', element: <SitesPage /> },
       { path: 'infrastructure/integrations', element: <IntegrationsPage /> },
@@ -161,6 +165,7 @@ export const router = createBrowserRouter([
       { path: 'infrastructure/pools', element: <GroupingPage kind="pool" /> },
       // One Site's Local Repository (decision 078): Site-scoped through the URL like the pages above.
       { path: 'infrastructure/local-repository', element: <LocalRepositoryPage /> },
+      { path: 'infrastructure/boot-isos', element: <BootISOsPage /> },
       // Account settings for the signed-in admin; not Site-scoped (SSH keys are per User).
       { path: 'account/ssh-keys', element: <SSHKeysPage /> },
       // API Keys for non-interactive clients belong to the signed-in User (decision 042).

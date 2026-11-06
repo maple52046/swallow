@@ -6,6 +6,16 @@ export function ProvisioningRedirect() {
   return <Navigate to={{ pathname: '/provisioning/images', search: location.search }} replace />
 }
 
+/**
+ * Keeps bookmarks and older links to `/provisioning/boot-isos` working now that Boot ISOs is an
+ * Infrastructure tab: it replaces the history entry with `/infrastructure/boot-isos`, keeping the
+ * query string (the Site scope) and the hash.
+ */
+export function LegacyBootISOsRedirect() {
+  const location = useLocation()
+  return <Navigate to={{ pathname: '/infrastructure/boot-isos', search: location.search, hash: location.hash }} replace />
+}
+
 /** Sends retired full-page deploy links back to Servers without carrying obsolete draft inputs. */
 export function LegacyDeployOSRedirect() {
   const location = useLocation()

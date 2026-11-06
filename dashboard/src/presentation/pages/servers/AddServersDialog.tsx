@@ -214,7 +214,7 @@ function BootISOAction({ provisioners }: { provisioners: readonly Integration[] 
       <Stack gap="2" alignItems="flex-start">
         <Action>Build a Boot ISO for the provisioner first.</Action>
         <Button asChild colorPalette="brand" size="sm">
-          <RouterLink to={scopedHref('/provisioning/boot-isos')}>Build Boot ISO</RouterLink>
+          <RouterLink to={scopedHref('/infrastructure/boot-isos')}>Build Boot ISO</RouterLink>
         </Button>
       </Stack>
     )

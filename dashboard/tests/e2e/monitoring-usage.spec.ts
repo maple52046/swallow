@@ -165,7 +165,7 @@ test('Platform detail links to its own monitoring UI and to its usage charts', a
   const requests: URLSearchParams[] = []
   await installApiFixtures(page, { onMetricRangeRequest: (params) => requests.push(params) })
   await page.goto('/platforms/platform-slurm?site=site-a')
-  await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Monitoring' }).click()
+  await page.getByRole('tablist', { name: 'Platform workspace' }).getByRole('tab', { name: 'Monitoring' }).click()
   await expect(page).toHaveURL('/platforms/platform-slurm/monitoring?site=site-a')
 
   const grafana = page.getByRole('link', { name: 'Open Platform Grafana' })

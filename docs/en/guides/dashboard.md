@@ -8,22 +8,32 @@ current session in the browser.
 
 ## Navigation
 
+The sidebar groups its areas into four sections separated by lines: Overview;
+Servers (with OS Images under it), Platforms, and Software; Monitoring and
+Activity; and Infrastructure. OS Images is always shown, indented under
+Servers. Collapse the sidebar to icons with the button at the top of the page
+(this browser remembers the choice); hovering or focusing an icon names it, and
+OS Images also names Servers. On a phone, the menu button opens the same sidebar
+as a drawer.
+
 | Area | What it is for |
 | --- | --- |
 | Overview | Site-scoped fleet health, attention items, integrations, Platforms, and recent Workflows |
 | Servers | Inventory, Add servers (enrollment guidance), shareable filter views, bulk actions, tags, locks, and Server details including Boot Media |
-| Provisioning | OS deployment, templates, images, Boot ISOs, upload, and verification |
+| OS Images (under Servers) | The OS images Servers are deployed with: the catalog, upload, deploy-mode verification, and deployment templates (tabs **OS images** and **Templates**) |
 | Platforms | Kubernetes/Slurm deployment, lifecycle, settings, and runtime views |
 | Software | Grouped catalog (Docker CE, Podman, NFS, Prometheus, Grafana, AMD Device Metrics Exporter, Node Exporter), per-software deployments, and multi-Server installation |
-| Workflows | Durable execution state, Jobs, Tasks, events, logs, cancel, rerun, and retry |
-| Change Plans | Plans for destructive Platform changes: the ones waiting for approval or rejection, the record of approved ones, and the safety switch |
 | Monitoring | Fleet health, usage charts for selected Servers, Pools, Zones, and Platforms, current metrics, optional Grafana links, and (in development) alerts and silences |
-| Infrastructure | Sites, Integrations, Zones, Pools, credentials, automation settings, and the Site's local repository (where deployments fetch artifacts, its sources, sync state, and content; see [Initial setup](initial-setup.md#4-register-the-local-repository)) |
+| Activity | Two tabs. **Workflows**: durable execution state, Jobs, Tasks, events, logs, cancel, rerun, and retry. **Change Plans**: plans for destructive Platform changes, the ones waiting for approval or rejection, the record of approved ones, and the safety switch |
+| Infrastructure | Sites, Integrations, Zones, Pools, credentials, automation settings, the Site's local repository (where deployments fetch artifacts, its sources, sync state, and content; see [Initial setup](initial-setup.md#4-register-the-local-repository)), and [Boot ISOs](#boot-isos-and-server-boot-media) |
 | SSH keys (account menu) | The deployment key, your access keys, and their provisioner sync status — see [SSH keys](ssh-keys.md) |
 | API keys (account menu) | Keys that let scripts, CI, and the CLI call swallow as you without a password — see [API keys](api-keys.md) |
 
-Routes under `/clusters` and `/operations` are compatibility redirects.
-Canonical navigation uses Platforms and Workflows.
+The tabs of an area keep their own addresses, so links and bookmarks still work:
+Activity is `/workflows` and `/change-plans`, and OS Images is
+`/provisioning/images` and `/provisioning/templates`. Routes under `/clusters`
+and `/operations` are compatibility redirects, and `/provisioning/boot-isos`
+redirects to `/infrastructure/boot-isos`, keeping its Site scope.
 
 ## Use Overview
 
@@ -62,9 +72,9 @@ Dashboard hide them; the API and the `swallow` CLI are not affected.
   release" and raises no alert items. Basic monitoring is not affected: health,
   current metrics, and usage charts are shown in every build. Use
   `swallow monitoring alerts` instead.
-- **OS image upload**: OS images has no Upload action. Verifying an existing
+- **OS image upload**: OS Images has no Upload action. Verifying an existing
   custom image is still available.
-- **Deployment Templates**: the Templates workspace, Create template, and
+- **Deployment Templates**: the Templates tab of OS Images, Create template, and
   choosing or saving a template while deploying are absent; deployments use a
   custom configuration.
 - **Virtual machines**: Add servers has no libvirt virtual machine path, and a
@@ -82,7 +92,7 @@ configured integration naturally produces empty states.
 
 ## Boot ISOs and Server Boot Media
 
-Most Sites do not need a Boot ISO. Use **Provisioning → Boot ISOs** only when
+Most Sites do not need a Boot ISO. Use **Infrastructure → Boot ISOs** only when
 a Server receives external DHCP and cannot use its provisioner's managed
 network-boot path. The page shows the optional
 **Server BMC → Swallow Boot ISO → Site DHCP → MAAS rack** path and one card per
@@ -94,7 +104,7 @@ under **More** and **Technical details**.
 
 On **Server → Summary → Management controller → Boot media**, enabling Boot
 Media requires a Boot ISO built for that Server's provisioner. With none
-available, the panel links back to **Boot ISOs**. An enabled Server can change
+available, the panel links to the **Boot ISOs** tab. An enabled Server can change
 or re-apply its ISO, or disable Boot Media while retaining the choice.
 **Enable Boot Media**, **Change ISO**, and **Re-apply** show the BMC
 preflight's five-step progress, elapsed time, and the remaining time in its

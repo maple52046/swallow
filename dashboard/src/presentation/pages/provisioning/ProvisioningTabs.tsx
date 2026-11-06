@@ -14,12 +14,13 @@ interface ProvisioningTab {
 const TABS: readonly ProvisioningTab[] = [
   { value: '/provisioning/images', label: 'OS images' },
   { value: '/provisioning/templates', label: 'Templates', feature: 'deploymentTemplates' },
-  { value: '/provisioning/boot-isos', label: 'Boot ISOs' },
 ]
 
 /**
- * Scope-preserving navigation across the provisioning workspaces. Workspaces of hidden
- * in-development features are omitted; their routes redirect separately.
+ * Scope-preserving navigation of the OS Images area (the sidebar entry under Servers): the OS image
+ * catalog and the Deployment Templates that use its images. The area keeps its `/provisioning/*`
+ * URLs. Workspaces of hidden in-development features are omitted; their routes redirect separately.
+ * Boot ISOs, Site wiring rather than a catalog to choose from, are an Infrastructure tab.
  */
 export function ProvisioningTabs() {
   const location = useLocation()
@@ -33,7 +34,7 @@ export function ProvisioningTabs() {
     <WorkspaceTabs
       value={active}
       items={tabs}
-      label="Provisioning navigation"
+      label="OS Images navigation"
       onChange={(value) => navigate(scopedHref(value))}
     />
   )

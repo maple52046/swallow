@@ -18,7 +18,6 @@ import { ErrorState } from '@/presentation/components/ErrorState'
 import { InProgressSpinner } from '@/presentation/components/InProgressSpinner'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { InventorySurface, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
-import { PageHeader } from '@/presentation/components/PageHeader'
 import { Pagination } from '@/presentation/components/Pagination'
 import { ResponsiveDataView, ResourceCard, ResourceCardField } from '@/presentation/components/ResponsiveDataView'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
@@ -27,6 +26,7 @@ import { DebouncedSearchInput } from '@/presentation/components/ui/debounced-sea
 import { Select } from '@/presentation/components/ui/select'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDuration, formatRelative } from '@/shared/utils/time'
+import { ActivityHeader } from './ActivityHeader'
 import { useOperations } from './useOperations'
 import {
   isWorkflowChangingStatus,
@@ -252,7 +252,8 @@ function WorkflowRuntimeCard({ operation, workflowHref, platformHref }: Workflow
 }
 
 /**
- * URL-owned, server-paginated Workflow orchestration console.
+ * URL-owned, server-paginated Workflow orchestration console: the Workflows tab of Activity
+ * (`/workflows`), beside Change Plans.
  *
  * The list preserves provider ordering and exact filters, adapts between a
  * semantic table and equivalent cards, and keeps execution controls in the
@@ -382,8 +383,7 @@ export function ConsoleOperationsPage() {
 
   return (
     <div className="console-page sw-workflows-page">
-      <PageHeader
-        title="Workflows"
+      <ActivityHeader
         subtitle="Observe durable automation, identify stalled work, and inspect execution history."
         actions={
           <Button variant="outline" onClick={reload} disabled={state.status === 'loading'}>

@@ -2,7 +2,7 @@ import { expect, test, type Page } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
 // Boot ISOs (decision 047): optional iPXE setup for Servers whose external DHCP path cannot use
-// provisioner-managed network boot.
+// provisioner-managed network boot. The page is the Boot ISOs tab of Infrastructure.
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -14,13 +14,40 @@ function bootISOCard(page: Page, name: string) {
   return page.getByRole('listitem', { name })
 }
 
+test('Boot ISOs is an Infrastructure tab, and the former Provisioning URL redirects to it', async ({ page }) => {
+  await installApiFixtures(page)
+  await page.goto('/provisioning/boot-isos?site=site-a#boot-iso-setup-title')
+  await expect(page).toHaveURL('/infrastructure/boot-isos?site=site-a#boot-iso-setup-title')
+  await expect(page.getByRole('heading', { name: 'Infrastructure', level: 1 })).toBeVisible()
+  const tabs = page.getByRole('tablist', { name: 'Infrastructure navigation' })
+  await expect(tabs.getByRole('tab')).toHaveText(['Sites', 'Integrations', 'Zones', 'Pools', 'Local repository', 'Boot ISOs'])
+  await expect(tabs.getByRole('tab', { name: 'Boot ISOs' })).toHaveAttribute('aria-selected', 'true')
+  await expect(bootISOCard(page, 'taipei-rack')).toBeVisible()
+  // The sidebar marks Infrastructure as the current area.
+  const nav = page.getByTestId('desktop-navigation').getByRole('navigation', { name: 'Primary navigation' })
+  await expect(nav.getByRole('link', { name: 'Infrastructure' })).toHaveAttribute('aria-current', 'page')
+
+  // On a phone the tabs scroll sideways; the last tab, selected, is scrolled into view.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.reload()
+  await expect(tabs.getByRole('tab', { name: 'Boot ISOs' })).toBeInViewport({ ratio: 1 })
+  await page.setViewportSize({ width: 1440, height: 900 })
+
+  // The redirect replaces the old entry, so Back leaves Boot ISOs instead of bouncing into it again.
+  await page.goto('/infrastructure/sites?site=site-a')
+  await page.goto('/provisioning/boot-isos?site=site-a')
+  await expect(page).toHaveURL('/infrastructure/boot-isos?site=site-a')
+  await page.goBack()
+  await expect(page).toHaveURL('/infrastructure/sites?site=site-a')
+})
+
 test('cards keep serving, usage, links, technical facts, and guarded actions distinct', async ({ page }) => {
   const writes: string[] = []
   await installApiFixtures(page, {
     bootMediaSetting: { enabled: true, isoId: 'iso-taipei', updatedAt: '2026-10-04T00:00:00Z', lastAppliedAt: '2026-10-04T00:00:00Z', lastAppliedBy: 'preflight', bootOverride: 'Continuous', lastErrorAt: null },
     onBootISORequest: (method, path) => writes.push(`${method} ${path}`),
   })
-  await page.goto('/provisioning/boot-isos')
+  await page.goto('/infrastructure/boot-isos')
 
   await expect(page.getByRole('heading', { name: 'External-network boot' })).toBeVisible()
   await expect(page.getByLabel('External-network boot path')).toContainText(
@@ -90,7 +117,7 @@ test('an ISO built before the UEFI hand-off is flagged and rebuilt in place', as
     bootMediaSetting: { enabled: true, isoId: 'iso-taipei', updatedAt: '2026-10-04T00:00:00Z', lastAppliedAt: '2026-10-04T00:00:00Z', lastAppliedBy: 'preflight', bootOverride: 'Continuous', lastErrorAt: null },
     onBootISORequest: (method, path) => writes.push(`${method} ${path}`),
   })
-  await page.goto('/provisioning/boot-isos')
+  await page.goto('/infrastructure/boot-isos')
 
   const taipei = bootISOCard(page, 'taipei-rack')
   const edge = bootISOCard(page, 'edge-rack')
@@ -129,7 +156,7 @@ test('a failed rebuild keeps the previous ISO and says so', async ({ page }) => 
     bootISOs: [{ id: 'iso-taipei', name: 'taipei-rack', integrationId: 'maas-a', rackAddress: '10.0.0.2', legacyTemplate: true }],
     bootISOBuildError: { status: 500, code: 'internal_error', message: 'building the boot ISO failed: genfsimg: xorriso : FAILURE' },
   })
-  await page.goto('/provisioning/boot-isos')
+  await page.goto('/infrastructure/boot-isos')
 
   const taipei = bootISOCard(page, 'taipei-rack')
   await taipei.getByRole('button', { name: 'Rebuild taipei-rack' }).click()
@@ -149,7 +176,7 @@ test('single provisioner is summarized and its endpoint suggests the editable ra
     provisionerEndpoints: { 'maas-a': 'https://rack.example:5240/MAAS/api/2.0/' },
     onBootISORequest: (_method, _path, body) => builds.push(body),
   })
-  await page.goto('/provisioning/boot-isos?site=site-a')
+  await page.goto('/infrastructure/boot-isos?site=site-a')
   await expect(page.getByText('No Boot ISO configured')).toBeVisible()
 
   await page.getByRole('button', { name: 'Build Boot ISO' }).first().click()
@@ -181,7 +208,7 @@ test('a failed build keeps the dialog open with the packaging error', async ({ p
   await installApiFixtures(page, {
     bootISOBuildError: { status: 500, code: 'internal_error', message: 'boot ISO build failed: genfsimg: xorriso : FAILURE : no space left on device' },
   })
-  await page.goto('/provisioning/boot-isos?site=site-a')
+  await page.goto('/infrastructure/boot-isos?site=site-a')
   await page.getByRole('button', { name: 'Build Boot ISO' }).click()
   const dialog = page.getByRole('dialog', { name: 'Build Boot ISO' })
   await dialog.getByRole('button', { name: 'Build Boot ISO', exact: true }).click()
@@ -194,7 +221,7 @@ test('an installation that cannot build says why and keeps existing ISOs', async
   await installApiFixtures(page, {
     bootISOBuilderUnavailable: 'set api.bootMedia.baseURL (SWALLOW_API_BOOT_MEDIA_BASE_URL) to the HTTP address BMCs use to reach swallow',
   })
-  await page.goto('/provisioning/boot-isos?site=site-a')
+  await page.goto('/infrastructure/boot-isos?site=site-a')
   await expect(page.getByText('Boot ISO builder unavailable')).toBeVisible()
   await expect(page.getByText(/SWALLOW_API_BOOT_MEDIA_BASE_URL/)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Build Boot ISO' })).toBeDisabled()
@@ -203,7 +230,7 @@ test('an installation that cannot build says why and keeps existing ISOs', async
 
 test('switching provisioners updates untouched suggestions and preserves edited values', async ({ page }) => {
   await installApiFixtures(page, { bootISOs: [], multipleProvisioners: true })
-  await page.goto('/provisioning/boot-isos?site=site-a')
+  await page.goto('/infrastructure/boot-isos?site=site-a')
   await page.getByRole('button', { name: 'Build Boot ISO' }).first().click()
 
   const dialog = page.getByRole('dialog', { name: 'Build Boot ISO' })
@@ -235,7 +262,7 @@ test('an invalid Integration endpoint leaves the rack address for the user', asy
     bootISOs: [],
     provisionerEndpoints: { 'maas-a': 'not a valid endpoint' },
   })
-  await page.goto('/provisioning/boot-isos?site=site-a')
+  await page.goto('/infrastructure/boot-isos?site=site-a')
   await page.getByRole('button', { name: 'Build Boot ISO' }).first().click()
 
   const dialog = page.getByRole('dialog', { name: 'Build Boot ISO' })
@@ -249,7 +276,7 @@ test('an invalid Integration endpoint leaves the rack address for the user', asy
 
 test('a Site without a provisioner treats the empty setup as optional and links to Integrations', async ({ page }) => {
   await installApiFixtures(page, { bootISOs: [], noProvisioners: true })
-  await page.goto('/provisioning/boot-isos?site=site-a')
+  await page.goto('/infrastructure/boot-isos?site=site-a')
 
   await expect(page.getByText('No Boot ISO configured')).toBeVisible()
   await expect(page.getByText(/Most Sites do not need a Boot ISO/)).toBeVisible()
@@ -271,7 +298,7 @@ test('five cards, all-sites identity, not-served media, and long technical value
     ],
   })
   await page.setViewportSize({ width: 1280, height: 900 })
-  await page.goto('/provisioning/boot-isos')
+  await page.goto('/infrastructure/boot-isos')
 
   const list = page.getByRole('list', { name: 'Boot ISOs' })
   await expect(list.getByRole('listitem')).toHaveCount(5)
@@ -308,8 +335,8 @@ test('a late response from the previous Site cannot replace the new Site cards',
     return route.fallback()
   })
 
-  await page.goto('/provisioning/boot-isos?site=site-a')
-  await expect(page.getByRole('heading', { name: 'Boot ISOs', exact: true })).toBeVisible()
+  await page.goto('/infrastructure/boot-isos?site=site-a')
+  await expect(page.getByRole('tab', { name: 'Boot ISOs', selected: true })).toBeVisible()
   await page.getByRole('button', { name: 'Site scope: Taipei Lab' }).click()
   await page.getByRole('menuitem', { name: 'Hsinchu Edge' }).click()
   await expect(bootISOCard(page, 'edge-rack')).toBeVisible()
@@ -336,7 +363,7 @@ test('manual refresh failure keeps last-good cards and shows a non-blocking warn
       body: JSON.stringify({ error: { code: 'unavailable', message: 'boot media store unavailable' } }),
     })
   })
-  await page.goto('/provisioning/boot-isos?site=site-a')
+  await page.goto('/infrastructure/boot-isos?site=site-a')
   await expect(bootISOCard(page, 'taipei-rack')).toBeVisible()
 
   const refresh = page.getByRole('button', { name: 'Refresh' })

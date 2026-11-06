@@ -117,9 +117,10 @@ test('without a Boot ISO for the provisioner, enabling points to the Boot ISOs t
   const dialog = page.getByRole('dialog', { name: 'Enable Boot Media' })
   await expect(dialog).toContainText("No Boot ISO for this Server's provisioner")
   await expect(dialog.getByRole('button', { name: 'Enable', exact: true })).toBeDisabled()
+  await expect(dialog).toContainText('Build one on the Boot ISOs tab of Infrastructure')
   await dialog.getByRole('link', { name: 'Boot ISOs tab' }).click()
-  await expect(page).toHaveURL(/\/provisioning\/boot-isos\?site=site-a$/)
-  await expect(page.getByRole('heading', { name: 'Boot ISOs', level: 1 })).toBeVisible()
+  await expect(page).toHaveURL(/\/infrastructure\/boot-isos\?site=site-a$/)
+  await expect(page.getByRole('tab', { name: 'Boot ISOs', selected: true })).toBeVisible()
 })
 
 test('a setting enabled before Boot ISOs asks for one to be chosen', async ({ page }) => {

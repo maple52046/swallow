@@ -23,7 +23,7 @@ When the installer finishes:
 - MAAS 3.6 (region+rack) runs on the same VM and is the provisioner Integration of the Site
   `default`, already synced;
 - the official `ubuntu/noble` amd64 image is complete and listed under
-  **Provisioning → Images**;
+  **OS Images**;
 - Temporal, the worker, and the Ansible executor are connected, the Deployment Key exists,
   and Site automation is enabled;
 - a Prometheus for the Site `default` runs on the same VM, is that Site's metrics Integration,

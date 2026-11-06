@@ -87,7 +87,7 @@ test('the deploy wizard proposes the AMD GPU Operator with GPU monitoring for AM
     enabled: true, allocationMode: 'dra', resourceNaming: 'single',
     nodeLabeller: true, metricsExporter: true,
   })
-  await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Configuration' }).click()
+  await page.getByRole('tablist', { name: 'Platform workspace' }).getByRole('tab', { name: 'Configuration' }).click()
   const section = page.getByRole('region', { name: 'AMD GPU Operator' })
   await expect(section.getByText('Installing', { exact: true })).toBeVisible()
 })
@@ -301,7 +301,7 @@ test('a Platform without a GPU Operator offers to install it', async ({ page }) 
 test('the Cluster tab shows the GPUs each node exposes', async ({ page }) => {
   await installApiFixtures(page)
   await page.goto('/platforms/platform-a?site=site-a')
-  await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Cluster' }).click()
+  await page.getByRole('tablist', { name: 'Platform workspace' }).getByRole('tab', { name: 'Cluster' }).click()
   await expect(page).toHaveURL('/platforms/platform-a/cluster?site=site-a')
   const table = page.getByRole('table', { name: 'Kubernetes nodes' })
   await expect(table.getByRole('row', { name: /gpu-node-01/ })).toContainText('8 × amd.com/gpu')

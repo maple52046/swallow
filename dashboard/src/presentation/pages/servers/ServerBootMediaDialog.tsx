@@ -218,7 +218,7 @@ export function ServerBootMediaDialog({ server, bootMedia, mode, onClose, onChan
             currentId={current?.id}
             disabled={busy || locked}
             requiresURL={!libvirt}
-            bootISOsHref={scopedHref('/provisioning/boot-isos')}
+            bootISOsHref={scopedHref('/infrastructure/boot-isos')}
             onChange={setChosenId}
           />
         )}
@@ -322,7 +322,7 @@ function BootISOChoice({ state, value, currentId, disabled, requiresURL, bootISO
         <Link asChild colorPalette="brand">
           <RouterLink to={bootISOsHref}>Boot ISOs tab</RouterLink>
         </Link>{' '}
-        of Provisioning, then come back to choose it.
+        of Infrastructure, then come back to choose it.
       </Alert>
     )
   }

@@ -1,4 +1,4 @@
-import { Boxes } from 'lucide-react'
+import { AppWindow, Boxes, Folders, Server } from 'lucide-react'
 import type { PlatformModuleUI } from '@/modules/types'
 import { KubernetesApplicationsTab, KubernetesClusterTab, KubernetesNamespacesTab } from './KubernetesExplorer'
 import { kubernetesPlatformFacts } from './kubernetesFacts'
@@ -34,9 +34,9 @@ export const kubernetesModule: PlatformModuleUI = {
       }]
     : [],
   tabs: [
-    { value: 'applications', label: 'Applications', available: explorerAvailable, Content: KubernetesApplicationsTab },
-    { value: 'namespaces', label: 'Namespaces', available: explorerAvailable, Content: KubernetesNamespacesTab },
-    { value: 'cluster', label: 'Cluster', available: explorerAvailable, Content: KubernetesClusterTab },
+    { value: 'applications', label: 'Applications', icon: AppWindow, available: explorerAvailable, Content: KubernetesApplicationsTab },
+    { value: 'namespaces', label: 'Namespaces', icon: Folders, available: explorerAvailable, Content: KubernetesNamespacesTab },
+    { value: 'cluster', label: 'Cluster', icon: Server, available: explorerAvailable, Content: KubernetesClusterTab },
   ],
   deploy: { icon: Boxes, namePlaceholder: 'lab-k0s', useForm: useKubernetesDeployForm },
   facts: kubernetesPlatformFacts,

@@ -66,10 +66,13 @@ function templateNetworkLabel(template: DeploymentTemplate, separator: string): 
   return DEPLOYMENT_NETWORK_MODE_LABELS[mode]
 }
 
-/** CRUD workspace for swallow-owned deployment intent and write-only cloud-init. */
+/**
+ * CRUD workspace for swallow-owned deployment intent and write-only cloud-init: the Templates tab
+ * of OS Images (`/provisioning/templates`, behind the `deploymentTemplates` experimental feature).
+ */
 export function DeploymentTemplatesPage() {
   const { provisioning, sites: siteRepository } = useApp()
-  const { siteId, sites, scopedHref } = useSiteScope()
+  const { siteId, sites } = useSiteScope()
   const { showToast } = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
   const [state, setState] = useState<TemplatesState>({ status: 'loading' })
@@ -257,8 +260,9 @@ export function DeploymentTemplatesPage() {
   return (
     <div className="console-page">
       <PageHeader
-        title="Deployment templates"
-        breadcrumbs={[{ label: 'Provisioning', href: scopedHref('/provisioning/images') }, { label: 'Templates' }]}
+        title="OS Images"
+        subtitle="Reusable deployment settings for an OS image: Disk or RAM, network, and optional cloud-init."
+        stackActionsOnMobile
         actions={
           <Button colorPalette="brand" onClick={() => openCreate()}>
             <Plus size={16} />

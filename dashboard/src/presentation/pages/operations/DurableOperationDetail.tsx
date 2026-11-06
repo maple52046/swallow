@@ -243,7 +243,11 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
     <div className="console-page">
       <PageHeader
         title={workflowDisplayIntent(operation)}
-        breadcrumbs={[{ label: 'Workflows', href: scopedHref('/workflows') }, { label: operation.id }]}
+        breadcrumbs={[
+          { label: 'Activity', href: scopedHref('/workflows') },
+          { label: 'Workflows', href: scopedHref('/workflows') },
+          { label: operation.id },
+        ]}
         metadata={
           <HStack gap="2" wrap="wrap" minW="0">
             <StatusBadge status={status} label={workflowDisplayStatus(operation)} />

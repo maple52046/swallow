@@ -1,4 +1,4 @@
-import { Cpu } from 'lucide-react'
+import { Cpu, LayoutGrid, Server } from 'lucide-react'
 import { wantsPlatformGrafana } from '@/domain/platform/monitoring'
 import type { PlatformModuleUI } from '@/modules/types'
 import { slurmPlatformFacts } from './slurmFacts'
@@ -58,8 +58,8 @@ export const slurmModule: PlatformModuleUI = {
     ]
   },
   tabs: [
-    { value: 'nodes', label: 'Nodes', available: () => true, requiresMembers: true, Content: SlurmNodesRoute },
-    { value: 'partitions', label: 'Partitions', available: () => true, requiresMembers: true, Content: SlurmPartitionsRoute },
+    { value: 'nodes', label: 'Nodes', icon: Server, available: () => true, requiresMembers: true, Content: SlurmNodesRoute },
+    { value: 'partitions', label: 'Partitions', icon: LayoutGrid, available: () => true, requiresMembers: true, Content: SlurmPartitionsRoute },
   ],
   deploy: { icon: Cpu, namePlaceholder: 'lab-slurm', useForm: useSlurmDeployForm },
   Settings: SlurmSettingsPage,

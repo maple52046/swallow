@@ -33,38 +33,6 @@
   margin-block-start: 0.65rem;
 }
 
-.sw-platform-workspace__nav {
-  display: flex;
-  gap: 0.25rem;
-  min-width: 0;
-  overflow-x: auto;
-  overscroll-behavior-inline: contain;
-  padding: 0.35rem;
-  border-block-end: 1px solid var(--chakra-colors-border);
-  scrollbar-width: thin;
-}
-
-.sw-platform-workspace__nav a {
-  flex: none;
-  padding: 0.65rem 0.8rem;
-  border-radius: 0.45rem;
-  color: var(--chakra-colors-fg-muted);
-  font-size: 0.875rem;
-  font-weight: 600;
-  text-decoration: none;
-  transition: color 170ms ease, background-color 170ms ease;
-}
-
-.sw-platform-workspace__nav a:hover {
-  color: var(--chakra-colors-fg);
-  background: var(--chakra-colors-bg-muted);
-}
-
-.sw-platform-workspace__nav a[aria-current='page'] {
-  color: var(--chakra-colors-blue-fg);
-  background: var(--chakra-colors-blue-subtle);
-}
-
 .sw-platform-workspace__content {
   display: grid;
   gap: 1rem;
@@ -97,11 +65,5 @@
   .sw-platform-posture .sw-key-value-grid,
   .sw-platform-monitoring-entries {
     grid-template-columns: 1fr;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sw-platform-workspace__nav a {
-    transition: none;
   }
 }

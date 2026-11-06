@@ -7,22 +7,28 @@ published HTTP API，browser 內只保存 UI preference 與目前 session。
 
 ## 導覽
 
+側邊欄以分隔線把區域分成四段：Overview；Servers（其下為 OS Images）、Platforms 與 Software；
+Monitoring 與 Activity；Infrastructure。OS Images 一律顯示，縮排在 Servers 之下。用頁面頂端的按鈕
+可把側邊欄收合成圖示（這個瀏覽器會記住選擇）；滑鼠停在圖示上或以鍵盤聚焦時會顯示名稱，OS Images
+也會一併標出 Servers。手機上以選單按鈕開啟同一份側邊欄的 drawer。
+
 | 區域 | 用途 |
 | --- | --- |
 | Overview | Site-scoped fleet health、attention items、integration、Platform 與 recent Workflow |
 | Servers | Inventory、Add servers（納管引導）、可分享的 filter view、bulk action、tag、lock，以及包含 Boot Media 的 Server detail |
-| Provisioning | OS deployment、template、image、Boot ISO、upload 與 verification |
+| OS Images（在 Servers 之下） | 佈署 Server 所用的 OS image：catalog、upload、deploy mode 驗證與 deployment template（分頁 **OS images** 與 **Templates**） |
 | Platforms | Kubernetes／Slurm deployment、lifecycle、settings 與 runtime view |
 | Software | 分類呈現 catalog（Docker CE、Podman、NFS、Prometheus、Grafana、AMD Device Metrics Exporter、Node Exporter）、各 software deployment 與多 Server 安裝 |
-| Workflows | Durable execution、Job、Task、event、log、cancel、rerun 與 retry |
-| Change Plans | Platform 破壞性變更的計畫：等待核准或拒絕的 plan、已核准 plan 的紀錄，以及安全開關 |
 | Monitoring | Fleet health、勾選 Server／Pool／Zone／Platform 的用量圖表、current metrics、選用的 Grafana link，以及（開發中的）alert 與 silence |
-| Infrastructure | Site、Integration、Zone、Pool、credential、automation settings，以及 Site 的 local repository（deployment 從哪裡取得 artifact、來源、同步狀態與內容，見[初始設定](initial-setup.md#4-註冊-local-repository)） |
+| Activity | 兩個分頁。**Workflows**：durable execution、Job、Task、event、log、cancel、rerun 與 retry。**Change Plans**：Platform 破壞性變更的計畫，包括等待核准或拒絕的 plan、已核准 plan 的紀錄，以及安全開關 |
+| Infrastructure | Site、Integration、Zone、Pool、credential、automation settings、Site 的 local repository（deployment 從哪裡取得 artifact、來源、同步狀態與內容，見[初始設定](initial-setup.md#4-註冊-local-repository)），以及 [Boot ISO](#boot-iso-與-server-boot-media) |
 | SSH keys（account menu） | Deployment key、你的 access keys 及其 provisioner sync 狀態，見 [SSH key](ssh-keys.md) |
 | API keys（account menu） | 讓 script、CI 與 CLI 不需要密碼即可以你的身分呼叫 swallow 的 key，見 [API key](api-keys.md) |
 
-`/clusters` 與 `/operations` 下的 route 是 compatibility redirect；canonical
-navigation 使用 Platforms 與 Workflows。
+區域內的分頁保有各自的網址，因此連結與書籤仍然有效：Activity 是 `/workflows` 與 `/change-plans`，
+OS Images 是 `/provisioning/images` 與 `/provisioning/templates`。`/clusters` 與 `/operations` 下的
+route 是 compatibility redirect；`/provisioning/boot-isos` 會轉到 `/infrastructure/boot-isos`，並保留
+Site scope。
 
 ## 使用 Overview
 
@@ -53,8 +59,8 @@ CLI 不受影響。
 - **Alerts**：Monitoring 頁面沒有 alert 列表、alert 數量與 Acknowledge，Overview 的 Alerts card
   顯示「Not available in this release」，也不會產生 alert 的 attention item。基礎監控不受影響：
   health、current metrics 與用量圖表在每個 build 都會顯示。請改用 `swallow monitoring alerts`。
-- **OS image upload**：OS images 沒有 Upload。既有 custom image 的 verification 仍可使用。
-- **Deployment Template**：沒有 Templates workspace、Create template，佈署時也不能選擇或保存
+- **OS image upload**：OS Images 沒有 Upload。既有 custom image 的 verification 仍可使用。
+- **Deployment Template**：OS Images 沒有 Templates 分頁與 Create template，佈署時也不能選擇或保存
   template；佈署使用 custom configuration。
 - **Virtual machines**：Add servers 沒有 libvirt virtual machine 路徑，virtual machine 的
   Summary 也不會顯示經由 hypervisor 的 Boot Media。請改用 `swallow servers virtual-machines` 與
@@ -70,7 +76,7 @@ Development build 會顯示這些功能，並提供 **Account menu → Experimen
 ## Boot ISO 與 Server Boot Media
 
 多數 Site 不需要 Boot ISO。只有 Server 使用 external DHCP、無法走 provisioner
-管理的 network boot path 時，才需要 **Provisioning → Boot ISOs**。頁面會呈現選配的
+管理的 network boot path 時，才需要 **Infrastructure → Boot ISOs**。頁面會呈現選配的
 **Server BMC → Swallow Boot ISO → Site DHCP → MAAS rack** 路徑，以及每個已設定
 ISO 的 card。**Build Boot ISO** 會從所選 Integration endpoint 建議 MAAS rack 位址，
 自動產生的名稱位於 **Advanced settings**。Card 會分開顯示 served 狀態與 Server
@@ -78,8 +84,8 @@ ISO 的 card。**Build Boot ISO** 會從所選 Integration endpoint 建議 MAAS 
 放在 **More** 和 **Technical details**。
 
 在 **Server → Summary → Management controller → Boot media** 啟用 Boot Media
-時，必須選擇為該 Server provisioner 建置的 Boot ISO。沒有可選項時，panel 會連回
-**Boot ISOs**。Enabled Server 可 change 或 re-apply ISO；Disable Boot Media 後仍會
+時，必須選擇為該 Server provisioner 建置的 Boot ISO。沒有可選項時，panel 會連到
+**Boot ISOs** 分頁。Enabled Server 可 change 或 re-apply ISO；Disable Boot Media 後仍會
 保留原本的選擇。
 **Enable Boot Media**、**Change ISO** 與 **Re-apply** 會顯示 BMC preflight
 的五步驟進度、elapsed time，以及三分鐘掛載穩定等待的剩餘時間。選擇

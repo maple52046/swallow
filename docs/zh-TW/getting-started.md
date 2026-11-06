@@ -67,8 +67,8 @@ MAAS Integration 成功後，下一輪 reconciliation 會建立或更新 Server 
 User 不會直接建立 Server。
 
 - 開啟 **Servers** 檢視 inventory 與 staleness。
-- 使用 **Provisioning** 檢視 image、驗證 deployability 並建立 deployment template。
-- 使用 **Workflows** 觀察 durable work。
+- 使用 **OS Images**（在 **Servers** 之下）檢視 image、驗證 deployability 並建立 deployment template。
+- 使用 **Activity** 觀察 durable work（**Workflows**）並核准破壞性變更（**Change Plans**）。
 - 註冊 Prometheus／Alertmanager 後使用 **Monitoring**。
 
 ## 6. 第一次部署 OS 之前

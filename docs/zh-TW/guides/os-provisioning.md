@@ -8,7 +8,7 @@ converge 到 requested result。
 
 ## 準備 image
 
-在 **Provisioning → Images**：
+在 **OS Images**（側邊欄 **Servers** 之下）：
 
 1. 選擇 Site／provisioner catalog。
 2. 使用既有 provider image，或 upload supported custom image。
@@ -91,7 +91,7 @@ Dashboard provisioning flow 會驗證：
 - Network settings 與 release options 有效。
 - 沒有 lock 或 active conflicting Workflow 阻擋 Server。
 
-送出後會為 targets 建立 durable Workflow。請到 **Workflows** 追蹤；request
+送出後會為 targets 建立 durable Workflow。請到 **Activity → Workflows** 追蹤；request
 成功回傳不代表作業已完成。Server 佈署期間，其詳細頁會顯示 provisioner 目前的安裝階段（例如
 *Configuring OS*）。若該階段 25 分鐘沒有推進，Workflow step 會要求處理，而不是等到兩小時上限；
 provider 端的佈署仍保持執行，供你檢查、retry 或 release。
@@ -141,7 +141,7 @@ development build 的實驗功能，CLI 與 API 則在每個 release 都提供�
 [納管 virtual machine](servers-and-infrastructure.md#libvirt-virtual-machine) 時指定 Boot ISO
 會自動完成這些設定。
 
-- **只在需要這條路徑時建置：** 開啟 **Provisioning → Boot ISOs → Build Boot
+- **只在需要這條路徑時建置：** 開啟 **Infrastructure → Boot ISOs → Build Boot
   ISO**。只有一個 provisioner Integration 時，Dialog 會顯示 read-only summary；
   有多個時才需要先選 Integration。**MAAS rack address** 會從 Integration endpoint
   建議，只保留 hostname 或 IPv4，去除 region API 的 scheme、port 與 path。你可以將
@@ -174,7 +174,7 @@ development build 的實驗功能，CLI 與 API 則在每個 release 都提供�
   刪除後會移除檔案，原本的 URL 也會停止運作。
 - **逐台選擇：** 在 **Server → Summary → Management controller → Boot media**，
   **Enable Boot Media** 必須選擇為該 Server 自己的 provisioner 建置的 Boot ISO。
-  若沒有可選項，請依連結前往 **Boot ISOs** 建置。Enable 會執行 Redfish preflight；
+  若沒有可選項，請依連結前往 **Boot ISOs** 分頁建置。Enable 會執行 Redfish preflight；
   只有 BMC 掛載 ISO 並接受 boot override 後才保存設定。**Boot ISO** 欄會顯示名稱與
   BMC 掛載的 URL。
 - **追蹤 preflight：** **Enable Boot Media**、**Change ISO** 與 **Re-apply**

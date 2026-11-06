@@ -12,21 +12,20 @@
 | `/login` | Authenticate |
 | `/` | Site-scoped overview 與 attention items |
 | `/servers`、`/servers/:id/*` | Inventory、action、activity、monitoring、containers、network、storage、PCI |
-| `/provisioning/templates` | Deployment Template |
-| `/provisioning/images` | OS image、upload、delete、verification |
-| `/provisioning/boot-isos` | Boot ISO |
+| `/provisioning/images` | OS Images（側邊欄 Servers 之下）：OS image、upload、delete、verification |
+| `/provisioning/templates` | OS Images：Deployment Template |
 | `/platforms`、`/platforms/:id` | Kubernetes／Slurm Platform inventory 與 detail |
 | `/platforms/deploy`、`/platforms/settings` | Platform deployment 與 Slurm requirement |
 | `/software`、`/software/:kind` | Managed Software catalog、deployment 與多 Server 安裝 |
 | `/software/settings`、`/software/:kind/settings` | Software 的設定，例如 registry credential |
-| `/workflows`、`/workflows/:id` | Durable Workflow list、event、log 與 control |
-| `/change-plans` | 等待核准的 Change Plan |
+| `/workflows`、`/workflows/:id` | Activity：Durable Workflow list、event、log 與 control |
+| `/change-plans` | Activity：等待核准的 Change Plan |
 | `/monitoring` | Health、用量圖表（勾選 Server、Pool、Zone、Platform）、current metric、選用的 Grafana，以及（開發中的）alert 與 silence |
-| `/infrastructure/*` | Site、Integration、Zone、Pool，以及 Site 的 Local repository |
+| `/infrastructure/*` | Site、Integration、Zone、Pool、Site 的 Local repository，以及 Boot ISO |
 | `/account/ssh-keys`、`/account/api-keys` | 你的 SSH key 與 API key（account menu） |
 
-`/clusters`、`/operations` 與已退役的 `/provisioning/deploy` 頁面是
-compatibility redirect。
+`/clusters`、`/operations`、已退役的 `/provisioning/deploy` 頁面，以及
+`/provisioning/boot-isos`（現為 `/infrastructure/boot-isos`）是 compatibility redirect。
 
 Alert（Monitoring 的 alert 列表與 acknowledge、Overview 的 Alerts card）、OS image upload、
 Deployment Template 與 libvirt virtual machine 納管仍在開發中。Release build（`npm run build`）會隱藏它們：route 顯示 Not Found

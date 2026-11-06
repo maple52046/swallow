@@ -449,7 +449,7 @@ export function OSImageCatalogPage() {
   }
 
   return <div className="console-page sw-os-image-page">
-    <PageHeader title="OS images" subtitle="Organize deployment images and see which Disk or RAM modes each image supports." breadcrumbs={[{ label: 'Provisioning', href: scopedHref('/provisioning/images') }, { label: 'OS images' }]} actions={<>
+    <PageHeader title="OS Images" subtitle="Organize deployment images and see which Disk or RAM modes each image supports." actions={<>
       <Button variant="outline" onClick={() => navigate(scopedHref('/infrastructure/integrations'))}>Manage integrations</Button>
       <Button variant="outline" loading={isRefreshing} onClick={reload}><RefreshCw size={16} />Refresh</Button>
       {uploadEnabled && <Tooltip content={provisioners.length === 0 ? 'Add a provisioner integration before uploading an image' : 'Upload a new OS image to a provisioner'}><span><Button colorPalette="brand" disabled={provisioners.length === 0} onClick={() => setUploading(true)}><Upload size={16} />Upload image</Button></span></Tooltip>}

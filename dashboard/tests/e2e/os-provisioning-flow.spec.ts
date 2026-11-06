@@ -41,7 +41,7 @@ test('Provisioning opens OS Images without a Deploy OS tab', async ({ page }) =>
   await page.goto('/provisioning?site=site-a')
 
   await expect(page).toHaveURL('/provisioning/images?site=site-a')
-  await expect(page.getByRole('heading', { name: 'OS images', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'OS Images', exact: true })).toBeVisible()
   await expect(page.getByRole('tab', { name: 'Deploy OS', exact: true })).toHaveCount(0)
   await expect(page.getByRole('tab', { name: 'OS images', exact: true })).toHaveAttribute('aria-selected', 'true')
 })

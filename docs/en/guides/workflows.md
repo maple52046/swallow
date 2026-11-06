@@ -146,8 +146,8 @@ A destructive change, such as uninstalling a Platform, goes through a Change Pla
 every action swallow will take, which actions are destructive, the expected effects,
 and anything blocking it. The dialog you confirm in the dashboard shows the same
 consequences, and confirming it approves the plan, so the change starts at once; the
-CLI does the same when you add `--approve`. The plan stays on the **Change Plans**
-page as the record of what was decided, by whom, and which Workflow carried it out.
+CLI does the same when you add `--approve`. The plan stays on the
+**Activity → Change Plans** tab as the record of what was decided, by whom, and which Workflow carried it out.
 
 A plan waits on **Change Plans** for an admin to approve or reject it as a whole
 (there, or with `swallow plans approve` / `swallow plans reject`) when it was sent

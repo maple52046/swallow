@@ -22,7 +22,7 @@ Installer 完成時：
 - Dashboard 與 API 在 **HTTP port 80** 提供服務，`admin` 帳號可登入；
 - MAAS 3.6（region+rack）在同一台 VM 上執行，已是 Site `default` 的 provisioner
   Integration，且已同步；
-- 官方 `ubuntu/noble` amd64 image 已 complete，出現在 **Provisioning → Images**；
+- 官方 `ubuntu/noble` amd64 image 已 complete，出現在 **OS Images**；
 - Temporal、worker 與 Ansible executor 已串接，Deployment Key 已建立，Site automation
   已啟用；
 - Site `default` 的 Prometheus 在同一台 VM 上執行，已是該 Site 的 metrics Integration，並收集

@@ -467,7 +467,7 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
 
 ### 5.1 建置
 
-- user 在 Provisioning 頁選 provisioner Integration、給 MAAS rack 位址（Dashboard 以 Integration endpoint
+- user 在 Dashboard 的 Infrastructure → Boot ISOs 選 provisioner Integration、給 MAAS rack 位址（Dashboard 以 Integration endpoint
   的 host 預填；MAAS region 與 rack 同機時即為 rack）與名稱，`POST /provisioning/boot-isos` **同步**建置
   （數秒，不需要 durable Workflow）。名稱在同一 Integration 內唯一（不分大小寫）、1–63 字元；rack 位址為 IPv4
   或 hostname，可帶 `:port`（預設 5248），swallow 不解析也不連線。

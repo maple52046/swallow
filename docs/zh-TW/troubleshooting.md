@@ -150,7 +150,7 @@ swallow 會偵測這種 layout。Server detail 頁會顯示 **Inspect this Serve
 deployment**，在重新 inspect 之前，swallow 會拒絕這台 Server 的磁碟部署。RAM 部署不使用
 磁碟，仍然可以進行。
 
-1. 如果 Server 的 Boot ISO 早於 UEFI 交接的修正，先重建它；Boot ISOs 頁會標示需要重建。
+1. 如果 Server 的 Boot ISO 早於 UEFI 交接的修正，先重建它；**Infrastructure → Boot ISOs** 會標示需要重建。
 2. 結束佔著 Server 的部署。現在 retry 它失敗的 Task 會以 `inspection_required` 結束該
    Task，而不是重新部署；也可以直接 cancel Workflow。
 3. 在提示上按 **Inspect hardware**，或執行 `swallow servers inspect`。inspect 完成、MAAS

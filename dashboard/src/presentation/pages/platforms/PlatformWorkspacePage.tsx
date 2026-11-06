@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { Badge, Button, HStack, Text } from '@chakra-ui/react'
-import { Boxes, ExternalLink, RefreshCw } from 'lucide-react'
-import { Link, Navigate, NavLink, Outlet, useLocation, useParams } from 'react-router-dom'
+import { Activity, Boxes, ChartLine, ExternalLink, LayoutDashboard, RefreshCw, SlidersHorizontal } from 'lucide-react'
+import { Link, Navigate, Outlet, useLocation, useMatch, useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { Operation } from '@/domain/operation/types'
 import { platformMemberCounts } from '@/domain/platform/membership'
@@ -13,6 +13,7 @@ import { ErrorState } from '@/presentation/components/ErrorState'
 import { failureOf, failureText } from '@/presentation/components/failure'
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { PageHeader } from '@/presentation/components/PageHeader'
+import { WorkspaceTabs, type WorkspaceTabItem } from '@/presentation/components/WorkspaceTabs'
 import { Alert } from '@/presentation/components/ui/alert'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
@@ -42,13 +43,28 @@ export function PlatformWorkspaceIndexRedirect() {
   )
 }
 
+/** The shell's own tabs; a Platform module's tabs sit between Overview and these. */
+const OVERVIEW_TAB: WorkspaceTabItem = { value: 'overview', label: 'Overview', icon: LayoutDashboard }
+const TRAILING_TABS: readonly WorkspaceTabItem[] = [
+  { value: 'monitoring', label: 'Monitoring', icon: ChartLine },
+  { value: 'configuration', label: 'Configuration', icon: SlidersHorizontal },
+  { value: 'activity', label: 'Activity', icon: Activity },
+]
+
 /**
  * Route-based Platform runtime shell. It owns only generic identity, lifecycle Workflow, actions,
  * and navigation; every child route loads its own members, history, or module live state.
+ *
+ * The tabs are the child routes: the first path segment after the Platform id selects one (deeper
+ * paths keep their tab), and choosing a tab navigates in the Platform's own Site scope, so the URL
+ * stays the only state. A module tab that does not apply to this Platform is not listed; its URL
+ * shows the Not Found child with no tab selected.
  */
 export function PlatformWorkspacePage() {
   const { id } = useParams<{ id: string }>()
   const location = useLocation()
+  const navigate = useNavigate()
+  const tabMatch = useMatch('/platforms/:id/:tab/*')
   const { siteId, sites, scopedHref } = useSiteScope()
   const initialTransition = (location.state as WorkspaceLocationState | null)?.platformTransition
   const state = usePlatformWorkspace(id, siteId, initialTransition)
@@ -107,17 +123,12 @@ export function PlatformWorkspacePage() {
         </Alert>
       )}
 
-      <nav className="sw-platform-workspace__nav" aria-label="Platform workspace">
-        <NavLink to={scopedHref(`/platforms/${encodeURIComponent(platform.id)}/overview`, platform.siteId)}>Overview</NavLink>
-        {nativeRoutes.map((route) => (
-          <NavLink key={route.value} to={scopedHref(`/platforms/${encodeURIComponent(platform.id)}/${route.value}`, platform.siteId)}>
-            {route.label}
-          </NavLink>
-        ))}
-        <NavLink to={scopedHref(`/platforms/${encodeURIComponent(platform.id)}/monitoring`, platform.siteId)}>Monitoring</NavLink>
-        <NavLink to={scopedHref(`/platforms/${encodeURIComponent(platform.id)}/configuration`, platform.siteId)}>Configuration</NavLink>
-        <NavLink to={scopedHref(`/platforms/${encodeURIComponent(platform.id)}/activity`, platform.siteId)}>Activity</NavLink>
-      </nav>
+      <WorkspaceTabs
+        value={tabMatch?.params.tab ?? ''}
+        items={[OVERVIEW_TAB, ...nativeRoutes, ...TRAILING_TABS]}
+        label="Platform workspace"
+        onChange={(value) => navigate(scopedHref(`/platforms/${encodeURIComponent(platform.id)}/${value}`, platform.siteId))}
+      />
 
       <Outlet context={context} />
     </div>
@@ -182,7 +193,8 @@ function WorkspaceActions({
       )}
       {!failed && !changing && platform.lifecycleState === 'active' && wantsPlatformGrafana(platform.spec) && grafana && (
         <Button asChild colorPalette="brand">
-          <a href={grafana.url} target="_blank" rel="noreferrer">Open Platform Grafana<ExternalLink size={14} /></a>
+          {/* The visible text is short for the header row; the accessible name keeps what it opens. */}
+          <a href={grafana.url} target="_blank" rel="noreferrer" aria-label="Open Platform Grafana">Grafana<ExternalLink size={14} aria-hidden /></a>
         </Button>
       )}
       <Button variant="outline" onClick={() => void sync()} loading={syncing} disabled={syncing || !platform.integrationId}>

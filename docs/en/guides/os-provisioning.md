@@ -8,7 +8,7 @@ automation stages converge the Server toward the requested result.
 
 ## Prepare an image
 
-Under **Provisioning → Images**:
+Under **OS Images** (below **Servers** in the sidebar):
 
 1. Select the Site/provisioner catalog.
 2. Use an existing provider image or upload a supported custom image.
@@ -101,7 +101,7 @@ Dashboard provisioning flows validate:
 - no lock or active conflicting Workflow blocks the Server.
 
 Submission creates one durable Workflow for the selected targets. Follow it in
-**Workflows**; do not infer completion from the request returning successfully.
+**Activity → Workflows**; do not infer completion from the request returning successfully.
 While a Server deploys, its detail page shows the provisioner's current
 installation stage (for example *Configuring OS*). If that stage stops advancing
 for 25 minutes, the Workflow step asks for attention instead of waiting out the
@@ -162,7 +162,7 @@ experimental feature of development builds, while the CLI and API offer it in
 every release. [Enrolling virtual machines](servers-and-infrastructure.md#libvirt-virtual-machines)
 with a Boot ISO sets this up for you.
 
-- **Build only when this path is needed:** open **Provisioning → Boot ISOs →
+- **Build only when this path is needed:** open **Infrastructure → Boot ISOs →
   Build Boot ISO**. With one provisioner Integration, the dialog shows it as a
   read-only summary; with several, choose the Integration first. The **MAAS rack
   address** is suggested from the Integration endpoint by keeping only its
@@ -201,7 +201,7 @@ with a Boot ISO sets this up for you.
   the ISO; after deletion, its file is removed and its URL stops working.
 - **Choose per Server:** on **Server → Summary → Management controller → Boot
   media**, **Enable Boot Media** requires a Boot ISO built for that Server's own
-  provisioner. If none exists, follow the link to **Boot ISOs** and build one.
+  provisioner. If none exists, follow the link to the **Boot ISOs** tab and build one.
   Enabling runs the Redfish preflight and saves the setting only after the BMC
   mounts the ISO and accepts the boot override. The **Boot ISO** row shows its
   name and the URL mounted by the BMC.

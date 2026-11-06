@@ -1,3 +1,4 @@
+import type { LucideIcon } from 'lucide-react'
 import type { ComponentType, ReactNode } from 'react'
 import type { DeployPlatformInput, Platform, PlatformType } from '@/domain/platform/types'
 import type { Server } from '@/domain/server/types'
@@ -33,9 +34,12 @@ export interface PlatformTabProps {
 
 /** A native workspace route a Platform module adds to the shared routes. */
 export interface PlatformModuleTab {
-  /** Stable tab value; also the tab's accessible identity within the tab list. */
+  /** Stable tab value and route segment (`/platforms/:id/<value>`); the router must declare it. */
   value: string
+  /** Visible tab text and the tab's accessible name. */
   label: string
+  /** Decorative glyph before the label, in the style of the shell's own tabs. */
+  icon: LucideIcon
   /** Whether the tab applies to this Platform, so a tab never makes a call that can only fail. */
   available: (platform: Platform) => boolean
   /** Loads Platform member and login-node projections only while this route is active. */
