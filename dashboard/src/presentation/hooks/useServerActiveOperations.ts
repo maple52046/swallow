@@ -10,7 +10,7 @@ import {
 export interface ActiveOperationSummary {
   id: string
   kind: string
-  /** Human-readable user intent, e.g. "Deploy production k0s platform". */
+  /** Human-readable user intent, e.g. "Deploy Kubernetes Platform production-k0s". */
   intent: string
   status: string
   /** Servers the Operation targets, so a multi-Server prompt can say which ones are held. */

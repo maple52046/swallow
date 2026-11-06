@@ -159,7 +159,7 @@ test('Release hands canceling the running operations to the backend and closes a
 
   const confirmation = page.getByRole('dialog', { name: 'Release server', exact: true })
   await expect(confirmation).toContainText('This server has a running operation')
-  await expect(confirmation).toContainText('Deploy production k0s platform')
+  await expect(confirmation).toContainText('Deploy Kubernetes Platform production-k0s')
 
   await confirmation.getByLabel('Cancel running operations before releasing').locator('..').click()
   await confirmation.getByRole('button', { name: 'Release server', exact: true }).click()
@@ -190,11 +190,11 @@ test('Release reports a refused cancel at once instead of waiting it out', async
   await chooseMenuItem(page, 'Release')
 
   const confirmation = page.getByRole('dialog', { name: 'Release server', exact: true })
-  await expect(confirmation).toContainText('Deploy production k0s platform')
+  await expect(confirmation).toContainText('Deploy Kubernetes Platform production-k0s')
   await confirmation.getByLabel('Cancel running operations before releasing').locator('..').click()
   await confirmation.getByRole('button', { name: 'Release server', exact: true }).click()
 
-  await expect(confirmation).toContainText(`Deploy production k0s platform could not be canceled: ${refusal}`)
+  await expect(confirmation).toContainText(`Deploy Kubernetes Platform production-k0s could not be canceled: ${refusal}`)
   expect(releases).toEqual([])
 })
 

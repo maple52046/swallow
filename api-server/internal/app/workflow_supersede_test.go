@@ -50,7 +50,7 @@ func TestUninstallSupersedesTheParkedDeployment(t *testing.T) {
 	if !errors.Is(err, workflowdomain.ErrTargetsBusy) || repo.created != nil {
 		t.Fatalf("create without supersede: err = %v, created = %v; want busy and nothing created", err, repo.created != nil)
 	}
-	for _, want := range []string{"already has active durable work", "op-parked", "Deploy k0s Platform test-amd-operator", "requires_attention"} {
+	for _, want := range []string{"already has active durable work", "op-parked", "Deploy Kubernetes Platform test-amd-operator", "requires_attention"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("busy message %q does not name %q", err.Error(), want)
 		}

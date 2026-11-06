@@ -91,7 +91,7 @@ func newRerunOldOp(status workflowdomain.WorkflowStatus, installStatus workflowd
 	return &workflowdomain.Workflow{
 		ID: "11111111-1111-1111-1111-111111111111", SchemaVersion: 4,
 		Kind:       workflowdomain.WorkflowKindDeployKubernetes,
-		Intent:     map[string]any{"summary": "Deploy k0s Platform demo"},
+		Intent:     map[string]any{"summary": "Deploy Kubernetes Platform demo"},
 		Definition: "platform-deployment", DefinitionVersion: 1,
 		Status: status, SiteID: "site-a", PlatformID: "platform-a",
 		TargetServerIDs: []string{"server-1"},

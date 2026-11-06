@@ -63,7 +63,7 @@ test('a failed Server links the work blocking recovery and explains retrying it'
   await page.goto('/servers/srv-1/summary?site=site-a')
 
   const blocking = page.getByRole('list', { name: 'Operations blocking recovery' })
-  const workflow = blocking.getByRole('link', { name: 'Deploy production k0s platform' })
+  const workflow = blocking.getByRole('link', { name: 'Deploy Kubernetes Platform production-k0s' })
   await expect(workflow).toHaveAttribute('href', '/workflows/op-running?site=site-a')
   await expect(page.getByText(/retry the failed Step: Swallow returns this Server to Ready and redeploys it/)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Cancel blocking Operations and Recover' })).toBeVisible()

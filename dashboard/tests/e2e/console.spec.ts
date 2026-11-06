@@ -1376,7 +1376,7 @@ test.describe('user interactions', () => {
     await page.getByRole('navigation', { name: 'Platform workspace' }).getByRole('link', { name: 'Activity' }).click()
     await expect(
       page.getByRole('table', { name: 'Platform workflows' })
-        .getByRole('row', { name: /Deploy edge-staging k0s platform/ })
+        .getByRole('row', { name: /Deploy Kubernetes Platform edge-staging/ })
         .first(),
     ).toContainText('running')
 
@@ -1452,7 +1452,7 @@ test.describe('user interactions', () => {
     await confirmation.fill('production-k0s')
     // The deployment still running on these targets must be canceled first, and the user says so.
     await expect(dialog.getByText('An unfinished workflow still holds these servers')).toBeVisible()
-    await expect(dialog.getByRole('list', { name: "Workflows holding the platform's servers" })).toContainText('Deploy production k0s platform')
+    await expect(dialog.getByRole('list', { name: "Workflows holding the platform's servers" })).toContainText('Deploy Kubernetes Platform production-k0s')
     await expect(uninstall).toBeDisabled()
     await dialog.getByLabel('Cancel these workflows, then uninstall').locator('..').click()
     await uninstall.click()
@@ -1641,7 +1641,7 @@ test.describe('user interactions', () => {
     await page.getByRole('button', { name: 'Uninstall platform', exact: true }).click()
 
     const dialog = page.getByRole('dialog', { name: 'Uninstall platform' })
-    await expect(dialog.getByRole('list', { name: "Workflows holding the platform's servers" })).toContainText('Deploy edge-staging k0s platform')
+    await expect(dialog.getByRole('list', { name: "Workflows holding the platform's servers" })).toContainText('Deploy Kubernetes Platform edge-staging')
     await dialog.getByLabel('Release all servers instead of uninstalling platform software').locator('..').click()
     const releaseDialog = page.getByRole('dialog', { name: 'Release platform servers' })
     await releaseDialog.getByLabel('Platform name confirmation').fill('edge-staging')
@@ -1664,7 +1664,7 @@ test.describe('user interactions', () => {
     await page.goto('/platforms/platform-a?site=site-a')
     await page.getByRole('button', { name: 'Uninstall platform', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Uninstall platform' })
-    await expect(dialog.getByRole('list', { name: "Workflows holding the platform's servers" })).toContainText('Deploy production k0s platform')
+    await expect(dialog.getByRole('list', { name: "Workflows holding the platform's servers" })).toContainText('Deploy Kubernetes Platform production-k0s')
     await dialog.getByLabel('Platform name confirmation').fill('production-k0s')
     const uninstall = dialog.getByRole('button', { name: 'Uninstall', exact: true })
     await expect(uninstall).toBeDisabled()
@@ -1787,7 +1787,7 @@ test.describe('user interactions', () => {
 
     const dialog = page.getByRole('dialog', { name: 'Uninstall selected platforms' })
     await expect(dialog.getByRole('list', { name: 'Platforms to uninstall' })).toHaveText('edge-staging')
-    await expect(dialog.getByRole('list', { name: "Workflows holding the selected platforms' servers" })).toContainText('Deploy edge-staging k0s platform')
+    await expect(dialog.getByRole('list', { name: "Workflows holding the selected platforms' servers" })).toContainText('Deploy Kubernetes Platform edge-staging')
     // Releasing the servers instead retitles the dialog as a release; turning it off restores it.
     const releaseChoice = 'Release all servers instead of uninstalling platform software'
     await dialog.getByLabel(releaseChoice).locator('..').click()
@@ -1897,16 +1897,16 @@ test.describe('user interactions', () => {
     await expect(table.getByRole('columnheader', { name: 'Action' })).toBeVisible()
     const rows = table.locator('tbody tr')
     await expect(rows).toHaveCount(4)
-    await expect(rows.first()).toContainText('Deploy production k0s platform')
+    await expect(rows.first()).toContainText('Deploy Kubernetes Platform production-k0s')
 
-    const running = table.getByRole('row', { name: /Deploy production k0s platform/ })
+    const running = table.getByRole('row', { name: /Deploy Kubernetes Platform production-k0s/ })
     await expect(running).toContainText('Deploying')
     await expect(running).toContainText('Install k0s Platform')
     await expect(running).toContainText('1 Task')
     await expect(running.getByRole('link', { name: 'View workflow' }))
       .toHaveAttribute('href', '/workflows/op-running?site=site-a')
 
-    const attention = table.getByRole('row', { name: /Deploy edge-staging k0s platform/ })
+    const attention = table.getByRole('row', { name: /Deploy Kubernetes Platform edge-staging/ })
     await expect(attention).toContainText('requires attention')
     await expect(attention).toContainText('Provision and verify operating system on srv-4')
     await expect(attention).toContainText('2 Tasks')
@@ -1925,7 +1925,7 @@ test.describe('user interactions', () => {
     await expect(succeeded).toContainText('1 succeeded')
     await expect(succeeded.getByRole('link', { name: 'View workflow' })).toBeVisible()
 
-    const workflowName = running.getByRole('link', { name: 'Deploy production k0s platform' })
+    const workflowName = running.getByRole('link', { name: 'Deploy Kubernetes Platform production-k0s' })
     await workflowName.focus()
     await expect(workflowName).toBeFocused()
     const workflowAction = running.getByRole('link', { name: 'View workflow' })

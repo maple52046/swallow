@@ -121,7 +121,7 @@ const servers = Array.from({ length: 4 }, (_, index) => makeServer(index))
 const operations = [
   {
     id: 'op-running', schemaVersion: 3, kind: 'deploy-kubernetes',
-    intent: 'Deploy production k0s platform', intentSnapshot: {},
+    intent: 'Deploy Kubernetes Platform production-k0s', intentSnapshot: {},
     definition: 'platform-deployment', definitionVersion: 1,
     status: 'running', statusReason: null,
     startState: 'started', temporal: { workflowId: 'swallow-operation/op-running', runId: 'temporal-run-1024' },
@@ -169,7 +169,7 @@ const operations = [
   },
   {
     id: 'op-deploy-failed', schemaVersion: 3, kind: 'deploy-kubernetes',
-    intent: 'Deploy edge-staging k0s platform', intentSnapshot: {},
+    intent: 'Deploy Kubernetes Platform edge-staging', intentSnapshot: {},
     definition: 'platform-deployment', definitionVersion: 1,
     status: 'requires_attention', statusReason: 'A failed Step requires user attention.',
     startState: 'started', temporal: { workflowId: 'swallow-operation/op-deploy-failed', runId: 'run-deploy-failed' },
@@ -2189,7 +2189,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       } as (typeof operationItems)[number]
     }
     operationItems.push(succeededDeployment(
-      'op-k0s-deploy', 'deploy-kubernetes', 'platform-a', 'Deploy production k0s platform', ['srv-1', 'srv-2', 'srv-3'],
+      'op-k0s-deploy', 'deploy-kubernetes', 'platform-a', 'Deploy Kubernetes Platform production-k0s', ['srv-1', 'srv-2', 'srv-3'],
       { requestedAt: '2026-08-10T00:05:00Z', finishedAt: '2026-08-10T00:41:00Z' },
     ))
     if (options.slurmDeployed) {
@@ -3756,7 +3756,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       const body = (written.spec.settings.gpuOperator ?? { enabled: false }) as Record<string, unknown>
       options.onGPUOperatorRequest?.(platformId, body)
       if (options.gpuOperatorBusy) {
-        return json(route, { error: { code: 'conflict', message: 'targets are busy: gpu-node-01 is held by Deploy production k0s platform' } }, 409)
+        return json(route, { error: { code: 'conflict', message: 'targets are busy: gpu-node-01 is held by Deploy Kubernetes Platform production-k0s' } }, 409)
       }
       const platform = platformItems.find((item) => item.id === platformId)
       if (!platform) return json(route, { error: { code: 'not_found', message: 'Platform not found.' } }, 404)

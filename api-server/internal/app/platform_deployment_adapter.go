@@ -193,7 +193,7 @@ func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launc
 		operationID = uuid.NewString()
 	}
 	prepared, err := l.operations.PrepareAnsibleStep(ctx, workflowapp.CreateExecutionInput{
-		Kind: deployKubernetesKind, Intent: "Deploy k0s platform " + launch.Platform.Name,
+		Kind: deployKubernetesKind, Intent: "Deploy Kubernetes Platform " + launch.Platform.Name,
 		TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
 		TrustedVars: launch.TrustedVars, SecretVars: launch.SecretVars,
 		RequestedBy: launch.RequestedBy,
@@ -255,7 +255,7 @@ func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launc
 	steps = append(steps, composed.steps...)
 
 	workflow, err := l.deploymentWorkflowInput(ctx, operationID, workflowdomain.WorkflowKindDeployKubernetes,
-		"Deploy k0s Platform "+launch.Platform.Name, launch, prepared, steps, ensure)
+		"Deploy Kubernetes Platform "+launch.Platform.Name, launch, prepared, steps, ensure)
 	if err != nil {
 		return nil, err
 	}

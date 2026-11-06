@@ -62,7 +62,7 @@ func (r *supersedeWorkflowRepo) AppendEvent(context.Context, workflowdomain.Time
 func supersedeLauncher() (durableProvisioningLauncher, *supersedeWorkflowRepo, *supersedeWorkflowRepo) {
 	repo := &supersedeWorkflowRepo{parked: &workflowdomain.Workflow{
 		ID: "op-parked", SchemaVersion: 4, Kind: workflowdomain.WorkflowKindDeployKubernetes,
-		Intent: map[string]any{"summary": "Deploy k0s Platform test-amd-operator"},
+		Intent: map[string]any{"summary": "Deploy Kubernetes Platform test-amd-operator"},
 		Status: workflowdomain.WorkflowRequiresAttention, TargetServerIDs: []string{"server-id"},
 	}}
 	server := &serverdomain.Server{
@@ -119,7 +119,7 @@ func TestRecoveryLaunchSupersedesActiveWorkflows(t *testing.T) {
 			launcher, repo, controller := supersedeLauncher()
 			controller.refuse = true
 			err := launch(launcher, cancelActive)
-			if !errors.Is(err, workflowdomain.ErrTargetsBusy) || !strings.Contains(err.Error(), "Deploy k0s Platform test-amd-operator") {
+			if !errors.Is(err, workflowdomain.ErrTargetsBusy) || !strings.Contains(err.Error(), "Deploy Kubernetes Platform test-amd-operator") {
 				t.Fatalf("err = %v, want a busy conflict naming the Workflow", err)
 			}
 			if repo.created != nil {
