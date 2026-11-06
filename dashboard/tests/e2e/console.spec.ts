@@ -1350,7 +1350,7 @@ test.describe('user interactions', () => {
   test('failed Platform repairs from its detail workflow and remains in lifecycle progress', async ({ page }) => {
     await page.goto('/platforms/platform-b?site=site-a')
     await expect(page.getByText('Platform lifecycle needs review')).toBeVisible()
-    await expect(page.getByText('Deployment failed', { exact: true })).toBeVisible()
+    await expect(page.getByText('Deployment failed', { exact: true }).first()).toBeVisible()
 
     await page.getByRole('link', { name: 'Review workflow' }).click()
     await expect(page).toHaveURL('/workflows/op-deploy-failed?site=site-a')
