@@ -1,9 +1,8 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { useApp } from '@/di/AppProvider'
-import type { User, UserRole, UserStatus } from '@/domain/user/types'
+import type { User } from '@/domain/user/types'
 
-export type { UserRole, UserStatus }
 export type AuthUser = User
 
 interface AuthContextValue {
@@ -12,33 +11,12 @@ interface AuthContextValue {
   initializing: boolean
   /** True after the Session ended on its own (expired or revoked) until the next sign-in. */
   sessionEnded: boolean
-  users: AuthUser[]
   login: (username: string, password: string) => Promise<AuthUser>
   logout: () => void
   restoreSession: () => void
-  updateUserRole: (username: string, role: UserRole) => void
 }
 
-const USERS_KEY = 'auth-users'
-const defaultUsers: AuthUser[] = [
-  { id: 'user-admin', username: 'admin', role: 'admin', displayName: 'Admin User', status: 'active' },
-  { id: 'user-owner', username: 'owner', role: 'owner', displayName: 'Owner User', status: 'active' },
-  { id: 'user-member', username: 'member', role: 'member', displayName: 'Member User', status: 'active' },
-]
 const AuthContext = createContext<AuthContextValue | null>(null)
-
-function readUsersFromStorage(): AuthUser[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(USERS_KEY) ?? '[]') as AuthUser[]
-    return Array.isArray(parsed) && parsed.length ? parsed : defaultUsers
-  } catch { return defaultUsers }
-}
-
-function writeUsersToStorage(users: AuthUser[]): void {
-  try { localStorage.setItem(USERS_KEY, JSON.stringify(users)) } catch {
-    // Browser storage policy may disable the demo user-list preference.
-  }
-}
 
 /**
  * Session provider that consumes only the application auth port (decision 042).
@@ -51,13 +29,11 @@ function writeUsersToStorage(users: AuthUser[]): void {
  */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { auth } = useApp()
-  const [users, setUsers] = useState<AuthUser[]>(defaultUsers)
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null)
   const [initializing, setInitializing] = useState(true)
   const [sessionEnded, setSessionEnded] = useState(false)
 
   const restoreSession = useCallback(async () => {
-    setUsers(readUsersFromStorage())
     // An unreachable server cannot confirm the Session, so the user signs in again.
     try { setCurrentUser(await auth.restoreSession()) }
     catch { setCurrentUser(null) }
@@ -76,8 +52,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true }
   }, [restoreSession])
 
-  useEffect(() => { if (!initializing) writeUsersToStorage(users) }, [initializing, users])
-
   const login = async (username: string, password: string): Promise<AuthUser> => {
     const user = await auth.login(username, password)
     setSessionEnded(false)
@@ -91,14 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSessionEnded(false)
     setCurrentUser(null)
   }
-  const updateUserRole = (username: string, role: UserRole) => {
-    setUsers((current) => {
-      const next = current.map((user) => user.username === username ? { ...user, role } : user)
-      if (currentUser?.username === username) setCurrentUser(next.find((user) => user.username === username) ?? null)
-      return next
-    })
-  }
-  const value: AuthContextValue = { currentUser, isAuthenticated: currentUser !== null, initializing, sessionEnded, users, login, logout, restoreSession: () => { void restoreSession() }, updateUserRole }
+  const value: AuthContextValue = { currentUser, isAuthenticated: currentUser !== null, initializing, sessionEnded, login, logout, restoreSession: () => { void restoreSession() } }
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

@@ -222,8 +222,8 @@ export async function loadServers(): Promise<readonly Server[]> {
  * InventoryPage is the admin-only server inventory screen.
  *
  * Every server endpoint it uses requires the `admin` role, so a non-admin who
- * reaches this route must be stopped by RoleGuard rather than by an empty
- * table — an empty table would look like "no servers" instead of "no access".
+ * reaches this route must see the 403 page rather than an empty table — an
+ * empty table would look like "no servers" instead of "no access".
  */
 function InventoryPage() {
   return <ServerTable />

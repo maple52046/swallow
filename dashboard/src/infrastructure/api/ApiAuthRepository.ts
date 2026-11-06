@@ -5,8 +5,15 @@ import { ApiRequestError } from './client'
 import { clearTokens, currentAccessToken, discardLegacyToken, onSessionEnded, refreshSession } from './session'
 import type { CurrentUser } from './authApi'
 
+const USER_ROLES: readonly string[] = ['admin', 'owner', 'user'] satisfies readonly UserRole[]
+
+function isUserRole(role: string): role is UserRole {
+  return USER_ROLES.includes(role)
+}
+
+/** The contract's role; one this dashboard does not know is least-privileged (auth-me.md), never failing open. */
 function mapRole(role: CurrentUser['role']): UserRole {
-  return role === 'user' ? 'member' : role
+  return isUserRole(role) ? role : 'user'
 }
 
 function toUser(response: CurrentUser): User {
