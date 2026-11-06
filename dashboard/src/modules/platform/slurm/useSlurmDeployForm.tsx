@@ -10,6 +10,7 @@ import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { AdvancedSettings } from '@/presentation/pages/platforms/AdvancedSettings'
+import { deployReviewServerNames } from '@/presentation/pages/platforms/deployReviewServers'
 import { platformGrafanaContainerCopy, slurmContainerRuntimeLabel } from './slurmGrafanaCopy'
 import { SlurmDeploymentFeatures, type GPUGresTypeMode, type SlurmMonitoringChoice } from './SlurmDeploymentFeatures'
 import { useSlurmDeploymentRequirement } from './useSlurmDeploymentRequirement'
@@ -275,9 +276,12 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
         title: 'Nodes and roles',
         stepId: 'deploy-machines',
         items: [
-          { label: 'Controllers', value: String(controllerIds.length) },
-          { label: 'Compute nodes', value: String(computeIds.length) },
-          { label: 'Login nodes', value: String(loginIds.length) },
+          {
+            label: 'Controllers',
+            value: deployReviewServerNames(servers, controllerIds, (_, index) => (highlyAvailable && index === 0 ? 'primary' : undefined)),
+          },
+          { label: 'Compute nodes', value: deployReviewServerNames(servers, computeIds) },
+          { label: 'Login nodes', value: deployReviewServerNames(servers, loginIds) },
           { label: 'Server preparation', value: preparationSummary },
           ...(highlyAvailable ? [{ label: 'Shared controller state', value: 'Included automatically (NFS)' }] : []),
         ],

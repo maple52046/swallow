@@ -574,7 +574,10 @@ test.describe('user interactions', () => {
     await expect(page.getByRole('heading', { name: 'Selected machine addresses', exact: true })).toBeVisible()
     await page.getByLabel('API virtual IP').fill('192.168.40.200')
     await next.click()
-    await expect(page.getByText('3 control-plane, 1 workload-capable')).toBeVisible()
+    // The review names which Server takes which role, not only how many.
+    const topologyReview = page.locator('.sw-platform-review-card').filter({ has: page.getByRole('heading', { name: 'Topology and Servers' }) })
+    await expect(topologyReview.getByText('gpu-node-01, gpu-node-02, gpu-node-03', { exact: true })).toBeVisible()
+    await expect(topologyReview.getByText('gpu-node-04', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Back' }).click()
     await expect(page.getByLabel('API virtual IP')).toHaveValue('192.168.40.200')
     await next.click()
@@ -648,7 +651,10 @@ test.describe('user interactions', () => {
 
     // Slurm has no platform networking step, so Features is followed by Review.
     await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
-    await expect(page.getByText('Controllers')).toBeVisible()
+    const nodesReview = page.locator('.sw-platform-review-card').filter({ has: page.getByRole('heading', { name: 'Nodes and roles' }) })
+    await expect(nodesReview.getByText('gpu-node-01', { exact: true })).toBeVisible()
+    await expect(nodesReview.getByText('gpu-node-01, gpu-node-02, gpu-node-03', { exact: true })).toBeVisible()
+    await expect(nodesReview.getByText('None', { exact: true })).toBeVisible()
     await expect(page.getByText('Podman on compute and login nodes')).toBeVisible()
     await expect(page.getByText('Omnistat, collected by the Site Prometheus')).toBeVisible()
     await expect(page.getByText('On gpu-node-01 as a native package')).toBeVisible()

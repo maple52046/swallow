@@ -7,6 +7,7 @@ import type { DeployStaticAddresses, DeployStep, PlatformDeployContext, Platform
 import { Alert } from '@/presentation/components/ui/alert'
 import { Select } from '@/presentation/components/ui/select'
 import { AdvancedSettings } from '@/presentation/pages/platforms/AdvancedSettings'
+import { deployReviewServerNames } from '@/presentation/pages/platforms/deployReviewServers'
 import { PlatformGrafanaFeatureCard } from '@/presentation/pages/platforms/PlatformGrafanaFeatureCard'
 import { EphemeralKubernetesWarning } from './EphemeralKubernetesWarning'
 import { DEFAULT_POD_CIDR, DEFAULT_SERVICE_CIDR } from './kubernetesDefaults'
@@ -350,7 +351,20 @@ export function useKubernetesDeployForm({ servers, heldBy }: PlatformDeployConte
         items: [
           { label: 'Topology', value: topologyPresentation(topology).label },
           { label: 'Servers', value: `${assignments.length} selected` },
-          { label: 'Roles', value: `${controllers} control-plane, ${workloadCount} workload-capable` },
+          {
+            label: 'Control plane',
+            value: deployReviewServerNames(
+              servers,
+              assignments.filter((item) => item.role === 'control-plane').map((item) => item.serverId),
+              (serverId) => (workloadServerIds.includes(serverId) ? 'runs workloads' : undefined),
+            ),
+          },
+          ...(workers > 0
+            ? [{
+                label: 'Workers',
+                value: deployReviewServerNames(servers, assignments.filter((item) => item.role === 'worker').map((item) => item.serverId)),
+              }]
+            : []),
           { label: 'Operating system', value: preparationSummary },
         ],
       },
