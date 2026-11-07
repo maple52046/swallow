@@ -33,8 +33,8 @@ Go、Node、MongoDB、Temporal 與 Ansible 都在容器內。
 - **時間同步**：api-server 的 `SWALLOW_API_NTP_SERVER` 是空的時候，每一次 OS 部署都會被拒絕。要在開發環境部署 OS，
   先把它設成 Server 連得到的 NTP server（規則見 [installation.md](installation.md) 的時間同步）。
 - **Local Repository**：開發站預設使用 Local Repository：lab 的 Server 從 Pulp 取得部署要的每個 artifact，Pulp 也以它的
-  origin 寫出絕對 URL，所以要在 `deploy/dev/.env` 把 `PULP_ORIGIN` 設成 Server 連到這台主機 `PULP_HTTP_PORT` 的位址（例如
-  `http://10.170.168.20:8080`），再重建 Pulp 的 services；預設的 `http://localhost:8080` 只有這台主機自己連得到。設了
+  origin 寫出絕對 URL，所以要在 `deploy/dev/` 的 `.env` 把 `PULP_ORIGIN` 設成 Server 連到這台主機 `PULP_HTTP_PORT` 的位址
+  （例如 `http://10.170.168.20:8080`），再重建 Pulp 的 services；預設的 `http://localhost:8080` 只有這台主機自己連得到。設了
   `PULP_ORIGIN` 時，`deploy/dev/seed.sh` 登錄 Site 的 `repository` Integration（endpoint `http://pulp-web:8080`、setting
   `contentOrigin` 等於 `PULP_ORIGIN`、credential 是 Pulp 的 admin 密碼），並在 spec 從未寫入過時寫入預設的 `ubuntu` 來源與
   `serveDeployments` `true`（[local-repository.md](local-repository.md) §2.1、§4.1、§5.2；production 的預設是 `false`）。
