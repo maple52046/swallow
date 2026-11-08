@@ -11,16 +11,8 @@
     home: "{{ victoriametrics_data_dir }}"
 
 - name: Keep swallow's shared data directory owned by root
-  # The file module gives the directories it creates the task's owner and mode, so creating the data
-  # directory below on a fresh host would leave /var/lib/swallow to this service user with 0750 and
-  # lock every other swallow software (Grafana, Prometheus) out of its own data directory. A role
-  # that ran first may have done the same, so this also restores the shared directory.
-  ansible.builtin.file:
-    path: "{{ victoriametrics_data_dir | dirname }}"
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
+  ansible.builtin.include_role:
+    name: shared_data_dir
 
 - name: Create the VictoriaMetrics data directory
   ansible.builtin.file:

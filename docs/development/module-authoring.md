@@ -247,6 +247,10 @@ SELinux、哪些 role 依 OS 分支）見 platform-deployment §2.3。
    - 過渡期的例外列在該測試的 allowlist，並附理由：RHEL 系列的 dnf 分支還用上游的 yum repository（Local Repository
      還沒有 rpm），Prometheus 模組還不在 artifact 宣告的範圍內。
 9. **改套件時暫緩 OS 的套件維護**：見 §5。
+10. **data 目錄不得交出共用的上層目錄**：軟體的資料放在 `/var/lib/swallow/<名稱>`。`ansible.builtin.file` 會把它建立的
+    上層目錄也設成該 task 的 owner 與 mode，所以 role 建立 data 目錄之前先 `include_role` 共用 role
+    `shared_data_dir`，讓 `/var/lib/swallow` 維持 `root:root 0755`；否則最先安裝的軟體會擁有它，`0750` 的 data
+    目錄（例如 Grafana native）更會讓其他軟體讀不到自己的 data。它也修正先前的安裝留下的錯誤 owner。
 
 ## 5. 改套件的內容
 
@@ -285,6 +289,7 @@ bash。
 | `artifact_sources_playbook_test.go` 的 `TestShippedContentFetchesOnlyDeclaredArtifacts`、`TestPinnedFilesAreDeclaredModuleArtifacts` | role 與 playbook 在註解以外不寫網際網路的 URL（例外列在 `internetURLAllowlist` 並寫出理由，不再相符的項目也會失敗），每個 `get_url` 都從 `swallow_artifacts.files` 下載；role 在 defaults 固定的檔案（path 與 sha256）都是模組宣告的 file artifact，checksum 相同 |
 | `artifact_sources_playbook_test.go` 的 `TestArtifactPlaybooksConfigureTheirContainerRuntime` | 拉 image 的 playbook 把自己的 container runtime 交給 `artifact_sources`，`deploy-kubernetes.yml` 在 k0s 啟動之前寫好 mirror，Docker 上的 Grafana image 取自 `swallow_artifacts.images`。playbook 清單寫死在測試中，新增拉 image 的 playbook 時一併加上 |
 | `playbook_catalog_artifacts_test.go` | manifest catalog 回報哪些 playbook 標了 `fetchesArtifacts`，並拒絕 schema 沒有的 key（包括退役的舊旗標） |
+| `shared_data_dir_playbook_test.go` | defaults 把 `*_data_dir` 放在 `/var/lib/swallow` 底下的 role，在任何建立該目錄的 task 之前 include `shared_data_dir`（§4 第 10 條） |
 | `internal/app/software_deployment_adapter_test.go` 的 `TestEverySoftwareKindHasRegisteredPlaybooks` | 每種 Managed Software 的 install 與 uninstall playbook 都已登錄 |
 | `internal/app/modules_test.go` | 每個模組目錄都是編入的模組；manifest 的 playbook 與 allowlist 一致；每個 Workflow kind 與 completion 型別只屬於 core 或一個模組 |
 

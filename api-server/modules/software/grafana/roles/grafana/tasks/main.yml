@@ -93,6 +93,10 @@
       when: grafana_datasource_token | length == 0
       register: grafana_datasource_env_removed
 
+    - name: Keep swallow's shared data directory owned by root
+      ansible.builtin.include_role:
+        name: shared_data_dir
+
     - name: Install and start Grafana by its install method
       ansible.builtin.include_tasks: "{{ grafana_method_key }}.yml"
       vars:

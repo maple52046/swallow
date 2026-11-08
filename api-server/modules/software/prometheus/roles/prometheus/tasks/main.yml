@@ -73,6 +73,10 @@
         group: root
         mode: "0644"
 
+    - name: Keep swallow's shared data directory owned by root
+      ansible.builtin.include_role:
+        name: shared_data_dir
+
     - name: Install and start Prometheus by its install method
       ansible.builtin.include_tasks: "{{ prometheus_method_key }}.yml"
 

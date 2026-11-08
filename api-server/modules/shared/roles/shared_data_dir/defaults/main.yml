@@ -1,0 +1,4 @@
+---
+# swallow's shared data directory. Each swallow software keeps its data in its own directory below
+# it (Prometheus, Grafana, VictoriaMetrics), so the directory itself belongs to root.
+shared_data_dir_path: /var/lib/swallow

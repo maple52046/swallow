@@ -1,0 +1,14 @@
+---
+# Keep swallow's shared data directory root-owned and 0755. A role includes this before it creates its
+# own data directory below it: ansible.builtin.file gives the directories it creates the task's owner
+# and mode, so a service user's data directory created first would hand the shared directory to that
+# user, and a 0750 one would lock every other swallow software out of its data. It also restores a
+# shared directory an earlier install left that way.
+
+- name: Keep swallow's shared data directory owned by root
+  ansible.builtin.file:
+    path: "{{ shared_data_dir_path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
