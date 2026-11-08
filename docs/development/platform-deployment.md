@@ -659,6 +659,7 @@ client/user **不可偽造**（user 只能提供非 `swallow_` 前綴的變數�
   | `swallow_omnistat_grafana_port` | 由 launcher 依 software domain 填入（`3000`）；compute 的 `omnistat-query` 經 Platform Grafana 的 datasource proxy（`:3000/api/datasources/proxy/uid/prometheus`）查詢，也就是經閘道讀 Site 的 Prometheus |
   | `swallow_omnistat_scrape_addresses` | Site 的 Prometheus 收集時的來源位址（launcher 由 `SWALLOW_API_MONITORING_SCRAPE_ADDRESSES` 帶入）；`allowed_ips` 只允許 `127.0.0.1` 與它們 |
   | `swallow_omnistat_system_name` | omnistat-query 報表標籤（cluster name） |
+  | `swallow_omnistat_hardware_counters` | 部署是否要求 GPU hardware counters（`VALUBusy`）；由 launcher 依 Omnistat 的 `hardwareCounters` 填入，沒有要求時是 `false`（§6.3） |
 
   Slurm 的 job hook、DME、OCI 與 PMIx（§6.3、[decision 066](../decisions/066-slurm-job-hooks-and-device-metrics-exporter.md)（slurm job hooks and device metrics exporter））新增：
 
@@ -713,6 +714,10 @@ playbook 若需回傳結果（例如叢集 credential），寫入 runner 提供�
   Integration 以設定 `caCertificate` 記下這個 CA，Kubernetes reader 與 explorer client 只信任它來驗證 API 的憑證（k0s 的憑證
   SAN 已包含 API 位址）；在這個 role 之前部署、沒有 CA 的 Platform 仍是 `insecureSkipVerify`，重新部署後才會驗證。k0s 的
   credential 是必要的，Slurm 的是選用（§6.3）。
+- **Omnistat 的 hardware counters**：`configure-omnistat` 在部署要求 counters 時，於 `{grafanaUrl}` 之外寫入
+  `hardwareCounters.nodes`：每台 compute 一筆 `{serverId, state, reason}`，`state` 是 `collecting` 或 `unavailable`，`reason`
+  是 `unavailable` 的原因（glossary Omnistat Hardware Counters），`collecting` 時是空字串。Task 宣告的結果類完成行為
+  `omnistat-hardware-counters` 以 record id 為 fence 把它記在 Platform 的 Omnistat 上（§6.3）。
 - **k0s membership 來源**：worker 與帶 `--enable-worker` 的 controller 從 `/api/v1/nodes` 讀，只回報一次；dedicated
   controller 不是 node，改從 `kube-node-lease` 的 `k0s-ctrl-*` Lease 讀。Lease 讀取是 per-Integration 設定
   （`controllerLeaseDiscovery`），因為 lease 命名是 k0s 的實作細節，不能假設每個 Kubernetes 叢集都有；swallow 部署的
@@ -1116,6 +1121,34 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   PyPI。compute 不再為 Omnistat 安裝 `python3-venv`、`python3-dev`、`build-essential`（已裝的不移除），只在缺少時安裝
   `patch`；以 pip 建的舊環境缺少 lock 的建置依賴，第一次執行時重建一次。uninstall 照舊移除整個 `/opt/omnistat`；
   swallow 提供的 uv（`/opt/swallow/uv`、`/opt/swallow/bin/uv`）與 OS 的 `python3.12` 套件保留，就像其他 OS 套件。
+- **Omnistat 的 hardware counters（decision 063）**：deploy request 的 `omnistat.hardwareCounters`（API 省略時 `false`，
+  部署精靈預設勾選）記在 Platform 的 Omnistat 上，launcher 以 `swallow_omnistat_hardware_counters` 交給
+  `configure-omnistat`。每台 compute 在 `tasks/hardware_counters.yml` 依序判斷，任何一步不通過就以原因關掉 counters，
+  exporter 照常，Task 不失敗：
+  1. 沒有 AMD compute GPU：`no_gpu`。
+  2. 從 exporter 載入的 `/opt/rocm/lib/librocprofiler-sdk.so.1` 的 realpath 推回 ROCm root，讀 `.info/version` 的 `X.Y`；
+     讀不到，或 `omnistat_rocprof_extensions` 沒有這個 minor：`rocm_unsupported`。
+  3. `getconf GNU_LIBC_VERSION` 比 extension 的 builder 舊：`glibc_too_old`。
+  4. omnistat package 裡已有 extension 時先 probe，通過就照用（之前的 run 或 image 放的都一樣），不下載。否則依序取
+     image 的 `/opt/swallow/omnistat-rocprof/<omnistat>/rocm<X.Y>/`，或從 Site 選擇的來源下載宣告的 asset（sha256 驗證，
+     release 工具的產物，[decision 079](../decisions/079-release-built-host-artifacts.md)（release-built host artifacts））；
+     取不到，或它的 `build_info.json` 不是這個 ROCm minor：`artifact_unavailable`。
+  5. 把 module 放進 omnistat package，以 `files/omnistat-counter-probe.py` 在獨立的 process 裡 probe：以 `omnistat` user、
+     `CAP_PERFMON`（`setpriv`）、unit 的 `LD_LIBRARY_PATH` 與 120 秒的期限，做 collector 啟動時的同一串呼叫
+     （`initialize`、`get_samplers`、每張 GPU `start(["VALUBusy"])`、`sample`、`stop`）；不是以 0 結束就是
+     `probe_failed`（例外、abort 與逾時都算）。
+  6. 通過時渲染 `enable_rocprofiler = True` 與 profile `valubusy`（`constant`、`["VALUBusy"]`），並加上 drop-in
+     `/etc/systemd/system/omnistat.service.d/10-swallow-perfmon.conf`（`AmbientCapabilities=CAP_PERFMON`、
+     `CapabilityBoundingSet=CAP_PERFMON`），重啟 exporter，等 `/metrics` 出現 `omnistat_hardware_counter`；時限內沒有時改回
+     關閉、移除 drop-in、再重啟：`exporter_failed`。不收集的節點沒有 drop-in，config 也沒有 rocprofiler 段落。
+
+  primary 的 record play 把每台的結果寫成 result 的 `hardwareCounters.nodes`（§4.4），結果類完成行為
+  `omnistat-hardware-counters` 以 record id 為 fence 記到 `Platform.omnistat.hardwareCounters.nodes`；之後的部署在受理時以新的
+  record 重新開始。swallow 不觀察之後的變化（例如節點上被改掉的設定），下一次部署時重新判斷。部署後改變
+  `hardwareCounters` 和其他 Omnistat 的變更一樣是 unsupported 的 `change-omnistat`。uninstall 移除 drop-in；下載的 asset 在
+  `/opt/omnistat/<version>/rocprof/`，隨 `/opt/omnistat` 一起移除，image 的 extension 目錄保留。已知限制：已放進
+  omnistat package 而 probe 通過的 extension 不會因為宣告了新的 revision 而更換；uninstall 移除整個 `/opt/omnistat`，也包括
+  image 帶的 Omnistat。
 - **選用功能：Device Metrics Exporter（decision 066）**：deploy request 帶 `deviceMetricsExporter.enabled`
   時（與 Omnistat 互斥、至少一台 GPU compute，否則 `ErrInvalidDeviceMetricsExporter`），deploy use case 預先指定
   Workflow id、寫入 `Platform.deviceMetricsExporter`（`installing`），並把
@@ -1187,7 +1220,7 @@ Slurm 模組的 `roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、
 `slurm_cluster_credential`、`slurm_job_hooks`）；Device Metrics Exporter：
 [`deploy-device-metrics-exporter.yml`](../../api-server/modules/software/device-metrics-exporter/playbooks/deploy-device-metrics-exporter.yml)
 （standalone 與 Slurm 共用；舊名 `configure-device-metrics-exporter` 為 manifest alias）與共用的 `roles/device_metrics_exporter`（套件宣告的 path／SHA-256 與上游 `config.json` 在 role 內，上游 URL 在模組的 `artifacts`）；Omnistat：[`configure-omnistat.yml`](../../api-server/modules/platform/slurm/playbooks/configure-omnistat.yml)
-與 `roles/omnistat`（上游 tag 壓縮檔宣告的 path 與 sha256 在 `defaults/main.yml`，上游 URL 在 Slurm 模組的 `artifacts`，swallow 維護的 patch、環境的 hash lock 與 probe 在 `files/`；收斂在 `tasks/converge.yml`、`probe.yml`、`install.yml`）。
+與 `roles/omnistat`（上游 tag 壓縮檔宣告的 path 與 sha256 在 `defaults/main.yml`，上游 URL 在 Slurm 模組的 `artifacts`，swallow 維護的 patch、環境的 hash lock 與兩個 probe 在 `files/`；收斂在 `tasks/converge.yml`、`probe.yml`、`install.yml`，hardware counters 在 `hardware_counters.yml`、`hardware_counters_probe.yml`、`counter_probe.yml`，exporter 的設定與 unit 在 `service.yml`）。
 
 **swallow 維護的 Omnistat patch（[decision 064](../decisions/064-upstream-patches-are-the-exception.md)（upstream patches are the exception））**：
 `roles/omnistat/defaults/main.yml` 的 `omnistat_sources[<version>].patches` 列出每個版本要套的 patch；role 的 probe 逐一以

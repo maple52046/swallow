@@ -12,11 +12,15 @@
 #   swallow_omnistat_grafana_port     that Grafana's port
 #   swallow_omnistat_system_name      label for omnistat-query reports
 #   swallow_slurm_gpu_compute_ids     compute nodes with AMD GPUs (AMD SMI collection)
+#   swallow_omnistat_hardware_counters whether the deployment asks for the GPU hardware counters;
+#                                     each GPU node collects them only when it can (decision 063)
 #   swallow_artifacts                 where the source archive, the Python packages, the uv release a
 #                                     node lacks, and OS packages (patch, CPython 3.12) come from
 # The Site Prometheus scrapes the exporters, so each compute node proves only that its own exporter
-# answers on the loopback address. On success it writes {grafanaUrl} to the run's result file.
-# Idempotent: a node whose Omnistat environment the probe accepts installs nothing (decision 080).
+# answers on the loopback address. On success it writes {grafanaUrl} to the run's result file, and,
+# when the deployment asked for the hardware counters, hardwareCounters.nodes: each compute node's
+# serverId, state (collecting or unavailable), and reason. Idempotent: a node whose Omnistat
+# environment and extension the probes accept installs nothing (decision 080).
 
 - name: Hold the OS's automatic package maintenance
   hosts: all
@@ -55,11 +59,19 @@
   gather_facts: false
   vars:
     omnistat_grafana_url: "http://{{ ansible_host }}:{{ swallow_omnistat_grafana_port | default(3000) }}"
+    # The outcome each compute node recorded (roles/omnistat/tasks/hardware_counters.yml).
+    omnistat_hardware_counter_nodes: >-
+      {{ groups['omnistat_exporter'] | default([]) | map('extract', hostvars)
+         | map(attribute='omnistat_hardware_counters_result', default={}) | select | list }}
+    omnistat_result: >-
+      {{ {'grafanaUrl': omnistat_grafana_url}
+         | combine({'hardwareCounters': {'nodes': omnistat_hardware_counter_nodes}}
+                   if swallow_omnistat_hardware_counters | default(false) | bool else {}) }}
   tasks:
     - name: Write the Omnistat result for Swallow
       ansible.builtin.copy:
         dest: "{{ swallow_result_path }}"
-        content: "{{ {'grafanaUrl': omnistat_grafana_url} | to_json }}"
+        content: "{{ omnistat_result | to_json }}"
         mode: "0600"
       delegate_to: localhost
       when: swallow_result_path is defined and swallow_result_path | length > 0

@@ -1,0 +1,23 @@
+---
+# Run the counter probe (files/omnistat-counter-probe.py) once and set omnistat_counter_probe_passed.
+# It runs as the exporter will and under a deadline; whatever ends it early (an error, an abort, the
+# deadline) is a failed probe, never a failed run.
+
+- name: Probe the hardware counters in a process of their own
+  ansible.builtin.command:
+    argv: >-
+      {{ ['timeout', '--kill-after=10', omnistat_counter_probe_timeout | string]
+         + omnistat_counter_probe_runner + omnistat_counter_probe
+         + ['--counters', omnistat_counters | join(',')] }}
+    chdir: /tmp
+  environment:
+    LD_LIBRARY_PATH: "{{ omnistat_rocm_path }}/lib:{{ omnistat_rocm_path }}/lib64"
+    ROCM_PATH: "{{ omnistat_rocm_path }}"
+    HOME: /tmp
+  register: omnistat_counter_probe_run
+  changed_when: false
+  failed_when: false
+
+- name: Record the probe's outcome
+  ansible.builtin.set_fact:
+    omnistat_counter_probe_passed: "{{ omnistat_counter_probe_run.rc == 0 }}"

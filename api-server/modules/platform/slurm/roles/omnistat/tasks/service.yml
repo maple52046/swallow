@@ -1,0 +1,69 @@
+---
+# Render the exporter's configuration (with the hardware counters when omnistat_rocprofiler_enabled),
+# its CAP_PERFMON drop-in only while it collects them, and its unit, then start it, or restart it
+# after a rebuilt environment or any of these changed. main.yml includes it again to turn the
+# counters off.
+
+- name: Render the Omnistat configuration
+  ansible.builtin.template:
+    src: omnistat.conf.j2
+    dest: "{{ omnistat_config }}"
+    owner: root
+    group: root
+    mode: "0644"
+  register: omnistat_config_file
+
+- name: Grant the exporter CAP_PERFMON while it collects the hardware counters
+  when: omnistat_rocprofiler_enabled | bool
+  block:
+    - name: Create the exporter's drop-in directory
+      ansible.builtin.file:
+        path: "{{ omnistat_perfmon_dropin | dirname }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install the CAP_PERFMON drop-in
+      ansible.builtin.template:
+        src: perfmon.conf.j2
+        dest: "{{ omnistat_perfmon_dropin }}"
+        owner: root
+        group: root
+        mode: "0644"
+      register: omnistat_perfmon_installed
+
+- name: Remove the CAP_PERFMON drop-in while the exporter collects no hardware counters
+  ansible.builtin.file:
+    path: "{{ omnistat_perfmon_dropin }}"
+    state: absent
+  register: omnistat_perfmon_removed
+  when: not omnistat_rocprofiler_enabled | bool
+
+- name: Install the Omnistat service
+  ansible.builtin.template:
+    src: omnistat.service.j2
+    dest: /etc/systemd/system/omnistat.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: omnistat_unit
+
+- name: Enable and start the Omnistat exporter
+  ansible.builtin.systemd:
+    name: omnistat
+    enabled: true
+    state: started
+    daemon_reload: true
+  register: omnistat_started
+
+- name: Restart the exporter after a rebuilt environment, configuration, drop-in, or unit
+  ansible.builtin.systemd:
+    name: omnistat
+    state: restarted
+    daemon_reload: true
+  when:
+    - omnistat_started is not changed
+    - >-
+      omnistat_environment_rebuilt | bool or omnistat_config_file is changed or omnistat_unit is changed
+      or omnistat_perfmon_installed is changed or omnistat_perfmon_removed is changed

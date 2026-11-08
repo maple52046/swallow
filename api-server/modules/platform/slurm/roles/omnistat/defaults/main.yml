@@ -47,3 +47,47 @@ omnistat_grafana_datasource_uid: prometheus
 # A GPU compute node collects through AMD SMI and starts after the shared amdgpu loader.
 omnistat_gpu: "{{ inventory_hostname in (swallow_slurm_gpu_compute_ids | default([])) }}"
 omnistat_amdgpu_unit: swallow-amdgpu-load.service
+
+# Hardware counters (decision 063): the deployment asks for them; a node collects them only when
+# its own checks and an isolated probe pass (tasks/hardware_counters.yml), and otherwise reports why
+# not and keeps its exporter without them. The counters and the profile name Omnistat samples.
+omnistat_hardware_counters: "{{ swallow_omnistat_hardware_counters | default(false) | bool }}"
+omnistat_counters: [VALUBusy]
+omnistat_counter_profile: valubusy
+# The ROCProfiler-SDK extension swallow's release builds once per ROCm minor (decision 079), by
+# Omnistat version and ROCm minor: its declared path (its key in swallow_artifacts.files) and SHA-256
+# (the slurm module declares the same file artifact, which a content test keeps in step), the
+# ROCProfiler-SDK it was built against, and the glibc of its builder, the oldest a node may have.
+omnistat_rocprof_extensions:
+  "1.15.0":
+    "10.0":
+      path: omnistat-rocprof/1.15.0-r1/omnistat-rocprof-1.15.0-rocm10.0-cp312-x86_64.tar.gz
+      sha256: 119054096941f964e6661619e5b176775ff9a11dd13760f91f0950c0d6819e3b
+      rocprofiler_sdk: "1.3.5"
+      builder_glibc: "2.28"
+    "10.1":
+      path: omnistat-rocprof/1.15.0-r1/omnistat-rocprof-1.15.0-rocm10.1-cp312-x86_64.tar.gz
+      sha256: 345195f43ef6397fa0c9dc88678bfb501cc5b012377d18dca0fb04f811a9fc7d
+      rocprofiler_sdk: "1.4.1"
+      builder_glibc: "2.28"
+# The module the omnistat package loads, as every asset carries it.
+omnistat_rocprof_module: rocprofiler_sdk_extension.cpython-312-x86_64-linux-gnu.so
+# An OS image may bring the extension in <root>/<omnistat version>/rocm<X.Y>/ (decision 080); it is
+# copied from there instead of downloaded. A downloaded asset is unpacked under the version's prefix.
+omnistat_rocprof_prebaked_root: /opt/swallow/omnistat-rocprof
+omnistat_rocprof_home: "{{ omnistat_prefix }}/rocprof"
+omnistat_rocprof_download_retries: 3
+# The probe runs as the exporter will (its user and groups, CAP_PERFMON, the unit's library path),
+# in its own process with a deadline, because a failing counter can end or abort the process.
+omnistat_counter_probe: ["{{ omnistat_venv }}/bin/python", "{{ omnistat_prefix }}/omnistat-counter-probe.py"]
+omnistat_counter_probe_runner:
+  - setpriv
+  - "--reuid={{ omnistat_user }}"
+  - "--regid={{ omnistat_user }}"
+  - --init-groups
+  - --inh-caps=+perfmon
+  - --ambient-caps=+perfmon
+  - --
+omnistat_counter_probe_timeout: 120
+# The exporter's capability drop-in, present only while the node collects the counters.
+omnistat_perfmon_dropin: /etc/systemd/system/omnistat.service.d/10-swallow-perfmon.conf

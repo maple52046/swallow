@@ -1,8 +1,13 @@
 package ansible
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -73,4 +78,54 @@ func shippedFile(t *testing.T, rel string) string {
 		t.Fatalf("playbook %q is shipped by %d modules (%v), want exactly one", rel, len(found), found)
 	}
 	return found[0]
+}
+
+// tarGz returns a gzipped tar of files (slash-separated name: content), with each file's parent
+// directories, in a stable order; the names in executable get mode 0755, the rest 0644. Tests use
+// it to stand in for the archives roles download.
+func tarGz(t *testing.T, files map[string]string, executable ...string) []byte {
+	t.Helper()
+	names := make([]string, 0, len(files))
+	dirs := map[string]bool{}
+	for name := range files {
+		names = append(names, name)
+		for dir := path.Dir(name); dir != "." && dir != "/"; dir = path.Dir(dir) {
+			dirs[dir] = true
+		}
+	}
+	sort.Strings(names)
+	sortedDirs := make([]string, 0, len(dirs))
+	for dir := range dirs {
+		sortedDirs = append(sortedDirs, dir)
+	}
+	sort.Strings(sortedDirs)
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	archive := tar.NewWriter(gz)
+	for _, dir := range sortedDirs {
+		if err := archive.WriteHeader(&tar.Header{Name: dir + "/", Typeflag: tar.TypeDir, Mode: 0o755}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range names {
+		mode := int64(0o644)
+		for _, exec := range executable {
+			if exec == name {
+				mode = 0o755
+			}
+		}
+		if err := archive.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: mode, Size: int64(len(files[name]))}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := archive.Write([]byte(files[name])); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
 }

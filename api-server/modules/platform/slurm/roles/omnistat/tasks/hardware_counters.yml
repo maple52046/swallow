@@ -1,0 +1,84 @@
+---
+# Decide whether this node collects the hardware counters the deployment asked for (decision 063,
+# glossary Omnistat Hardware Counters). It never fails the run: a node that cannot collect them
+# keeps its exporter without them, with the reason. In order:
+#   no_gpu            the node has no AMD compute GPU
+#   rocm_unsupported  no extension is declared for the ROCm minor of the ROCProfiler-SDK the exporter
+#                     loads (/opt/rocm/lib), or its version cannot be read
+#   glibc_too_old     the node's glibc is older than the extension's builder
+#   (an installed extension whose probe passes is used as it is, whoever installed it)
+#   artifact_unavailable  neither an image's extension directory nor the run's artifact source
+#                     provides an extension for this ROCm minor
+#   probe_failed      the extension does not load and sample the counters in an isolated probe
+# Sets omnistat_rocprofiler_enabled and omnistat_hardware_counters_result ({} when not asked for;
+# otherwise serverId, state collecting or unavailable, and reason).
+
+- name: Start with the hardware counters off
+  ansible.builtin.set_fact:
+    omnistat_rocprofiler_enabled: false
+    omnistat_counters_reason: "{{ '' if omnistat_gpu | bool else 'no_gpu' }}"
+
+- name: Check whether this node can collect the hardware counters
+  when: omnistat_hardware_counters | bool and omnistat_gpu | bool
+  block:
+    - name: Resolve the ROCProfiler-SDK library the exporter loads
+      ansible.builtin.command:
+        argv: [readlink, -f, "{{ omnistat_rocm_path }}/lib/librocprofiler-sdk.so.1"]
+      register: omnistat_rocprofiler_library
+      changed_when: false
+      failed_when: false
+
+    - name: Read the ROCm version of that installation
+      # The library lives in <ROCm root>/lib, and the root records its version in .info/version.
+      ansible.builtin.slurp:
+        src: "{{ omnistat_rocprofiler_library.stdout | dirname | dirname }}/.info/version"
+      register: omnistat_rocm_version_file
+      failed_when: false
+      when: omnistat_rocprofiler_library.rc == 0 and omnistat_rocprofiler_library.stdout | length > 0
+
+    - name: Choose the extension for the ROCm minor
+      ansible.builtin.set_fact:
+        omnistat_rocm_minor: >-
+          {{ ((omnistat_rocm_version_file.content | default('') | b64decode | trim)
+              | regex_search('^[0-9]+[.][0-9]+')) | default('', true) }}
+
+    - name: Look up the declared extension
+      ansible.builtin.set_fact:
+        omnistat_rocprof_extension: >-
+          {{ ((omnistat_rocprof_extensions[omnistat_version] | default({}))[omnistat_rocm_minor] | default({}))
+             if omnistat_rocm_minor | length > 0 else {} }}
+        omnistat_counters_reason: "{{ 'rocm_unsupported' if omnistat_rocm_minor | length == 0 else '' }}"
+
+    - name: Refuse a ROCm minor swallow builds no extension for
+      ansible.builtin.set_fact:
+        omnistat_counters_reason: rocm_unsupported
+      when: omnistat_rocprof_extension.path is not defined
+
+    - name: Read the node's glibc
+      ansible.builtin.command:
+        argv: [getconf, GNU_LIBC_VERSION]
+      register: omnistat_glibc
+      changed_when: false
+      failed_when: false
+      when: omnistat_counters_reason | length == 0
+
+    - name: Refuse a glibc older than the extension's builder
+      ansible.builtin.set_fact:
+        omnistat_counters_reason: glibc_too_old
+      when:
+        - omnistat_counters_reason | length == 0
+        - >-
+          (omnistat_glibc.stdout | default('') | regex_search('[0-9]+[.][0-9]+') | default('0', true))
+          is version(omnistat_rocprof_extension.builder_glibc, '<')
+
+    - name: Install the extension and probe it
+      when: omnistat_counters_reason | length == 0
+      ansible.builtin.include_tasks: hardware_counters_probe.yml
+
+- name: Record the node's hardware counters
+  ansible.builtin.set_fact:
+    omnistat_hardware_counters_result: >-
+      {{ {} if not omnistat_hardware_counters | bool else
+         {'serverId': inventory_hostname,
+          'state': 'collecting' if omnistat_rocprofiler_enabled | bool else 'unavailable',
+          'reason': '' if omnistat_rocprofiler_enabled | bool else (omnistat_counters_reason or 'probe_failed')} }}

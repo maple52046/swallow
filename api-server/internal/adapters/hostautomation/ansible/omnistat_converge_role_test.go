@@ -1,10 +1,8 @@
 package ansible
 
 import (
-	"archive/tar"
 	"bufio"
 	"bytes"
-	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -249,34 +247,11 @@ func readUVCalls(t *testing.T, path string) []uvCall {
 // omnistat-<version>/.
 func sourceArchive(t *testing.T, files map[string]string) []byte {
 	t.Helper()
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	archive := tar.NewWriter(gz)
-	top := "omnistat-" + convergeVersion + "/"
-	dirs := map[string]bool{}
-	for path, content := range files {
-		for dir := filepath.Dir(path); dir != "."; dir = filepath.Dir(dir) {
-			dirs[dir] = true
-		}
-		if err := archive.WriteHeader(&tar.Header{Name: top + path, Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(content))}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := archive.Write([]byte(content)); err != nil {
-			t.Fatal(err)
-		}
+	prefixed := make(map[string]string, len(files))
+	for name, content := range files {
+		prefixed["omnistat-"+convergeVersion+"/"+name] = content
 	}
-	for dir := range dirs {
-		if err := archive.WriteHeader(&tar.Header{Name: top + dir + "/", Typeflag: tar.TypeDir, Mode: 0o755}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := archive.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := gz.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return buf.Bytes()
+	return tarGz(t, prefixed)
 }
 
 // rebuiltReport matches the line the test play prints after converging: whether it rebuilt.

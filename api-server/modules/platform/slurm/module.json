@@ -54,6 +54,16 @@
         "path": "uv/0.13.7/uv-x86_64-unknown-linux-gnu.tar.gz",
         "url": "https://github.com/astral-sh/uv/releases/download/0.13.7/uv-x86_64-unknown-linux-gnu.tar.gz",
         "sha256": "c5221ff41b7892bfc223543883600125f6a47fe845093e0f5bdff4f359196d83"
+      },
+      {
+        "path": "omnistat-rocprof/1.15.0-r1/omnistat-rocprof-1.15.0-rocm10.0-cp312-x86_64.tar.gz",
+        "url": "https://github.com/maple52046/swallow/releases/download/omnistat-rocprof-1.15.0-r1/omnistat-rocprof-1.15.0-rocm10.0-cp312-x86_64.tar.gz",
+        "sha256": "119054096941f964e6661619e5b176775ff9a11dd13760f91f0950c0d6819e3b"
+      },
+      {
+        "path": "omnistat-rocprof/1.15.0-r1/omnistat-rocprof-1.15.0-rocm10.1-cp312-x86_64.tar.gz",
+        "url": "https://github.com/maple52046/swallow/releases/download/omnistat-rocprof-1.15.0-r1/omnistat-rocprof-1.15.0-rocm10.1-cp312-x86_64.tar.gz",
+        "sha256": "345195f43ef6397fa0c9dc88678bfb501cc5b012377d18dca0fb04f811a9fc7d"
       }
     ],
     "python": [
