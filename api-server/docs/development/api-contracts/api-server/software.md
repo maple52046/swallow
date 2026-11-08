@@ -363,7 +363,9 @@ for a container and a native process. Each is installed by one of two methods:
 - Re-installing with another method or runtime replaces the previous one on the Server and keeps
   Prometheus's data.
 - Uninstall removes the instance whichever method placed it (container, Quadlet unit, or native
-  release, unit, and package), its configuration, and its data; the container runtime stays.
+  release, unit, and package), its configuration, and its data; the container runtime stays. Removing
+  a native Grafana also removes what its package leaves after a purge: the `grafana` user and group,
+  `/etc/grafana`, `/var/lib/grafana`, and `/var/log/grafana`.
 
 ### Device Metrics Exporter
 
@@ -572,6 +574,9 @@ On success the response is `202 Accepted`:
 - 2026-11-08, additive: added the `victoriametrics` kind (see [VictoriaMetrics](#victoriametrics))
   and its Workflow kinds `configure-victoriametrics` and `uninstall-victoriametrics`. Clients that
   read the kind set from the catalog need no change.
+- 2026-11-08, behavior only (no wire change): uninstalling a native Grafana also removes the
+  package's `grafana` user and group and its `/etc/grafana`, `/var/lib/grafana`, and
+  `/var/log/grafana`, which the package's purge leaves.
 
 ## Composition Into Platform Deployments
 

@@ -1,6 +1,7 @@
 ---
 # Remove the native install. The swallow drop-in marks a package swallow installed, so a Grafana the
-# user installed outside swallow is never removed.
+# user installed outside swallow is never removed. The drop-in goes last: a removal that stops halfway
+# still finds it, and the next run finishes the job.
 
 - name: Read the Grafana drop-in
   ansible.builtin.stat:
@@ -16,11 +17,6 @@
         state: stopped
         enabled: false
       failed_when: false
-
-    - name: Remove the Grafana drop-in
-      ansible.builtin.file:
-        path: "{{ grafana_native_dropin | dirname }}"
-        state: absent
 
     - name: Remove the Grafana package (apt)
       ansible.builtin.apt:
@@ -58,6 +54,28 @@
         name: grafana
         state: absent
       when: ansible_facts['os_family'] == 'RedHat'
+
+    - name: Remove the directories the Grafana package leaves
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ grafana_native_package_dirs }}"
+
+    - name: Remove the Grafana package's system user
+      # Packages keep the system users they create; nothing else runs as this one.
+      ansible.builtin.user:
+        name: "{{ grafana_native_user }}"
+        state: absent
+
+    - name: Remove the Grafana package's system group
+      ansible.builtin.group:
+        name: "{{ grafana_native_user }}"
+        state: absent
+
+    - name: Remove the Grafana drop-in
+      ansible.builtin.file:
+        path: "{{ grafana_native_dropin | dirname }}"
+        state: absent
 
     - name: Reload systemd without Grafana
       ansible.builtin.systemd_service:

@@ -68,6 +68,13 @@ grafana_container_dashboards_dir: /var/lib/swallow-dashboards
 # native method
 grafana_native_unit: grafana-server.service
 grafana_native_user: grafana
+# What the package leaves after it is purged: the configuration its scripts generate, the plugins
+# Grafana unpacks at start, and its log. swallow's own configuration and data are in grafana_config_dir
+# and grafana_data_dir, so these hold nothing swallow needs.
+grafana_native_package_dirs:
+  - /etc/grafana
+  - /var/lib/grafana
+  - /var/log/grafana
 grafana_native_dropin: /etc/systemd/system/grafana-server.service.d/10-swallow.conf
 # The deb source the grafana module declares (Grafana's official apt repository).
 grafana_apt_source: grafana

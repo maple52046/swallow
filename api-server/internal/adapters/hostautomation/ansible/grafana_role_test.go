@@ -334,3 +334,56 @@ sys.stdout.write(env.from_string(data["template"]).render(**data["vars"]))`)
 	}
 	return string(out)
 }
+
+// Purging the native Grafana package keeps the system user and group it created, the configuration
+// its scripts generated, the plugins Grafana unpacked, and its log, so the native removal deletes
+// them too. The swallow drop-in that marks the package as swallow's goes last, so a removal that
+// stops halfway still finds it and the next run finishes.
+func TestGrafanaNativeRemovalLeavesNothingOfThePackage(t *testing.T) {
+	var defaults map[string]any
+	readYAML(t, shippedFile(t, filepath.Join("roles", "grafana", "defaults", "main.yml")), &defaults)
+	var dirs []string
+	for _, dir := range defaults["grafana_native_package_dirs"].([]any) {
+		dirs = append(dirs, fmt.Sprint(dir))
+	}
+	if want := []string{"/etc/grafana", "/var/lib/grafana", "/var/log/grafana"}; !slices.Equal(dirs, want) {
+		t.Errorf("grafana_native_package_dirs = %v, want %v", dirs, want)
+	}
+
+	var tasks []map[string]any
+	readYAML(t, shippedFile(t, filepath.Join("roles", "grafana", "tasks", "remove_native.yml")), &tasks)
+	var block []map[string]any
+	for _, task := range tasks {
+		if nested, ok := task["block"].([]any); ok {
+			block = taskMaps(nested)
+		}
+	}
+	step := map[string]int{}
+	for i, task := range block {
+		if args, ok := moduleArgs(task, "apt"); ok && args["state"] == "absent" {
+			step["package"] = i
+		}
+		if args, ok := moduleArgs(task, "file"); ok && args["state"] == "absent" {
+			switch {
+			case task["loop"] == "{{ grafana_native_package_dirs }}":
+				step["dirs"] = i
+			case args["path"] == "{{ grafana_native_dropin | dirname }}":
+				step["dropin"] = i
+			}
+		}
+		if args, ok := moduleArgs(task, "user"); ok && args["name"] == "{{ grafana_native_user }}" && args["state"] == "absent" {
+			step["user"] = i
+		}
+		if args, ok := moduleArgs(task, "group"); ok && args["name"] == "{{ grafana_native_user }}" && args["state"] == "absent" {
+			step["group"] = i
+		}
+	}
+	for _, name := range []string{"package", "dirs", "user", "group", "dropin"} {
+		if _, ok := step[name]; !ok {
+			t.Fatalf("remove_native.yml does not remove the %s (found %v)", name, step)
+		}
+	}
+	if !(step["package"] < step["dirs"] && step["dirs"] < step["dropin"] && step["user"] < step["dropin"] && step["group"] < step["dropin"]) {
+		t.Errorf("remove_native.yml removes %v; want the package, then its directories, user, and group, and the drop-in last", step)
+	}
+}

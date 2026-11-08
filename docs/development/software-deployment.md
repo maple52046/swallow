@@ -130,7 +130,9 @@ catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴�
   Repository 鏡像的模組來源 `grafana` 取得），
   由套件自己的 `grafana-server.service` 執行，swallow 只加 drop-in
   （`grafana-server.service.d/10-swallow.conf`，`GF_*` 指向 management address 與 swallow 擁有的
-  provisioning／data 目錄），不改 `/etc/grafana`。uninstall 只移除帶 swallow drop-in 的套件。
+  provisioning／data 目錄），不改 `/etc/grafana`。uninstall 只移除帶 swallow drop-in 的套件，連同 purge 之後套件
+  仍留下的 `grafana` 使用者與 group、`/etc/grafana`、`/var/lib/grafana`（Grafana 啟動時解開的 plugin）與
+  `/var/log/grafana`；drop-in 最後才移除，中途失敗的 uninstall 重跑時仍會完成。
 
 切換方法或 runtime 會先移除前一種的 artifacts（data 目錄保留並改 owner）。三種方法都用 host network，
 位址語意一致：Grafana 綁 management address（`ansible_host`）；Prometheus 的 API 沒有驗證，預設只綁
