@@ -1,5 +1,5 @@
 ---
-# Point a host's apt, pip, and container runtimes at where its run's artifacts come from, which
+# Point a host's apt, pip, uv, and container runtimes at where its run's artifacts come from, which
 # arrives only as the trusted variable swallow_artifacts. Its source is the Site's choice:
 #   local_repository  the Site's Local Repository serves every artifact: its deb sources under the
 #                     Site's signing key, its registry and per-upstream mirrors, its Python index
@@ -39,6 +39,9 @@ artifact_sources_upstream_keyring_prefix: /etc/apt/keyrings/swallow-upstream-
 artifact_sources_apt_sources: /etc/apt/sources.list.d/swallow-local-repository.sources
 artifact_sources_apt_conf: /etc/apt/apt.conf.d/90swallow-local-repository
 artifact_sources_pip_conf: /etc/pip.conf
+# uv's system-level configuration, which uv reads below its environment variables and command-line
+# options, so a role passes no index of its own and uv still uses the run's.
+artifact_sources_uv_conf: /etc/uv/uv.toml
 # k0s reads every *.toml directly in /etc/k0s/containerd.d as a containerd drop-in, so the registry
 # hosts files live one level below it. swallow owns the hosts directory: containerd reads it only
 # through swallow's drop-in.
