@@ -1,0 +1,145 @@
+---
+# Find any CPython 3.12 and any uv that runs (defaults/main.yml) and supply only what the host lacks:
+# CPython from the OS package, uv from the file artifact swallow declares, fetched from the run's
+# artifact sources. Sets python_toolchain_python and python_toolchain_uv. A host that has both reruns
+# with no changes.
+
+- name: Read the host's operating system and architecture
+  ansible.builtin.setup:
+    gather_subset: [min]
+  when: ansible_facts['distribution'] is not defined or ansible_facts['architecture'] is not defined
+
+- name: Look for a CPython 3.12
+  ansible.builtin.command:
+    argv: [sh, -c, "{{ python_toolchain_python_probe }}", sh, "{{ item }}"]
+  loop: "{{ python_toolchain_python_candidates }}"
+  register: python_toolchain_python_found
+  changed_when: false
+  failed_when: false
+
+- name: Use the first CPython 3.12 found
+  ansible.builtin.set_fact:
+    python_toolchain_python: >-
+      {{ python_toolchain_python_found.results | selectattr('rc', 'equalto', 0)
+         | map(attribute='stdout') | map('trim') | first | default('') }}
+    python_toolchain_python_package: >-
+      {{ python_toolchain_python_packages[ansible_facts['distribution'] ~ '-' ~ ansible_facts['distribution_major_version']]
+         | default('') }}
+
+- name: Install CPython 3.12 from the OS packages
+  when:
+    - python_toolchain_python | length == 0
+    - python_toolchain_python_package | length > 0
+    - ansible_facts['os_family'] == 'Debian'
+  block:
+    - name: Install the OS package that provides CPython 3.12
+      become: true
+      ansible.builtin.apt:
+        name: "{{ python_toolchain_python_package }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+        lock_timeout: 300
+      register: python_toolchain_python_install
+      until: python_toolchain_python_install is succeeded
+      retries: 30
+      delay: 10
+
+    - name: Look for the CPython 3.12 the package installed
+      ansible.builtin.command:
+        argv: [sh, -c, "{{ python_toolchain_python_probe }}", sh, "{{ item }}"]
+      loop: "{{ python_toolchain_python_candidates }}"
+      register: python_toolchain_python_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Use the CPython 3.12 the package installed
+      ansible.builtin.set_fact:
+        python_toolchain_python: >-
+          {{ python_toolchain_python_installed.results | selectattr('rc', 'equalto', 0)
+             | map(attribute='stdout') | map('trim') | first | default('') }}
+
+- name: Refuse a host without CPython 3.12
+  ansible.builtin.fail:
+    msg: >-
+      [python312_unavailable] {{ inventory_hostname }} has no CPython 3.12 (looked for
+      {{ python_toolchain_python_candidates | join(', ') }}), and swallow installs one only from the
+      OS packages of {{ python_toolchain_python_packages | list | join(', ') }}, not from those of
+      {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_major_version'] }}. Use an
+      image that provides CPython 3.12 at one of those paths.
+  when: python_toolchain_python | length == 0
+
+- name: Look for uv
+  ansible.builtin.command:
+    argv: [sh, -c, "{{ python_toolchain_uv_probe }}", sh, "{{ item }}"]
+  loop: "{{ python_toolchain_uv_candidates }}"
+  register: python_toolchain_uv_found
+  changed_when: false
+  failed_when: false
+
+- name: Use the first uv found
+  ansible.builtin.set_fact:
+    python_toolchain_uv: >-
+      {{ python_toolchain_uv_found.results | selectattr('rc', 'equalto', 0)
+         | map(attribute='stdout') | map('trim') | first | default('') }}
+    python_toolchain_uv_release: "{{ python_toolchain_uv_releases[ansible_facts['architecture']] | default({}) }}"
+
+- name: Supply the declared uv
+  when: python_toolchain_uv | length == 0
+  block:
+    - name: Refuse an architecture swallow declares no uv for
+      ansible.builtin.fail:
+        msg: >-
+          [uv_unavailable] {{ inventory_hostname }} has no uv (looked for
+          {{ python_toolchain_uv_candidates | join(', ') }}), and swallow declares uv only for
+          {{ python_toolchain_uv_releases | list | join(', ') }}, not {{ ansible_facts['architecture'] }}.
+      when: python_toolchain_uv_release.path is not defined
+
+    - name: Create the directories of the uv swallow supplies
+      become: true
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ python_toolchain_uv_home }}"
+        - "{{ python_toolchain_uv_link | dirname }}"
+
+    - name: Download the declared uv release
+      # get_url checks the SHA-256 before it moves the file into place, so a corrupted or other
+      # download never reaches the host's uv.
+      become: true
+      ansible.builtin.get_url:
+        url: "{{ swallow_artifacts.files[python_toolchain_uv_release.path] }}"
+        checksum: "sha256:{{ python_toolchain_uv_release.sha256 }}"
+        dest: "{{ python_toolchain_uv_home }}/{{ python_toolchain_uv_release.path | basename }}"
+        mode: "0644"
+      register: python_toolchain_uv_download
+      until: python_toolchain_uv_download is succeeded
+      retries: 5
+      delay: 10
+
+    - name: Unpack the uv release
+      become: true
+      ansible.builtin.unarchive:
+        src: "{{ python_toolchain_uv_home }}/{{ python_toolchain_uv_release.path | basename }}"
+        dest: "{{ python_toolchain_uv_home }}"
+        remote_src: true
+
+    - name: Link the supplied uv where it is looked for
+      become: true
+      ansible.builtin.file:
+        src: "{{ python_toolchain_uv_home }}/{{ python_toolchain_uv_release.dir }}/uv"
+        dest: "{{ python_toolchain_uv_link }}"
+        state: link
+        force: true
+
+    - name: Check the supplied uv runs
+      ansible.builtin.command:
+        argv: [sh, -c, "{{ python_toolchain_uv_probe }}", sh, "{{ python_toolchain_uv_link }}"]
+      register: python_toolchain_uv_supplied
+      changed_when: false
+
+    - name: Use the supplied uv
+      ansible.builtin.set_fact:
+        python_toolchain_uv: "{{ python_toolchain_uv_supplied.stdout | trim }}"

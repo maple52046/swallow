@@ -1,0 +1,18 @@
+---
+# How a candidate is tried; each takes it as "$1" and prints its absolute path only when it works.
+# An interpreter must be CPython 3.12 (isolated mode, so the host's PYTHON* variables cannot change
+# the answer); a uv must run and report itself as uv.
+python_toolchain_python_probe: |-
+  p=$(command -v "$1") || exit 1
+  exec "$p" -I -c '
+  import platform, sys
+  if platform.python_implementation() != "CPython" or sys.version_info[:2] != (3, 12):
+      sys.exit(1)
+  print(sys.executable)
+  '
+python_toolchain_uv_probe: |-
+  p=$(command -v "$1") || exit 1
+  case "$("$p" --version 2>/dev/null)" in
+    "uv "*) printf '%s\n' "$p" ;;
+    *) exit 1 ;;
+  esac
