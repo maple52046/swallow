@@ -282,6 +282,7 @@ const platforms = [
     monitoringLinks: [{ name: 'Platform Grafana', url: 'http://10.0.0.11:3000/d/edqnz7pce7togc-rms/global-rms' }],
     omnistat: {
       enabled: true, version: '1.15.0', installMethod: 'container', observabilityServerId: 'srv-1', state: 'ready',
+      hardwareCounters: { requested: false, nodes: [] },
       lastWorkflowId: 'op-slurm-omnistat', updatedAt: now,
     },
     containerRuntime: 'podman',
@@ -1057,7 +1058,7 @@ const fixturePlatformSpecExtras: Record<string, { settings: Record<string, unkno
     machinePreparation: { mode: 'provision_os', settings: { imageId: 'ubuntu/noble', deployTarget: 'disk' }, userData: { mode: 'inherit' }, network: { mode: 'automatic' } },
   },
   'platform-slurm-ha': {
-    settings: { slurm: { clusterName: 'lab-ha', apiVersion: 'v0.0.42', pmix: true }, monitoringDashboards: true, omnistat: { enabled: true, installMethod: 'container' } },
+    settings: { slurm: { clusterName: 'lab-ha', apiVersion: 'v0.0.42', pmix: true }, monitoringDashboards: true, omnistat: { enabled: true, installMethod: 'container', hardwareCounters: true } },
     machinePreparation: { mode: 'provision_os', settings: { imageId: 'ubuntu-24.04-rocm', deployTarget: 'ram' }, userData: { mode: 'inherit' }, network: { mode: 'automatic' } },
   },
 }
@@ -2082,8 +2083,17 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       },
       gpuStackOwner: 'provisioning', gpuOperator: null,
       monitoringLinks: [{ name: 'Platform Grafana', url: 'http://192.168.60.11:3000/d/edqnz7pce7togc-rms/global-rms' }],
+      // It asked for the hardware counters: one compute node collects them, the other runs a ROCm
+      // version swallow ships no counter extension for (glossary Omnistat Hardware Counters).
       omnistat: {
         enabled: true, version: '1.15.0', installMethod: 'container', observabilityServerId: 'slurm-ctl-1', state: 'ready',
+        hardwareCounters: {
+          requested: true,
+          nodes: [
+            { serverId: 'slurm-cpt-1', state: 'collecting', reason: null },
+            { serverId: 'slurm-cpt-2', state: 'unavailable', reason: 'rocm_unsupported' },
+          ],
+        },
         lastWorkflowId: 'op-slurm-ha-deploy', updatedAt: now,
       },
       deviceMetricsExporter: null, containerRuntime: null, gpuDriver: null, gpuGresType: null, ociContainers: false, pmix: true,
@@ -3868,7 +3878,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         gpuStackOwner?: string
         gpuOperator?: Record<string, unknown> & { enabled?: boolean }
         containerRuntime?: { kind?: 'docker-ce' | 'podman' }
-        omnistat?: { enabled?: boolean; installMethod?: 'container' | 'native' }
+        omnistat?: { enabled?: boolean; installMethod?: 'container' | 'native'; hardwareCounters?: boolean }
         deviceMetricsExporter?: { enabled?: boolean; installMethod?: 'container' | 'native' }
         gpuDriver?: { moduleOptions?: Record<string, string> }
         roleAssignments?: Array<{
@@ -3908,12 +3918,14 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           gpuStackOwner: body.gpuStackOwner ?? 'provisioning',
           monitoringLinks: [],
           gpuOperator: null,
-          // Mirrors platforms.md "Omnistat": an enabled request records Omnistat as installing.
+          // Mirrors platforms.md "Omnistat": an enabled request records Omnistat as installing, with
+          // the hardware counters request and no nodes until the install reports them.
           omnistat: body.omnistat?.enabled
             ? {
                 enabled: true, version: '1.15.0', installMethod: body.omnistat.installMethod ?? 'container',
                 observabilityServerId: targetServerIds[0] ?? '',
-                state: 'installing', lastWorkflowId: operationId, updatedAt: now,
+                state: 'installing', hardwareCounters: { requested: body.omnistat.hardwareCounters ?? false, nodes: [] },
+                lastWorkflowId: operationId, updatedAt: now,
               }
             : null,
           // Mirrors platforms.md "Device Metrics Exporter": an enabled request records it as

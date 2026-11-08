@@ -57,6 +57,23 @@
   background: var(--chakra-colors-bg-subtle);
 }
 
+/* One Server per row: its link, its state badge, and the reason, wrapping on narrow screens. */
+.sw-platform-monitoring-servers {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sw-platform-monitoring-servers > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
 @media (max-width: 48rem) {
   .sw-platform-workspace__hero {
     padding: 1rem;

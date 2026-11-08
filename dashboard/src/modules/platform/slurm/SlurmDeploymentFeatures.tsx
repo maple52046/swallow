@@ -42,6 +42,9 @@ interface SlurmDeploymentFeaturesProps {
   onContainerRuntimeChange: (runtime: SlurmContainerRuntime | '') => void
   monitoring: SlurmMonitoringChoice
   onMonitoringChange: (choice: SlurmMonitoringChoice) => void
+  /** Whether Omnistat also collects the GPU hardware counters; sent only with Omnistat chosen. */
+  hardwareCounters: boolean
+  onHardwareCountersChange: (enabled: boolean) => void
   /** Whether the Platform gets its own Grafana (the spec's `monitoringDashboards`). */
   platformGrafana: boolean
   onPlatformGrafanaChange: (enabled: boolean) => void
@@ -139,7 +142,9 @@ function ChoiceCards<T extends string>({ label, value, onChange, options, column
  * mode-specific settings expand inside the same card so the user sees consequences before
  * choosing implementation details. Job monitoring is one switch with an exporter choice because the
  * API refuses the Device Metrics Exporter and Omnistat together; the exporter's card warns, without
- * blocking here (the page blocks the step), when no selected compute node has AMD GPUs. The Platform
+ * blocking here (the page blocks the step), when no selected compute node has AMD GPUs. With Omnistat
+ * chosen, an option card (checked by default, unlike the API's default) asks for the GPU hardware
+ * counters and states their host cost, since each node decides for itself and never fails. The Platform
  * Grafana is its own switch, on by default, with its install method; without a monitoring exporter
  * the API installs it natively, so the card says so instead of offering a choice it ignores. The
  * Container method names the container engine it installs on the primary controller, because that
@@ -168,6 +173,8 @@ export function SlurmDeploymentFeatures({
   onContainerRuntimeChange,
   monitoring,
   onMonitoringChange,
+  hardwareCounters,
+  onHardwareCountersChange,
   platformGrafana,
   onPlatformGrafanaChange,
   grafanaInstallMethod,
@@ -313,6 +320,18 @@ export function SlurmDeploymentFeatures({
             <Alert status="warning" title="No compute node has AMD GPUs">
               The Device Metrics Exporter runs on GPU compute nodes. Select a compute Server whose GPU inventory lists AMD compute GPUs, or choose Omnistat.
             </Alert>
+          )}
+          {monitoring === 'omnistat' && (
+            // A titled group of its own, so the option is not read as a third exporter choice.
+            <fieldset className="sw-platform-option-group">
+              <legend>Omnistat options</legend>
+              <OptionCard
+                label="GPU hardware counters (VALUBusy)"
+                description="Also sample how busy each GPU's vector ALUs are. A node collects them only when its ROCm version and GPUs allow; any other node keeps its other metrics. Collecting needs CAP_PERFMON and about 160 MB of GPU memory per GPU."
+                checked={hardwareCounters}
+                onCheckedChange={onHardwareCountersChange}
+              />
+            </fieldset>
           )}
           <Text color="fg.muted" fontSize="sm">
             {monitoring === 'device-metrics-exporter'

@@ -8,7 +8,8 @@ import { platformMemberCounts } from '@/domain/platform/membership'
 import { wantsPlatformGrafana } from '@/domain/platform/monitoring'
 import { platformCurrentSpec } from '@/domain/platform/spec'
 import type { Platform } from '@/domain/platform/types'
-import { platformConfigurationSections, platformModuleUI, platformMonitoringEntries } from '@/modules/registry'
+import type { Server } from '@/domain/server/types'
+import { platformConfigurationSections, platformModuleUI, platformMonitoringEntries, type PlatformMonitoringServerStates } from '@/modules/registry'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
@@ -186,10 +187,46 @@ export function PlatformConfigurationRoute() {
   )
 }
 
+/**
+ * A monitoring component's per-Server breakdown (for example Omnistat's hardware counters on each
+ * compute node), as the module projected it from the Platform record. Each Server links to its page
+ * by its hostname once the members have loaded, else by its id; the state is a text badge and the
+ * reason plain text, so nothing depends on colour. A summary stands in while no Server has reported.
+ */
+function MonitoringServerStates({ states, members, serverHref }: {
+  states: PlatformMonitoringServerStates
+  members: readonly Server[]
+  serverHref: (serverId: string) => string
+}) {
+  return (
+    <Stack gap="1" role="group" aria-label={states.title}>
+      <Text fontWeight="medium" fontSize="sm">{states.title}</Text>
+      <Text color="fg.muted" fontSize="sm">{states.summary}</Text>
+      {states.servers.length > 0 && (
+        <ul className="sw-platform-monitoring-servers">
+          {states.servers.map((server) => {
+            const member = members.find((candidate) => candidate.id === server.serverId)
+            return (
+              <li key={server.serverId}>
+                <Link to={serverHref(server.serverId)}>{member?.status.hostname || server.serverId}</Link>
+                <StatusBadge status={server.state} label={server.statusLabel} />
+                {server.reason && <Text as="span" color="fg.muted" fontSize="sm">{server.reason}</Text>}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </Stack>
+  )
+}
+
 /** Monitoring entries and installation state; charts remain in the dedicated Monitoring console. */
 export function PlatformMonitoringRoute() {
   const { platform } = usePlatformWorkspaceContext()
   const { scopedHref } = useSiteScope()
+  // Only to name the Servers of a per-Server breakdown; a failed or slow load falls back to ids.
+  const members = useMembersForRoute(platform)
+  const resolvedMembers = members.status === 'ready' ? members.data.members : []
   const chartsHref = scopedHref(
     `/monitoring?${new URLSearchParams({ chartScope: 'platform', chartScopeId: platform.id }).toString()}`,
     platform.siteId,
@@ -246,6 +283,13 @@ export function PlatformMonitoringRoute() {
                 </HStack>
                 {feature.warning && (
                   <Alert status="warning" title={feature.warning.title}>{feature.warning.message}</Alert>
+                )}
+                {feature.serverStates && (
+                  <MonitoringServerStates
+                    states={feature.serverStates}
+                    members={resolvedMembers}
+                    serverHref={(serverId) => scopedHref(`/servers/${encodeURIComponent(serverId)}`, platform.siteId)}
+                  />
                 )}
               </Stack>
             ))}

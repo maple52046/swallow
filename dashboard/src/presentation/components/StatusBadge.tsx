@@ -22,6 +22,8 @@ const STATUS_COLORS: Record<string, StatusPalette> = {
   canceled: 'gray', resolved: 'gray', unknown: 'gray', offline: 'gray', archived: 'gray', draft: 'gray', skipped: 'gray',
   // Change Plan states (decision 076): one waiting for a decision asks for attention.
   pending_approval: 'orange', approved: 'blue', applied: 'green', rejected: 'gray', superseded: 'gray', expired: 'gray',
+  // Omnistat Hardware Counters on a node: unavailable is a reported limit, not a failure.
+  collecting: 'green', unavailable: 'gray',
 }
 
 interface StatusBadgeProps {

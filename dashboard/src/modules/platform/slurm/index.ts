@@ -2,6 +2,7 @@ import { Cpu, LayoutGrid, Server } from 'lucide-react'
 import { wantsPlatformGrafana } from '@/domain/platform/monitoring'
 import type { PlatformModuleUI } from '@/modules/types'
 import { slurmPlatformFacts, slurmSpecTopology } from './slurmFacts'
+import { hardwareCounterStates } from './slurmHardwareCounters'
 import { SlurmAccess } from './SlurmAccess'
 import { SlurmNodesRoute, SlurmPartitionsRoute } from './SlurmWorkspaceRoutes'
 import { useSlurmDeployForm } from './useSlurmDeployForm'
@@ -9,7 +10,8 @@ import { SlurmSettingsPage } from './SlurmSettingsPage'
 
 /**
  * The Slurm module's UI: its deploy form, access summary, native workspace routes, configuration
- * facts, and monitoring contributions.
+ * facts, and monitoring contributions (Omnistat with its per-node hardware counters, or the Device
+ * Metrics Exporter).
  */
 export const slurmModule: PlatformModuleUI = {
   kind: 'platform',
@@ -32,6 +34,7 @@ export const slurmModule: PlatformModuleUI = {
       'Collected by the Site Prometheus',
       ...(grafana ? [`Platform Grafana installed ${installMethod === 'native' ? 'natively' : 'as a container'} on the primary controller`] : []),
     ].join(' · ')
+    const counters = platform.omnistat ? hardwareCounterStates(platform.omnistat) : undefined
     return [
       ...(platform.omnistat ? [{
         name: 'Omnistat',
@@ -40,6 +43,7 @@ export const slurmModule: PlatformModuleUI = {
         detail: detail(platform.omnistat.version, platform.omnistat.installMethod),
         workflowId: platform.omnistat.lastWorkflowId,
         serverId: platform.omnistat.observabilityServerId,
+        ...(counters ? { serverStates: counters } : {}),
       }] : []),
       ...(platform.deviceMetricsExporter ? [{
         name: 'Device Metrics Exporter',

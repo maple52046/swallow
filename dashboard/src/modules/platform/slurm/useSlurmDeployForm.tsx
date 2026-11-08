@@ -47,6 +47,9 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
   // Device Metrics Exporter (per-GPU, jobs share nodes), never both; the Site Prometheus scrapes it.
   // Omnistat is proposed because it suits every Slurm Platform; "none" stays an explicit choice.
   const [monitoring, setMonitoring] = useState<SlurmMonitoringChoice>('omnistat')
+  // Omnistat's GPU hardware counters (decision 063): asked for by default here, while the API
+  // defaults to off so an older Platform's redeploy never turns them on; sent only with Omnistat.
+  const [hardwareCounters, setHardwareCounters] = useState(true)
   // The Platform's own Grafana on the primary controller (platforms.md "Platform Monitoring
   // Dashboards"), on by default like the API's monitoringDashboards. Its install method travels in
   // the monitoring feature's object, so without a feature the API installs it natively.
@@ -229,6 +232,8 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
           onContainerRuntimeChange={setContainerRuntime}
           monitoring={monitoring}
           onMonitoringChange={setMonitoring}
+          hardwareCounters={hardwareCounters}
+          onHardwareCountersChange={setHardwareCounters}
           platformGrafana={platformGrafana}
           onPlatformGrafanaChange={setPlatformGrafana}
           grafanaInstallMethod={grafanaInstallMethod}
@@ -324,6 +329,10 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
               ? 'Not included'
               : `${monitoring === 'omnistat' ? 'Omnistat' : 'AMD Device Metrics Exporter'}, collected by the Site Prometheus`,
           },
+          ...(monitoring === 'omnistat' ? [{
+            label: 'GPU hardware counters',
+            value: hardwareCounters ? 'VALUBusy on each compute node that can collect it' : 'Not included',
+          }] : []),
           {
             label: 'Platform Grafana',
             value: !platformGrafana
@@ -350,7 +359,9 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
     input: () => ({
       gpuStackOwner: 'provisioning',
       ...(engine ? { containerRuntime: { kind: engine } } : {}),
-      ...(monitoring === 'omnistat' ? { omnistat: { enabled: true, installMethod: effectiveGrafanaInstallMethod } } : {}),
+      ...(monitoring === 'omnistat'
+        ? { omnistat: { enabled: true, installMethod: effectiveGrafanaInstallMethod, hardwareCounters } }
+        : {}),
       ...(monitoring === 'device-metrics-exporter'
         ? { deviceMetricsExporter: { enabled: true, installMethod: effectiveGrafanaInstallMethod } }
         : {}),
@@ -389,6 +400,7 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
       setContainersEnabled(false)
       setContainerRuntime('')
       setMonitoring('omnistat')
+      setHardwareCounters(true)
       setPlatformGrafana(true)
       setGrafanaInstallMethod('container')
       setOCIContainers(false)
