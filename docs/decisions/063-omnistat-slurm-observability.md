@@ -54,6 +54,17 @@ overlay. Prometheus and Grafana are generic single programs that other runtimes 
   the Platform's Grafana install records its own URL as the Platform's Monitoring Link.
   ([ADR 066](066-slurm-job-hooks-and-device-metrics-exporter.md) later moved the attribution into a
   Prolog/Epilog dispatcher hook.)
+- **Hardware counters are asked for by default in the deployment wizard, off when the API omits
+  them, and never fail a deployment.** With Omnistat a deployment may ask for GPU hardware counters,
+  sampled through ROCProfiler-SDK; today only `VALUBusy`. Upstream's collector ends the whole
+  exporter when its extension or a counter fails, and an older ROCProfiler-SDK can abort the process,
+  so a node would lose all of its telemetry. A compute node therefore collects them only when it has
+  GPUs, its ROCm minor has a published extension ([decision 079](079-release-built-host-artifacts.md)
+  (release-built host artifacts)), its glibc is not older than the extension's builder, and a probe
+  in a separate process loads the extension and samples the counter; then its exporter gets
+  `CAP_PERFMON` and the counter profile. Otherwise that node's counters are off with a reason, its
+  exporter runs as before, and the install Task still succeeds. The Platform records each node's
+  outcome. Changing them after a deployment is unsupported, like every other Omnistat change.
 - **Grafana is Managed Software composed as a Job; the Site Prometheus collects.** Omnistat is the
   Slurm Platform's default GPU monitoring, and it suits a CPU-only Platform too, collecting host and
   job metrics without GPUs. Its exporters are scraped by the Site Prometheus
@@ -139,6 +150,14 @@ moved `omnistat-query` to Grafana's datasource proxy (original text in git histo
 - **The container runtime as a Slurm platform component installed by `deploy-slurm`.** Rejected:
   the runtime is one host program with its own lifecycle and an existing Managed Software kind;
   embedding it would give Slurm a second installer for Docker CE and Podman.
+- **Hardware counters on when the API omits them** (2026-11-08). Rejected: redeploying a Platform
+  deployed before them would turn them on without being asked, and an omitted monitoring feature is
+  not installed.
+- **Failing the deployment when a node cannot collect hardware counters** (2026-11-08). Rejected:
+  they are an addition to Omnistat's job monitoring, which works without them.
+- **Patching Omnistat so that a failing collector degrades instead of ending the exporter**
+  (2026-11-08). Rejected in favor of the isolated probe: it would be a patch swallow maintains
+  ([decision 064](064-upstream-patches-are-the-exception.md)), and it would not survive an abort.
 
 ## Consequences
 
@@ -149,9 +168,15 @@ moved `omnistat-query` to Grafana's datasource proxy (original text in git histo
 - Uninstalling the Slurm Platform removes the exporter, the Slurm overlay, the Slurm amdgpu
   ordering, and the link; Prometheus, Grafana, and the container runtimes keep their Software
   Assignments until they are uninstalled through the software API.
-- Omnistat and the Python packages it needs are downloaded at pinned versions at run time; the
-  container images are pulled at pinned tags, and the native method downloads the pinned
-  Prometheus release and Grafana package from upstream.
+- Omnistat and the Python packages it needs are fetched at pinned versions at run time and
+  installed by uv from a hash lock into a CPython 3.12 environment
+  ([decision 080](080-host-toolchains-probe-first.md) (host toolchains probe first)); the container
+  images are pulled at pinned tags, and the native method downloads the pinned Prometheus release and
+  Grafana package from upstream.
+- With hardware counters, a node's exporter holds `CAP_PERFMON` and keeps a ROCProfiler-SDK session
+  on every GPU it can see (about 160 MB of VRAM per GPU on the lab's MI308X), and only `VALUBusy` on
+  gfx942 with ROCm 10.0 has been verified on hardware; a user who does not want that leaves the
+  wizard's option unchecked.
 - Omnistat 1.15.0's report locates a job's nodes by GPU utilization, which SR-IOV virtual
   functions do not report, so on them it cannot build a report; that is reported to users rather
   than patched.
@@ -163,3 +188,4 @@ moved `omnistat-query` to Grafana's datasource proxy (original text in git histo
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
 - 2026-11-03: Omnistat became the default and is scraped by the Site Prometheus; the deployment composes only the Platform's Grafana, which reads through Swallow's gateway, and no longer a Prometheus on the controller.
 - 2026-11-03: the Monitoring Link is recorded by the Platform's Grafana install rather than from the Omnistat run's result.
+- 2026-11-08: added hardware counters (`VALUBusy`), asked for by the wizard and degraded per node instead of failing the deployment; Omnistat's environment is built by uv from a hash lock (decisions 079 and 080).

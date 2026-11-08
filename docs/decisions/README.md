@@ -128,7 +128,7 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 | [058](058-deployment-dhcp-and-subnet-dns.md) | swallow 擁有部署網路意圖，provider adapter 實現 `automatic`、`dhcp`、`static` 三種定址模式 | 012、018 |
 | [061](061-recovery-supersedes-blocking-work.md) | Workflow 的回復與停止：rerun 依現況收斂並保留原 Workflow；取消不改寫已完成的結果並把被中斷的部署帶回 Ready；Release、Recover 與 uninstall 取代佔用 Server 的工作 | 020、060 |
 | [062](062-swallow-managed-gpu-operator.md) | swallow 以 Platform Job 安裝 AMD GPU Operator，只用 image driver，由 NFD 決定納管節點 | — |
-| [063](063-omnistat-slurm-observability.md) | Slurm 部署一律設定 AMD GPU GRES，Omnistat 為選用功能並組入 Prometheus／Grafana | — |
+| [063](063-omnistat-slurm-observability.md) | Slurm 部署一律設定 AMD GPU GRES，Omnistat 為選用功能並組入 Prometheus／Grafana；它的 hardware counters 由部署精靈預設要求、API 省略時關閉，無法收集的節點只關掉 counters，不讓部署失敗 | — |
 | [064](064-upstream-patches-are-the-exception.md) | 優先選擇可用的上游版本，自行維護 patch 是例外 | — |
 | [065](065-control-plane-ntp-and-post-provision-time-sync.md) | Installation 在主機提供 NTP server，每台 provision 的 Server 都指向它，Platform 只檢查時間 | — |
 | [066](066-slurm-job-hooks-and-device-metrics-exporter.md) | Slurm 以單一 Prolog/Epilog dispatcher 執行 hook、預設共用節點，並提供 DME、OCI、PMIx 選項 | — |
@@ -144,6 +144,8 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 | [076](076-change-plans.md) | Change Plan 是 convergence context 的獨立文件，每個資源最多一份未完成；破壞性的 spec 寫入與 plan 同一個 transaction，整份核准，由資源的 controller 重算後 apply 成 Workflow，24 小時到期 | — |
 | [077](077-task-diagnostics-and-wait-policy.md) | Task 失敗帶有兩層的 Task Diagnostic，存在 store、經 API 提供，遮蔽 secret 但保留原因，並以結構化 log 關聯；每個等待宣告觀察來源、Failure Class 分類與預算，等待中發佈觀察，permanent 立即失敗 | — |
 | [078](078-local-repository.md) | 每個 Site 以 `serveDeployments`（預設關閉）決定部署從它的 Local Repository 取得 artifact，或從模組宣告的上游取得並驗證：Local Repository 是 provider 類別（目前是 Pulp 3），與控制平面共置、每個 installation 都安裝並以 `repository` Integration 登錄；swallow 擁有它必須包含的內容（模組宣告與 Site 的來源），由 controller 收斂；Site 選了它而它沒有 ready 時拒絕部署，不退回上游 | — |
+| [079](079-release-built-host-artifacts.md) | 沒有上游發佈的主機 binary（第一個是 Omnistat 的 rocprof extension）由 swallow 的 release 工具建置：每個 ROCm minor 在 glibc 最低的 builder 建一次、只建 CPython 3.12，通過 glibc 與 import 的檢查才以獨立的 tag 發佈，再宣告成 file artifact；先上傳、後宣告，發佈 release 前確認每個宣告的檔案都取得到 | — |
+| [080](080-host-toolchains-probe-first.md) | 主機的工具鏈是需求：任何 CPython 3.12（OS 套件）與任何 uv（缺少時由 file artifact 提供）；元件先探測、不能用才安裝，安裝內容仍以 hash lock 固定；swallow 使用、不覆寫預先烘進 image 的版面；主機經 `artifact_sources` 寫的節點設定（`/etc/uv/uv.toml`）取得 Site 選擇的來源，其他 role 不設 index | — |
 
 ### 已併入的編號
 
