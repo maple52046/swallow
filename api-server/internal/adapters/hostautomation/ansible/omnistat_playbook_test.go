@@ -1,7 +1,9 @@
 package ansible
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -142,6 +144,108 @@ func TestOmnistatAppliesEachPatchOnItsOwn(t *testing.T) {
 	}
 	if loop, _ := apply["loop"].(string); !strings.Contains(loop, "omnistat_patch_applied.results") || apply["when"] != "item.rc != 0" {
 		t.Errorf("apply task = %v, want each patch applied only when its own check failed", apply)
+	}
+}
+
+// The exporter's configuration turns the counters on, with the profile Omnistat's collector reads,
+// only while the node collects them; off, it has no rocprofiler sections at all. The rendered file is
+// read with Python's configparser, as Omnistat reads it.
+func TestOmnistatConfigurationCollectsTheCountersOnlyWhenOn(t *testing.T) {
+	t.Parallel()
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 is not available")
+	}
+	run := newRoleRun(t, "omnistat", false)
+	template, err := filepath.Abs(filepath.Join(roleDir(t, "omnistat"), "templates", "omnistat.conf.j2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := t.TempDir()
+	writeScratch(t, run.dir, "play.yml", "- hosts: all\n  gather_facts: false\n  tasks:\n"+
+		"    - ansible.builtin.template:\n        src: "+template+"\n        dest: \"{{ rendered }}\"\n")
+	read := `import configparser, json, sys
+config = configparser.ConfigParser()
+config.read(sys.argv[1])
+profile = config.get("omnistat.collectors.rocprofiler", "profile", fallback="")
+print(json.dumps({"enabled": config.get("omnistat.collectors", "enable_rocprofiler"), "profile": profile,
+    "mode": config.get("omnistat.collectors.rocprofiler." + profile, "sampling_mode", fallback=""),
+    "counters": json.loads(config.get("omnistat.collectors.rocprofiler." + profile, "counters", fallback="[]"))}))`
+	for _, tc := range []struct {
+		enabled bool
+		want    string
+	}{
+		{enabled: true, want: `{"enabled": "True", "profile": "valubusy", "mode": "constant", "counters": ["VALUBusy"]}`},
+		{enabled: false, want: `{"enabled": "False", "profile": "", "mode": "", "counters": []}`},
+	} {
+		rendered := filepath.Join(out, fmt.Sprintf("omnistat-%v.conf", tc.enabled))
+		vars := map[string]any{
+			"rendered": rendered, "omnistat_rocprofiler_enabled": tc.enabled, "omnistat_counter_profile": "valubusy",
+			"omnistat_counters": []string{"VALUBusy"}, "omnistat_port": 8001, "omnistat_gpu": true, "omnistat_rocm_path": "/opt/rocm",
+			"omnistat_scrape_addresses": []string{"10.0.0.2"}, "omnistat_job_file": "/tmp/omni_rmsjobinfo",
+			"omnistat_observability_address": "10.0.0.1", "omnistat_grafana_port": 3000,
+			"omnistat_grafana_datasource_uid": "prometheus", "omnistat_system_name": "slurm",
+		}
+		if output, _, failed := run.run(vars); failed != 0 {
+			t.Fatalf("rendering failed:\n%s", output)
+		}
+		got, err := exec.Command(python, "-c", read, rendered).Output()
+		if err != nil {
+			t.Fatalf("read the rendered configuration: %v", err)
+		}
+		if strings.TrimSpace(string(got)) != tc.want {
+			t.Errorf("with the counters on = %v the exporter reads %s, want %s", tc.enabled, got, tc.want)
+		}
+	}
+}
+
+// The counters reach the exporter and the Platform: CAP_PERFMON comes only with them, an exporter
+// that does not serve them in time is restarted without them (exporter_failed) instead of failing
+// the run, the run's result reports each node, and uninstalling removes the drop-in.
+func TestOmnistatHardwareCountersReachTheExporterAndTheResult(t *testing.T) {
+	read := func(rel string) string {
+		raw, err := os.ReadFile(filepath.Join(roleDir(t, "omnistat"), rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(raw)
+	}
+	dropin := read(filepath.Join("templates", "perfmon.conf.j2"))
+	for _, want := range []string{"[Service]\n", "AmbientCapabilities=CAP_PERFMON\n", "CapabilityBoundingSet=CAP_PERFMON\n"} {
+		if !strings.Contains(dropin, want) {
+			t.Errorf("perfmon.conf.j2 lacks %q", want)
+		}
+	}
+	service := read(filepath.Join("tasks", "service.yml"))
+	for _, want := range []string{"when: omnistat_rocprofiler_enabled | bool", "state: absent", "when: not omnistat_rocprofiler_enabled | bool"} {
+		if !strings.Contains(service, want) {
+			t.Errorf("service.yml lacks %q: the drop-in must exist exactly while the node collects the counters", want)
+		}
+	}
+	var tasks []map[string]any
+	readYAML(t, filepath.Join(roleDir(t, "omnistat"), "tasks", "main.yml"), &tasks)
+	includes, fellBack := 0, false
+	for _, task := range tasks {
+		if task["ansible.builtin.include_tasks"] == "service.yml" {
+			includes++
+		}
+		if block, ok := task["block"].([]any); ok && task["when"] == "omnistat_counters_fell_back | bool" {
+			fellBack = strings.Contains(fmt.Sprint(block), "exporter_failed") && strings.Contains(fmt.Sprint(block), "service.yml")
+		}
+		if name, _ := task["name"].(string); name == "Wait for the exporter to serve the hardware counters" && task["ignore_errors"] != true {
+			t.Errorf("waiting for the counters must not fail the run: %v", task)
+		}
+	}
+	if includes != 1 || !fellBack {
+		t.Errorf("main.yml configures the exporter %d times directly and falls back %v, want once and a fallback that records exporter_failed and configures it again", includes, fellBack)
+	}
+	if playbook := slurmPlaybookFile(t, "configure-omnistat.yml"); !strings.Contains(playbook, "{'hardwareCounters': {'nodes': omnistat_hardware_counter_nodes}}") ||
+		!strings.Contains(playbook, "omnistat_hardware_counters_result") {
+		t.Error("configure-omnistat.yml does not report each node's hardware counters in the run's result")
+	}
+	if uninstall := slurmPlaybookFile(t, "uninstall-slurm.yml"); !strings.Contains(uninstall, "/etc/systemd/system/omnistat.service.d/10-swallow-perfmon.conf") ||
+		!strings.Contains(fmt.Sprint(readRoleDefaults(t, "omnistat")["omnistat_perfmon_dropin"]), "omnistat.service.d/10-swallow-perfmon.conf") {
+		t.Error("uninstall-slurm.yml does not remove the exporter's CAP_PERFMON drop-in")
 	}
 }
 

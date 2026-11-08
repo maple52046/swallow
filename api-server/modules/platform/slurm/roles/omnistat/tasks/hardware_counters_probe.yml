@@ -1,0 +1,113 @@
+---
+# Install the ROCProfiler-SDK extension for omnistat_rocm_minor when the environment needs it, and
+# probe it (decision 080: probe first). An extension already in the omnistat package that passes the
+# probe is used as it is, whoever installed it, so a converged node fetches nothing. Otherwise the
+# extension comes from an OS image's directory (omnistat_rocprof_prebaked_root) or, failing that,
+# from the run's artifact source, verified by its declared SHA-256; its build_info.json must name the
+# node's ROCm minor. Sets omnistat_rocprofiler_enabled, or the reason it stays off.
+
+- name: Copy the counter probe
+  ansible.builtin.copy:
+    src: omnistat-counter-probe.py
+    dest: "{{ omnistat_prefix }}/omnistat-counter-probe.py"
+    mode: "0644"
+
+- name: Name where the omnistat package loads the extension from
+  ansible.builtin.set_fact:
+    omnistat_rocprof_installed: "{{ omnistat_probe_report.site_packages }}/omnistat/{{ omnistat_rocprof_module }}"
+    omnistat_rocprof_prebaked: >-
+      {{ omnistat_rocprof_prebaked_root }}/{{ omnistat_version }}/rocm{{ omnistat_rocm_minor }}
+
+- name: Look for an installed extension
+  ansible.builtin.stat:
+    path: "{{ omnistat_rocprof_installed }}"
+  register: omnistat_rocprof_installed_file
+
+- name: Probe the installed extension
+  ansible.builtin.include_tasks: counter_probe.yml
+  when: omnistat_rocprof_installed_file.stat.exists
+
+- name: Use the installed extension
+  ansible.builtin.set_fact:
+    omnistat_rocprofiler_enabled: true
+  when: omnistat_rocprof_installed_file.stat.exists and omnistat_counter_probe_passed | bool
+
+- name: Install the extension for this ROCm minor
+  when: not omnistat_rocprofiler_enabled | bool
+  block:
+    - name: Look for an image's extension
+      ansible.builtin.stat:
+        path: "{{ omnistat_rocprof_prebaked }}/{{ omnistat_rocprof_module }}"
+      register: omnistat_rocprof_prebaked_file
+
+    - name: Fetch the declared extension
+      when: not omnistat_rocprof_prebaked_file.stat.exists
+      block:
+        - name: Create the extension's directory
+          ansible.builtin.file:
+            path: "{{ omnistat_rocprof_home }}/rocm{{ omnistat_rocm_minor }}"
+            state: directory
+            mode: "0755"
+
+        - name: Download the declared extension
+          ansible.builtin.get_url:
+            url: "{{ swallow_artifacts.files[omnistat_rocprof_extension.path] }}"
+            checksum: "sha256:{{ omnistat_rocprof_extension.sha256 }}"
+            dest: "{{ omnistat_rocprof_home }}/{{ omnistat_rocprof_extension.path | basename }}"
+            mode: "0644"
+          register: omnistat_rocprof_download
+          until: omnistat_rocprof_download is succeeded
+          retries: "{{ omnistat_rocprof_download_retries }}"
+          delay: 10
+
+        - name: Unpack the extension
+          ansible.builtin.unarchive:
+            src: "{{ omnistat_rocprof_home }}/{{ omnistat_rocprof_extension.path | basename }}"
+            dest: "{{ omnistat_rocprof_home }}/rocm{{ omnistat_rocm_minor }}"
+            remote_src: true
+      rescue:
+        - name: Report that the artifact source cannot provide the extension
+          ansible.builtin.set_fact:
+            omnistat_counters_reason: artifact_unavailable
+
+    - name: Name the extension's source
+      ansible.builtin.set_fact:
+        omnistat_rocprof_source: >-
+          {{ omnistat_rocprof_prebaked if omnistat_rocprof_prebaked_file.stat.exists
+             else omnistat_rocprof_home ~ '/rocm' ~ omnistat_rocm_minor }}
+
+    - name: Read the extension's build information
+      ansible.builtin.slurp:
+        src: "{{ omnistat_rocprof_source }}/build_info.json"
+      register: omnistat_rocprof_build_info
+      failed_when: false
+      when: omnistat_counters_reason | length == 0
+
+    - name: Refuse an extension built for another ROCm minor
+      # Omnistat's builder writes build_info.json with json.dumps, so its version reads as
+      # "rocm_version": "<X.Y.Z>"; a missing or unreadable file names no version.
+      ansible.builtin.set_fact:
+        omnistat_counters_reason: artifact_unavailable
+      when:
+        - omnistat_counters_reason | length == 0
+        - >-
+          (omnistat_rocprof_build_info.content | default('') | b64decode)
+          is not search('"rocm_version": *"' ~ (omnistat_rocm_minor | regex_escape) ~ '[.]')
+
+    - name: Install the extension into the omnistat package
+      ansible.builtin.copy:
+        src: "{{ omnistat_rocprof_source }}/{{ omnistat_rocprof_module }}"
+        dest: "{{ omnistat_rocprof_installed }}"
+        remote_src: true
+        mode: "0644"
+      when: omnistat_counters_reason | length == 0
+
+    - name: Probe the installed extension
+      ansible.builtin.include_tasks: counter_probe.yml
+      when: omnistat_counters_reason | length == 0
+
+    - name: Collect the hardware counters when the probe passed
+      ansible.builtin.set_fact:
+        omnistat_rocprofiler_enabled: "{{ omnistat_counter_probe_passed | bool }}"
+        omnistat_counters_reason: "{{ '' if omnistat_counter_probe_passed | bool else 'probe_failed' }}"
+      when: omnistat_counters_reason | length == 0

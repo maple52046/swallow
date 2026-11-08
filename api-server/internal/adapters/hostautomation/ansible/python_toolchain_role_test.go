@@ -1,9 +1,6 @@
 package ansible
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
@@ -110,30 +107,7 @@ func TestPythonToolchainUsesTheFirstCandidatesThatWork(t *testing.T) {
 // uvArchive returns a gzipped tar like uv's release: the binary under a top-level directory.
 func uvArchive(t *testing.T, dir, binary string) []byte {
 	t.Helper()
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	archive := tar.NewWriter(gz)
-	for _, entry := range []struct {
-		header tar.Header
-		body   string
-	}{
-		{header: tar.Header{Name: dir + "/", Typeflag: tar.TypeDir, Mode: 0o755}},
-		{header: tar.Header{Name: dir + "/uv", Typeflag: tar.TypeReg, Mode: 0o755, Size: int64(len(binary))}, body: binary},
-	} {
-		if err := archive.WriteHeader(&entry.header); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := archive.Write([]byte(entry.body)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := archive.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := gz.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return buf.Bytes()
+	return tarGz(t, map[string]string{dir + "/uv": binary}, dir+"/uv")
 }
 
 // A host without uv gets the declared release from the URL the run's artifact sources give its

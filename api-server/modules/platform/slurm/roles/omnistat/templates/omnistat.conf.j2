@@ -5,7 +5,7 @@ enable_rocm_smi = False
 enable_amd_smi = {{ 'True' if omnistat_gpu | bool else 'False' }}
 enable_ras_ecc = False
 enable_rms = True
-enable_rocprofiler = False
+enable_rocprofiler = {{ 'True' if omnistat_rocprofiler_enabled | default(false) | bool else 'False' }}
 enable_network = True
 enable_vendor_counters = False
 enable_host_metrics = True
@@ -23,6 +23,16 @@ job_detection_file = {{ omnistat_job_file }}
 [omnistat.collectors.host]
 enable_proc_io_stats = False
 cpu_load_sampling_interval = 0.05
+{% if omnistat_rocprofiler_enabled | default(false) | bool %}
+
+# The hardware counters the deployment asked for, which this node's probe sampled.
+[omnistat.collectors.rocprofiler]
+profile = {{ omnistat_counter_profile }}
+
+[omnistat.collectors.rocprofiler.{{ omnistat_counter_profile }}]
+sampling_mode = constant
+counters = {{ omnistat_counters | to_json }}
+{% endif %}
 
 [omnistat.query]
 # omnistat-query reads the Site Prometheus through the Platform Grafana's read-only datasource proxy,

@@ -82,7 +82,7 @@
         enabled: false
       failed_when: false
 
-    - name: Remove the Omnistat exporter, its configuration, its job file, and the HIP probe
+    - name: Remove the Omnistat exporter, its CAP_PERFMON drop-in, configuration, and job file, and the probes
       # Prometheus, Grafana, and Docker CE are Managed Software with their own assignments and are
       # left for the software uninstall.
       ansible.builtin.file:
@@ -90,11 +90,18 @@
         state: absent
       loop:
         - /etc/systemd/system/omnistat.service
+        - /etc/systemd/system/omnistat.service.d/10-swallow-perfmon.conf
         - /etc/omnistat
         - /opt/omnistat
         - /tmp/omni_rmsjobinfo
         - /usr/local/libexec/swallow/hip-probe
         - /usr/local/libexec/swallow/mpi-probe
+
+    - name: Remove the exporter's drop-in directory unless it holds an operator's drop-ins
+      ansible.builtin.command:
+        argv: [rmdir, --ignore-fail-on-non-empty, /etc/systemd/system/omnistat.service.d]
+        removes: /etc/systemd/system/omnistat.service.d
+      failed_when: false
 
     - name: Remove the Device Metrics Exporter
       # Part of the Slurm Platform's feature (decision 068): the exporter goes from every target,

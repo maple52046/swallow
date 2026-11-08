@@ -1,9 +1,11 @@
 ---
 # Install the Omnistat system-mode exporter on a compute node: a versioned environment, a dedicated
-# user, the configuration, and a systemd service. The environment converges probe-first
-# (converge.yml): one that already is the expected Omnistat, whether a previous run or the OS image
-# built it, is used as it is. A converged node reruns with no changes; a rebuilt environment or a
-# changed configuration restarts the exporter.
+# user, the hardware counters when the deployment asks for them and the node can collect them, the
+# configuration, and a systemd service. The environment converges probe-first (converge.yml): one
+# that already is the expected Omnistat, whether a previous run or the OS image built it, is used as
+# it is. A converged node reruns with no changes; a rebuilt environment or a changed configuration
+# restarts the exporter. The hardware counters never fail the run: a node that cannot collect them,
+# or whose exporter does not serve them, runs its exporter without them (decision 063).
 
 - name: Converge the Omnistat environment
   ansible.builtin.include_tasks: converge.yml
@@ -14,7 +16,7 @@
     system: true
 
 - name: Create the Omnistat service user
-  # render and video grant the GPU device nodes AMD SMI opens.
+  # render and video grant the GPU device nodes AMD SMI and ROCProfiler-SDK open.
   ansible.builtin.user:
     name: "{{ omnistat_user }}"
     group: "{{ omnistat_user }}"
@@ -33,40 +35,46 @@
     group: root
     mode: "0755"
 
-- name: Render the Omnistat configuration
-  ansible.builtin.template:
-    src: omnistat.conf.j2
-    dest: "{{ omnistat_config }}"
-    owner: root
-    group: root
-    mode: "0644"
-  register: omnistat_config_file
+- name: Decide the hardware counters
+  ansible.builtin.include_tasks: hardware_counters.yml
 
-- name: Install the Omnistat service
-  ansible.builtin.template:
-    src: omnistat.service.j2
-    dest: /etc/systemd/system/omnistat.service
-    owner: root
-    group: root
-    mode: "0644"
-  register: omnistat_unit
+- name: Configure and start the exporter
+  ansible.builtin.include_tasks: service.yml
 
-- name: Enable and start the Omnistat exporter
-  ansible.builtin.systemd:
-    name: omnistat
-    enabled: true
-    state: started
-    daemon_reload: true
-  register: omnistat_started
+- name: Wait for the exporter to serve the hardware counters
+  # Upstream ends the exporter when a counter fails, so a node whose exporter does not come up with
+  # them in time turns them off again below instead of failing the run.
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ omnistat_port }}/metrics"
+    return_content: true
+  register: omnistat_counter_metrics
+  until:
+    - omnistat_counter_metrics.status == 200
+    - "'rmsjob_info' in (omnistat_counter_metrics.content | default(''))"
+    - "'rocm_num_gpus' in (omnistat_counter_metrics.content | default(''))"
+    - "'omnistat_hardware_counter{' in (omnistat_counter_metrics.content | default(''))"
+  retries: 30
+  delay: 4
+  ignore_errors: true
+  when: omnistat_rocprofiler_enabled | bool
 
-- name: Restart the exporter after a rebuilt environment, configuration, or unit
-  ansible.builtin.systemd:
-    name: omnistat
-    state: restarted
-    daemon_reload: true
-  when:
-    - omnistat_started is not changed
-    - omnistat_environment_rebuilt | bool or omnistat_config_file is changed or omnistat_unit is changed
+- name: Note whether the exporter failed with the hardware counters
+  # A fact of its own: the block below turns omnistat_rocprofiler_enabled off, and a block's
+  # condition is evaluated again for each of its tasks.
+  ansible.builtin.set_fact:
+    omnistat_counters_fell_back: "{{ omnistat_rocprofiler_enabled | bool and omnistat_counter_metrics is failed }}"
+
+- name: Turn the hardware counters off when the exporter does not serve them
+  when: omnistat_counters_fell_back | bool
+  block:
+    - name: Record that the exporter failed with the hardware counters
+      ansible.builtin.set_fact:
+        omnistat_rocprofiler_enabled: false
+        omnistat_hardware_counters_result: >-
+          {{ omnistat_hardware_counters_result | combine({'state': 'unavailable', 'reason': 'exporter_failed'}) }}
+
+    - name: Configure and restart the exporter without the hardware counters
+      ansible.builtin.include_tasks: service.yml
 
 - name: Wait for the exporter to serve metrics
   # A GPU node must report its GPU count; every node reports the job-attribution series.
@@ -76,7 +84,7 @@
   register: omnistat_metrics
   until:
     - omnistat_metrics.status == 200
-    - "'rmsjob_info' in omnistat_metrics.content"
-    - not (omnistat_gpu | bool) or 'rocm_num_gpus' in omnistat_metrics.content
+    - "'rmsjob_info' in (omnistat_metrics.content | default(''))"
+    - not (omnistat_gpu | bool) or 'rocm_num_gpus' in (omnistat_metrics.content | default(''))
   retries: 30
   delay: 4

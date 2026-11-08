@@ -1,0 +1,6 @@
+# Managed by Swallow (configure-omnistat). Do not edit by hand; changes are overwritten.
+# This node collects GPU hardware counters, which ROCProfiler-SDK samples only with CAP_PERFMON; the
+# drop-in is removed when the node stops collecting them.
+[Service]
+AmbientCapabilities=CAP_PERFMON
+CapabilityBoundingSet=CAP_PERFMON
