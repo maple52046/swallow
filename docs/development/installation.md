@@ -525,6 +525,7 @@ decision 040。每個 Site 選擇部署是否從 Local Repository 取得 artifac
 
 - release 只帶 SHA-256 checksum，沒有簽章或 SBOM。
 - 不發佈 native bundle、離線 OCI image archive 與 Temporal UI image（§4.5）。
+- 模組需要、但沒有上游發佈的主機 binary 不在 release 內，以自己的 tag 另外發佈（§4.6）。
 
 ### 4.2 Image 的來源
 
@@ -578,7 +579,12 @@ decision 040。每個 Site 選擇部署是否從 Local Repository 取得 artifac
   只有一個 linux/amd64 manifest。另需 `git`、`jq`、`zstd`、`python3` 與 `PATH` 上的 `crane`（沒有以 container
   代跑的 fallback）；`--github-release` 另需 `gh`。
 - 發佈前的 gate：`validate.sh`（manifest 契約、runtime image 固定、Python 依賴精確 pin、`install.sh` 的版本
-  placeholder、腳本語法）與文件連結檢查；預設拒絕有未 commit 變更的 working tree（`--allow-dirty` 只供演練）。
+  placeholder、§4.6 的建置矩陣、腳本語法）與文件連結檢查；預設拒絕有未 commit 變更的 working tree（`--allow-dirty` 只供演練）。
+- 宣告的檔案都要取得到：`deploy/release/check-declared-files.sh` 對每個模組 `module.json` 宣告的 file artifact 的 URL
+  要 header（server 拒絕 HEAD 時改要第一個 byte，跟隨 redirect），任一個沒有回應就拒絕發佈。還沒發佈的檔案一旦被宣告，
+  使用 Local Repository 的 Site 都會因為取不到它而永遠不 ready，從上游取得的 Site 則在部署時失敗
+  （[decision 079](../decisions/079-release-built-host-artifacts.md)（release-built host artifacts））。它不下載檔案、
+  不驗證 sha256，那由 Local Repository 與主機做。
 - 已發佈的版本不覆寫：任一 `<component>-<version>` tag 已存在即拒絕。
 - `assemble-release.sh` 只從已推送的 image 組裝 artifacts，不建置任何東西，並以 `crane` 讀 registry，
   不依賴本機 container engine。
@@ -592,6 +598,33 @@ decision 040。每個 Site 選擇部署是否從 Local Repository 取得 artifac
 - **Temporal UI**：不鏡像，installer 也不寫入 `.env`；`SWALLOW_TEMPORAL_UI_IMAGE` 由 user 自行設定，且
   必須是 digest。
 - 因此 air-gapped 站點目前無法從 release 安裝。
+
+### 4.6 由 release 工具建置的主機 artifact
+
+模組需要、但沒有上游發佈 binary 的主機元件，由 swallow 的 release 工具建置，以自己的 GitHub Release tag 發佈，
+再由模組宣告成 file artifact（decision 079）。目前只有 Omnistat 的 ROCProfiler-SDK extension
+（`rocprofiler_sdk_extension`，Slurm 的 hardware counters 需要它），工具在 `deploy/release/omnistat-rocprof/`：
+
+| 檔案 | 用途 |
+| --- | --- |
+| `matrix.json` | 建置矩陣：Omnistat 的 source（與 Slurm 模組宣告的同一份）、revision、以 digest 固定的 builder image（`manylinux_2_28`，glibc 2.28，CPython 3.12）與檢查用的 Ubuntu 24.04 image、AMD 套件庫與它簽章金鑰的 fingerprint，以及每個 ROCm minor 的套件版本、ROCProfiler-SDK 版本與狀態（`lab-verified` 或 `build-only`），也就是相容表 |
+| `builder.Dockerfile` | 每個 ROCm minor 一個 builder：固定的 manylinux image 加上 AMD EL8 Core SDK 的 `amdrocm-profiler-base<X.Y>` 與 `amdrocm-runtime-devel<X.Y>`（metadata 與套件都以 AMD 的金鑰驗證）、AlmaLinux 8.10 的 `python3.12` 與它的 devel 套件（manylinux 自己的 CPython 沒有 libpython，而 Omnistat 的 CMake 要求 Python 的 Development component；ABI 同為 `cpython-312-x86_64-linux-gnu`，確切版本記在 `audit.json`），以及以 hash 驗證的建置 wheel（`builder-requirements.txt`） |
+| `build-extension.sh`、`audit.py` | 在 builder 內、沒有網路時建置：以 Omnistat 自己的 `omnistat-build-extras --counters` 建出 module 與 `libomnistat_count.so`，在 builder 內 import，再稽核每個 ELF 檔需要的最高 `GLIBC_`、`GLIBCXX_` 版本與 `NEEDED`，寫成 `audit.json` |
+| `check.Dockerfile`、`check-asset.sh` | 第二個 import 檢查：Ubuntu 24.04 加上同一個 ROCm minor 的 Core SDK，以 OS 自己的 `python3.12` import，並確認 `build_info.json` 是那個 ROCm minor |
+| `build.sh` | 依矩陣逐一建置與檢查（可只指定某些 ROCm minor），輸出到 `out/omnistat-rocprof/<omnistat>-r<revision>/`：每個 ROCm minor 一個 `omnistat-rocprof-<omnistat>-rocm<X.Y>-cp312-x86_64.tar.gz`、`SHA256SUMS` 與給模組宣告用的 `declarations.json` |
+| `upload.sh` | 以 `gh` 發佈成 GitHub Release `omnistat-rocprof-<omnistat>-r<revision>`（prerelease、不標為 latest，swallow 自己的 release 仍是 latest）；同一個 revision 已發佈時拒絕 |
+
+- **gate**：任何檔案需要的 `GLIBC_` 比 builder 的 glibc 新、builder 不是矩陣固定的 glibc、建置所用的 ROCProfiler-SDK
+  不是相容表列的版本，或兩個 import 檢查任一個失敗，`build.sh` 就失敗，不產生可發佈的輸出。
+- **asset 的內容**：`rocprofiler_sdk_extension.cpython-312-x86_64-linux-gnu.so`、`lib/libomnistat_count.so`（user mode
+  之後才用）、`build_info.json`（Omnistat 的 builder 寫的 ROCm 路徑與版本）與 `audit.json`。tar 以固定的排序、mtime 與
+  owner 打包，但編譯本身不可重現，所以重建就是新的 sha256，要以新的 revision 發佈。
+- **順序**：`build.sh` → 檢查輸出 → `upload.sh` → 把 `declarations.json` 的 path、URL 與 sha256 宣告到 Slurm 模組的
+  `artifacts.files`（URL 是 `https://github.com/<repository>/releases/download/<tag>/<asset>`）→ merge。發佈 swallow 的
+  release 時 `check-declared-files.sh` 再確認一次。只在發佈機（oasis）上傳。
+- **新增 ROCm minor 或升級 Omnistat**：改 `matrix.json`（新的 minor 一筆，或新的 Omnistat source；revision 加一），重新
+  建置全部並發佈新的 revision，再更新宣告。某個 ROCm minor 的官方 OS 清單不再有 glibc 2.28 的 OS 時，它的 builder
+  改用下一個 glibc（2.34 的 `manylinux_2_34`）。
 
 ### 設計理由
 
