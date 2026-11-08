@@ -1,0 +1,44 @@
+{
+  "omnistat": {
+    "version": "1.15.0",
+    "url": "https://github.com/ROCm/omnistat/archive/refs/tags/v1.15.0.tar.gz",
+    "sha256": "899c681179b8dfe5b3ccebde360c7a39ef2fe13cd0fdebb34d088963ad32f96f"
+  },
+  "revision": 1,
+  "repository": "maple52046/swallow",
+  "builder": {
+    "image": "quay.io/pypa/manylinux_2_28_x86_64@sha256:9555ba6c479fa69a2aa80ad1dc57154a60d562b19df159361d9379a02beb1e36",
+    "glibc": "2.28",
+    "python": "/usr/bin/python3.12",
+    "abi": "cp312"
+  },
+  "check": {
+    "image": "docker.io/library/ubuntu@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852",
+    "os": "Ubuntu 24.04",
+    "python": "python3.12"
+  },
+  "amdPackages": {
+    "signingKey": {
+      "url": "https://stable.repo.amd.com/rocm/gpg/packages.gpg",
+      "fingerprint": "D0F004A0025A1145C7807FCD0701EAC4D5E02107"
+    },
+    "el8": "https://stable.repo.amd.com/rocm/core/packages/rhel8/x86_64/",
+    "ubuntu2404": "https://stable.repo.amd.com/rocm/core/packages/ubuntu2404"
+  },
+  "rocm": [
+    {
+      "version": "10.0",
+      "packages": "10.0.0-4",
+      "rocprofilerSdk": "1.3.5",
+      "status": "lab-verified",
+      "verified": "VALUBusy on gfx942 (MI308X VF), Ubuntu 24.04"
+    },
+    {
+      "version": "10.1",
+      "packages": "10.1.0-3",
+      "rocprofilerSdk": "1.4.1",
+      "status": "build-only",
+      "verified": ""
+    }
+  ]
+}

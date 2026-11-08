@@ -30,7 +30,7 @@ Pulp 的 image，從不重新散布它們。選配的 Temporal UI 不屬於 rele
 
 請在 x86_64 Linux 上發佈。所有 image 都以一般的 `docker build` 與 `docker push` 原生 build 成
 linux/amd64，不需要 buildx 或模擬：Docker Engine，或 BuildKit 有在執行的 nerdctl 即可。發佈機器
-另外需要 git、jq、zstd、python3、放在 `PATH` 上的
+另外需要 git、jq、zstd、curl、python3、放在 `PATH` 上的
 [crane](https://github.com/google/go-containerregistry/tree/main/cmd/crane)，以及具備
 `write:packages` 權限的 GitHub token。發佈前請先跑過各 component 的測試（見各 component
 README）。
@@ -42,7 +42,8 @@ git switch main && git pull           # 只發佈已 commit 的程式碼
 deploy/release/publish.sh 0.1.0       # 加上 --github-release 會一併建立 GitHub Release（需要 gh）
 ```
 
-`publish.sh` 會先執行 [`validate.sh`](validate.sh) 與文件檢查，拒絕 tag 已存在的版本，確認每個
+`publish.sh` 會先執行 [`validate.sh`](validate.sh) 與文件檢查，以
+[`check-declared-files.sh`](check-declared-files.sh) 確認模組宣告的每個檔案在它的 URL 都取得到，拒絕 tag 已存在的版本，確認每個
 官方 runtime image 都有 linux/amd64，接著 build 並推送 `api`、`dashboard`、`cli`，再以
 [`assemble-release.sh`](assemble-release.sh) 在 `out/release/<version>/` 組出 artifacts：
 
@@ -63,3 +64,30 @@ Release 只包含 Compose installation
 第一次推送後，請把 GHCR package 設為 public，否則每個 installation 在 `swallowctl install`
 前都必須先 `docker login ghcr.io`。沒有加 `--github-release` 時，請手動把 artifacts 附到
 GitHub Release。Release 附有 SHA-256 checksums，但沒有簽章與 SBOM。
+
+## swallow 建置的主機 binary
+
+模組可能需要沒有上游發佈的主機 binary。swallow 以自己的工具建置它，以獨立的 GitHub Release 發佈，與 swallow 的
+release 分開，再由模組宣告成 file artifact
+（[decision 079](../../docs/decisions/079-release-built-host-artifacts.md)（release-built host artifacts））。目前
+只有 Omnistat 的 ROCProfiler-SDK extension（Slurm Platform 的 hardware counters 載入它），工具在
+[`omnistat-rocprof/`](omnistat-rocprof/)：
+
+```bash
+deploy/release/omnistat-rocprof/build.sh          # matrix.json 的每個 ROCm minor；或只指定某些：build.sh 10.0
+deploy/release/omnistat-rocprof/upload.sh         # 在發佈機上，需要 gh
+```
+
+- [`matrix.json`](omnistat-rocprof/matrix.json) 是建置矩陣，也是相容表：Omnistat 的 source（Slurm 模組宣告的同一份）、
+  revision、以 digest 固定的 builder image（`manylinux_2_28`：glibc 2.28、CPython 3.12）與 Ubuntu 24.04 的檢查 image、
+  AMD 的套件庫與它簽章金鑰的 fingerprint，以及每個 ROCm minor 的套件版本、ROCProfiler-SDK 版本，和它是在硬體上驗證過
+  （`lab-verified`），還是只有建置與檢查（`build-only`）。
+- `build.sh` 為每個 ROCm minor 建一個 asset，builder 裡裝有那個 minor 的 Core SDK。它以 Omnistat 自己的
+  `omnistat-build-extras` 建置，過程中沒有網路。它在 builder 內 import module，再以 Ubuntu 24.04 自己的 `python3.12`
+  import 一次。任何檔案需要比 builder 的 glibc 新的 `GLIBC_`，或 SDK 不是相容表列的版本，它就失敗。輸出在
+  `out/omnistat-rocprof/<omnistat>-r<revision>/`：`omnistat-rocprof-<omnistat>-rocm<X.Y>-cp312-x86_64.tar.gz` 這些
+  asset、`SHA256SUMS` 與 `declarations.json`。
+- `upload.sh` 把它們發佈成 prerelease `omnistat-rocprof-<omnistat>-r<revision>`，不標為 latest；同一個 revision 已發佈
+  時拒絕。重建的 sha256 會不同，所以是新的 revision。
+- 先上傳、後宣告：上傳之後才把 `declarations.json` 放進 Slurm 模組的 `artifacts.files`。在那之前 URL 是 404，使用
+  Local Repository 的 Site 會拒絕每一個部署。

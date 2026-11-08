@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Publish a swallow release from a workstation; the project has no CI. It runs the release and
-# documentation checks, checks the official runtime images pinned in runtime-images.env, builds
+# documentation checks, checks that every file artifact the modules declare answers at its URL
+# (check-declared-files.sh), checks the official runtime images pinned in runtime-images.env, builds
 # the api, dashboard, and cli images and pushes them as <IMAGE_REPO>:<component>-<VERSION>, and
 # assembles the artifacts with assemble-release.sh under out/release/<VERSION>/. Only those three
 # images go to IMAGE_REPO. Released tags are never overwritten.
@@ -15,7 +16,7 @@
 # plain `docker build` and `docker push`, so buildx and emulation are not used; the docker CLI may
 # be Docker Engine or nerdctl with BuildKit running. It must be logged in to the registry with a
 # token that can write packages (`docker login ghcr.io -u <user>`); crane reads the same login.
-# Also git, jq, zstd, python3 (the documentation check), and crane
+# Also git, jq, zstd, curl (the declared files), python3 (the documentation check), and crane
 # (`go install github.com/google/go-containerregistry/cmd/crane@v0.22.1`).
 # Environment: IMAGE_REPO (default ghcr.io/maple52046/swallow).
 set -euo pipefail
@@ -43,7 +44,7 @@ die() { printf '[publish] %s\n' "$*" >&2; exit 1; }
   die 'usage: publish.sh VERSION [--allow-dirty] [--github-release]   (VERSION is SemVer without "v")'
 [[ "$(uname -m)" == x86_64 ]] ||
   die 'publish from an x86_64 host: the images are built natively for linux/amd64, without buildx or emulation'
-for tool in docker git jq zstd python3; do
+for tool in docker git jq zstd curl python3; do
   command -v "${tool}" >/dev/null 2>&1 || die "missing prerequisite: ${tool}"
 done
 command -v crane >/dev/null 2>&1 ||
@@ -62,6 +63,11 @@ built_at="$(git -C "${root}" show -s --format=%cI HEAD)"
 # dependencies, and documentation links. Run the component test suites before publishing too.
 log 'checking the release contract and documentation'
 (cd "${root}" && "${release_dir}/validate.sh" && python3 scripts/check-docs.py)
+
+# A file the modules declare but nobody published stops every Site that uses its Local Repository
+# (decision 079: upload first, then declare), so the release refuses to ship such a declaration.
+log 'checking that every file the modules declare answers'
+"${release_dir}/check-declared-files.sh"
 
 for component in api dashboard cli; do
   if crane digest "${image_repo}:${component}-${version}" >/dev/null 2>&1; then
