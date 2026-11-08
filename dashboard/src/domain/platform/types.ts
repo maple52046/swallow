@@ -255,6 +255,42 @@ export type GPUIdentity = "distinct" | "collapsed";
 export type SlurmContainerRuntime = "docker-ce" | "podman";
 
 /**
+ * Whether a compute node collects the GPU hardware counters its deployment asked for (glossary
+ * Omnistat Hardware Counters, platforms.md "Omnistat"). `unavailable` is not a failure: the node's
+ * exporter runs without them and its other metrics are collected.
+ */
+export type HardwareCounterState = "collecting" | "unavailable";
+
+/**
+ * Why a compute node does not collect the hardware counters; the glossary's values, exactly.
+ */
+export type HardwareCounterReason =
+  | "no_gpu"
+  | "rocm_unsupported"
+  | "glibc_too_old"
+  | "artifact_unavailable"
+  | "probe_failed"
+  | "exporter_failed";
+
+/** One compute node's hardware counters outcome; `reason` is null while it collects. */
+export interface HardwareCounterNode {
+  serverId: string;
+  state: HardwareCounterState;
+  reason: HardwareCounterReason | null;
+}
+
+/**
+ * The hardware counters part of a Platform's Omnistat: `requested` is the deployment's intent, and
+ * `nodes` the outcome the install of `lastWorkflowId` recorded, sorted by Server id. `nodes` is empty
+ * until that install succeeded and when nothing was requested; swallow does not watch the nodes
+ * afterwards.
+ */
+export interface PlatformOmnistatHardwareCounters {
+  requested: boolean;
+  nodes: HardwareCounterNode[];
+}
+
+/**
  * The swallow-managed Omnistat of a Slurm Platform: AMD's Slurm-aware monitoring, with its exporter
  * on every compute node, scraped by the Site Prometheus. `observabilityServerId` is the primary
  * controller, which hosts the Platform's Grafana installed by `installMethod`; that Grafana is
@@ -266,6 +302,7 @@ export interface PlatformOmnistat {
   installMethod: ObservabilityInstallMethod;
   observabilityServerId: string;
   state: OmnistatState;
+  hardwareCounters: PlatformOmnistatHardwareCounters;
   lastWorkflowId: string | null;
   updatedAt: string;
 }
@@ -443,7 +480,8 @@ export interface GPUDriverSettings {
  * deploy (its observed address only when it is already deployed and reused).
  * `gpuOperator` installs the AMD GPU Operator with a Kubernetes deploy; `gpuStackOwner` is then
  * derived by the backend and may be omitted. `containerRuntime` installs Docker CE or Podman on
- * every compute and login node, and `omnistat` installs Omnistat; `deviceMetricsExporter` installs
+ * every compute and login node, and `omnistat` installs Omnistat (its `hardwareCounters`, false when
+ * omitted, also collects GPU hardware counters where a node can); `deviceMetricsExporter` installs
  * AMD's Device Metrics Exporter instead (never both, and it needs a compute node with AMD GPUs). All
  * three are Slurm-only and rejected for Kubernetes; the enabled feature's `installMethod` chooses how
  * the Platform's Grafana is installed. `monitoringDashboards` (default on) gives the Platform its own
@@ -460,7 +498,7 @@ export interface DeployPlatformInput {
   gpuOperator?: GPUOperatorSettings;
   gpuDriver?: GPUDriverSettings;
   containerRuntime?: { kind: SlurmContainerRuntime };
-  omnistat?: { enabled: boolean; installMethod?: ObservabilityInstallMethod };
+  omnistat?: { enabled: boolean; installMethod?: ObservabilityInstallMethod; hardwareCounters?: boolean };
   deviceMetricsExporter?: { enabled: boolean; installMethod?: ObservabilityInstallMethod };
   k0sVersion?: string;
   podCidr?: string;

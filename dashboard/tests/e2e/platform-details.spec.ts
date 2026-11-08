@@ -137,6 +137,31 @@ test('a Slurm Platform states its cluster, the Docker CE its container Grafana b
   await expect(detailsGroup(page, 'Kubernetes')).toHaveCount(0)
 })
 
+test('a Slurm Platform lists, per compute node, whether Omnistat collects the hardware counters or why not', async ({ page }) => {
+  await installApiFixtures(page, { slurmDeployed: true, platformDeploymentWorkflows: true })
+  await page.goto('/platforms/platform-slurm-ha/monitoring?site=site-a')
+
+  const counters = page.getByLabel('GPU hardware counters (VALUBusy)')
+  await expect(counters).toContainText('VALUBusy is collected on 1 of 2 compute nodes.')
+  // Each node is named by its hostname and links to its Server; the state is text, and the
+  // unavailable node says why instead of looking failed.
+  const rows = counters.getByRole('listitem')
+  await expect(rows).toHaveCount(2)
+  await expect(rows.nth(0)).toHaveText(/slurm-cpt-01\s*Collecting/)
+  await expect(rows.nth(1)).toContainText('slurm-cpt-02')
+  await expect(rows.nth(1)).toContainText('Unavailable')
+  await expect(rows.nth(1)).toContainText('Swallow ships no counter extension for this node\u2019s ROCm version.')
+  await expect(rows.nth(0).getByRole('link', { name: 'slurm-cpt-01' })).toHaveAttribute('href', /\/servers\/slurm-cpt-1/)
+})
+
+test('a Slurm Platform that asked for no hardware counters shows no breakdown for them', async ({ page }) => {
+  await installApiFixtures(page)
+  await page.goto('/platforms/platform-slurm/monitoring?site=site-a')
+
+  await expect(page.getByLabel('Omnistat', { exact: true })).toContainText('Ready')
+  await expect(page.getByLabel('GPU hardware counters (VALUBusy)')).toHaveCount(0)
+})
+
 test('a registered Slurm Platform states its defaults, its engine on the controller, and an unresolved Integration', async ({ page }) => {
   await installApiFixtures(page)
   await page.goto('/platforms/platform-slurm/configuration?site=site-a')

@@ -11,6 +11,7 @@ export type {
   PlatformDeployFeatureContribution,
   PlatformFact,
   PlatformModuleUI,
+  PlatformMonitoringServerStates,
 } from './types'
 
 /**

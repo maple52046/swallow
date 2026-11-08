@@ -213,6 +213,21 @@ export interface PlatformMonitoringEntry {
   serverId?: string
   /** Diagnostic warning that remains attached to this component, not the whole Platform. */
   warning?: { title: string; message: string }
+  /** A per-Server breakdown of one part of this component, for example its hardware counters. */
+  serverStates?: PlatformMonitoringServerStates
+}
+
+/**
+ * A part of a monitoring component that each Server reports on its own (Omnistat's hardware
+ * counters on each compute node). The shared Monitoring route renders it under the component with a
+ * link to each Server; `summary` is shown even while `servers` is empty (for example before the
+ * install recorded them). `state` drives only the badge colour; `statusLabel` and `reason` carry the
+ * meaning in text.
+ */
+export interface PlatformMonitoringServerStates {
+  title: string
+  summary: string
+  servers: ReadonlyArray<{ serverId: string; state: string; statusLabel: string; reason?: string }>
 }
 
 /** Monitoring entries another module contributes to one Platform type. */
