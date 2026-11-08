@@ -240,8 +240,10 @@ SELinux、哪些 role 依 OS 分支）見 platform-deployment §2.3。
      （沒有時以 `[artifact_source_missing]` 失敗，比照 `docker_ce` 與 `grafana`），不自己加 apt key 或 repository。
    - image 在 Kubernetes 上寫原本的名稱（從 Local Repository 取得時 containerd 經 mirror 解析），在 Docker、Podman 上寫成
      `{{ swallow_artifacts.images['<宣告的 reference>'] }}`。
-   - pip 只在 `swallow_artifacts.python_index` 不是空字串時指定 index，否則用 pip 自己的預設 index；例如 `omnistat` 只在
-     這時以 `PIP_INDEX_URL` 與 `PIP_TRUSTED_HOST` 環境變數傳給它的安裝步驟。
+   - role 不指定 Python 的 index：pip 與 uv 讀 `artifact_sources` 寫的節點設定（`/etc/pip.conf`、`/etc/uv/uv.toml`），
+     從上游取得時用它們自己的預設 index（PyPI）。只有 `artifact_sources` 讀 `swallow_artifacts.python_index`；其他 role 與
+     playbook 不得讀它，也不得設 `PIP_INDEX_URL`、`UV_*INDEX*` 這類變數或 `--index-url` 這類參數
+     （`python_toolchain_playbook_test.go` 的 `TestOnlyArtifactSourcesChoosesAPythonIndex`）。
    - 內容測試 `artifact_sources_playbook_test.go` 強制：`uninstall-*` 以外會取得內容的 playbook 都有標記；標記的 playbook
      先執行 `artifact_sources`；role 與 playbook 不寫網際網路的 URL（註解除外），每個 `get_url` 都從
      `swallow_artifacts.files` 下載；role 固定的檔案與模組的宣告一致（§6）。
@@ -264,6 +266,9 @@ SELinux、哪些 role 依 OS 分支）見 platform-deployment §2.3。
       連結到 `/opt/swallow/bin/uv`；沒有宣告該架構時以 `[uv_unavailable]` 失敗。這個固定版本只決定 swallow 提供哪一份，
       主機已有的任何 uv 都接受。
     - 用到它的 playbook 會安裝套件與下載檔案，所以標 `fetchesArtifacts`，並依 §5 取得與釋放 hold。
+    - 以 uv 從 wheel 建立環境，安裝的內容以 hash lock 固定（`--require-hashes`）；不用 `python3 -m venv`，也不安裝
+      `python3-venv`、`python3-dev`、`build-essential`（`TestNoRoleBuildsPythonWithTheOSToolchain`）。元件先探測、不能用
+      才安裝（Omnistat 的做法見 [platform-deployment.md](platform-deployment.md) §6.3）。
 
 ## 5. 改套件的內容
 
@@ -340,6 +345,10 @@ role 的行為要實際執行才看得出來時（改寫主機設定、冪等、
 - `python_toolchain_role_test.go`：`python_toolchain` 依序使用第一個能用的 CPython 3.12 與 uv（跳過不存在的路徑、其他版本
   與不是 uv 的程式），都有時不改變主機；缺 uv 時從 httptest server 下載宣告的 release 並連結，第二次執行沒有變更；
   沒有 CPython 3.12 套件的 OS 以 `[python312_unavailable]` 停下。
+- `omnistat_converge_role_test.go`：只執行 `omnistat` 的 `tasks_from: converge`（不需要 root）。已是預期 Omnistat 的環境
+  （模擬預先烘進的 image）不帶入工具鏈、不下載，第二次執行沒有變更；沒有環境、版本不同、少一個 patch、以 pip 建的舊環境
+  都以假的 uv 重建，斷言 uv 的每個呼叫（`--require-hashes --no-build`、`--no-deps --no-build-isolation`、沒有 index），
+  重建後的環境通過探測，第二次執行不再呼叫 uv。
 
 端到端的驗證在 lab 以真機進行，規則（可用哪些機器、事先確認什麼）見 skill
 [`skills/lab-verification/SKILL.md`](../../skills/lab-verification/SKILL.md)。

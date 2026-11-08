@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -282,25 +283,31 @@ func TestAMDModuleDeclaresTheGPUOperatorImages(t *testing.T) {
 	}
 }
 
-// The Slurm module declares exactly the Python pins Omnistat installs within, so the Local
-// Repository fetches the same environment pip resolves on every node.
-func TestSlurmModuleDeclaresTheOmnistatConstraints(t *testing.T) {
+// lockedRequirement matches a requirement line of a hash-locked requirements file: name==version at
+// the start of a line, followed by its --hash continuation.
+var lockedRequirement = regexp.MustCompile(`(?m)^([A-Za-z0-9._-]+==[^\s\\]+)`)
+
+// The Slurm module declares exactly the Python pins of Omnistat's hash lock, in its order, so the
+// Local Repository serves the same environment uv installs on every node and no locked package goes
+// undeclared.
+func TestSlurmModuleDeclaresTheOmnistatLock(t *testing.T) {
 	slurm, ok := testRegistry(t).Module(moduledomain.KindPlatform, "slurm")
 	if !ok {
 		t.Fatal("no platform/slurm module")
 	}
-	data, err := os.ReadFile(filepath.Join(modulesRoot, "platform", "slurm", "roles", "omnistat", "files", "omnistat-1.15.0-constraints.txt"))
+	data, err := os.ReadFile(filepath.Join(modulesRoot, "platform", "slurm", "roles", "omnistat", "files", "omnistat-1.15.0-requirements.txt"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var pins []string
-	for _, line := range strings.Split(string(data), "\n") {
-		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
-			pins = append(pins, line)
-		}
+	for _, match := range lockedRequirement.FindAllStringSubmatch(string(data), -1) {
+		pins = append(pins, match[1])
+	}
+	if len(pins) == 0 {
+		t.Fatal("omnistat-1.15.0-requirements.txt has no name==version lines")
 	}
 	if got := slurm.Manifest.Artifacts.Python; !slices.Equal(got, pins) {
-		t.Errorf("platform/slurm python = %v, want the Omnistat constraints %v", got, pins)
+		t.Errorf("platform/slurm python = %v, want the Omnistat lock's pins %v", got, pins)
 	}
 }
 

@@ -355,7 +355,8 @@ automation））之後，在安裝或下載任何東西之前，先跑共用 rol
 role 取得 artifact 的方式在兩種模式相同：檔案以 `{{ swallow_artifacts.files['<path>'] }}` 下載、以宣告的 sha256 驗證；
 Docker 與 Podman 上的 image 寫成 `{{ swallow_artifacts.images['<reference>'] }}`；k0s 上的 image 寫原本的 reference
 （從 Local Repository 取得時，containerd 經 mirror 解析）；模組宣告的 deb 來源以名稱確認它在 `swallow_artifacts.deb`
-裡（`docker_ce` 與 `grafana` 沒有時以 `[artifact_source_missing]` 失敗）；pip 只在 `python_index` 不是空字串時指定 index。
+裡（`docker_ce` 與 `grafana` 沒有時以 `[artifact_source_missing]` 失敗）；pip 與 uv 不由 role 指定 index，讀這個 role 寫的
+節點設定，所以只有這個 role 讀 `python_index`（decision 080）。
 模組沒有宣告的 Grafana 版本仍會被拉取：從 Local Repository 時是 `<registry>/<reference>`，從上游時是原本的 reference。
 
 ### 8.3 防止回退
@@ -417,8 +418,9 @@ bundle 帶進離線的 Site。Pulp 的 import／export 是候選做法。
 - `on_demand` 取得的內容不能匯出：準備的一端必須以 immediate 取得，把內容實際存下。
 - 兩端的 pulpcore 與各 plugin 的 X.Y 版本與組合要相同，所以 bundle 綁定 swallow 的 release。
 - 匯入的路徑要列在 Pulp 的 `ALLOWED_IMPORT_PATHS`。
-- Python 的依賴（包括建置依賴）要在準備時解析完整，只靠宣告的 pin 不夠：lab 的 Omnistat 安裝時另外抓了 cmake、ninja 等
-  建置依賴，pull-through 時這些是在第一次被要求時才取得的。
+- Python 的依賴（包括建置依賴）要在準備時解析完整，只靠宣告的 pin 不夠。Omnistat 的環境以 hash lock 安裝，lock 列出
+  它的執行與建置依賴（cmake、ninja 等），模組也宣告了同樣的 pin，所以它已是完整的清單；之後以 pip 或建置隔離安裝的元件
+  要同樣處理，否則建置依賴只在第一次被要求時才取得。
 - Ubuntu archive 要決定收全量，還是只收部署用到的套件與它們的依賴。
 
 ## 10. 程式與資產位置對照（導航用）
