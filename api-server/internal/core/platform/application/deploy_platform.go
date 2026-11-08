@@ -615,9 +615,9 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 		return nil, err
 	}
 	omnistatEnabled := input.Omnistat != nil && input.Omnistat.Enabled
-	var omnistat platformdomain.OmnistatSettings
+	var jobMonitoring platformdomain.OmnistatSettings
 	if omnistatEnabled {
-		if omnistat, err = platformdomain.NormalizeOmnistatSettings(*input.Omnistat); err != nil {
+		if jobMonitoring, err = platformdomain.NormalizeOmnistatSettings(*input.Omnistat); err != nil {
 			return nil, err
 		}
 	}
@@ -690,9 +690,10 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 	var records []featureRecord
 	if omnistatEnabled {
 		record := &platformdomain.Omnistat{
-			Enabled: true, Version: platformdomain.OmnistatVersion, InstallMethod: omnistat.InstallMethod,
+			Enabled: true, Version: platformdomain.OmnistatVersion, InstallMethod: jobMonitoring.InstallMethod,
 			ObservabilityServerID: observability, State: platformdomain.OmnistatInstalling,
-			LastWorkflowID: launch.OperationID, UpdatedAt: time.Now().UTC(),
+			HardwareCounters: platformdomain.HardwareCounters{Requested: jobMonitoring.HardwareCounters},
+			LastWorkflowID:   launch.OperationID, UpdatedAt: time.Now().UTC(),
 		}
 		records = append(records, func(ctx context.Context) error {
 			return s.omnistats.SetOmnistat(ctx, platform.ID, record)
@@ -702,6 +703,7 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 			ObservabilityServerID: observability,
 			ComputeServerIDs:      validated.slurmSpec.ComputeServerIDs(),
 			InstallMethod:         record.InstallMethod,
+			HardwareCounters:      record.HardwareCounters.Requested,
 			TrustedVars:           buildOmnistatVars(platform, validated.slurmSpec, observability, gpuComputeIDs),
 		}
 		dashboardsMethod = record.InstallMethod

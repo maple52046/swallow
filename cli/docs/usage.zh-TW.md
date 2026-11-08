@@ -699,7 +699,9 @@ controller）會裝 Platform 自己的唯讀 Grafana：它經 swallow 讀取 Sit
 platform 也會多一個 Monitoring Link `Platform Grafana`。若要一併安裝 Omnistat，加上 `omnistat`：每台 compute node
 裝 exporter，由 Site 的 Prometheus 收集，Grafana 加上 Omnistat 的 dashboards。`installMethod: container`（預設）讓
 Grafana 以 container 跑在 primary controller 的 runtime 上（即上面的 `containerRuntime`，否則為 Docker CE）；
-`native` 則改由 Grafana 的 apt／yum repository 安裝。以下 `platform-slurm-omnistat.yaml` 是實跑的檔案：
+`native` 則改由 Grafana 的 apt／yum repository 安裝。`hardwareCounters: true` 另外在做得到的每台 compute node
+收集 GPU hardware counter `VALUBusy`（省略時不收集）；做不到的節點在 `omnistat.hardwareCounters.nodes` 回報原因，其他
+metrics 照常。以下 `platform-slurm-omnistat.yaml` 是實跑的檔案：
 
 ```yaml
 siteId: site1
@@ -716,6 +718,7 @@ spec:
     omnistat:
       enabled: true
       installMethod: container   # 或 native
+      hardwareCounters: true     # 做得到的 compute node 收集 VALUBusy；省略即 false
     gpuDriver:                   # 選用；topology 規則已會在需要時套用 pcie_p2p=0
       moduleOptions: {}
     slurm:
@@ -735,7 +738,7 @@ spec:
 ```bash
 swallow platforms create -f platform-slurm-omnistat.yaml --approve
 swallow workflows get <workflowId>    # ensure-os、configure-slurm、configure-podman、configure-grafana、configure-omnistat
-swallow platforms get <platformId>    # containerRuntime、omnistat.state，以及 monitoringLinks 中的 Platform Grafana
+swallow platforms get <platformId>    # containerRuntime、omnistat.state 與 .hardwareCounters，以及 monitoringLinks 中的 Platform Grafana
 ```
 
 若不用 Omnistat（兩者不可同時開啟），`deviceMetricsExporter` 會在每台 GPU compute node 安裝 AMD 的 Device

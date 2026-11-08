@@ -183,13 +183,24 @@ Choose the monitoring exporter in the Slurm workspace's Features step:
   the metrics through the Platform's Grafana, so keep the Grafana on to use it (its report needs
   GPU utilization, which SR-IOV virtual functions do not report; on those GPUs use the job
   dashboards instead).
+  - **GPU hardware counters (VALUBusy)**, checked by default under Omnistat, also collects how busy
+    each GPU's vector ALUs are, which the Grafana job dashboards show as hardware counters. Each
+    compute node collects them only when it can: it needs AMD GPUs, a ROCm version swallow ships the
+    counter extension for (ROCm 10.0 and 10.1), and a test sample that works on its GPUs. A node that
+    cannot leaves them off and keeps every other metric; the deployment never fails because of them.
+    The Platform page lists, per compute node, whether it collects them or why not. While a node
+    collects them, its exporter holds the `CAP_PERFMON` capability and keeps a profiling session on
+    every GPU (about 160 MB of GPU memory each); uncheck the option if you do not want that.
+    Changing it after deployment is not supported yet.
 - **AMD Device Metrics Exporter** collects per-GPU metrics labelled with the job on each GPU, and
   jobs keep sharing nodes. It needs a compute node with AMD GPUs.
 - **None** installs neither.
 
 The Site Prometheus collects the chosen exporter like any other; the Platform page shows its
 state. In a deploy file, `omnistat: { enabled: true }` or `deviceMetricsExporter: { enabled: true }`
-chooses one; omitting both installs neither.
+chooses one; omitting both installs neither. A deploy file asks for the hardware counters with
+`omnistat: { enabled: true, hardwareCounters: true }`; unlike the wizard, a file that omits it gets
+none.
 
 ## Other monitoring UIs
 

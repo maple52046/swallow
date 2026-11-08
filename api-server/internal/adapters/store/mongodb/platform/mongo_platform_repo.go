@@ -67,16 +67,32 @@ func toGPUDriver(doc *gpuDriverDoc) platformdomain.GPUDriverSettings {
 }
 
 // omnistatDoc persists the swallow-managed Omnistat record. lastWorkflowId is the fence
-// UpdateOmnistatState matches on. installMethod is empty on records written before the native
-// method existed, which all used the container method.
+// UpdateOmnistatState and SetHardwareCounterNodes match on. installMethod is empty on records
+// written before the native method existed, which all used the container method; hardwareCounters is
+// missing on records written before the counters existed, which asked for none.
 type omnistatDoc struct {
-	Enabled               bool      `bson:"enabled"`
-	Version               string    `bson:"version"`
-	InstallMethod         string    `bson:"installMethod,omitempty"`
-	ObservabilityServerID string    `bson:"observabilityServerId"`
-	State                 string    `bson:"state"`
-	LastWorkflowID        string    `bson:"lastWorkflowId"`
-	UpdatedAt             time.Time `bson:"updatedAt"`
+	Enabled               bool                 `bson:"enabled"`
+	Version               string               `bson:"version"`
+	InstallMethod         string               `bson:"installMethod,omitempty"`
+	ObservabilityServerID string               `bson:"observabilityServerId"`
+	State                 string               `bson:"state"`
+	HardwareCounters      *hardwareCountersDoc `bson:"hardwareCounters,omitempty"`
+	LastWorkflowID        string               `bson:"lastWorkflowId"`
+	UpdatedAt             time.Time            `bson:"updatedAt"`
+}
+
+// hardwareCountersDoc persists the record's hardware counters: the deployment's request and the
+// nodes the install reported, which SetHardwareCounterNodes replaces as a whole.
+type hardwareCountersDoc struct {
+	Requested bool                     `bson:"requested"`
+	Nodes     []hardwareCounterNodeDoc `bson:"nodes"`
+}
+
+// hardwareCounterNodeDoc is one compute node's outcome; reason is empty while it collects.
+type hardwareCounterNodeDoc struct {
+	ServerID string `bson:"serverId"`
+	State    string `bson:"state"`
+	Reason   string `bson:"reason,omitempty"`
 }
 
 // deviceMetricsExporterDoc persists the swallow-managed Device Metrics Exporter record.
@@ -348,6 +364,37 @@ func (r *MongoPlatformRepo) UpdateOmnistatState(
 	return result.MatchedCount > 0, nil
 }
 
+// SetHardwareCounterNodes implements platformdomain.OmnistatRecorder under the same lastWorkflowId
+// fence as UpdateOmnistatState. It sets only the nodes, so the requested flag the deployment wrote
+// stays; on a record written before the counters existed it creates hardwareCounters with
+// requested false.
+func (r *MongoPlatformRepo) SetHardwareCounterNodes(
+	ctx context.Context,
+	platformID, workflowID string,
+	nodes []platformdomain.HardwareCounterNode,
+	at time.Time,
+) (bool, error) {
+	if workflowID == "" {
+		return false, nil
+	}
+	result, err := r.col.UpdateOne(ctx,
+		bson.M{"_id": platformID, "omnistat.lastWorkflowId": workflowID},
+		bson.M{"$set": bson.M{"omnistat.hardwareCounters.nodes": toHardwareCounterNodeDocs(nodes), "omnistat.updatedAt": at}},
+	)
+	if err != nil {
+		return false, err
+	}
+	return result.MatchedCount > 0, nil
+}
+
+func toHardwareCounterNodeDocs(nodes []platformdomain.HardwareCounterNode) []hardwareCounterNodeDoc {
+	docs := make([]hardwareCounterNodeDoc, len(nodes))
+	for i, node := range nodes {
+		docs[i] = hardwareCounterNodeDoc{ServerID: node.ServerID, State: string(node.State), Reason: node.Reason}
+	}
+	return docs
+}
+
 // SetDeviceMetricsExporter implements platformdomain.DeviceMetricsExporterRecorder: it writes the
 // record, or unsets it for nil.
 func (r *MongoPlatformRepo) SetDeviceMetricsExporter(ctx context.Context, platformID string, exporter *platformdomain.DeviceMetricsExporter) error {
@@ -439,6 +486,9 @@ func toOmnistatDoc(omnistat *platformdomain.Omnistat) *omnistatDoc {
 	return &omnistatDoc{
 		Enabled: omnistat.Enabled, Version: omnistat.Version, InstallMethod: string(omnistat.InstallMethod),
 		ObservabilityServerID: omnistat.ObservabilityServerID, State: string(omnistat.State),
+		HardwareCounters: &hardwareCountersDoc{
+			Requested: omnistat.HardwareCounters.Requested, Nodes: toHardwareCounterNodeDocs(omnistat.HardwareCounters.Nodes),
+		},
 		LastWorkflowID: omnistat.LastWorkflowID, UpdatedAt: omnistat.UpdatedAt,
 	}
 }
@@ -451,11 +501,20 @@ func toOmnistat(doc *omnistatDoc) *platformdomain.Omnistat {
 	if method == "" {
 		method = platformdomain.ObservabilityInstallContainer
 	}
+	var counters platformdomain.HardwareCounters
+	if doc.HardwareCounters != nil {
+		counters.Requested = doc.HardwareCounters.Requested
+		for _, node := range doc.HardwareCounters.Nodes {
+			counters.Nodes = append(counters.Nodes, platformdomain.HardwareCounterNode{
+				ServerID: node.ServerID, State: platformdomain.HardwareCounterState(node.State), Reason: node.Reason,
+			})
+		}
+	}
 	return &platformdomain.Omnistat{
 		Enabled: doc.Enabled, Version: doc.Version, InstallMethod: method,
 		ObservabilityServerID: doc.ObservabilityServerID,
-		State:                 platformdomain.OmnistatState(doc.State), LastWorkflowID: doc.LastWorkflowID,
-		UpdatedAt: doc.UpdatedAt,
+		State:                 platformdomain.OmnistatState(doc.State), HardwareCounters: counters,
+		LastWorkflowID: doc.LastWorkflowID, UpdatedAt: doc.UpdatedAt,
 	}
 }
 

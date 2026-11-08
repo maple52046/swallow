@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -314,6 +315,48 @@ func TestUpdatePlatform_ReplacesAndClearsMonitoringLinks(t *testing.T) {
 	}
 	if links := parseBody(t, resp)["monitoringLinks"].([]any); len(links) != 0 {
 		t.Errorf("monitoringLinks after clear = %v, want []", links)
+	}
+}
+
+// A Slurm Platform's Omnistat reports its hardware counters: the request and each compute node's
+// outcome, with a null reason while a node collects. A record from before the counters existed reads
+// as requested false with no nodes. The contract's validator checks both shapes.
+func TestGetPlatform_ReportsTheOmnistatHardwareCounters(t *testing.T) {
+	f := setupPlatform(t)
+	seedPlatform(t, f, "platform-1", "research-slurm", "provisioning")
+	seedPlatform(t, f, "platform-2", "older-slurm", "provisioning")
+	record := func(counters platformdomain.HardwareCounters) *platformdomain.Omnistat {
+		return &platformdomain.Omnistat{
+			Enabled: true, Version: platformdomain.OmnistatVersion, InstallMethod: platformdomain.ObservabilityInstallContainer,
+			ObservabilityServerID: "server-a", State: platformdomain.OmnistatReady, HardwareCounters: counters,
+			LastWorkflowID: "workflow-1", UpdatedAt: time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC),
+		}
+	}
+	f.platformRepo.platforms["platform-1"].Omnistat = record(platformdomain.HardwareCounters{Requested: true, Nodes: []platformdomain.HardwareCounterNode{
+		{ServerID: "server-b", State: platformdomain.HardwareCountersCollecting},
+		{ServerID: "server-c", State: platformdomain.HardwareCountersUnavailable, Reason: "rocm_unsupported"},
+	}})
+	f.platformRepo.platforms["platform-2"].Omnistat = record(platformdomain.HardwareCounters{})
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/platforms/platform-1", nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET platform-1 = %d, want 200", resp.StatusCode)
+	}
+	counters := parseBody(t, resp)["omnistat"].(map[string]any)["hardwareCounters"]
+	want := map[string]any{"requested": true, "nodes": []any{
+		map[string]any{"serverId": "server-b", "state": "collecting", "reason": nil},
+		map[string]any{"serverId": "server-c", "state": "unavailable", "reason": "rocm_unsupported"},
+	}}
+	if !reflect.DeepEqual(counters, want) {
+		t.Errorf("hardwareCounters = %v, want %v", counters, want)
+	}
+
+	resp = doRequest(t, f.app, "GET", "/api/v1/platforms/platform-2", nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET platform-2 = %d, want 200", resp.StatusCode)
+	}
+	if counters := parseBody(t, resp)["omnistat"].(map[string]any)["hardwareCounters"]; !reflect.DeepEqual(counters, map[string]any{"requested": false, "nodes": []any{}}) {
+		t.Errorf("an older record's hardwareCounters = %v, want requested false with no nodes", counters)
 	}
 }
 

@@ -42,6 +42,7 @@ apply, node cordon) is a separate live surface, [platforms-kubernetes.md](platfo
 - [GPU Allocation Mode](../../../../../docs/development/glossaries/terms/gpu-allocation-mode.md)
 - [GPU Operator State](../../../../../docs/development/glossaries/terms/gpu-operator-state.md)
 - [Omnistat](../../../../../docs/development/glossaries/terms/omnistat.md)
+- [Omnistat Hardware Counters](../../../../../docs/development/glossaries/terms/omnistat-hardware-counters.md)
 - [Device Metrics Exporter](../../../../../docs/development/glossaries/terms/device-metrics-exporter.md)
 - [Managed Software](../../../../../docs/development/glossaries/terms/managed-software.md)
 
@@ -849,7 +850,7 @@ AMD's Slurm-aware GPU monitoring, in the same Workflow
   "siteId": "site-id",
   "name": "lab-slurm",
   "type": "slurm",
-  "omnistat": { "enabled": true, "installMethod": "container" },
+  "omnistat": { "enabled": true, "installMethod": "container", "hardwareCounters": true },
   "slurm": {},
   "machinePreparation": { "mode": "provision_os", "settings": { "imageId": "slurm-os-image-id" } }
 }
@@ -877,6 +878,20 @@ deployment succeeds only when every composed Job does. Omnistat and the
 software rules refuse (for example Docker CE requested where Podman is installed, the two being
 mutually exclusive) returns `409 conflict` before anything is created.
 
+`hardwareCounters` asks Omnistat to also collect GPU
+[hardware counters](../../../../../docs/development/glossaries/terms/omnistat-hardware-counters.md) through
+ROCProfiler-SDK; today only `VALUBusy`, which Omnistat serves as
+`omnistat_hardware_counter{source="gpu",card="<n>",name="VALUBusy"}`. Omitted, it is `false`, so redeploying
+a Platform deployed before does not turn them on; the dashboard's deploy wizard asks for them by
+default. Each compute node decides for itself: it collects them only when it has AMD compute GPUs, its
+ROCm minor has an extension swallow publishes
+([decision 079](../../../../../docs/decisions/079-release-built-host-artifacts.md) (release-built host
+artifacts)), its glibc is not older than the extension's builder, and a probe in a separate process
+loads the extension and samples the counters; its exporter then runs with `CAP_PERFMON`. A node that
+cannot collect them leaves them off, reports why, and keeps serving everything else: the deployment
+never fails because of them. `hardwareCounters` on a request without an enabled `omnistat` changes
+nothing.
+
 The Platform then reports:
 
 ```json
@@ -886,10 +901,26 @@ The Platform then reports:
   "installMethod": "container",
   "observabilityServerId": "server-a",
   "state": "ready",
+  "hardwareCounters": {
+    "requested": true,
+    "nodes": [
+      { "serverId": "server-b", "state": "collecting", "reason": null },
+      { "serverId": "server-c", "state": "unavailable", "reason": "rocm_unsupported" }
+    ]
+  },
   "lastWorkflowId": "operation-id",
   "updatedAt": "2026-10-21T00:00:00Z"
 }
 ```
+
+`hardwareCounters.requested` is the deployment's choice. `nodes` lists the compute nodes of the
+install that last ran, sorted by `serverId`: `state` is exactly
+`collecting | unavailable`, and `reason` is `null` while collecting, otherwise exactly one of
+`no_gpu | rocm_unsupported | glibc_too_old | artifact_unavailable | probe_failed | exporter_failed`
+(their meanings are the glossary's). `nodes` is empty until the install that asked for them
+succeeded, and stays empty when they were not asked for; it belongs to `lastWorkflowId`, like
+`state`. swallow does not watch the nodes afterwards: the next deployment decides again. Changing
+`hardwareCounters` after the deployment is the unsupported `change-omnistat` change.
 
 `state` is the Omnistat State, exactly `installing | ready | failed | absent`: `installing` from
 acceptance until the Omnistat Task finishes, `ready` when it succeeded (every compute node's
@@ -1486,6 +1517,10 @@ transport/auth failures return `provider_unavailable`; provider rejection return
   of the Grafana root. Schema v14 points the `Platform Grafana` link of every Platform deployed
   before at the same landing dashboard, from its applied settings, unless a user pointed it at
   another page. The response shape is unchanged.
+- Since 2026-11-08 a Slurm deploy's `omnistat` takes `hardwareCounters` (default `false`), and
+  `omnistat` in the response always carries `hardwareCounters` (`requested: false` and no nodes for a
+  Platform deployed before). Additive: a request without the field installs Omnistat as before. The
+  same day Omnistat's environment became uv-built from a hash lock; the API does not change.
 - Since 2026-11-04 (schema v13) every Platform without the Monitoring Link `Platform Grafana`
   has `settings.monitoringDashboards: false` in its spec and applied spec; turn it on to install
   the Platform's Grafana with a new deployment. Writing `true` on such a Platform used to be no

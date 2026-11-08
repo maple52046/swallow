@@ -1199,6 +1199,14 @@ components:
       type: string
       description: Omnistat State.
       enum: [installing, ready, failed, absent]
+    HardwareCounterState:
+      type: string
+      description: Whether a compute node collects the Omnistat Hardware Counters.
+      enum: [collecting, unavailable]
+    HardwareCounterReason:
+      type: string
+      description: Why a compute node does not collect the Omnistat Hardware Counters.
+      enum: [no_gpu, rocm_unsupported, glibc_too_old, artifact_unavailable, probe_failed, exporter_failed]
     DeviceMetricsExporterState:
       type: string
       description: Device Metrics Exporter State; same meaning and fence as the Omnistat State.
@@ -1576,6 +1584,7 @@ components:
         - installMethod
         - observabilityServerId
         - state
+        - hardwareCounters
         - lastWorkflowId
         - updatedAt
       properties:
@@ -1590,12 +1599,41 @@ components:
           description: The primary controller, which hosts the Platform's Grafana.
         state:
           $ref: '#/components/schemas/OmnistatState'
+        hardwareCounters:
+          $ref: '#/components/schemas/PlatformOmnistatHardwareCounters'
         lastWorkflowId:
           type: string
           nullable: true
           description: The only Workflow that may move `state`.
         updatedAt:
           $ref: '#/components/schemas/Timestamp'
+    PlatformOmnistatHardwareCounters:
+      type: object
+      description: >-
+        The deployment's request for GPU hardware counters and each compute node's outcome, recorded by
+        the install of `lastWorkflowId` once it succeeded.
+      required: [requested, nodes]
+      properties:
+        requested:
+          type: boolean
+        nodes:
+          type: array
+          description: The compute nodes, sorted by `serverId`; empty until the install recorded them.
+          items:
+            $ref: '#/components/schemas/PlatformOmnistatHardwareCounterNode'
+    PlatformOmnistatHardwareCounterNode:
+      type: object
+      required: [serverId, state, reason]
+      properties:
+        serverId:
+          type: string
+        state:
+          $ref: '#/components/schemas/HardwareCounterState'
+        reason:
+          allOf:
+            - $ref: '#/components/schemas/HardwareCounterReason'
+          nullable: true
+          description: Null while `collecting`.
     PlatformDeviceMetricsExporter:
       type: object
       description: The swallow-managed Device Metrics Exporter of a Slurm Platform.
@@ -1802,7 +1840,7 @@ components:
           $ref: '#/components/schemas/SlurmSettings'
         omnistat:
           allOf:
-            - $ref: '#/components/schemas/SlurmMonitoringFeature'
+            - $ref: '#/components/schemas/SlurmOmnistatFeature'
           description: Install Omnistat; mutually exclusive with an enabled `deviceMetricsExporter`.
         deviceMetricsExporter:
           allOf:
@@ -1892,6 +1930,26 @@ components:
           default: container
           description: >-
             How the Platform's Grafana is installed; without an enabled feature it uses `container`.
+    SlurmOmnistatFeature:
+      type: object
+      description: >-
+        Omnistat on a Slurm deploy; omitted or `enabled: false` installs nothing.
+      properties:
+        enabled:
+          type: boolean
+          default: false
+        installMethod:
+          allOf:
+            - $ref: '#/components/schemas/ObservabilityInstallMethod'
+          default: container
+          description: >-
+            How the Platform's Grafana is installed; without an enabled feature it uses `container`.
+        hardwareCounters:
+          type: boolean
+          default: false
+          description: >-
+            Also collect GPU hardware counters (today `VALUBusy`) on each compute node that can; a node
+            that cannot leaves them off and reports why, and the deployment does not fail.
     SlurmContainerRuntime:
       type: object
       description: The container runtime for every compute and login node; omitted installs none.

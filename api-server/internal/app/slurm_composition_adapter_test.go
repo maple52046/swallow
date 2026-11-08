@@ -25,6 +25,10 @@ type omnistatStateRecorder struct {
 	calls                  int
 }
 
+func (r *omnistatStateRecorder) SetHardwareCounterNodes(context.Context, string, string, []platformdomain.HardwareCounterNode, time.Time) (bool, error) {
+	return false, nil
+}
+
 func (r *omnistatStateRecorder) SetOmnistat(context.Context, string, *platformdomain.Omnistat) error {
 	return nil
 }
@@ -451,7 +455,7 @@ func TestSlurmCompositionComposesOmnistat(t *testing.T) {
 		RequestedBy:     "admin",
 		Omnistat: &platformdomain.OmnistatLaunch{
 			ObservabilityServerID: "s1", ComputeServerIDs: []string{"s2"}, InstallMethod: platformdomain.ObservabilityInstallNative,
-			TrustedVars: map[string]any{"swallow_omnistat_compute_ids": []string{"s2"}},
+			HardwareCounters: true, TrustedVars: map[string]any{"swallow_omnistat_compute_ids": []string{"s2"}},
 		},
 		MonitoringDashboards: &platformdomain.MonitoringDashboardsLaunch{ServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallNative},
 	}
@@ -463,10 +467,20 @@ func TestSlurmCompositionComposesOmnistat(t *testing.T) {
 		t.Fatalf("composed Tasks = %v", got)
 	}
 	omnistat := plan.steps[2]
-	if want := []workflowdomain.Completion{featureState(completionOmnistatState, "plat-1", "op-1")}; !reflect.DeepEqual(omnistat.Completion, want) {
+	want := []workflowdomain.Completion{
+		featureState(completionOmnistatState, "plat-1", "op-1"),
+		{Type: completionOmnistatHardwareCounters, Params: map[string]any{completionParamRecord: "op-1"}},
+	}
+	if !reflect.DeepEqual(omnistat.Completion, want) {
 		t.Errorf("Omnistat Task completion = %v, want %v", omnistat.Completion, want)
 	}
 	vars := extraVars(t, omnistat)
+	if vars[omnistatHardwareCountersVar] != true {
+		t.Errorf("%s = %v, want the deployment's request (true)", omnistatHardwareCountersVar, vars[omnistatHardwareCountersVar])
+	}
+	if _, shared := launch.Omnistat.TrustedVars[omnistatHardwareCountersVar]; shared {
+		t.Errorf("composing the Task wrote %s into the launch's own variables", omnistatHardwareCountersVar)
+	}
 	if addresses, _ := vars[omnistatScrapeAddressesVar].([]string); !slices.Equal(addresses, []string{"10.170.168.20", "192.168.100.1"}) {
 		t.Errorf("%s = %v", omnistatScrapeAddressesVar, vars[omnistatScrapeAddressesVar])
 	}
@@ -475,6 +489,39 @@ func TestSlurmCompositionComposesOmnistat(t *testing.T) {
 	}
 	if !slices.Equal(omnistat.Targets, serverRefs("s1", "s2")) {
 		t.Errorf("Omnistat Task targets = %v, want every target", omnistat.Targets)
+	}
+}
+
+// A configure-omnistat run's hardwareCounters.nodes are read as the Platform records them; a node
+// the playbook reported in a shape swallow does not know (an unknown reason, a reason while
+// collecting, no serverId) is left out instead of failing the Task, and a run that asked for no
+// counters reports no nodes. The completion is registered as a result.
+func TestOmnistatHardwareCountersResultReadsTheNodes(t *testing.T) {
+	if completionClasses()[completionOmnistatHardwareCounters] != workflowdomain.CompletionResult {
+		t.Fatalf("%s is not a result completion", completionOmnistatHardwareCounters)
+	}
+	if _, ok := workflowResults(platformDeploymentObserver{})[completionOmnistatHardwareCounters]; !ok {
+		t.Fatalf("no result handler for %s", completionOmnistatHardwareCounters)
+	}
+	nodes := hardwareCounterNodesOf("plat-1", "deploy-1", map[string]any{
+		"grafanaUrl": "http://10.0.0.1:3000",
+		"hardwareCounters": map[string]any{"nodes": []any{
+			map[string]any{"serverId": "s3", "state": "unavailable", "reason": "rocm_unsupported"},
+			map[string]any{"serverId": "s2", "state": "collecting", "reason": ""},
+			map[string]any{"serverId": "s4", "state": "unavailable", "reason": "cosmic_rays"},
+			map[string]any{"serverId": "s5", "state": "collecting", "reason": "probe_failed"},
+			map[string]any{"state": "collecting", "reason": ""},
+		}},
+	})
+	want := []platformdomain.HardwareCounterNode{
+		{ServerID: "s3", State: platformdomain.HardwareCountersUnavailable, Reason: "rocm_unsupported"},
+		{ServerID: "s2", State: platformdomain.HardwareCountersCollecting},
+	}
+	if !reflect.DeepEqual(nodes, want) {
+		t.Errorf("hardwareCounterNodesOf() = %v, want %v", nodes, want)
+	}
+	if nodes := hardwareCounterNodesOf("plat-1", "deploy-1", map[string]any{"grafanaUrl": "http://10.0.0.1:3000"}); len(nodes) != 0 {
+		t.Errorf("a run without counters reported %v, want no nodes", nodes)
 	}
 }
 

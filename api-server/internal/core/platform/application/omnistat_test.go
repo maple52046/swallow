@@ -35,6 +35,18 @@ func (r *fakeOmnistatRecorder) UpdateOmnistatState(context.Context, string, stri
 	return false, nil
 }
 
+// SetHardwareCounterNodes applies the write only under the record's fence, as the store does.
+func (r *fakeOmnistatRecorder) SetHardwareCounterNodes(
+	_ context.Context, id, workflowID string, nodes []platformdomain.HardwareCounterNode, _ time.Time,
+) (bool, error) {
+	platform, ok := r.platforms.platforms[id]
+	if !ok || platform.Omnistat == nil || platform.Omnistat.LastWorkflowID != workflowID {
+		return false, nil
+	}
+	platform.Omnistat.HardwareCounters.Nodes = slices.Clone(nodes)
+	return true, nil
+}
+
 func omnistatSlurmInput() DeployPlatformInput {
 	input := validSlurmInput()
 	input.SlurmSpec.NodeAssignments = []platformdomain.SlurmNodeAssignment{
@@ -79,6 +91,61 @@ func TestDeploySlurmWithOmnistatRecordsTheWorkflowBeforeLaunch(t *testing.T) {
 	}
 	if computes, _ := vars[varOmnistatComputeIDs].([]string); !slices.Equal(computes, []string{"s2", "s3"}) {
 		t.Errorf("%s = %v, want [s2 s3]", varOmnistatComputeIDs, vars[varOmnistatComputeIDs])
+	}
+}
+
+// The deployment's request for hardware counters is the record's intent from acceptance, with no
+// nodes until the install reports them, and the launch hands it on; omitted, it is false.
+func TestDeploySlurmRecordsTheHardwareCountersRequest(t *testing.T) {
+	for _, requested := range []bool{true, false} {
+		service, launcher, platforms := newDeployHarness(slurmServers()...)
+		input := omnistatSlurmInput()
+		input.Omnistat.HardwareCounters = requested
+		result, err := service.Deploy(context.Background(), input)
+		if err != nil {
+			t.Fatalf("Deploy(hardwareCounters %v) error = %v", requested, err)
+		}
+		counters := platforms.platforms[result.PlatformID].Omnistat.HardwareCounters
+		if counters.Requested != requested || len(counters.Nodes) != 0 {
+			t.Errorf("recorded hardware counters %+v, want requested %v without nodes", counters, requested)
+		}
+		if launcher.launched.Omnistat.HardwareCounters != requested {
+			t.Errorf("launched hardware counters %v, want %v", launcher.launched.Omnistat.HardwareCounters, requested)
+		}
+	}
+}
+
+// The nodes an install reports are recorded sorted by Server id under the record's fence, so a
+// superseded Workflow's late result changes nothing, and they keep the deployment's request.
+func TestRecordHardwareCounterNodesIsFencedOnTheRecord(t *testing.T) {
+	service, launcher, platforms, servers := newClaimingDeployHarness(slurmServers()...)
+	input := omnistatSlurmInput()
+	input.Omnistat.HardwareCounters = true
+	result, err := service.Deploy(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Deploy() error = %v", err)
+	}
+	platformService := mustPlatformService(testPlatformServiceDeps(platforms, servers))
+	reported := []platformdomain.HardwareCounterNode{
+		{ServerID: "s3", State: platformdomain.HardwareCountersUnavailable, Reason: "probe_failed"},
+		{ServerID: "s2", State: platformdomain.HardwareCountersCollecting},
+	}
+	if err := platformService.RecordHardwareCounterNodes(context.Background(), result.PlatformID, "superseded", reported); err != nil {
+		t.Fatalf("RecordHardwareCounterNodes(superseded) error = %v", err)
+	}
+	if nodes := platforms.platforms[result.PlatformID].Omnistat.HardwareCounters.Nodes; len(nodes) != 0 {
+		t.Errorf("a superseded Workflow recorded %v, want nothing", nodes)
+	}
+	if err := platformService.RecordHardwareCounterNodes(context.Background(), result.PlatformID, launcher.launched.OperationID, reported); err != nil {
+		t.Fatalf("RecordHardwareCounterNodes() error = %v", err)
+	}
+	counters := platforms.platforms[result.PlatformID].Omnistat.HardwareCounters
+	want := []platformdomain.HardwareCounterNode{reported[1], reported[0]}
+	if !counters.Requested || !reflect.DeepEqual(counters.Nodes, want) {
+		t.Errorf("recorded %+v, want requested with %v", counters, want)
+	}
+	if reported[0].ServerID != "s3" {
+		t.Errorf("recording sorted the caller's slice: %v", reported)
 	}
 }
 

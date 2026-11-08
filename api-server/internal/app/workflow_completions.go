@@ -28,7 +28,10 @@ const (
 	completionDeviceMetricsExporterState  = "device-metrics-exporter-state"
 	completionOmnistatResult              = "omnistat-result"
 	completionDeviceMetricsExporterResult = "device-metrics-exporter-result"
-	completionPlatformUninstall           = "platform-uninstall"
+	// completionOmnistatHardwareCounters records each compute node's hardware counters outcome the
+	// configure-omnistat run reported, fenced on the Omnistat record.
+	completionOmnistatHardwareCounters = "omnistat-hardware-counters"
+	completionPlatformUninstall        = "platform-uninstall"
 	// completionPlatformGrafanaResult records the Grafana URL a Platform's own Grafana install
 	// reported as the Platform's Platform Grafana Monitoring Link.
 	completionPlatformGrafanaResult = "platform-grafana-result"
@@ -55,7 +58,8 @@ func completionClasses() map[string]workflowdomain.CompletionClass {
 		completionOmnistatState: projection, completionDeviceMetricsExporterState: projection,
 		kubeapi.CredentialCompletion: result, slurmapi.CredentialCompletion: result,
 		completionOmnistatResult: result, completionDeviceMetricsExporterResult: result,
-		completionPlatformUninstall: result, completionPlatformGrafanaResult: result,
+		completionOmnistatHardwareCounters: result,
+		completionPlatformUninstall:        result, completionPlatformGrafanaResult: result,
 	}
 }
 
@@ -227,6 +231,11 @@ func workflowResults(observer platformDeploymentObserver, credentials ...platfor
 		completionDeviceMetricsExporterResult: resultFunc(func(ctx context.Context, r workflowapp.TaskResult) error {
 			recordID, _ := r.Completion.Params[completionParamRecord].(string)
 			return observer.completeDeviceMetricsExporter(ctx, r.Workflow.PlatformID, r.Workflow.ID, recordID,
+				workflowdomain.RunnerResult{Data: r.Data})
+		}),
+		completionOmnistatHardwareCounters: resultFunc(func(ctx context.Context, r workflowapp.TaskResult) error {
+			recordID, _ := r.Completion.Params[completionParamRecord].(string)
+			return observer.recordHardwareCounters(ctx, r.Workflow.PlatformID, r.Workflow.ID, recordID,
 				workflowdomain.RunnerResult{Data: r.Data})
 		}),
 		completionPlatformUninstall: resultFunc(func(ctx context.Context, r workflowapp.TaskResult) error {

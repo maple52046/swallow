@@ -1944,6 +1944,18 @@ func (fakeFeatureRecorder) UpdateOmnistatState(context.Context, string, string, 
 	return false, nil
 }
 
+// SetHardwareCounterNodes applies the write only under the record's fence, as the store does.
+func (r fakeFeatureRecorder) SetHardwareCounterNodes(
+	_ context.Context, platformID, workflowID string, nodes []platformdomain.HardwareCounterNode, _ time.Time,
+) (bool, error) {
+	platform, ok := r.platforms.platforms[platformID]
+	if !ok || platform.Omnistat == nil || platform.Omnistat.LastWorkflowID != workflowID {
+		return false, nil
+	}
+	platform.Omnistat.HardwareCounters.Nodes = append([]platformdomain.HardwareCounterNode(nil), nodes...)
+	return true, nil
+}
+
 func (r fakeFeatureRecorder) SetDeviceMetricsExporter(_ context.Context, platformID string, exporter *platformdomain.DeviceMetricsExporter) error {
 	platform, ok := r.platforms.platforms[platformID]
 	if !ok {
