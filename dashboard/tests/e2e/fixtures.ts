@@ -877,6 +877,9 @@ function repositoryFiles(scenario: LocalRepositoryScenario) {
     k0s,
     file('omnistat/v1.15.0.tar.gz', 'https://github.com/ROCm/omnistat/archive/refs/tags/v1.15.0.tar.gz',
       '899c681179b8dfe5b3ccebde360c7a39ef2fe13cd0fdebb34d088963ad32f96f', 'slurm', 1_048_576),
+    file('victoriametrics/1.155.0/victoria-metrics-linux-amd64-v1.155.0.tar.gz',
+      'https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/v1.155.0/victoria-metrics-linux-amd64-v1.155.0.tar.gz',
+      '7180e65913d55ab99c0be8f4a3ad17a0fafe5598a21ff6327fecba3190d7b176', 'victoriametrics', 14_891_085),
   ]
 }
 
@@ -1268,6 +1271,27 @@ const nfsSpecSchema = {
     source: { type: 'string', title: 'Source (client)', description: 'Required when a Server takes the client role (host:/path).', examples: ['10.0.0.9:/export/data'] },
     mountPath: { type: 'string', title: 'Mount path (client)', examples: ['/shared'] },
     mountOptions: { type: 'string', title: 'Mount options (client)', examples: ['rw,_netdev'] },
+  },
+}
+
+/** The spec schema the VictoriaMetrics module declares (`api-server/modules/software/victoriametrics/module.json`). */
+const victoriaMetricsSpecSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    listen: {
+      type: 'string',
+      title: 'Answers on',
+      description: 'loopback (the default) answers only processes on this Server, such as its Grafana; management answers on the Server\'s management address. VictoriaMetrics has no login: anyone who reaches it can read and write every series.',
+      enum: ['loopback', 'management'],
+    },
+    retention: {
+      type: 'string',
+      title: 'Retention',
+      description: 'How long samples are kept: a whole number with d (days), w (weeks), M (months), or y (years), at most 100 years. Leave blank for VictoriaMetrics\'s default, 1M.',
+      examples: ['1M'],
+      pattern: '^[1-9][0-9]{0,4}[dwMy]$',
+    },
   },
 }
 
@@ -2550,9 +2574,11 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         { kind: 'grafana', label: 'Grafana', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: ['container', 'native'], containerRuntimes: ['docker-ce', 'podman'], specFields: ['installMethod', 'containerRuntime', 'version', 'prometheusUrl', 'dashboards'] },
         { kind: 'device-metrics-exporter', label: 'AMD Device Metrics Exporter', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: true, refusedForClaimedServers: true, requiresAmdComputeGpu: true, installMethods: [], containerRuntimes: [], specFields: [] },
         { kind: 'node-exporter', label: 'Node Exporter', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: [], containerRuntimes: [], specFields: [] },
+        { kind: 'victoriametrics', label: 'VictoriaMetrics', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: [], containerRuntimes: [], specFields: ['listen', 'retention'] },
       ] })
     }
-    // Modules (modules.md): the build's modules; NFS declares the spec schema its install form reads.
+    // Modules (modules.md): the build's modules; NFS and VictoriaMetrics declare the spec schemas
+    // their install forms read.
     if (path === '/api/v1/modules') {
       if (options.modulesUnavailable) return json(route, { error: { code: 'internal', message: 'module list unavailable' } }, 500)
       return json(route, { items: [
@@ -2562,6 +2588,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         ...['device-metrics-exporter', 'docker-ce', 'grafana'].map((id) => ({ kind: 'software', id, version: '0.1.0', spec: null })),
         { kind: 'software', id: 'nfs', version: '0.1.0', spec: nfsSpecSchema },
         ...['node-exporter', 'podman', 'prometheus'].map((id) => ({ kind: 'software', id, version: '0.1.0', spec: null })),
+        { kind: 'software', id: 'victoriametrics', version: '0.1.0', spec: victoriaMetricsSpecSchema },
       ] })
     }
     // Registry Credentials (registry-credentials.md): responses never carry a password.

@@ -1,0 +1,37 @@
+---
+# Install VictoriaMetrics as Managed Software (docs/development/software-deployment.md): one pinned
+# single-node VictoriaMetrics per Server, from the release archive the module declares, under a
+# swallow-owned systemd unit. Intent arrives only through trusted variables:
+#   swallow_victoriametrics_version    pinned release (the module's declared archive)
+#   swallow_victoriametrics_listen     loopback (default) or management
+#   swallow_victoriametrics_retention  how long samples are kept (1M, 90d, 2y, ...)
+#   swallow_victoriametrics_port       HTTP port (owned by the module)
+#   swallow_artifacts                  where the release archive comes from
+# Idempotent: a converged host reruns with no changes.
+
+- name: Hold the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: package_maintenance_hold
+
+- name: Point every target at the run's artifact sources
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: artifact_sources
+
+- name: Install VictoriaMetrics
+  hosts: all
+  gather_facts: true
+  roles:
+    - role: victoriametrics
+
+- name: Release the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Release the package maintenance hold
+      ansible.builtin.include_role:
+        name: package_maintenance_hold
+        tasks_from: release

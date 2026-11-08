@@ -1,4 +1,4 @@
-import { Activity, Box, Container, FolderSync, Gauge, LayoutDashboard, type LucideIcon } from 'lucide-react'
+import { Activity, Box, Container, Database, FolderSync, Gauge, LayoutDashboard, type LucideIcon } from 'lucide-react'
 import { hasAMDComputeGPU } from '@/domain/platform/gpuOperator'
 import type { Server } from '@/domain/server/types'
 import { serverDisplayName } from '@/domain/server/types'
@@ -117,6 +117,14 @@ const PRESENTATION: Record<SoftwareKind, SoftwareCatalogPresentation> = {
     icon: Activity,
     order: 5,
     capabilities: ['Host metrics', 'OS package', 'Installed with each OS deployment'],
+    hasSettings: false,
+  },
+  victoriametrics: {
+    category: 'observability',
+    description: 'Store metrics in a pinned single-node VictoriaMetrics on port 8428, which Prometheus-compatible clients write to and a Grafana reads through its Prometheus URL.',
+    icon: Database,
+    order: 15,
+    capabilities: ['Prometheus-compatible query API', 'Configurable retention', 'Native install'],
     hasSettings: false,
   },
 }
@@ -330,7 +338,8 @@ export function softwareAssignmentSummary(assignment: SoftwareAssignment): strin
     const count = spec.scrapeTargets.length
     parts.push(`${count} scrape target${count === 1 ? '' : 's'}`)
   }
-  if (assignment.kind === 'prometheus') {
+  // Prometheus and VictoriaMetrics share the listen choice and record a retention.
+  if (assignment.kind === 'prometheus' || assignment.kind === 'victoriametrics') {
     if (spec.listen === 'loopback') parts.push('This Server only')
     if (spec.listen === 'management') parts.push('Management address')
     if (typeof spec.retention === 'string' && spec.retention) parts.push(`Retention ${spec.retention}`)
@@ -340,5 +349,6 @@ export function softwareAssignmentSummary(assignment: SoftwareAssignment): strin
   }
   if (assignment.kind === 'device-metrics-exporter') parts.push('Port 5001')
   if (assignment.kind === 'node-exporter') parts.push('Port 9100')
+  if (assignment.kind === 'victoriametrics') parts.push('Port 8428')
   return parts.join(' · ') || 'Default configuration'
 }

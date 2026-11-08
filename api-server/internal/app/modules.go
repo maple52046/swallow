@@ -26,13 +26,14 @@ import (
 	nodeexporter "github.com/maple52046/swallow/modules/software/node-exporter"
 	"github.com/maple52046/swallow/modules/software/podman"
 	"github.com/maple52046/swallow/modules/software/prometheus"
+	"github.com/maple52046/swallow/modules/software/victoriametrics"
 )
 
 // compiledModules are the modules this build includes, by their root package's Module function.
 var compiledModules = []func() (moduledomain.Module, error){
 	kubernetes.Module, slurm.Module, amd.Module,
 	dockerce.Module, podman.Module, nfs.Module, prometheus.Module, grafana.Module, devicemetricsexporter.Module,
-	nodeexporter.Module,
+	nodeexporter.Module, victoriametrics.Module,
 }
 
 // moduleRegistry returns the registry of the modules compiled into this build (decision 075). api,

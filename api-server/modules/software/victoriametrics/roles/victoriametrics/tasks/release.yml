@@ -1,0 +1,84 @@
+---
+# The pinned VictoriaMetrics release from where the run's artifacts come from. The guard is the version
+# the installed binary reports, not its presence, so a binary an interrupted run left behind is
+# replaced and a rerun at the pinned version changes nothing. Older releases are removed once the
+# pinned one is in place.
+
+- name: Resolve the pinned VictoriaMetrics release
+  ansible.builtin.set_fact:
+    victoriametrics_release: >-
+      {{ (victoriametrics_releases[victoriametrics_version] | default({}))[victoriametrics_arch] | default({}) }}
+    victoriametrics_archive: "{{ victoriametrics_root }}/victoriametrics-{{ victoriametrics_version }}.tar.gz"
+
+- name: Refuse a release swallow does not declare
+  ansible.builtin.fail:
+    msg: >-
+      [victoriametrics_release_unavailable] VictoriaMetrics {{ victoriametrics_version }} for
+      {{ victoriametrics_arch }} is not a release swallow declares
+      ({{ victoriametrics_releases | list | join(', ') }}), and a run fetches only declared artifacts.
+  when: victoriametrics_release.path is not defined
+
+- name: Read the installed VictoriaMetrics release
+  ansible.builtin.command:
+    argv: ["{{ victoriametrics_binary }}", -version]
+  register: victoriametrics_installed
+  changed_when: false
+  failed_when: false
+
+- name: Decide whether the pinned release must be installed
+  # The binary reports its build as victoria-metrics-<date>-<time>-tags-v<version>-<commits>-g<hash>.
+  # The service restarts when this is true, so a replaced binary is the one that runs.
+  ansible.builtin.set_fact:
+    victoriametrics_release_changed: >-
+      {{ ('-tags-v' ~ victoriametrics_version ~ '-') not in (victoriametrics_installed.stdout | default('')) }}
+
+- name: Install the pinned VictoriaMetrics release
+  when: victoriametrics_release_changed | bool
+  block:
+    - name: Create the VictoriaMetrics release directory
+      ansible.builtin.file:
+        path: "{{ victoriametrics_root }}/{{ victoriametrics_version }}"
+        state: directory
+        mode: "0755"
+
+    - name: Download the VictoriaMetrics release
+      # get_url checks the SHA-256 before it moves the archive into place, so a corrupted download is
+      # never unpacked.
+      ansible.builtin.get_url:
+        url: "{{ swallow_artifacts.files[victoriametrics_release.path] }}"
+        dest: "{{ victoriametrics_archive }}"
+        checksum: "sha256:{{ victoriametrics_release.sha256 }}"
+        mode: "0644"
+      register: victoriametrics_download
+      until: victoriametrics_download is succeeded
+      retries: 5
+      delay: 10
+
+    - name: Unpack the VictoriaMetrics binary
+      # The upstream archive records owner 1000:1000, the default login user of most cloud images;
+      # keeping it would let that account replace the binary the service runs.
+      ansible.builtin.unarchive:
+        src: "{{ victoriametrics_archive }}"
+        dest: "{{ victoriametrics_root }}/{{ victoriametrics_version }}"
+        remote_src: true
+        extra_opts: [--no-same-owner]
+
+    - name: Remove the downloaded archive
+      ansible.builtin.file:
+        path: "{{ victoriametrics_archive }}"
+        state: absent
+
+- name: Find older VictoriaMetrics releases
+  ansible.builtin.find:
+    paths: "{{ victoriametrics_root }}"
+    file_type: any
+    excludes: ["{{ victoriametrics_version }}"]
+  register: victoriametrics_old_releases
+
+- name: Remove older VictoriaMetrics releases
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ victoriametrics_old_releases.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"

@@ -1438,6 +1438,41 @@ test.describe('Software installation flow visual review', () => {
     await capture(page, testInfo, 'software-nfs-recorded-settings', false)
   })
 
+  // VictoriaMetrics: its detail page with an installed deployment's summary, and the install form its
+  // module's schema generates, with a retention the schema's format refuses.
+  test('VictoriaMetrics detail and generated settings', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    await installApiFixtures(page, {
+      fleetSize: 5,
+      softwareAssignments: [
+        ...visualSoftwareAssignments,
+        {
+          serverId: 'srv-5', kind: 'victoriametrics', roles: [], spec: { version: '1.155.0', listen: 'management', retention: '90d' },
+          state: 'installed', lastWorkflowId: 'op-vm-srv-5', lastAppliedAt: '2026-08-26T08:00:00Z',
+          createdAt: '2026-08-26T07:50:00Z', updatedAt: '2026-08-26T08:00:00Z',
+        },
+      ],
+    })
+    await setAppearance(page, appearance)
+    await page.goto('/software/victoriametrics?site=site-a')
+    await expect(page.locator('[aria-label="VictoriaMetrics deployments"]:visible')).toContainText('Retention 90d')
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'software-victoriametrics-detail')
+
+    await page.locator('header').getByRole('button', { name: 'Install software', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Install software' })
+    await dialog.getByRole('textbox', { name: 'Search installation targets' }).fill('gpu-node-01')
+    await dialog.getByText('Select all available results', { exact: true }).click()
+    await dialog.getByRole('button', { name: 'Next', exact: true }).click()
+    await dialog.getByRole('textbox', { name: 'Retention' }).fill('12h')
+    await expect(dialog.getByText('Retention does not have the expected format.')).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'software-victoriametrics-generated-settings', false)
+  })
+
   // The AMD Device Metrics Exporter (decision 068): its catalog card under Observability, a
   // deployment its Platform manages, and the install picker's GPU and Platform blockers.
   test('AMD Device Metrics Exporter', async ({ page }, testInfo) => {

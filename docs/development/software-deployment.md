@@ -80,6 +80,7 @@ image（`cloud-user`）的機器。所有候選帳號都登不進去時（例如
 | `grafana` | 無 role；`installMethod`；`containerRuntime` | `installMethod`、`containerRuntime`、`version`（預設 `12.4.12`）、`prometheusUrl`（省略＝同機 Prometheus）、`dashboards`（bundle：`node-exporter`、`omnistat`、`device-metrics-exporter`） | container method 需 runtime 已 `installed` |
 | `device-metrics-exporter` | 無 role；只有 native 一種安裝路徑 | 無（版本固定 `1.5.3`，assignment spec 記錄 `version`） | GPU Inventory 須有 AMD compute GPU；拒絕 Kubernetes member 與帶 Platform Claim 的 Server（`refusedForClaimedServers`，install 與 uninstall 皆拒）；OS 限 Ubuntu 24.04（playbook 檢查） |
 | `node-exporter` | 無 role；只有 OS 套件一種安裝路徑 | 無（版本由 OS 套件決定） | 可與 Platform 共存；OS 限 Debian／Ubuntu 與 RHEL 家族（playbook 檢查） |
+| `victoriametrics` | 無 role；只有 native 一種安裝路徑 | `listen`（`loopback` 預設／`management`）、`retention`（整數加 `d`／`w`／`M`／`y`，預設 `1M`，至多 100 年）；版本固定 `1.155.0`，assignment spec 記錄 `version` | 可與 Platform 共存；只宣告 amd64 的 release |
 
 catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴充新 kind（未來 PostgreSQL、LDAP client）
 就是新增一個 Software 模組，前提是仍只依賴本文件的契約：
@@ -91,7 +92,7 @@ catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴�
   `ServerReferences`，core 會檢查它們與 target 在同一個 Site。
 - 模組可在 manifest 以 `spec` 宣告 spec schema（JSON Schema 子集），屬性必須等於 catalog entry 的 `SpecFields`。
   core 在 `ValidateSpec` 之前以 schema 拒絕未知欄位與型別錯誤，hook 只寫跨欄位或依 role 的規則；dashboard 對沒有
-  專屬設定畫面的 kind 依 schema 產生安裝表單與「View settings」詳情。目前 NFS 宣告了 schema。
+  專屬設定畫面的 kind 依 schema 產生安裝表單與「View settings」詳情。目前 NFS 與 VictoriaMetrics 宣告了 schema。
 - composition root 啟動時核對上述名稱並組出 catalog，這些 Workflow kind 要求 target 為 `deployed`。
 - 撰寫步驟見[模組撰寫指南](module-authoring.md) §1.1、§1.2。
 - **沒有參數的 kind**：catalog entry 的 `SpecFields` 為空，spec 可以省略或為 `{}`，`ValidateSpec` 對帶任何欄位的
@@ -265,6 +266,31 @@ Node Exporter 是 desired state，由 worker 的 Node Exporter controller 收斂
   回報開機時，再安裝的 `wait-for-ssh` 失敗，controller 取消它，assignment 轉為 `failed`，這台 Server 的 health 就從
   `down` 變成 `unknown`，直到某次重試成功。
 
+**VictoriaMetrics**：一台 Server 上一個固定版本（`1.155.0`）的 single-node VictoriaMetrics，在 port `8428` 提供
+Prometheus 相容的寫入與查詢 API。依 §0 的分界，長期運作在一台主機上的 VictoriaMetrics 是 Managed Software；Slurm job
+為自己起停的 VictoriaMetrics（Omnistat user mode）是那個 job 的 runtime，不是這個 kind。
+
+- **安裝路徑**：只有 native。模組以 file artifact 宣告官方 release archive
+  （`victoria-metrics-linux-amd64-v1.155.0.tar.gz`），從 Site 選擇的來源取得、以宣告的 sha256 驗證，解到
+  `/opt/swallow/victoriametrics/<version>/`，由 `swallow-victoriametrics.service`（系統使用者 `swallow-victoriametrics`，
+  只能寫 data 目錄 `/var/lib/swallow/victoriametrics`）執行。沒有 `container` method：binary 是一個靜態檔案，不需要
+  runtime。只宣告 amd64：Local Repository 要等每個宣告的檔案都到齊才 `ready`，所以不宣告用不到的架構；其他架構以
+  `victoriametrics_release_unavailable` 失敗。
+- **已安裝的判斷**：以 binary 回報的版本判斷，不以檔案存在判斷，所以中斷留下的 binary 會被取代；release 或 unit 改變時
+  重啟 service，舊的 release 目錄被移除。解壓時不保留 archive 記錄的 owner：上游記錄的是 uid 1000，多數 cloud image 的
+  預設使用者，保留它會讓那個帳號能替換 service 執行的 binary。
+- **位址**：API 沒有認證，讀寫都開放，所以預設只綁 `127.0.0.1`；`listen: management` 才綁 management address
+  （`ansible_host`），比照 Prometheus。安裝在 `/health` 回 200 之後才成功。
+- **retention**：整數加 `d`、`w`、`M`、`y`，預設 `1M`（VictoriaMetrics 自己的預設）。VictoriaMetrics 把沒有單位的數字讀成
+  月、把 `m` 讀成分鐘，一天以下則啟動即失敗，所以都不接受；超過 100 年（`36500d`、`5214w`、`1200M`、`100y`）也拒絕。
+  格式由模組的 spec schema 檢查，上限由 hook 檢查，都在建立 Workflow 之前（`validation_error`）。
+- **讀取**：Grafana 以既有的 `prometheusUrl` 讀它（同機為 `http://127.0.0.1:8428`）。它不宣告 `Exporter`，Site 的
+  Prometheus 不收集它自己的 metrics；目前沒有 Platform 組入它。
+- **uninstall**：移除 unit、release、data 與系統使用者（比照 Prometheus，資料一併刪除）。
+- **仍是動作**：與其他尚未遷移的 kind 相同（[desired-state-model.md](desired-state-model.md) §1.1），install 與
+  uninstall 是 user 觸發的 Workflow，assignment 記錄最後一次套用的 spec；主機上被外部移除、停止或改寫不會被發現。
+  遷移後由 desired 與 controller 取代，role 已是 ensure，不必改內容。
+
 ## 3. Software Assignment（durable record）
 
 swallow-owned collection `software_assignments`，鍵 `(serverId, kind)`：
@@ -332,6 +358,8 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
     （固定 `5001`，domain 擁有）、`swallow_device_metrics_exporter_job_attribution`（standalone 為 `none`）。
     Slurm 組入時另疊加 `_job_attribution: slurm`、`_compute_ids`、`_cluster_name`（缺 `_job_attribution` 而有
     `_compute_ids` 時，playbook 視為 `slurm`，相容 068 之前的 run）
+  - VictoriaMetrics：`swallow_victoriametrics_version`（固定 `1.155.0`）、`swallow_victoriametrics_listen`
+    （`loopback`／`management`）、`swallow_victoriametrics_retention`、`swallow_victoriametrics_port`（固定 `8428`，模組擁有）
 
 ### 4.3 record / failure 契約
 
@@ -526,7 +554,8 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
 | OS 被拿走時標 `absent`（`server-deployment-cleared` 完成行為；reconcile） | `api-server/internal/app/workflow_completions.go`（`clearSoftwareAssignments`）；`api-server/internal/core/provisioning/application/reconcile.go`（`clearStaleOSState`） |
 | Node Exporter（catalog entry、組入 OS 部署） | `api-server/modules/software/node-exporter/module.go`；組入：`api-server/internal/app/node_exporter_planner.go` |
 | Node Exporter controller（政策、退避、取消自己停住的 install；與 kind 無關的 ensure controller）與它在 worker 的組裝、Site Prometheus 的讀取 | `api-server/internal/core/software/application/ensure_controller.go`；`api-server/internal/app/node_exporter_controller.go`、`api-server/internal/app/worker.go` |
-| Playbooks 與 roles | `api-server/modules/software/<kind>/`：`playbooks/deploy-*.yml`、`playbooks/uninstall-*.yml`；roles `docker_ce`（Engine API listener：`tasks/api.yml`）、`podman`、`nfs_server`、`nfs_client`、`prometheus`、`grafana`、`node_exporter`；共用的 `api-server/modules/shared/roles/device_metrics_exporter`（移除：`tasks/uninstall.yml`，`uninstall-slurm` 共用）、`amdgpu_loader` 與 `grafana_provisioning`（Grafana 的 datasource 與 dashboard bundles）；撰寫規則見[模組撰寫指南](module-authoring.md) |
+| VictoriaMetrics（kind、固定版本、port、retention 的規則） | `api-server/modules/software/victoriametrics/module.go`；spec schema 與 release 的宣告在同目錄的 `module.json` |
+| Playbooks 與 roles | `api-server/modules/software/<kind>/`：`playbooks/deploy-*.yml`、`playbooks/uninstall-*.yml`；roles `docker_ce`（Engine API listener：`tasks/api.yml`）、`podman`、`nfs_server`、`nfs_client`、`prometheus`、`grafana`、`node_exporter`、`victoriametrics`；共用的 `api-server/modules/shared/roles/device_metrics_exporter`（移除：`tasks/uninstall.yml`，`uninstall-slurm` 共用）、`amdgpu_loader` 與 `grafana_provisioning`（Grafana 的 datasource 與 dashboard bundles）；撰寫規則見[模組撰寫指南](module-authoring.md) |
 | Docker Host Explorer（view types、use case、Engine client、handler 與路由） | 全部在 docker-ce 模組：`api-server/modules/software/docker-ce/explorer/`（view types、`DockerExplorerUseCase`）、`explorerhttp/`（handler 與 `RegisterRoutes`）、`dockerengine/`（Engine client）；`EngineAPIPort`、`SpecEnableAPI` 與 `APIEnabled` 在 root package `api-server/modules/software/docker-ce/module.go` |
 | Registry Credential（registry 正規化與解析、service、sealed Mongo repo、handler） | `api-server/internal/core/software/domain/registry.go`、`application/registry_credentials.go`、`delivery/registry_credential_handler.go`、`api-server/internal/adapters/store/mongodb/software/mongo_registry_credential_repo.go` |
 | Device Metrics Exporter（pinned version、port、job attribution） | `api-server/internal/core/software/domain/device_metrics_exporter.go`；Slurm 組入：`api-server/internal/app/slurm_composition_adapter.go` |

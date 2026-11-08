@@ -12,13 +12,16 @@ import type { SoftwareInstallMethod } from './installMethod'
  * A single installable software. Values are domain language owned by swallow's glossary;
  * `prometheus` and `grafana` install as containers (on Docker CE or Podman) or natively
  * (decision 063); `device-metrics-exporter` is AMD's per-GPU exporter, native only (decision 068);
- * `node-exporter` is the host exporter from the OS package, which an OS deployment also installs.
+ * `node-exporter` is the host exporter from the OS package, which an OS deployment also installs;
+ * `victoriametrics` is a pinned single-node VictoriaMetrics, native only, configured through the
+ * form its module's spec schema generates.
  */
 export type SoftwareKind =
   | 'docker-ce' | 'podman' | 'nfs' | 'prometheus' | 'grafana' | 'device-metrics-exporter' | 'node-exporter'
+  | 'victoriametrics'
 
 const SOFTWARE_KINDS: ReadonlySet<string> = new Set<SoftwareKind>([
-  'docker-ce', 'podman', 'nfs', 'prometheus', 'grafana', 'device-metrics-exporter', 'node-exporter',
+  'docker-ce', 'podman', 'nfs', 'prometheus', 'grafana', 'device-metrics-exporter', 'node-exporter', 'victoriametrics',
 ])
 
 /** Narrows an untyped value (for example the kind inside a Workflow Job id) to a known SoftwareKind. */

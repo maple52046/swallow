@@ -1,0 +1,23 @@
+---
+# Install or remove VictoriaMetrics (defaults/main.yml). Idempotent: a converged host reruns with no
+# changes; a changed release, listen address, or retention rewrites the unit and restarts the service.
+
+- name: Install VictoriaMetrics
+  when: victoriametrics_state == 'present'
+  become: true
+  block:
+    - name: Refuse a listen address or retention swallow does not install
+      ansible.builtin.include_tasks: preflight.yml
+
+    - name: Install the pinned VictoriaMetrics release
+      ansible.builtin.include_tasks: release.yml
+
+    - name: Run VictoriaMetrics under its systemd unit
+      ansible.builtin.include_tasks: service.yml
+
+- name: Remove VictoriaMetrics
+  when: victoriametrics_state == 'absent'
+  become: true
+  block:
+    - name: Remove the unit, releases, data, and system user
+      ansible.builtin.include_tasks: remove.yml

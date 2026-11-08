@@ -1,0 +1,41 @@
+---
+# Remove the unit, the releases, the data, and the system user. Idempotent: a host without them
+# reruns with no changes.
+
+- name: Read the VictoriaMetrics unit
+  ansible.builtin.stat:
+    path: "/etc/systemd/system/{{ victoriametrics_unit }}"
+  register: victoriametrics_unit_stat
+
+- name: Stop and remove the VictoriaMetrics unit
+  when: victoriametrics_unit_stat.stat.exists
+  block:
+    - name: Stop and disable the VictoriaMetrics unit
+      ansible.builtin.systemd_service:
+        name: "{{ victoriametrics_unit }}"
+        state: stopped
+        enabled: false
+      # Best effort: removing the unit below is what keeps it from starting again.
+      failed_when: false
+
+    - name: Remove the VictoriaMetrics unit
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ victoriametrics_unit }}"
+        state: absent
+
+    - name: Reload systemd without the VictoriaMetrics unit
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+
+- name: Remove the VictoriaMetrics releases and data
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ victoriametrics_root }}"
+    - "{{ victoriametrics_data_dir }}"
+
+- name: Remove the VictoriaMetrics system user
+  ansible.builtin.user:
+    name: "{{ victoriametrics_user }}"
+    state: absent

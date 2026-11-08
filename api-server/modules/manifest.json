@@ -96,6 +96,15 @@
       "path": "software/grafana/playbooks/uninstall-grafana.yml"
     },
     {
+      "name": "deploy-victoriametrics",
+      "path": "software/victoriametrics/playbooks/deploy-victoriametrics.yml",
+      "fetchesArtifacts": true
+    },
+    {
+      "name": "uninstall-victoriametrics",
+      "path": "software/victoriametrics/playbooks/uninstall-victoriametrics.yml"
+    },
+    {
       "name": "configure-omnistat",
       "path": "platform/slurm/playbooks/configure-omnistat.yml",
       "fetchesArtifacts": true

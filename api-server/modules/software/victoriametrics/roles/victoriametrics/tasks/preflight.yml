@@ -1,0 +1,19 @@
+---
+# Refuse intent the api-server would not have accepted, before anything changes on the host. The
+# api-server validates the same rules; this keeps a hand-run play from writing a unit VictoriaMetrics
+# refuses at start.
+
+- name: Refuse an unknown listen address
+  ansible.builtin.fail:
+    msg: >-
+      [victoriametrics_listen_invalid] VictoriaMetrics listen "{{ victoriametrics_listen }}" is not
+      loopback or management.
+  when: victoriametrics_listen not in ['loopback', 'management']
+
+- name: Refuse a retention VictoriaMetrics would read differently or refuse
+  # A bare number is months and m is minutes to VictoriaMetrics, and below one day it stops at start.
+  ansible.builtin.fail:
+    msg: >-
+      [victoriametrics_retention_invalid] VictoriaMetrics retention "{{ victoriametrics_retention }}"
+      is not a whole number with d, w, M, or y, such as 30d or 1M.
+  when: victoriametrics_retention is not match('^[1-9][0-9]{0,4}[dwMy]$')

@@ -46,7 +46,7 @@ export function softwareInstallDefaults(
 
 /**
  * Whether the dashboard has dedicated settings fields for a kind. A kind without them gets the
- * form its module's spec schema generates (core-and-extensions.md §7), today NFS.
+ * form its module's spec schema generates (core-and-extensions.md §7), today NFS and VictoriaMetrics.
  */
 export function hasDedicatedSoftwareSettings(entry: SoftwareCatalogEntry): boolean {
   return entry.kind === 'prometheus' || entry.kind === 'grafana' || entry.specFields.includes('version')

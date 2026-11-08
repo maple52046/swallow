@@ -37,3 +37,4 @@
 /api-server/modules/software/node-exporter/         @maple52046
 /api-server/modules/software/podman/                @maple52046
 /api-server/modules/software/prometheus/            @maple52046
+/api-server/modules/software/victoriametrics/       @maple52046

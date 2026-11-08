@@ -110,8 +110,8 @@ A few API field names still use the older words Operation and Step, such as
 ## Managed Software and Software Assignment
 
 **Managed Software** is one host-level software product, currently Docker CE,
-Podman, NFS, Prometheus, Grafana, the AMD Device Metrics Exporter, or the Node
-Exporter, which swallow keeps installed on every deployed Server it automates. A
+Podman, NFS, Prometheus, Grafana, the AMD Device Metrics Exporter, VictoriaMetrics, or the
+Node Exporter, which swallow keeps installed on every deployed Server it automates. A
 **Software Assignment** records desired and last-applied state for one software
 kind on one Server. It is not a Server status axis and is
 different from a multi-component Platform.

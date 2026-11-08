@@ -131,6 +131,16 @@ object whose `items` array is small and bounded, so it is not paginated.
       "installMethods": ["container", "native"],
       "containerRuntimes": ["docker-ce", "podman"],
       "specFields": ["installMethod", "containerRuntime", "version", "listen", "retention", "scrapeJob", "scrapeTargets", "scrapeServerIds", "scrapePort"]
+    },
+    {
+      "kind": "victoriametrics",
+      "label": "VictoriaMetrics",
+      "roles": [],
+      "mutuallyExclusiveWith": [],
+      "refusedForKubernetesMembers": false,
+      "installMethods": [],
+      "containerRuntimes": [],
+      "specFields": ["listen", "retention"]
     }
   ]
 }
@@ -249,14 +259,15 @@ Servers, creating a durable Workflow and a `pending` assignment per Server.
   a subset of that kind's roles (duplicates are dropped), and must be empty/omitted for a
   role-less kind (Docker CE, Podman).
 - `spec` is kind-specific and optional per field. A kind whose module declares a spec schema
-  (today NFS; see [`modules.md`](modules.md)) has its `spec` checked against it first: a key the
-  schema does not list or a value of the wrong type is `400 validation_error` naming the field.
+  (today NFS and VictoriaMetrics; see [`modules.md`](modules.md)) has its `spec` checked against it
+  first: a key the schema does not list, a value of the wrong type, or a value outside the schema's
+  choices or format is `400 validation_error` naming the field.
   For NFS, at least one `server` role in the batch requires `exportPath`, and a `client` role
   requires `source` and `mountPath`. Docker CE
   is described in [Docker CE spec](#docker-ce-spec), Prometheus and Grafana in
   [Prometheus and Grafana spec](#prometheus-and-grafana-spec), the Device Metrics Exporter
-  in [Device Metrics Exporter](#device-metrics-exporter), and the Node Exporter in
-  [Node Exporter](#node-exporter).
+  in [Device Metrics Exporter](#device-metrics-exporter), the Node Exporter in
+  [Node Exporter](#node-exporter), and VictoriaMetrics in [VictoriaMetrics](#victoriametrics).
 - Every target Server must be present and in provisioning state `deployed`; the request checks
   this first and refuses it as `409 conflict`. A kind installed by its
   `container` method also needs one of the entry's `containerRuntimes` in state `installed` on
@@ -436,6 +447,41 @@ afterwards, so a client rarely needs to install it:
   the package (on the RHEL family, when EPEL is not enabled).
 - Uninstall stops the service and removes the package.
 
+### VictoriaMetrics
+
+`victoriametrics` installs one pinned single-node VictoriaMetrics (`1.155.0`) on each target: the
+official release binary for amd64, fetched from the Site's chosen source and verified against its
+SHA-256, under a swallow systemd unit and system user. It serves VictoriaMetrics's
+Prometheus-compatible write and query API on port `8428`. No container runtime is installed or
+needed, and no deployment composes it. A `grafana` reads it through `prometheusUrl`, for example
+`http://127.0.0.1:8428` on the same Server.
+
+```json
+{
+  "kind": "victoriametrics",
+  "assignments": [{ "serverId": "srv-abc" }],
+  "spec": { "listen": "management", "retention": "90d" }
+}
+```
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `listen` | string | `loopback` | `loopback` (only processes on the Server, such as its Grafana) or `management` (the Server's primary address). VictoriaMetrics has no authentication: anyone who reaches it can read and write every series. |
+| `retention` | string | `1M` | How long samples are kept: a whole number followed by `d` (days), `w` (weeks), `M` (months), or `y` (years), at most 100 years (`36500d`, `5214w`, `1200M`, `100y`). |
+
+- The module declares the spec schema ([`modules.md`](modules.md)), so `listen` other than the
+  two values, a `retention` without one of those units (a bare number, `m`, or `h`), any other key
+  (including `version`), and a non-string value are `400 validation_error`; so is a `retention`
+  longer than 100 years.
+- The recorded `spec` always carries the applied `version` (`1.155.0`), `listen`, and `retention`.
+- The kind has no install rule of its own: a member of any Platform is accepted like any other
+  deployed Server.
+- The install Task fails with `victoriametrics_release_unavailable` on a target that is not amd64,
+  and the install succeeds only once VictoriaMetrics answers `/health` on the address it listens on.
+- Re-installing with another `listen` or `retention` restarts VictoriaMetrics with it and keeps its
+  data.
+- Uninstall removes the service, the release, its data, and its system user.
+
 On success the response is `202 Accepted`:
 
 ```json
@@ -523,6 +569,9 @@ On success the response is `202 Accepted`:
   deployed, unlocked Server of a Site with automation enabled (see [Node Exporter](#node-exporter)).
   Clients see `configure-node-exporter` Workflows requested by `swallow:node-exporter-controller`
   that no user started, and an uninstalled `node-exporter` on such a Server comes back.
+- 2026-11-08, additive: added the `victoriametrics` kind (see [VictoriaMetrics](#victoriametrics))
+  and its Workflow kinds `configure-victoriametrics` and `uninstall-victoriametrics`. Clients that
+  read the kind set from the catalog need no change.
 
 ## Composition Into Platform Deployments
 

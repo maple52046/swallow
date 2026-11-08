@@ -1,0 +1,24 @@
+# Managed by Swallow (VictoriaMetrics Managed Software). Do not edit by hand; changes are overwritten.
+[Unit]
+Description=Swallow VictoriaMetrics
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User={{ victoriametrics_user }}
+Group={{ victoriametrics_user }}
+ExecStart={{ victoriametrics_binary }} \
+  -storageDataPath={{ victoriametrics_data_dir }} \
+  -retentionPeriod={{ victoriametrics_retention }} \
+  -httpListenAddr={{ victoriametrics_listen_address }}:{{ victoriametrics_port }}
+# The management address may come up after this unit at boot; retry until it can bind.
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths={{ victoriametrics_data_dir }}
+
+[Install]
+WantedBy=multi-user.target

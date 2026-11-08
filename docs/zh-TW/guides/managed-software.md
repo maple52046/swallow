@@ -18,6 +18,8 @@ Managed Software 會在已 deployed 的 Server 安裝或移除一個 host-level 
   per-GPU metrics exporter；見下文。
 - **Node Exporter：** 從 OS 套件安裝 Prometheus 的 host exporter。swallow 會自動安裝，並讓它
   自動化的每台已佈署 Server 一直保有它；見下文。
+- **VictoriaMetrics：** 以 native 方式安裝一個 pinned 的 single-node VictoriaMetrics：
+  一個讓 Prometheus 相容 client 寫入、讓 Grafana 讀取的 metrics store；見下文。
 
 Shipped automation manifest 是 allowlist。Software kind／variant 沒有出現在 active
 API contract 與 manifest 時，就不是 supported capability。
@@ -92,6 +94,24 @@ Prometheus 收集不到時再安裝一次（見 [Monitoring](monitoring.md#node-
 請 lock 它。任何 Platform 的成員都與其他已佈署的 Server 一樣可以安裝。
 安裝前會先移除主機上仍在執行的 swallow 舊版 containerised node-exporter
 （`swallow-node-exporter.service`）；Docker 與 RDC exporter container 不受影響。
+
+## VictoriaMetrics
+
+VictoriaMetrics 安裝 VictoriaMetrics 1.155.0（single-node）的官方 release binary，swallow 從 Site
+選擇的來源取得並驗證。它不需要 container runtime，只支援 amd64 的 Server，在 port 8428 提供
+VictoriaMetrics 與 Prometheus 相容的寫入與查詢 API。它有兩個設定：
+
+- **Answers on：** `loopback`（預設）只回應同一台 Server 上的程式，例如那裡的 Grafana；
+  `management` 在 Server 的 management address 上回應。VictoriaMetrics 沒有登入，連得到這個
+  address 的人都能讀寫所有 series，只在可信任的網路上選 `management`。
+- **Retention：** 樣本保留多久，寫成整數加 `d`（天）、`w`（週）、`M`（月）或 `y`（年），例如
+  `90d` 或 `1y`，最多 100 年。留空即用 VictoriaMetrics 自己的預設 `1M`。沒有單位的數字、`m`
+  或小時都不接受，因為 VictoriaMetrics 對它們的解讀不同，或不接受少於一天。
+
+要看圖時，安裝 **Grafana** 並把 **Prometheus URL** 設成 VictoriaMetrics 的位址，例如同一台 Server
+上的 `http://127.0.0.1:8428`。swallow 的 Site Prometheus 不收集它，也沒有 Platform 會安裝它。
+以其他位址或 retention 重新設定會重啟它並保留資料；解除安裝會移除 service、release 與**它的全部
+資料**。
 
 ## docker group
 

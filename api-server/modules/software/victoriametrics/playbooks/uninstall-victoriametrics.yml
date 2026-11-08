@@ -1,0 +1,12 @@
+---
+# Remove the VictoriaMetrics Managed Software: its systemd unit, releases, data, and system user,
+# leaving the host OS. It changes no package, so it takes no package maintenance hold. Idempotent: a
+# host without it reruns with no changes.
+
+- name: Uninstall VictoriaMetrics
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: victoriametrics
+      vars:
+        victoriametrics_state: absent

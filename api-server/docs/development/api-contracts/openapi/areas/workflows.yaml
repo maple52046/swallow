@@ -507,6 +507,8 @@ components:
         - uninstall-device-metrics-exporter
         - configure-node-exporter
         - uninstall-node-exporter
+        - configure-victoriametrics
+        - uninstall-victoriametrics
         - configure-ntp
         - custom
     WorkflowStatus:

@@ -82,7 +82,7 @@ api-server/modules/
   `description`、`examples`（表單以第一個作為 placeholder）、字串的 `enum` 與 `pattern`、整數的 `minimum` 與 `maximum`；
   用到其他關鍵字時拒絕啟動。屬性的順序就是通用表單的欄位順序。Software 模組的屬性必須剛好是 catalog entry 的
   `SpecFields`，core 在 hook 的 `ValidateSpec` 之前以 schema 檢查型別與未知欄位，所以 hook 只需要寫跨欄位或依 role 的規則。
-  dashboard 對有 schema 而沒有專屬畫面的模組產生通用的表單與詳情（目前是 NFS）。
+  dashboard 對有 schema 而沒有專屬畫面的模組產生通用的表單與詳情（目前是 NFS 與 VictoriaMetrics）。
 - `artifacts` 是模組的 host automation 要取得的全部內容。部署時由 Site 選擇的來源提供：Site 的 Local Repository，或這裡
   宣告的上游（[local-repository.md](local-repository.md) §2.1）。型別與檢查在 `internal/core/module/domain` 的 `Artifacts`：
   - `sources`：上游套件來源，Site 使用 Local Repository 時由它鏡像，否則主機直接使用。`name` 是 kebab-case，在 Site 內
@@ -155,7 +155,7 @@ api-server/modules/
 - 外殼只經由 registry 使用模組；模組不 import 其他模組與 infrastructure，模組專屬的 API adapter 放在模組資料夾，由
   `src/di` 綁定。lint 規則守住這些邊界。
 - 沒有專屬畫面的模組，設定的表單與詳情不必寫程式：manifest 的 `spec`（§1.1）經 `GET /api/v1/modules` 提供，dashboard
-  以 `ModuleSettingsFields` 與 `ModuleSettingsDetails` 產生（目前是 NFS）。
+  以 `ModuleSettingsFields` 與 `ModuleSettingsDetails` 產生（目前是 NFS 與 VictoriaMetrics）。
 - Software 模組仍要改 dashboard：`SoftwareKind` 是固定清單，dashboard 會濾掉不認得的 kind。新增 kind 時改：
   - `src/domain/software/types.ts` 的 `SoftwareKind` 與 `SOFTWARE_KINDS`；
   - `softwareCatalogPresentation.ts` 的 `PRESENTATION`（分類、說明、圖示、順序）；分類只有 `SoftwareCategory` 的
@@ -293,7 +293,9 @@ bash。
 `roleClosure`、`readYAML`；`slurm_job_hooks_playbook_test.go` 的 `slurmPlaybookFile` 以 `shippedFile` 讀檔，其他測試
 也在用。`artifact_sources_role_test.go` 提供執行 role 的 helper：`newRoleRun(t, role, gatherFacts)` 以該 role 所在模組與
 `shared/` 的 roles path 組出一個只跑它的 play（沒有 `ansible-playbook` 時 skip），`run(vars)` 以 extra vars 在 localhost
-執行、不 become，回傳輸出與 recap 的 changed、failed；`writeScratch`、`readScratch` 讀寫暫存目錄的檔案。同一個檔案的
+執行、不 become，回傳輸出與 recap 的 changed、failed；role 的其他 task 檔需要 root 或 systemd 時，
+`newRoleTasksRun(t, role, tasksFrom, gatherFacts)` 以 `include_role` 加 `tasks_from` 只跑其中一個 task 檔（仍載入 role 的
+defaults）；`writeScratch`、`readScratch` 讀寫暫存目錄的檔案。同一個檔案的
 `testLocalRepository()` 是 api-server 在 Local Repository 模式交出的 `swallow_artifacts`，`testUpstreams(keys, fingerprint)`
 是上游模式的（docker-ce 與 grafana 的 deb 來源，金鑰在 `keys`）。
 
@@ -315,6 +317,8 @@ role 的行為要實際執行才看得出來時（改寫主機設定、冪等、
     後完全相同，兩種模式都冪等。
 - `k0s_binary_role_test.go`：`k0s_binary` 從 httptest server 扮演的來源下載，只把回報固定版本的 binary 當成已安裝，
   所以會取代上次中斷留下的檔案，來源沒有的版本在下載前就失敗。
+- `victoriametrics_role_test.go`：以 `newRoleTasksRun` 只跑 `victoriametrics` 的 `release` 與 `preflight`（`service` 需要
+  systemd）：release archive 的下載、驗證與解壓，重跑沒有變更，舊版被移除；不接受的 listen 與 retention 在碰主機之前停下。
 
 端到端的驗證在 lab 以真機進行，規則（可用哪些機器、事先確認什麼）見 skill
 [`skills/lab-verification/SKILL.md`](../../skills/lab-verification/SKILL.md)。

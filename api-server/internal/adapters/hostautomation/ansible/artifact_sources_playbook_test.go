@@ -629,7 +629,7 @@ func TestPinnedFilesAreDeclaredModuleArtifacts(t *testing.T) {
 			}
 		}
 	}
-	for _, role := range []string{"k0s_binary", "helm", "device_metrics_exporter", "omnistat"} {
+	for _, role := range []string{"k0s_binary", "helm", "device_metrics_exporter", "omnistat", "victoriametrics"} {
 		if !found[role] {
 			t.Errorf("role %s pins no file (path and sha256 in its defaults); the declaration check would miss it", role)
 		}

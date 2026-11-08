@@ -1,0 +1,54 @@
+{
+  "contractVersion": 1,
+  "kind": "software",
+  "id": "victoriametrics",
+  "version": "0.1.0",
+  "playbooks": [
+    "deploy-victoriametrics",
+    "uninstall-victoriametrics"
+  ],
+  "workflowKinds": [
+    "configure-victoriametrics",
+    "uninstall-victoriametrics"
+  ],
+  "taskKinds": [],
+  "completions": [],
+  "spec": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "listen": {
+        "type": "string",
+        "title": "Answers on",
+        "description": "loopback (the default) answers only processes on this Server, such as its Grafana; management answers on the Server's management address. VictoriaMetrics has no login: anyone who reaches it can read and write every series.",
+        "enum": ["loopback", "management"]
+      },
+      "retention": {
+        "type": "string",
+        "title": "Retention",
+        "description": "How long samples are kept: a whole number with d (days), w (weeks), M (months), or y (years), at most 100 years. Leave blank for VictoriaMetrics's default, 1M.",
+        "examples": ["1M"],
+        "pattern": "^[1-9][0-9]{0,4}[dwMy]$"
+      }
+    }
+  },
+  "hooks": [
+    {
+      "name": "software",
+      "reason": "Bounds the retention, records the pinned release with the listen address and retention defaults, and passes the port the playbook binds; the catalog entry travels with it."
+    }
+  ],
+  "capabilities": [
+    "host-automation"
+  ],
+  "routes": [],
+  "artifacts": {
+    "files": [
+      {
+        "path": "victoriametrics/1.155.0/victoria-metrics-linux-amd64-v1.155.0.tar.gz",
+        "url": "https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/v1.155.0/victoria-metrics-linux-amd64-v1.155.0.tar.gz",
+        "sha256": "7180e65913d55ab99c0be8f4a3ad17a0fafe5598a21ff6327fecba3190d7b176"
+      }
+    ]
+  }
+}

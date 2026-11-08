@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
 	dockerce "github.com/maple52046/swallow/modules/software/docker-ce"
 	nodeexporter "github.com/maple52046/swallow/modules/software/node-exporter"
+	"github.com/maple52046/swallow/modules/software/victoriametrics"
 )
 
 // fakeAssignmentRepo is an in-memory Software Assignment store keyed by (serverId, kind).
@@ -218,6 +220,85 @@ func TestInstallNFSChecksTheModuleSpecSchema(t *testing.T) {
 			})
 			if !errors.Is(err, softwaredomain.ErrSpecInvalid) {
 				t.Fatalf("err = %v, want ErrSpecInvalid", err)
+			}
+		})
+	}
+}
+
+// A VictoriaMetrics install records the pinned release with the listen address and retention it
+// applies, and the playbook gets the same values and the module's port.
+func TestInstallVictoriaMetricsRecordsTheAppliedSpec(t *testing.T) {
+	tests := []struct {
+		name string
+		spec map[string]any
+		want map[string]any
+	}{
+		{
+			name: "omitted spec",
+			spec: nil,
+			want: map[string]any{"version": victoriametrics.Version, "listen": "loopback", "retention": victoriametrics.DefaultRetention},
+		},
+		{
+			name: "management address and a year",
+			spec: map[string]any{"listen": "management", "retention": "1y"},
+			want: map[string]any{"version": victoriametrics.Version, "listen": "management", "retention": "1y"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			service, repo, launcher := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
+			if _, err := service.Install(context.Background(), softwareapp.InstallInput{
+				Kind: victoriametrics.Kind, Targets: []softwareapp.InstallTarget{{ServerID: "a"}}, Spec: tc.spec,
+			}); err != nil {
+				t.Fatalf("Install(%v) error = %v", tc.spec, err)
+			}
+			assignment, err := repo.FindByServerAndKind(context.Background(), "a", victoriametrics.Kind)
+			if err != nil {
+				t.Fatalf("assignment: %v", err)
+			}
+			if !reflect.DeepEqual(assignment.Spec, tc.want) {
+				t.Errorf("recorded spec = %v, want %v", assignment.Spec, tc.want)
+			}
+			vars := launcher.lastLaunch.TrustedVars
+			for key, want := range map[string]any{
+				"swallow_victoriametrics_version":   tc.want["version"],
+				"swallow_victoriametrics_listen":    tc.want["listen"],
+				"swallow_victoriametrics_retention": tc.want["retention"],
+				"swallow_victoriametrics_port":      victoriametrics.Port,
+			} {
+				if vars[key] != want {
+					t.Errorf("%s = %v, want %v", key, vars[key], want)
+				}
+			}
+		})
+	}
+}
+
+// The module's spec schema and its hook refuse what VictoriaMetrics would not run, before a Workflow
+// exists: the pinned release is not a setting, listen has two choices, and a retention needs a unit
+// of a day or more and at most 100 years.
+func TestInstallVictoriaMetricsRefusesSpecsItCannotRun(t *testing.T) {
+	for name, spec := range map[string]map[string]any{
+		"a version":          {"version": "1.160.0"},
+		"every interface":    {"listen": "all"},
+		"hours of retention": {"retention": "12h"},
+		"bare months":        {"retention": "3"},
+		"over 100 years":     {"retention": "1201M"},
+		"numeric retention":  {"retention": 30},
+	} {
+		t.Run(name, func(t *testing.T) {
+			service, repo, launcher := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
+			_, err := service.Install(context.Background(), softwareapp.InstallInput{
+				Kind: victoriametrics.Kind, Targets: []softwareapp.InstallTarget{{ServerID: "a"}}, Spec: spec,
+			})
+			if !errors.Is(err, softwaredomain.ErrSpecInvalid) {
+				t.Fatalf("Install(%v) error = %v, want ErrSpecInvalid", spec, err)
+			}
+			if launcher.install {
+				t.Error("a refused spec reached the launcher")
+			}
+			if _, err := repo.FindByServerAndKind(context.Background(), "a", victoriametrics.Kind); !errors.Is(err, softwaredomain.ErrAssignmentNotFound) {
+				t.Errorf("assignment after a refused spec: %v, want none", err)
 			}
 		})
 	}

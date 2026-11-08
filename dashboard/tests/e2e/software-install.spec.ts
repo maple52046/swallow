@@ -550,6 +550,52 @@ test('NFS settings are generated from its module spec schema and shown as record
   await expect(dialog.getByText('Required when a Server takes the server role.')).toBeVisible()
 })
 
+// VictoriaMetrics has no settings screen of its own: its install form and recorded settings come from
+// its module's spec schema, the form refuses a retention the schema's format does not allow, and a
+// deployment reads like a Prometheus one (where it answers and its retention) plus its port.
+test('VictoriaMetrics installs through the form its module spec schema generates', async ({ page }) => {
+  const installs: Array<Record<string, unknown>> = []
+  await installApiFixtures(page, {
+    fleetSize: 5,
+    softwareAssignments: [assignment('srv-5', 'victoriametrics', 'installed', {
+      spec: { version: '1.155.0', listen: 'loopback', retention: '1M' },
+    })],
+    onSoftwareInstallRequest: (body) => installs.push(body),
+  })
+  await page.goto('/software?site=site-a')
+  await page.getByRole('link', { name: 'Open VictoriaMetrics' }).click()
+  await expect(page).toHaveURL('/software/victoriametrics?site=site-a')
+
+  const row = page.getByRole('table', { name: 'VictoriaMetrics deployments' }).getByRole('row', { name: /compute-node-005/ })
+  await expect(row).toContainText('Version 1.155.0 · This Server only · Retention 1M · Port 8428')
+  await row.getByRole('button', { name: 'More' }).click()
+  await page.getByRole('menuitem', { name: 'View settings' }).click()
+  const settings = page.getByRole('dialog', { name: 'VictoriaMetrics settings' })
+  await expect(settings.getByText('Answers on')).toBeVisible()
+  await expect(settings.getByText('loopback', { exact: true })).toBeVisible()
+  await expect(settings.getByText('1M', { exact: true })).toBeVisible()
+  await settings.getByText('Close', { exact: true }).click()
+
+  await page.locator('header').getByRole('button', { name: 'Install software', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Install software' })
+  await dialog.getByRole('textbox', { name: 'Search installation targets' }).fill('gpu-node-01')
+  await dialog.getByText('Select all available results', { exact: true }).click()
+  await dialog.getByRole('button', { name: 'Next', exact: true }).click()
+  await chooseSingleSelectOption(page, 'Answers on', 'management')
+  const retention = dialog.getByRole('textbox', { name: 'Retention' })
+  await expect(retention).toHaveAttribute('placeholder', '1M')
+  await retention.fill('12h')
+  await expect(dialog.getByText('Retention does not have the expected format.')).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Install', exact: true })).toBeDisabled()
+  await retention.fill('90d')
+  await dialog.getByRole('button', { name: 'Install', exact: true }).click()
+
+  await expect(page).toHaveURL(/\/workflows\/op-docker-reapply\?site=site-a/)
+  expect(installs).toEqual([
+    { kind: 'victoriametrics', assignments: [{ serverId: 'srv-1', roles: [] }], spec: { listen: 'management', retention: '90d' } },
+  ])
+})
+
 test('an NFS install cannot be configured until its settings form loads', async ({ page }) => {
   await installApiFixtures(page, { modulesUnavailable: true })
   await page.goto('/software/nfs?site=site-a')

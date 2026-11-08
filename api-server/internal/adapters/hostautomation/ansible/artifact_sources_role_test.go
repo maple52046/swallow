@@ -31,6 +31,22 @@ type roleRun struct {
 // skips the test where ansible-playbook is not installed.
 func newRoleRun(t *testing.T, role string, gatherFacts bool) *roleRun {
 	t.Helper()
+	return newPlayRun(t, role, "- hosts: all\n  gather_facts: "+strconv.FormatBool(gatherFacts)+
+		"\n  roles:\n    - role: "+role+"\n")
+}
+
+// newRoleTasksRun prepares a play of one task file of the shipped role (include_role with tasks_from,
+// which still loads the role's defaults), for a role whose other task files need root or systemd.
+func newRoleTasksRun(t *testing.T, role, tasksFrom string, gatherFacts bool) *roleRun {
+	t.Helper()
+	return newPlayRun(t, role, "- hosts: all\n  gather_facts: "+strconv.FormatBool(gatherFacts)+
+		"\n  tasks:\n    - ansible.builtin.include_role:\n        name: "+role+"\n        tasks_from: "+tasksFrom+"\n")
+}
+
+// newPlayRun prepares play under the roles path a run of the role's module gets (that module's roles
+// and shared/roles), and skips the test where ansible-playbook is not installed.
+func newPlayRun(t *testing.T, role, play string) *roleRun {
+	t.Helper()
 	playbook, err := exec.LookPath("ansible-playbook")
 	if err != nil {
 		t.Skip("ansible-playbook is not available")
@@ -47,7 +63,6 @@ func newRoleRun(t *testing.T, role string, gatherFacts bool) *roleRun {
 		}
 		roles[i] = abs
 	}
-	play := "- hosts: all\n  gather_facts: " + strconv.FormatBool(gatherFacts) + "\n  roles:\n    - role: " + role + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "play.yml"), []byte(play), 0o644); err != nil {
 		t.Fatal(err)
 	}

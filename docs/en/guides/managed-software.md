@@ -20,6 +20,8 @@ deployed Servers. It is intentionally separate from Platform deployment.
 - **Node Exporter:** installs the Prometheus host exporter from the OS package.
   swallow installs it automatically and keeps it installed on every deployed Server it
   automates; see below.
+- **VictoriaMetrics:** installs one pinned single-node VictoriaMetrics natively, a
+  metrics store that Prometheus-compatible clients write to and Grafana reads; see below.
 
 The shipped automation manifest is the allowlist. If a software kind or variant
 does not appear in the active API contract and manifest, it is not supported.
@@ -110,6 +112,28 @@ Node Exporter off it. A member of any Platform accepts it like any other deploye
 removes swallow's older containerised node-exporter
 (`swallow-node-exporter.service`) if the host still runs it; Docker and any RDC
 exporter container are left alone.
+
+## VictoriaMetrics
+
+VictoriaMetrics installs VictoriaMetrics 1.155.0 (single-node) from its official
+release binary, which swallow fetches from the Site's chosen source and verifies. It
+needs no container runtime and runs on amd64 Servers only. It serves VictoriaMetrics's
+Prometheus-compatible write and query API on port 8428. It has two settings:
+
+- **Answers on:** `loopback` (the default) answers only programs on the same Server,
+  such as a Grafana there; `management` answers on the Server's management address.
+  VictoriaMetrics has no login, so anyone who reaches that address can read and write
+  every series. Choose `management` only on a trusted network.
+- **Retention:** how long samples are kept, as a whole number with `d` (days), `w`
+  (weeks), `M` (months), or `y` (years), for example `90d` or `1y`; at most 100 years.
+  Leave it blank for VictoriaMetrics's default, `1M`. A bare number, `m`, or hours are
+  refused, because VictoriaMetrics reads them differently or refuses less than a day.
+
+To graph its data, install **Grafana** with its **Prometheus URL** set to the
+VictoriaMetrics address, for example `http://127.0.0.1:8428` on the same Server.
+swallow's Site Prometheus does not collect it, and no Platform installs it.
+Reconfiguring it with another address or retention restarts it and keeps its data;
+uninstalling it removes the service, the release, and **all of its data**.
 
 ## The docker group
 

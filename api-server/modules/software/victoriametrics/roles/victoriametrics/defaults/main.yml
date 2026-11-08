@@ -1,0 +1,30 @@
+---
+# VictoriaMetrics Managed Software. Intent arrives as trusted swallow_victoriametrics_* vars; the
+# defaults only keep a hand-run play working. One native install path: the pinned release binary
+# under a swallow-owned systemd unit and an unprivileged system user.
+victoriametrics_state: present
+victoriametrics_version: "{{ swallow_victoriametrics_version | default('1.155.0', true) }}"
+victoriametrics_port: "{{ swallow_victoriametrics_port | default(8428) | int }}"
+victoriametrics_retention: "{{ swallow_victoriametrics_retention | default('1M', true) | trim }}"
+# VictoriaMetrics has no authentication of its own: anyone who reaches it can read and write every
+# series. It binds the loopback address unless the spec asks for the management address; never
+# 0.0.0.0.
+victoriametrics_listen: "{{ swallow_victoriametrics_listen | default('loopback', true) | trim }}"
+victoriametrics_listen_address: "{{ '127.0.0.1' if victoriametrics_listen == 'loopback' else ansible_host }}"
+
+# The releases swallow declares, by version and architecture: the archive's declared path (its key in
+# swallow_artifacts.files) and its SHA-256. The victoriametrics module declares each one as a file
+# artifact with the same path and checksum, which a content test keeps in step.
+victoriametrics_releases:
+  "1.155.0":
+    amd64:
+      path: victoriametrics/1.155.0/victoria-metrics-linux-amd64-v1.155.0.tar.gz
+      sha256: 7180e65913d55ab99c0be8f4a3ad17a0fafe5598a21ff6327fecba3190d7b176
+victoriametrics_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_facts['architecture']] | default(ansible_facts['architecture']) }}"
+# Each release in its own directory; the archive holds this one binary.
+victoriametrics_root: /opt/swallow/victoriametrics
+victoriametrics_binary: "{{ victoriametrics_root }}/{{ victoriametrics_version }}/victoria-metrics-prod"
+
+victoriametrics_user: swallow-victoriametrics
+victoriametrics_data_dir: /var/lib/swallow/victoriametrics
+victoriametrics_unit: swallow-victoriametrics.service

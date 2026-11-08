@@ -54,6 +54,8 @@ export function softwareKindLabel(kind: SoftwareKind, catalogLabel?: string): st
       return 'AMD Device Metrics Exporter'
     case 'node-exporter':
       return 'Node Exporter'
+    case 'victoriametrics':
+      return 'VictoriaMetrics'
     default:
       return kind
   }
