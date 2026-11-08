@@ -1,0 +1,70 @@
+---
+# Converge this node's Omnistat environment probe-first (decision 080): probe the environment of the
+# expected version, and only when it is not usable bring in the toolchain and rebuild it
+# (install.yml). Points the version-independent link at this version either way and sets
+# omnistat_environment_rebuilt for the exporter's restart.
+
+- name: Create the Omnistat version directory
+  ansible.builtin.file:
+    path: "{{ omnistat_prefix }}"
+    state: directory
+    mode: "0755"
+
+- name: Copy swallow's patches, the environment's lock, and its probe
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ omnistat_prefix }}/{{ item }}"
+    mode: "0644"
+  loop: >-
+    {{ omnistat_sources[omnistat_version].patches
+       + [omnistat_sources[omnistat_version].requirements, 'omnistat-probe.py'] }}
+
+- name: Look for patch, which checks and applies swallow's patches
+  ansible.builtin.command:
+    argv: [sh, -c, command -v patch]
+  register: omnistat_patch_tool
+  changed_when: false
+  failed_when: false
+
+- name: Install patch
+  ansible.builtin.apt:
+    name: patch
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    lock_timeout: 300
+  register: omnistat_patch_install
+  until: omnistat_patch_install is succeeded
+  retries: 30
+  delay: 10
+  when: omnistat_patch_tool.rc != 0
+
+- name: Probe the Omnistat environment
+  ansible.builtin.include_tasks: probe.yml
+
+- name: Record whether the environment is rebuilt
+  ansible.builtin.set_fact:
+    omnistat_environment_rebuilt: "{{ omnistat_probe_problems | length > 0 }}"
+
+- name: Rebuild the Omnistat environment
+  ansible.builtin.include_tasks: install.yml
+  when: omnistat_environment_rebuilt | bool
+
+- name: Probe the rebuilt environment
+  ansible.builtin.include_tasks: probe.yml
+  when: omnistat_environment_rebuilt | bool
+
+- name: Refuse an environment the rebuild did not make usable
+  ansible.builtin.fail:
+    msg: >-
+      [omnistat_environment_unusable] The Omnistat {{ omnistat_version }} environment at
+      {{ omnistat_venv }} is still not usable after it was rebuilt:
+      {{ omnistat_probe_problems | join('; ') }}.
+  when: omnistat_probe_problems | length > 0
+
+- name: Point the version-independent link at this version
+  ansible.builtin.file:
+    src: "{{ omnistat_prefix }}"
+    dest: "{{ omnistat_current_link }}"
+    state: link
+    force: true

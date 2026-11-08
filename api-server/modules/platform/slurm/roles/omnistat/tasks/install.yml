@@ -1,0 +1,97 @@
+---
+# Rebuild the Omnistat environment of the expected version (decision 080): the toolchain
+# (python_toolchain), the pinned source with swallow's patches, a fresh environment on CPython 3.12,
+# the hash lock as wheels only, then Omnistat itself without build isolation, so nothing unpinned or
+# unverified reaches the environment and the node needs no compiler. uv takes its index from the
+# host's configuration (artifact_sources), so nothing here names one. Runs only when the probe found
+# the environment not usable.
+
+- name: Find or supply CPython 3.12 and uv
+  ansible.builtin.include_role:
+    name: python_toolchain
+
+- name: Download the pinned Omnistat source
+  ansible.builtin.get_url:
+    url: "{{ swallow_artifacts.files[omnistat_sources[omnistat_version].path] }}"
+    checksum: "sha256:{{ omnistat_sources[omnistat_version].sha256 }}"
+    dest: "{{ omnistat_prefix }}/omnistat-{{ omnistat_version }}.tar.gz"
+    mode: "0644"
+  register: omnistat_download
+  until: omnistat_download is succeeded
+  retries: 5
+  delay: 10
+
+- name: Unpack the Omnistat source
+  ansible.builtin.unarchive:
+    src: "{{ omnistat_prefix }}/omnistat-{{ omnistat_version }}.tar.gz"
+    dest: "{{ omnistat_prefix }}"
+    remote_src: true
+    creates: "{{ omnistat_src }}/pyproject.toml"
+
+- name: Name the unpacked tree as the source directory
+  ansible.builtin.command:
+    cmd: mv {{ omnistat_prefix }}/omnistat-{{ omnistat_version }} {{ omnistat_src }}
+    creates: "{{ omnistat_src }}/pyproject.toml"
+
+- name: Check which patches the source already carries
+  ansible.builtin.command:
+    argv: [patch, -p1, --dry-run, --reverse, --force, --silent, -i, "{{ omnistat_prefix }}/{{ item }}"]
+    chdir: "{{ omnistat_src }}"
+  loop: "{{ omnistat_sources[omnistat_version].patches }}"
+  register: omnistat_patch_applied
+  changed_when: false
+  failed_when: false
+
+- name: Apply the patches the source does not carry yet
+  ansible.builtin.command:
+    argv: [patch, -p1, --forward, -i, "{{ omnistat_prefix }}/{{ item.item }}"]
+    chdir: "{{ omnistat_src }}"
+  loop: "{{ omnistat_patch_applied.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.rc != 0
+
+- name: Remove the environment the probe found not usable
+  # A rebuild starts empty, whatever a given uv version would do with an existing environment.
+  ansible.builtin.file:
+    path: "{{ omnistat_venv }}"
+    state: absent
+
+- name: Create the environment with CPython 3.12
+  ansible.builtin.command:
+    argv: ["{{ python_toolchain_uv }}", venv, --python, "{{ python_toolchain_python }}", "{{ omnistat_venv }}"]
+
+- name: Install the locked dependencies as wheels
+  ansible.builtin.command:
+    argv:
+      - "{{ python_toolchain_uv }}"
+      - pip
+      - install
+      - --python
+      - "{{ omnistat_venv }}/bin/python"
+      - --no-cache
+      - --require-hashes
+      - --no-build
+      - -r
+      - "{{ omnistat_prefix }}/{{ omnistat_sources[omnistat_version].requirements }}"
+  register: omnistat_locked_install
+  until: omnistat_locked_install is succeeded
+  retries: 3
+  delay: 15
+
+- name: Install Omnistat from the patched source
+  # Its build requirements came with the lock, so it builds without isolation and fetches nothing.
+  # Its version comes from the source's VERSION file; GitPython must not fail on a node without git.
+  ansible.builtin.command:
+    argv:
+      - "{{ python_toolchain_uv }}"
+      - pip
+      - install
+      - --python
+      - "{{ omnistat_venv }}/bin/python"
+      - --no-cache
+      - --no-deps
+      - --no-build-isolation
+      - "{{ omnistat_src }}"
+  environment:
+    GIT_PYTHON_REFRESH: quiet

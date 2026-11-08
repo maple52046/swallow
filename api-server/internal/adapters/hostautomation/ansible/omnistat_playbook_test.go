@@ -121,7 +121,7 @@ func TestOmnistatPatchesAreDocumented(t *testing.T) {
 // A patch added later must reach nodes that already carry the earlier ones, so each patch is
 // checked (reverse dry run) and applied on its own rather than as one bundle.
 func TestOmnistatAppliesEachPatchOnItsOwn(t *testing.T) {
-	content, err := os.ReadFile(filepath.Join(roleDir(t, "omnistat"), "tasks", "main.yml"))
+	content, err := os.ReadFile(filepath.Join(roleDir(t, "omnistat"), "tasks", "install.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,10 +4,10 @@
 omnistat_version: "{{ swallow_omnistat_version | default('1.15.0', true) }}"
 # Pinned upstream source per version: the GitHub tag archive's declared path (its key in
 # swallow_artifacts.files) and its SHA-256 (the slurm module declares the same file artifact, which
-# a content test keeps in step), and the patches swallow maintains for it (decision 064: each is
+# a content test keeps in step), the patches swallow maintains for it (decision 064: each is
 # checked and applied on its own, so a patch added later reaches a node that already carries the
-# earlier ones). Its Python dependencies come from the run's Python index: the Local Repository's,
-# or pip's default from the upstreams.
+# earlier ones), and the hash lock of its environment. uv installs the lock from the index the
+# host's configuration names (artifact_sources: the Local Repository's, or PyPI from the upstreams).
 omnistat_sources:
   "1.15.0":
     path: omnistat/v1.15.0.tar.gz
@@ -15,7 +15,10 @@ omnistat_sources:
     patches:
       - omnistat-1.15.0-sriov-vf.patch
       - omnistat-1.15.0-query-step.patch
-    constraints: omnistat-1.15.0-constraints.txt
+    requirements: omnistat-1.15.0-requirements.txt
+# The layout is also the contract with OS images that bring Omnistat (decision 080): an environment
+# at <home>/<version>/venv that the probe accepts is used as it is, and another version's tree is
+# left in place while current moves to this one.
 omnistat_home: /opt/omnistat
 omnistat_prefix: "{{ omnistat_home }}/{{ omnistat_version }}"
 omnistat_src: "{{ omnistat_prefix }}/src"
