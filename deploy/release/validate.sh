@@ -47,6 +47,27 @@ done < deploy/release/runtime-images.env
 # shellcheck disable=SC2016 # the literal text of install.sh's default, not an expansion
 grep -qF '"${SWALLOW_VERSION:-@SWALLOW_VERSION@}"' deploy/release/install.sh ||
   { printf 'install.sh must default its version to @SWALLOW_VERSION@, which assemble-release.sh fills in\n' >&2; exit 1; }
+# The rocprof extension's build matrix (decision 079): pinned images, a known AMD signing key, one
+# entry per ROCm minor with exact package and SDK versions, and the same Omnistat source the Slurm
+# module declares for its nodes, so the extension matches the Omnistat it loads into.
+rocprof_matrix=deploy/release/omnistat-rocprof/matrix.json
+pinned_image='^[a-z0-9.-]+\.[a-z]+/[^@]+@sha256:[0-9a-f]{64}$'
+jq -e --arg pinned "${pinned_image}" '
+  (.omnistat.version | test("^[0-9]+\\.[0-9]+\\.[0-9]+$")) and (.omnistat.sha256 | test("^[0-9a-f]{64}$")) and
+  (.revision | type == "number" and . >= 1 and floor == .) and (.repository | test("^[^/]+/[^/]+$")) and
+  (.builder.image | test($pinned)) and (.check.image | test($pinned)) and
+  (.builder.glibc | test("^[0-9]+\\.[0-9]+$")) and .builder.abi == "cp312" and
+  (.amdPackages.signingKey.fingerprint | test("^[0-9A-F]{40}$")) and
+  (.rocm | length > 0) and ([.rocm[].version] | length == (unique | length)) and
+  ([.rocm[] | (.version | test("^[0-9]+\\.[0-9]+$")) and (.packages | test("^[0-9.]+-[0-9]+$")) and
+    (.rocprofilerSdk | test("^[0-9]+\\.[0-9]+\\.[0-9]+$")) and (.status == "lab-verified" or .status == "build-only") and
+    ((.status == "lab-verified") == (.verified != ""))] | all)' \
+  "${rocprof_matrix}" >/dev/null ||
+  { printf '%s: every field must be present and pinned (images by digest, packages and SDK by exact version)\n' "${rocprof_matrix}" >&2; exit 1; }
+jq -e --slurpfile matrix "${rocprof_matrix}" \
+  'any(.artifacts.files[]; .url == $matrix[0].omnistat.url and .sha256 == $matrix[0].omnistat.sha256)' \
+  api-server/modules/platform/slurm/module.json >/dev/null ||
+  { printf '%s must build the Omnistat source the Slurm module declares (same URL and sha256)\n' "${rocprof_matrix}" >&2; exit 1; }
 if ! awk 'NF && $0 !~ /^[A-Za-z0-9_.-]+==[A-Za-z0-9_.+-]+$/ { exit 1 }' \
   api-server/internal/adapters/hostautomation/ansible/requirements.txt; then
   printf 'every Python dependency must be exactly pinned\n' >&2
