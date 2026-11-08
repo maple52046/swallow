@@ -401,3 +401,105 @@ func TestDeploySlurmMonitoringDashboards(t *testing.T) {
 		})
 	}
 }
+
+// slurmSpecModule is a Slurm module stub for realizing a spec: the deploy request it renders is
+// read by the test's request reader (readSlurmInput), not decoded from the body.
+type slurmSpecModule struct{}
+
+func (slurmSpecModule) PlatformType() platformdomain.PlatformType {
+	return platformdomain.PlatformTypeSlurm
+}
+
+func (slurmSpecModule) DeployRequest(platformdomain.PlatformSpec) map[string]any { return map[string]any{} }
+
+func (slurmSpecModule) SpecFromDeployRequest(map[string]any) (platformdomain.PlatformSpec, error) {
+	return platformdomain.PlatformSpec{}, nil
+}
+
+func (slurmSpecModule) Changes(*platformdomain.PlatformSpec, platformdomain.PlatformSpec) (platformdomain.PlatformChanges, error) {
+	return platformdomain.PlatformChanges{}, nil
+}
+
+func (slurmSpecModule) ReportsMembership(platformdomain.PlatformMember) bool { return true }
+
+// readSlurmInput reads every spec as the Omnistat Slurm deployment with the given settings.
+func readSlurmInput(omnistat platformdomain.OmnistatSettings) DeployRequestReader {
+	return func([]byte) (DeployPlatformInput, error) {
+		input := omnistatSlurmInput()
+		input.Omnistat = &omnistat
+		return input, nil
+	}
+}
+
+// A hardware counters change is planned as a deploy of the spec onto the stored Platform, so the
+// Omnistat record is written as a deploy writes it: the new request, installing, no nodes, and fenced
+// on the change's Workflow, which the launcher is told to limit to Omnistat. No Platform is created.
+func TestAHardwareCountersChangeRecordsTheRequestUnderItsWorkflow(t *testing.T) {
+	service, launcher, platforms := newDeployHarness(slurmServers()...)
+	launcher.launchIDs = true
+	result, err := service.Deploy(context.Background(), omnistatSlurmInput())
+	if err != nil {
+		t.Fatalf("Deploy() error = %v", err)
+	}
+	platform := platforms.platforms[result.PlatformID]
+	platform.Omnistat.HardwareCounters.Nodes = []platformdomain.HardwareCounterNode{{ServerID: "s2", State: platformdomain.HardwareCountersUnavailable, Reason: "probe_failed"}}
+	platform.Spec = &platformdomain.PlatformSpec{Desired: platformdomain.PlatformPresent}
+
+	for _, requested := range []bool{true, false} {
+		service.readRequest = readSlurmInput(platformdomain.OmnistatSettings{Enabled: true, HardwareCounters: requested})
+		prepared, err := PrepareSpecDeployment(context.Background(), service, slurmSpecModule{}, platform, "admin",
+			platformdomain.RealizeHardwareCounters)
+		if err != nil {
+			t.Fatalf("PrepareSpecDeployment(hardwareCounters %v) error = %v", requested, err)
+		}
+		workflowID, err := service.Persist(context.Background(), prepared)
+		if err != nil {
+			t.Fatalf("Persist(hardwareCounters %v) error = %v", requested, err)
+		}
+		launch := launcher.launched
+		if launch.Realization != platformdomain.RealizeHardwareCounters || launch.Omnistat == nil ||
+			launch.Omnistat.HardwareCounters != requested || launch.OperationID != workflowID {
+			t.Fatalf("launch = realization %q omnistat %+v id %s, want the hardware counters change (%v) under %s",
+				launch.Realization, launch.Omnistat, launch.OperationID, requested, workflowID)
+		}
+		record := platforms.platforms[result.PlatformID].Omnistat
+		if record.HardwareCounters.Requested != requested || len(record.HardwareCounters.Nodes) != 0 ||
+			record.State != platformdomain.OmnistatInstalling || record.LastWorkflowID != workflowID {
+			t.Errorf("record = %+v, want requested %v, installing, no nodes, under %s", record, requested, workflowID)
+		}
+	}
+	if len(platforms.platforms) != 1 {
+		t.Errorf("platforms = %d, want the change to reuse the Platform", len(platforms.platforms))
+	}
+}
+
+// Only a deployed Slurm Platform whose spec keeps Omnistat on has a hardware counters change.
+func TestAHardwareCountersChangeNeedsADeployedOmnistat(t *testing.T) {
+	service, launcher, platforms := newDeployHarness(slurmServers()...)
+	result, err := service.Deploy(context.Background(), omnistatSlurmInput())
+	if err != nil {
+		t.Fatalf("Deploy() error = %v", err)
+	}
+	platform := platforms.platforms[result.PlatformID]
+	platform.Spec = &platformdomain.PlatformSpec{Desired: platformdomain.PlatformPresent}
+	launches := launcher.launches
+
+	service.readRequest = readSlurmInput(platformdomain.OmnistatSettings{Enabled: false})
+	if _, err := PrepareSpecDeployment(context.Background(), service, slurmSpecModule{}, platform, "admin",
+		platformdomain.RealizeHardwareCounters); !errors.Is(err, platformdomain.ErrInvalidDeployment) {
+		t.Errorf("Omnistat off: err = %v, want ErrInvalidDeployment", err)
+	}
+	notStored := omnistatSlurmInput()
+	notStored.realization = platformdomain.RealizeHardwareCounters
+	if _, err := service.Prepare(context.Background(), notStored); !errors.Is(err, platformdomain.ErrInvalidDeployment) {
+		t.Errorf("no stored Platform: err = %v, want ErrInvalidDeployment", err)
+	}
+	kubernetes := DeployPlatformInput{SiteID: "site-1", Name: "lab-k0s", Type: platformdomain.PlatformTypeKubernetes,
+		PlatformID: result.PlatformID, realization: platformdomain.RealizeHardwareCounters}
+	if _, err := service.Prepare(context.Background(), kubernetes); !errors.Is(err, platformdomain.ErrInvalidDeployment) {
+		t.Errorf("Kubernetes Platform: err = %v, want ErrInvalidDeployment", err)
+	}
+	if launcher.launches != launches {
+		t.Error("a refused hardware counters change must launch nothing")
+	}
+}

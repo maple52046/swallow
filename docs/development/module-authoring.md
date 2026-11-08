@@ -125,7 +125,7 @@ api-server/modules/
     後者讀它最近一次部署的 request。
   - `Changes(applied, desired)` 列出一次 spec 變更的動作，每個依 [desired-state-model.md](desired-state-model.md) §5.2
     標為破壞性或非破壞性；core 依此決定直接收斂，或產生 Change Plan 等核准。`Realization` 指出由哪一種 Workflow 實現
-    （部署、卸載、GPU Operator）。`Unsupported` 列出 swallow 還不能執行的動作：破壞性的會擋住 Change Plan，非破壞性的
+    （部署、卸載、GPU Operator、只重設收集 hardware counters 的監控功能）。`Unsupported` 列出 swallow 還不能執行的動作：破壞性的會擋住 Change Plan，非破壞性的
     讓這次寫入被拒。改不可變欄位是 `ErrImmutableSpecField`。
   - `ReportsMembership` 說明平台是否會回報某個成員；會回報卻沒有回報的成員算 drift。
 - Platform 模組以 `platform-reader` 為名實作 platform domain 的 `ReaderBuilder`：core 的 `ReaderFactory` 把 Platform 的

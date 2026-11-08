@@ -5820,7 +5820,7 @@ export interface components {
             serverId: string;
             state: components["schemas"]["HardwareCounterState"];
         };
-        /** @description The deployment's request for GPU hardware counters and each compute node's outcome, recorded by the install of `lastWorkflowId` once it succeeded. */
+        /** @description The request for GPU hardware counters of the install `lastWorkflowId` names (a deployment, or a `configure-omnistat` Workflow that turned them on or off) and each compute node's outcome, recorded by that install once it succeeded. */
         PlatformOmnistatHardwareCounters: {
             /** @description The compute nodes, sorted by `serverId`; empty until the install recorded them. */
             nodes: components["schemas"]["PlatformOmnistatHardwareCounterNode"][];

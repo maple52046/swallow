@@ -102,6 +102,20 @@
         mode: "0644"
       when: omnistat_counters_reason | length == 0
 
+    - name: Create the directory of swallow's extension record
+      ansible.builtin.file:
+        path: "{{ omnistat_rocprof_marker | dirname }}"
+        state: directory
+        mode: "0755"
+      when: omnistat_counters_reason | length == 0
+
+    - name: Record that swallow installed the extension
+      ansible.builtin.copy:
+        content: "{{ omnistat_rocprof_installed }}\n"
+        dest: "{{ omnistat_rocprof_marker }}"
+        mode: "0644"
+      when: omnistat_counters_reason | length == 0
+
     - name: Probe the installed extension
       ansible.builtin.include_tasks: counter_probe.yml
       when: omnistat_counters_reason | length == 0

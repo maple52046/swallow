@@ -308,6 +308,10 @@ type DeploymentLaunch struct {
 	// the deployment or only warns (decision 065). The deploy use case always sets it; an empty value
 	// is treated as enforce.
 	TimeSyncCheck TimeSyncCheck
+	// Realization is what the Workflow carries out: empty or RealizeDeploy is the whole deployment;
+	// RealizeHardwareCounters is only the monitoring feature's own Task on an already deployed
+	// Platform, so the launcher composes nothing else.
+	Realization PlatformRealization
 }
 
 // DeploymentLauncher builds the durable Operation that deploys a Platform. It is a port so the

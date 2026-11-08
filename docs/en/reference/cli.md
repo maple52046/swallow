@@ -86,7 +86,8 @@ and follow each link into the complete usage manual.
   — `zones` and `pools` expose `list`, `get`, `create`, `update`, and `delete`.
 - [`platforms`](../../../cli/docs/usage.md#platforms) — `list`, `get`, `create`,
   `set-spec`, `update`, `delete`, `sync`, and `sync-all`; read live Slurm
-  (`slurm`), manage `slurm-requirements` and `gpu-operator`, and use the nested
+  (`slurm`), manage `slurm-requirements`, `gpu-operator`, and Omnistat's
+  `hardware-counters`, and use the nested
   `kubernetes` explorer for nodes, namespaces, applications, Pods, related
   resources, logs, and YAML apply.
 - [`plans`](../../../cli/docs/usage.md#plans) — `list`, `get`, `approve`, and

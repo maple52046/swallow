@@ -582,11 +582,14 @@ swallow platforms slurm-requirements set -f slurm-req.yaml
 swallow platforms gpu-operator releases                       # Swallow 提供的 AMD GPU Operator 版本
 swallow platforms gpu-operator set plat1 -f gpu-operator.yaml --approve  # 安裝或調整 operator
 swallow platforms gpu-operator uninstall plat1 --approve                 # 移除 operator，平台照常運作
+swallow platforms hardware-counters enable plat1      # 做得到的每台 compute node 由 Omnistat 收集 VALUBusy
+swallow platforms hardware-counters disable plat1     # 每台 compute node 改跑不含 counters 的 Omnistat
 ```
 
 平台以 spec 描述：成員與它們的角色、該類型的設定，以及成員如何取得作業系統。建立平台與破壞性變更（調整或移除
 GPU Operator、刪除平台）會回傳 Change Plan。加上 `--approve` 時 plan 隨寫入核准、變更立即開始，除非 Change Plan
-政策要求另外核准（`swallow plans policy`）；沒有加時，要等 `swallow plans approve` 核准才會動手。加入成員則直接收斂。
+政策要求另外核准（`swallow plans policy`）；沒有加時，要等 `swallow plans approve` 核准才會動手。加入成員、開關 Slurm
+平台的 hardware counters 則直接收斂。
 
 `platforms delete` 會 uninstall 任何已開始部署的平台，包括仍在部署中（加上 `--cancel-active-workflows`）或部署失敗的；
 只有安裝從未開始的平台會直接刪除。對 uninstall 還在等待的平台再執行一次時，flag 相同就回傳同一份 Change Plan
@@ -701,7 +704,10 @@ platform 也會多一個 Monitoring Link `Platform Grafana`。若要一併安裝
 Grafana 以 container 跑在 primary controller 的 runtime 上（即上面的 `containerRuntime`，否則為 Docker CE）；
 `native` 則改由 Grafana 的 apt／yum repository 安裝。`hardwareCounters: true` 另外在做得到的每台 compute node
 收集 GPU hardware counter `VALUBusy`（省略時不收集）；做不到的節點在 `omnistat.hardwareCounters.nodes` 回報原因，其他
-metrics 照常。以下 `platform-slurm-omnistat.yaml` 是實跑的檔案：
+metrics 照常。已部署的平台以 `swallow platforms hardware-counters enable <platformId>` 與 `disable` 開關它們：
+`configure-omnistat` workflow 在每台 compute node 重新設定 Omnistat，平台維持 active，每台 exporter 重啟但不中斷
+執行中的工作。以 `swallow workflows get <workflowId>`（平台的 `status.realizingWorkflowId`）追蹤，再以
+`swallow platforms get` 讀 `omnistat.hardwareCounters` 的結果。以下 `platform-slurm-omnistat.yaml` 是實跑的檔案：
 
 ```yaml
 siteId: site1

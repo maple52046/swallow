@@ -106,6 +106,10 @@ must belong to one Site, and must pass current provisioning, Platform policy, ac
 and live Server Lock checks. Success is `202 Accepted` after intent is persisted; the worker's
 dispatcher starts the Workflow's first run after the response
 ([workflow-execution.md](../../../../../docs/development/workflow-execution.md) §3).
+`configure-omnistat` names the Omnistat Job of a `configure-slurm` deployment, and is also a
+Workflow of its own: the platform controller creates one when a deployed Slurm Platform's spec turns
+Omnistat's hardware counters on or off ([platforms.md](platforms.md#omnistat)). It targets the
+Platform and its members, and has the `prepare-hosts` and `configure-omnistat` Jobs.
 
 `install-exporters` and `uninstall-exporters` are retired kinds: create refuses them with
 `400 validation_error`. They appear only on Workflows an earlier release created, which is why the
@@ -499,3 +503,7 @@ error code changed meaning, and clients that ignore the new fields see the old s
 in its place. The same day the `stderr` report and the `ansible_failed` message began masking
 secrets in task output (`[REDACTED]`), and an `ansible_failed` error carries a `diagnostic`
 (`failureClass` `unknown`; `operation` and `target` when one task or one Server failed).
+
+On 2026-11-09 a `configure-omnistat` Workflow of its own began to appear: the platform controller
+creates one when a deployed Slurm Platform turns Omnistat's hardware counters on or off. The kind
+was already in the enum (the Omnistat Job of a deployment); no field, status, or error changed.

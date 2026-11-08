@@ -913,14 +913,26 @@ The Platform then reports:
 }
 ```
 
-`hardwareCounters.requested` is the deployment's choice. `nodes` lists the compute nodes of the
-install that last ran, sorted by `serverId`: `state` is exactly
+`hardwareCounters.requested` is the choice of the install that last ran. `nodes` lists the compute
+nodes of that install, sorted by `serverId`: `state` is exactly
 `collecting | unavailable`, and `reason` is `null` while collecting, otherwise exactly one of
 `no_gpu | rocm_unsupported | glibc_too_old | artifact_unavailable | probe_failed | exporter_failed`
 (their meanings are the glossary's). `nodes` is empty until the install that asked for them
 succeeded, and stays empty when they were not asked for; it belongs to `lastWorkflowId`, like
-`state`. swallow does not watch the nodes afterwards: the next deployment decides again. Changing
-`hardwareCounters` after the deployment is the unsupported `change-omnistat` change.
+`state`. swallow does not watch the nodes afterwards: the next install decides again.
+
+A deployed Platform turns the counters on or off by writing `omnistat.hardwareCounters` in its spec
+([Change A Platform](#change-a-platform)): the write is non-destructive and
+needs no Change Plan. When it is the spec's only change, the platform controller starts a
+`configure-omnistat` Workflow on the Platform (`Verify SSH readiness`, then the `configure-omnistat`
+Job over every member) instead of a deploy; with another change, such as a new member, the deploy
+reruns Omnistat with the new choice. The Platform stays `active` meanwhile, and its record restarts
+as at a deployment: `requested` is the new choice, `nodes` is empty, `state` is `installing`, and
+`lastWorkflowId` is that Workflow. Turned on, each compute node decides as at a deployment, with the
+same reasons; turned off, every compute node runs plain Omnistat again (no counters, no
+`CAP_PERFMON`, and the extension swallow installed removed). Running jobs keep running; each
+exporter restarts with its new configuration. Any other change to `omnistat` on a deployed Platform
+is still the unsupported `change-omnistat`.
 
 `state` is the Omnistat State, exactly `installing | ready | failed | absent`: `installing` from
 acceptance until the Omnistat Task finishes, `ready` when it succeeded (every compute node's
@@ -1190,9 +1202,11 @@ validates the new spec as a deployment:
 
 - A non-destructive change (adding a member, turning on the GPU Operator, a Slurm monitoring
   feature, a Platform's `monitoringDashboards`, or a first container runtime or workload
-  storage) is written and answered `200 OK` with `plan: null`; the platform controller converges
-  it. Adding a member runs the type's deploy
-  Workflow over every member; members already in the Platform are left as they are.
+  storage, or turning Omnistat's `hardwareCounters` on or off) is written and answered `200 OK`
+  with `plan: null`; the platform controller converges it. Adding a member runs the type's deploy
+  Workflow over every member; members already in the Platform are left as they are. Turning the
+  hardware counters on or off alone runs a `configure-omnistat` Workflow instead
+  ([Omnistat](#omnistat)).
 - A destructive change (changing or turning off the GPU Operator, and the changes below) is written
   together with a Change Plan and answered `202 Accepted`; with `?approve=true` the plan is approved
   with the write as in [Create A Platform](#create-a-platform). When swallow cannot carry the change out
@@ -1201,8 +1215,8 @@ validates the new spec as a deployment:
   containers, PMIx, `stateSaveLocation`, or `gpuGresType` — the plan carries the blocker
   `swallow cannot carry out <action> yet` and cannot be approved.
 - A non-destructive change swallow cannot carry out yet (turning off or changing a Slurm monitoring
-  feature, or turning off a Platform's `monitoringDashboards`) is `409 conflict` and writes
-  nothing.
+  feature other than Omnistat's `hardwareCounters`, or turning off a Platform's
+  `monitoringDashboards`) is `409 conflict` and writes nothing.
 - An immutable field (`podCidr`, `serviceCidr`, `apiVip`, `apiVipPrefix`, Slurm `clusterName`) is
   `409 conflict`: changing it means deleting the Platform and creating it again.
 
@@ -1460,6 +1474,12 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 
 ## Compatibility Notes
 
+- Since 2026-11-09 a deployed Slurm Platform with Omnistat turns `omnistat.hardwareCounters` on or
+  off with `PUT /platforms/{id}/spec`: the write is answered `200 OK` with `plan: null`, and a
+  `configure-omnistat` Workflow carries it out while the Platform stays `active` (see
+  [Omnistat](#omnistat)). The same write used to be `409 conflict` (the unsupported
+  `change-omnistat`); any other `omnistat` change still is. Request and response shapes are
+  unchanged.
 - Since 2026-11-05 a failed membership read's `error` and `sync.lastError` name the call, the
   Platform API address, how the request failed, and the cause, with secrets masked (see
   [Sync Membership](#sync-membership)). They used to carry only a kind and a fixed sentence, such as

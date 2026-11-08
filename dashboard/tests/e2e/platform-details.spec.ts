@@ -154,6 +154,81 @@ test('a Slurm Platform lists, per compute node, whether Omnistat collects the ha
   await expect(rows.nth(0).getByRole('link', { name: 'slurm-cpt-01' })).toHaveAttribute('href', /\/servers\/slurm-cpt-1/)
 })
 
+// Omnistat's hardware counters switch on a deployed Slurm Platform (platforms.md "Omnistat"): the
+// switch shows the spec, the confirmation names the consequence, and the write is the spec at the
+// generation it was read at with only omnistat.hardwareCounters changed. It needs no Change Plan, so
+// the section shows the change running and the switch waits for it.
+test('a deployed Slurm Platform turns its hardware counters off from Configuration', async ({ page }) => {
+  const writes: Array<{ platformId: string; hardwareCounters: unknown; generation: number }> = []
+  await installApiFixtures(page, {
+    slurmDeployed: true, platformDeploymentWorkflows: true,
+    onHardwareCountersRequest: (platformId, hardwareCounters, generation) => { writes.push({ platformId, hardwareCounters, generation }) },
+  })
+  await page.goto('/platforms/platform-slurm-ha/configuration?site=site-a')
+
+  const section = page.getByRole('region', { name: 'GPU hardware counters' })
+  const toggle = section.getByRole('switch', { name: 'Collect GPU hardware counters (VALUBusy)' })
+  await expect(toggle).toBeChecked()
+  await expect(section).toContainText('On')
+  await expect(section).toContainText('VALUBusy is collected on 1 of 2 compute nodes.')
+  await expect(section.getByRole('link', { name: 'Monitoring' })).toHaveAttribute('href', /\/platforms\/platform-slurm-ha\/monitoring/)
+
+  await toggle.locator('..').click()
+  const dialog = page.getByRole('alertdialog', { name: 'Turn off GPU hardware counters' })
+  await expect(dialog).toContainText('back to Omnistat without the counters')
+  await expect(dialog).toContainText('running jobs keep running')
+  await dialog.getByRole('button', { name: 'Turn off counters' }).click()
+
+  await expect(dialog).toHaveCount(0)
+  expect(writes).toEqual([{ platformId: 'platform-slurm-ha', hardwareCounters: false, generation: 1 }])
+  await expect(section).toContainText('Turning off')
+  await expect(toggle).not.toBeChecked()
+  await expect(toggle).toBeDisabled()
+  await expect(section).toContainText('Wait for the running Omnistat change to finish.')
+  await expect(page.getByText('Turning off the hardware counters')).toBeVisible()
+})
+
+// Turning them on states the cost (the extension, CAP_PERFMON, GPU memory) and that a node that
+// cannot collect them keeps its other metrics. A spec changed in between is the API's conflict: the
+// dialog keeps its error, and confirming again writes the spec read anew.
+test('turning the hardware counters on retries a spec that changed in between', async ({ page }) => {
+  const writes: Array<{ hardwareCounters: unknown; generation: number }> = []
+  await installApiFixtures(page, {
+    slurmDeployed: true, platformDeploymentWorkflows: true, slurmHardwareCountersOff: true, hardwareCountersConflict: true,
+    onHardwareCountersRequest: (_platformId, hardwareCounters, generation) => { writes.push({ hardwareCounters, generation }) },
+  })
+  await page.goto('/platforms/platform-slurm-ha/configuration?site=site-a')
+
+  const section = page.getByRole('region', { name: 'GPU hardware counters' })
+  const toggle = section.getByRole('switch', { name: 'Collect GPU hardware counters (VALUBusy)' })
+  await expect(toggle).not.toBeChecked()
+  await expect(section).toContainText('Every compute node runs Omnistat without the counters.')
+
+  await toggle.locator('..').click()
+  const dialog = page.getByRole('alertdialog', { name: 'Turn on GPU hardware counters' })
+  await expect(dialog).toContainText('CAP_PERFMON')
+  await expect(dialog).toContainText('keeps its other metrics and reports why')
+  await dialog.getByRole('button', { name: 'Turn on counters' }).click()
+  await expect(dialog).toContainText('The platform spec changed since it was read')
+  await expect(dialog).toContainText('req-platform-spec-conflict')
+
+  await dialog.getByRole('button', { name: 'Turn on counters' }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(writes).toEqual([{ hardwareCounters: true, generation: 1 }, { hardwareCounters: true, generation: 2 }])
+  await expect(section).toContainText('Turning on')
+  await expect(toggle).toBeChecked()
+})
+
+// The switch exists only where there are counters to switch: a Slurm Platform whose spec has no
+// Omnistat shows none.
+test('a Slurm Platform without Omnistat in its spec has no hardware counters switch', async ({ page }) => {
+  await installApiFixtures(page)
+  await page.goto('/platforms/platform-slurm/configuration?site=site-a')
+
+  await expect(page.getByRole('heading', { name: 'research-slurm' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'GPU hardware counters' })).toHaveCount(0)
+})
+
 test('a Slurm Platform that asked for no hardware counters shows no breakdown for them', async ({ page }) => {
   await installApiFixtures(page)
   await page.goto('/platforms/platform-slurm/monitoring?site=site-a')

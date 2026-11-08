@@ -3,10 +3,11 @@
 - Bounded context: Platform Management, owned by `api-server` as part of a Slurm Platform's Omnistat;
   displayed by `dashboard` and `cli`.
 - Definition: The GPU hardware performance counters Omnistat's exporter samples through
-  ROCProfiler-SDK on a compute node, when a Slurm deployment with Omnistat asks for them. Today the
-  only counter is `VALUBusy`, the share of time a GPU's vector ALUs are busy. Whether the deployment
-  asks for them is the user's intent; whether each compute node collects them is that node's outcome,
-  reported by the Workflow Task that installs Omnistat.
+  ROCProfiler-SDK on a compute node, when a Slurm Platform with Omnistat asks for them: at its
+  deployment, or later by turning them on or off on the deployed Platform. Today the only counter is
+  `VALUBusy`, the share of time a GPU's vector ALUs are busy. Whether the Platform asks for them is
+  the user's intent; whether each compute node collects them is that node's outcome, reported by the
+  Workflow Task that installs or reconfigures Omnistat.
 - Allowed meaning: A compute node's outcome is one state, with a reason when it does not collect:
 
   | State | Meaning |
@@ -23,9 +24,10 @@
   | `probe_failed` | the extension did not load, or did not sample the counters, in a probe isolated from the exporter |
   | `exporter_failed` | with the counters on, the exporter did not serve metrics in time, so they were turned off again |
 
-  A node that is `unavailable` never fails the deployment, and its Omnistat State is the Platform's
-  as usual. The outcome is the one the latest Omnistat install recorded; swallow does not watch it
-  change afterwards.
+  A node that is `unavailable` never fails the deployment or the change, and its Omnistat State is
+  the Platform's as usual. The outcome is the one the latest Omnistat install recorded; swallow does
+  not watch it change afterwards. Turning the counters off records no outcome: every compute node
+  runs Omnistat without them.
 - Disallowed meaning: Not the Omnistat State, which a Platform has whether or not its nodes collect
   counters. Not the Device Metrics Exporter's profiler, which a Platform has instead of Omnistat. Not
   counters a user collects inside a job (Omnistat's user mode or `rocprofv3`).
@@ -43,4 +45,5 @@
   (omnistat slurm observability)) when swallow started collecting `VALUBusy` with Omnistat, degrading
   per node instead of failing the deployment; the extension is built and published by swallow's
   release ([decision 079](../../../decisions/079-release-built-host-artifacts.md) (release-built host
-  artifacts)).
+  artifacts)). Changed 2026-11-09: a deployed Platform may turn them on or off, so the intent is the
+  Platform's, no longer only its deployment's.

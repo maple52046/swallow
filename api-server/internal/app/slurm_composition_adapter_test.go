@@ -492,6 +492,90 @@ func TestSlurmCompositionComposesOmnistat(t *testing.T) {
 	}
 }
 
+// A hardware counters change on a deployed Slurm Platform is its own configure-omnistat Workflow:
+// SSH readiness, then the Omnistat Task a deployment composes, with the same variables and
+// completions fenced on this Workflow. It composes no Grafana, runtime, or install of the Platform,
+// and only a Slurm Platform with Omnistat has one.
+func TestAHardwareCountersChangeRunsOnlyOmnistat(t *testing.T) {
+	launcher := slurmCompositionLauncher(t, nil)
+	launch := platformdomain.DeploymentLaunch{
+		Platform:        &platformdomain.Platform{ID: "plat-1", Name: "lab", Type: platformdomain.PlatformTypeSlurm},
+		OperationID:     "op-2",
+		TargetServerIDs: []string{"s1", "s2"},
+		RequestedBy:     "platform-controller",
+		Realization:     platformdomain.RealizeHardwareCounters,
+		ContainerRuntime: &platformdomain.ContainerRuntimeLaunch{
+			Kind: platformdomain.ContainerRuntimeDockerCE, ServerIDs: []string{"s2"},
+		},
+		Omnistat: &platformdomain.OmnistatLaunch{
+			ObservabilityServerID: "s1", ComputeServerIDs: []string{"s2"}, InstallMethod: platformdomain.ObservabilityInstallNative,
+			HardwareCounters: true, TrustedVars: map[string]any{"swallow_omnistat_compute_ids": []string{"s2"}},
+		},
+		MonitoringDashboards: &platformdomain.MonitoringDashboardsLaunch{ServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallNative},
+	}
+	prepared, err := launcher.PrepareDeployment(context.Background(), launch)
+	if err != nil {
+		t.Fatalf("PrepareDeployment() error = %v", err)
+	}
+	plan := prepared.(*preparedPlatformDeployment)
+	workflow := plan.workflow
+	if workflow.ID != "op-2" || workflow.Kind != workflowdomain.WorkflowKindConfigureOmnistat ||
+		workflow.IntentSummary != "Enable Omnistat hardware counters on lab" || workflow.PlatformID != "plat-1" {
+		t.Errorf("workflow = id %s kind %s summary %q platform %s", workflow.ID, workflow.Kind, workflow.IntentSummary, workflow.PlatformID)
+	}
+	if got := taskIDs(workflow.Steps); !slices.Equal(got, []string{softwareWaitStepID, omnistatStepID}) {
+		t.Fatalf("Tasks = %v, want SSH readiness then Omnistat only", got)
+	}
+	if len(plan.composed.installs) != 0 || len(plan.composed.tokenSteps) != 0 {
+		t.Errorf("composed installs %v token steps %v, want none", plan.composed.installs, plan.composed.tokenSteps)
+	}
+	omnistat := workflow.Steps[1]
+	if omnistat.Job != jobConfigureOmnistat || !slices.Equal(omnistat.DependsOn, []string{softwareWaitStepID}) ||
+		!slices.Equal(omnistat.Targets, serverRefs("s1", "s2")) {
+		t.Errorf("Omnistat Task = job %s depends on %v targets %v", omnistat.Job, omnistat.DependsOn, omnistat.Targets)
+	}
+	want := []workflowdomain.Completion{
+		featureState(completionOmnistatState, "plat-1", "op-2"),
+		{Type: completionOmnistatHardwareCounters, Params: map[string]any{completionParamRecord: "op-2"}},
+	}
+	if !reflect.DeepEqual(omnistat.Completion, want) {
+		t.Errorf("Omnistat Task completion = %v, want %v", omnistat.Completion, want)
+	}
+	vars := extraVars(t, omnistat)
+	if vars[omnistatHardwareCountersVar] != true || vars["swallow_omnistat_grafana_port"] != softwaredomain.GrafanaPort {
+		t.Errorf("extraVars = %v, want the counters on and the Grafana port", vars)
+	}
+	if addresses, _ := vars[omnistatScrapeAddressesVar].([]string); !slices.Equal(addresses, []string{"10.170.168.20", "192.168.100.1"}) {
+		t.Errorf("%s = %v", omnistatScrapeAddressesVar, vars[omnistatScrapeAddressesVar])
+	}
+
+	launch.Omnistat.HardwareCounters = false
+	prepared, err = launcher.PrepareDeployment(context.Background(), launch)
+	if err != nil {
+		t.Fatalf("PrepareDeployment(off) error = %v", err)
+	}
+	off := prepared.(*preparedPlatformDeployment).workflow
+	if off.IntentSummary != "Disable Omnistat hardware counters on lab" || extraVars(t, off.Steps[1])[omnistatHardwareCountersVar] != false {
+		t.Errorf("turning the counters off = %q with %v", off.IntentSummary, extraVars(t, off.Steps[1])[omnistatHardwareCountersVar])
+	}
+
+	withoutOmnistat := launch
+	withoutOmnistat.Omnistat = nil
+	if _, err := launcher.PrepareDeployment(context.Background(), withoutOmnistat); !errors.Is(err, platformdomain.ErrInvalidOmnistat) {
+		t.Errorf("without Omnistat: err = %v, want ErrInvalidOmnistat", err)
+	}
+	kubernetes := launch
+	kubernetes.Platform = &platformdomain.Platform{ID: "plat-2", Name: "k0s", Type: platformdomain.PlatformTypeKubernetes}
+	if _, err := launcher.PrepareDeployment(context.Background(), kubernetes); !errors.Is(err, platformdomain.ErrInvalidDeployment) {
+		t.Errorf("Kubernetes Platform: err = %v, want ErrInvalidDeployment", err)
+	}
+	unknown := launch
+	unknown.Realization = platformdomain.RealizeGPUOperator
+	if _, err := launcher.PrepareDeployment(context.Background(), unknown); err == nil {
+		t.Error("a launch for another realization must be refused")
+	}
+}
+
 // A configure-omnistat run's hardwareCounters.nodes are read as the Platform records them; a node
 // the playbook reported in a shape swallow does not know (an unknown reason, a reason while
 // collecting, no serverId) is left out instead of failing the Task, and a run that asked for no

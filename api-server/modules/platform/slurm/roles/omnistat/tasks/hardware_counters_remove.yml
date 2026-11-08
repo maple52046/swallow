@@ -1,0 +1,31 @@
+---
+# Take a node whose deployment no longer asks for the hardware counters back to plain Omnistat
+# (decision 063): remove the extension swallow copied into the omnistat package, the extension it
+# downloaded, and the counter probe; service.yml then drops the CAP_PERFMON drop-in and the counters
+# from the configuration. An extension swallow did not copy, one the environment came with from an
+# OS image, stays: it is part of that environment, and the exporter does not load it without the
+# counters.
+
+- name: Read which extension swallow installed
+  ansible.builtin.slurp:
+    src: "{{ omnistat_rocprof_marker }}"
+  register: omnistat_rocprof_marker_file
+  failed_when: false
+
+- name: Remove the extension swallow installed into the omnistat package
+  ansible.builtin.file:
+    path: "{{ omnistat_rocprof_marker_file.content | b64decode | trim }}"
+    state: absent
+  when:
+    - omnistat_rocprof_marker_file.content is defined
+    - >-
+      (omnistat_rocprof_marker_file.content | b64decode | trim)
+      is search('/omnistat/' ~ (omnistat_rocprof_module | regex_escape) ~ '$')
+
+- name: Remove the downloaded extension and the counter probe
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ omnistat_rocprof_home }}"
+    - "{{ omnistat_prefix }}/omnistat-counter-probe.py"

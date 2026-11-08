@@ -76,6 +76,9 @@ omnistat_rocprof_module: rocprofiler_sdk_extension.cpython-312-x86_64-linux-gnu.
 # copied from there instead of downloaded. A downloaded asset is unpacked under the version's prefix.
 omnistat_rocprof_prebaked_root: /opt/swallow/omnistat-rocprof
 omnistat_rocprof_home: "{{ omnistat_prefix }}/rocprof"
+# Names the extension swallow copied into the omnistat package, so turning the counters off removes
+# that one and leaves an extension the environment came with.
+omnistat_rocprof_marker: "{{ omnistat_rocprof_home }}/installed"
 omnistat_rocprof_download_retries: 3
 # The probe runs as the exporter will (its user and groups, CAP_PERFMON, the unit's library path),
 # in its own process with a deadline, because a failing counter can end or abort the process.

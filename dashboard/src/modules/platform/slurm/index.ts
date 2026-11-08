@@ -4,14 +4,16 @@ import type { PlatformModuleUI } from '@/modules/types'
 import { slurmPlatformFacts, slurmSpecTopology } from './slurmFacts'
 import { hardwareCounterStates } from './slurmHardwareCounters'
 import { SlurmAccess } from './SlurmAccess'
+import { SlurmHardwareCountersSection } from './SlurmHardwareCountersSection'
 import { SlurmNodesRoute, SlurmPartitionsRoute } from './SlurmWorkspaceRoutes'
 import { useSlurmDeployForm } from './useSlurmDeployForm'
 import { SlurmSettingsPage } from './SlurmSettingsPage'
 
 /**
  * The Slurm module's UI: its deploy form, access summary, native workspace routes, configuration
- * facts, and monitoring contributions (Omnistat with its per-node hardware counters, or the Device
- * Metrics Exporter).
+ * facts, the Configuration section that switches Omnistat's hardware counters on a deployed
+ * Platform, and monitoring contributions (Omnistat with its per-node hardware counters, or the
+ * Device Metrics Exporter).
  */
 export const slurmModule: PlatformModuleUI = {
   kind: 'platform',
@@ -67,6 +69,7 @@ export const slurmModule: PlatformModuleUI = {
   ],
   deploy: { icon: Cpu, namePlaceholder: 'lab-slurm', useForm: useSlurmDeployForm },
   Settings: SlurmSettingsPage,
+  configurationSections: [SlurmHardwareCountersSection],
   facts: slurmPlatformFacts,
   specTopology: slurmSpecTopology,
 }

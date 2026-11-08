@@ -298,3 +298,49 @@ func TestOmnistatHardwareCountersCollectWhenTheProbePasses(t *testing.T) {
 		t.Errorf("installed extension = %q after %d downloads, want the image's, never downloaded", got, imageSource.requests.Load())
 	}
 }
+
+// Turning the counters off takes a node back to plain Omnistat: the extension swallow installed, its
+// download, and the probe are removed, and the next run changes nothing. Turning them on again
+// installs the extension anew. An extension the environment came with, which swallow did not install,
+// stays.
+func TestOmnistatHardwareCountersOffRemovesWhatSwallowInstalled(t *testing.T) {
+	t.Parallel()
+	asset := countersAsset(t, "10.0.0")
+	run := countersRun(t)
+	node := newCountersNode(t, "10.0.0")
+	source := newCountersSource(t, asset)
+	vars := countersVars(node, source, asset, "2.28")
+	prefix := filepath.Join(node.root, "opt", "omnistat", convergeVersion)
+	installed := filepath.Join(node.sitePackages, "omnistat", countersModule)
+	if out, _, failed := run.run(vars); failed != 0 {
+		t.Fatalf("turning the counters on failed %d tasks:\n%s", failed, out)
+	}
+
+	vars["swallow_omnistat_hardware_counters"] = false
+	out, changed, failed := run.run(vars)
+	if enabled, result := countersOutcome(t, out); failed != 0 || changed == 0 || enabled || result != (countersResult{}) {
+		t.Fatalf("turning the counters off changed %d and failed %d tasks, enabled %v with %+v:\n%s", changed, failed, enabled, result, out)
+	}
+	for _, path := range []string{installed, filepath.Join(prefix, "rocprof"), filepath.Join(prefix, "omnistat-counter-probe.py")} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("%s is still there after the counters were turned off (stat error %v)", path, err)
+		}
+	}
+	if out, changed, failed := run.run(vars); failed != 0 || changed != 0 {
+		t.Errorf("a converged run without counters changed %d and failed %d tasks:\n%s", changed, failed, out)
+	}
+
+	vars["swallow_omnistat_hardware_counters"] = true
+	out, _, failed = run.run(vars)
+	if enabled, _ := countersOutcome(t, out); failed != 0 || !enabled || readScratch(t, node.sitePackages, "omnistat/"+countersModule) != "module built for 10.0.0" {
+		t.Errorf("turning the counters on again failed %d tasks and enabled %v:\n%s", failed, enabled, out)
+	}
+
+	image := newCountersNode(t, "10.0.0")
+	writeScratch(t, image.sitePackages, "omnistat/"+countersModule, "module the image installed")
+	imageVars := countersVars(image, newCountersSource(t, asset), asset, "2.28")
+	imageVars["swallow_omnistat_hardware_counters"] = false
+	if out, _, failed := countersRun(t).run(imageVars); failed != 0 || readScratch(t, image.sitePackages, "omnistat/"+countersModule) != "module the image installed" {
+		t.Errorf("an image's extension did not survive the counters off (failed %d):\n%s", failed, out)
+	}
+}

@@ -507,6 +507,16 @@ export interface FixtureOptions {
   /** Makes `PUT .../gpu-operator` answer 409 as if a target were held by another Workflow. */
   gpuOperatorBusy?: boolean
   /**
+   * Receives each Slurm Platform spec write (`PUT /platforms/{id}/spec`): the written
+   * `settings.omnistat.hardwareCounters` and the generation the write names.
+   */
+  onHardwareCountersRequest?: (platformId: string, hardwareCounters: unknown, generation: number) => void
+  /**
+   * Makes the first Slurm spec write answer `409 conflict` as if another write had changed the spec
+   * since it was read; the stored generation moves on, so a retry that reads again succeeds.
+   */
+  hardwareCountersConflict?: boolean
+  /**
    * Provider-only running work: sets the OS Provisioning State and leaves the swallow deployment
    * record alone, so no swallow Workflow is running for the Server (unlike `changingServerIds`).
    */
@@ -621,6 +631,11 @@ export interface FixtureOptions {
    * managers and the controller merge in the member list. Opt-in so other tests are unaffected.
    */
   slurmDeployed?: boolean
+  /**
+   * With `slurmDeployed`, lab-slurm-ha's spec and Omnistat record ask for no hardware counters, as a
+   * Platform deployed without them or turned off afterwards.
+   */
+  slurmHardwareCountersOff?: boolean
   /**
    * Seeds the succeeded deployment Workflow of each deployed Platform: production-k0s's
    * `deploy-kubernetes` (op-k0s-deploy), and with `slurmDeployed` lab-slurm-ha's `configure-slurm`
@@ -1796,6 +1811,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   let localRepositoryObservedGeneration = 1
   let localRepositoryReads = 0
   let localRepositoryConflictPending = Boolean(options.localRepositorySpecConflict)
+  let hardwareCountersConflictPending = Boolean(options.hardwareCountersConflict)
   // User sources the mock worker has synced; a written spec converges on the second read after it.
   const syncedUserSources = new Set(['ubuntu'])
   let readsUntilSpecConverges = 0
@@ -2087,7 +2103,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       // version swallow ships no counter extension for (glossary Omnistat Hardware Counters).
       omnistat: {
         enabled: true, version: '1.15.0', installMethod: 'container', observabilityServerId: 'slurm-ctl-1', state: 'ready',
-        hardwareCounters: {
+        hardwareCounters: options.slurmHardwareCountersOff ? { requested: false, nodes: [] } : {
           requested: true,
           nodes: [
             { serverId: 'slurm-cpt-1', state: 'collecting', reason: null },
@@ -2101,6 +2117,9 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       createdAt: '2026-08-18T00:00:00Z', updatedAt: now,
     }
     const slurmHaSpec = fixturePlatformSpec(slurmHa)
+    if (options.slurmHardwareCountersOff) {
+      slurmHaSpec.settings = { ...slurmHaSpec.settings, omnistat: { enabled: true, installMethod: 'container', hardwareCounters: false } }
+    }
     platformItems.push({ ...slurmHa, generation: 1, spec: slurmHaSpec, status: fixturePlatformStatus(slurmHa.lifecycleState, slurmHaSpec) } as (typeof platformItems)[number])
     integrationItems.push({
       id: 'slurm-ha', siteId: 'site-a', kind: 'platform', providerKind: 'slurm', name: 'lab-slurm-ha (deployed)',
@@ -3793,6 +3812,37 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     if (specMatch && request.method() === 'PUT') {
       const platformId = specMatch[1]
       const written = request.postDataJSON() as { generation: number; spec: { settings: Record<string, unknown> } }
+      // A Slurm spec write turns Omnistat's hardware counters on or off (platforms.md "Omnistat"): it
+      // needs no Change Plan, and the controller's configure-omnistat Workflow restarts the record as
+      // installing with no nodes while the Platform stays active.
+      const slurmPlatform = platformItems.find((item) => item.id === platformId && item.type === 'slurm')
+      if (slurmPlatform) {
+        const omnistatSetting = written.spec.settings.omnistat as { hardwareCounters?: unknown } | undefined
+        options.onHardwareCountersRequest?.(platformId, omnistatSetting?.hardwareCounters, written.generation)
+        if (hardwareCountersConflictPending) {
+          hardwareCountersConflictPending = false
+          slurmPlatform.generation += 1
+          return json(route, { error: { code: 'conflict', message: 'The platform spec changed since it was read; read it again and retry.', requestId: 'req-platform-spec-conflict' } }, 409)
+        }
+        if (written.generation !== slurmPlatform.generation) {
+          return json(route, { error: { code: 'conflict', message: 'The platform spec changed since it was read; read it again and retry.' } }, 409)
+        }
+        slurmPlatform.generation += 1
+        slurmPlatform.spec = { ...slurmPlatform.spec, settings: written.spec.settings } as typeof slurmPlatform.spec
+        const workflowId = `op-hardware-counters-${slurmPlatform.generation}`
+        slurmPlatform.status = {
+          ...slurmPlatform.status,
+          conditions: platformConditions('converging', slurmPlatform.generation, `Workflow ${workflowId} carries out generation ${slurmPlatform.generation}`),
+          realizingWorkflowId: workflowId,
+        }
+        if (slurmPlatform.omnistat) {
+          slurmPlatform.omnistat = {
+            ...slurmPlatform.omnistat, state: 'installing', lastWorkflowId: workflowId, updatedAt: now,
+            hardwareCounters: { requested: omnistatSetting?.hardwareCounters === true, nodes: [] },
+          }
+        }
+        return json(route, { platform: slurmPlatform, plan: null })
+      }
       const body = (written.spec.settings.gpuOperator ?? { enabled: false }) as Record<string, unknown>
       options.onGPUOperatorRequest?.(platformId, body)
       if (options.gpuOperatorBusy) {

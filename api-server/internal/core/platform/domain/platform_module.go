@@ -43,6 +43,11 @@ const (
 	RealizeUninstall PlatformRealization = "uninstall"
 	// RealizeGPUOperator runs the GPU Operator change Workflow for the desired gpuOperator setting.
 	RealizeGPUOperator PlatformRealization = "gpu-operator"
+	// RealizeHardwareCounters plans the deploy of the desired spec like RealizeDeploy, but its
+	// Workflow reconfigures only the monitoring feature that collects the GPU hardware counters on
+	// the deployed members (DeploymentLaunch.Realization). The Platform stays active meanwhile: its
+	// lifecycle follows only deploy and uninstall Workflows.
+	RealizeHardwareCounters PlatformRealization = "hardware-counters"
 )
 
 // UnsupportedDestructive reports whether an action swallow cannot carry out yet is destructive:

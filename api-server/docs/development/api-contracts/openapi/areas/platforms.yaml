@@ -1610,8 +1610,9 @@ components:
     PlatformOmnistatHardwareCounters:
       type: object
       description: >-
-        The deployment's request for GPU hardware counters and each compute node's outcome, recorded by
-        the install of `lastWorkflowId` once it succeeded.
+        The request for GPU hardware counters of the install `lastWorkflowId` names (a deployment, or a
+        `configure-omnistat` Workflow that turned them on or off) and each compute node's outcome,
+        recorded by that install once it succeeded.
       required: [requested, nodes]
       properties:
         requested:

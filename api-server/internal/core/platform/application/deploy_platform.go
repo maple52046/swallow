@@ -245,6 +245,8 @@ type DeployPlatformInput struct {
 	// the Platform already claims or reports membership in are accepted, and acceptance updates the
 	// record instead of creating it.
 	PlatformID string
+	// realization is the launch's Realization (PrepareSpecDeployment); empty is the whole deployment.
+	realization platformdomain.PlatformRealization
 	// preflight stops after validation, before the Workflow is prepared (Preflight).
 	preflight bool
 }
@@ -418,6 +420,9 @@ func (s *DeployService) platformFor(ctx context.Context, platformID string, inpu
 }
 
 func (s *DeployService) deployKubernetes(ctx context.Context, input DeployPlatformInput) (*PreparedDeploy, error) {
+	if input.realization == platformdomain.RealizeHardwareCounters {
+		return nil, fmt.Errorf("%w: this Platform type has no hardware counters change", platformdomain.ErrInvalidDeployment)
+	}
 	if input.Omnistat != nil && input.Omnistat.Enabled {
 		return nil, fmt.Errorf("%w: Omnistat is a Slurm Platform feature", platformdomain.ErrInvalidOmnistat)
 	}
@@ -614,17 +619,21 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 	if err != nil {
 		return nil, err
 	}
-	omnistatEnabled := input.Omnistat != nil && input.Omnistat.Enabled
+	jobMonitoringEnabled := input.Omnistat != nil && input.Omnistat.Enabled
 	var jobMonitoring platformdomain.OmnistatSettings
-	if omnistatEnabled {
+	if jobMonitoringEnabled {
 		if jobMonitoring, err = platformdomain.NormalizeOmnistatSettings(*input.Omnistat); err != nil {
 			return nil, err
 		}
 	}
+	if input.realization == platformdomain.RealizeHardwareCounters && (!jobMonitoringEnabled || input.PlatformID == "") {
+		return nil, fmt.Errorf("%w: the hardware counters change needs a deployed Platform whose spec keeps job monitoring on",
+			platformdomain.ErrInvalidDeployment)
+	}
 	exporterEnabled := input.DeviceMetricsExporter != nil && input.DeviceMetricsExporter.Enabled
 	var exporter platformdomain.DeviceMetricsExporterSettings
 	if exporterEnabled {
-		if omnistatEnabled {
+		if jobMonitoringEnabled {
 			// Omnistat attributes whole nodes (one job per node) and the exporter attributes GPUs on
 			// shared nodes; both would also take the same hardware profiler. Whether they may run
 			// together is not decided, so a Platform gets one.
@@ -675,6 +684,7 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 		RequestCorrelation: input.RequestCorrelation,
 		MachinePreparation: validated.machinePreparation,
 		TimeSyncCheck:      input.TimeSyncCheck,
+		Realization:        input.realization,
 	}
 	if containerRuntime != "" {
 		launch.ContainerRuntime = &platformdomain.ContainerRuntimeLaunch{
@@ -688,7 +698,7 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 	observability := validated.slurmSpec.PrimaryControllerID()
 	dashboardsMethod := platformdomain.ObservabilityInstallNative
 	var records []featureRecord
-	if omnistatEnabled {
+	if jobMonitoringEnabled {
 		record := &platformdomain.Omnistat{
 			Enabled: true, Version: platformdomain.OmnistatVersion, InstallMethod: jobMonitoring.InstallMethod,
 			ObservabilityServerID: observability, State: platformdomain.OmnistatInstalling,

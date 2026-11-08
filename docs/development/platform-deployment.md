@@ -1144,8 +1144,23 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
 
   primary 的 record play 把每台的結果寫成 result 的 `hardwareCounters.nodes`（§4.4），結果類完成行為
   `omnistat-hardware-counters` 以 record id 為 fence 記到 `Platform.omnistat.hardwareCounters.nodes`；之後的部署在受理時以新的
-  record 重新開始。swallow 不觀察之後的變化（例如節點上被改掉的設定），下一次部署時重新判斷。部署後改變
-  `hardwareCounters` 和其他 Omnistat 的變更一樣是 unsupported 的 `change-omnistat`。uninstall 移除 drop-in；下載的 asset 在
+  record 重新開始。swallow 不觀察之後的變化（例如節點上被改掉的設定），下一次部署時重新判斷。
+
+  已部署的 Platform 以 spec 的 `omnistat.hardwareCounters` 開關 counters（非破壞性，
+  [desired-state-model.md](desired-state-model.md) §5.2）：Slurm 模組的 `Changes` 把它分類為
+  `enable-hardware-counters`／`disable-hardware-counters`，只有它時 realization 是 `hardware-counters`，和其他變更一起時是
+  `deploy`（重跑的 deploy 本來就帶新的選擇重裝 Omnistat）；`omnistat` 的其他變更仍是 unsupported 的 `change-omnistat`。
+  `hardware-counters` 和 `deploy` 一樣由 deploy use case 以 spec 規劃（同樣的驗證、trusted vars 與 Omnistat 紀錄：新的
+  `requested`、`installing`、清空 `nodes`、fence 是新的 Workflow），只有 `DeploymentLaunch.Realization` 不同；launcher
+  （`prepareSlurmHardwareCounters`）因此只組 `configure-omnistat` Workflow：`prepare-hosts`（`wait-for-ssh`）→
+  `configure-omnistat`（同一個 `install-omnistat` Task 與完成行為），不重跑 `deploy-slurm`、不組 runtime 與 Grafana。
+  lifecycle 只看 `configure-slurm`，所以 Platform 維持 `active`；controller 以 Workflow 本身的結果判斷 generation 是否套用，
+  和 GPU Operator 的部署後調整一樣。開啟時每台照上面的步驟重新判斷；關閉時 `tasks/hardware_counters_remove.yml` 回到
+  純 Omnistat：移除 swallow 放進 omnistat package 的 extension（放的時候在 `rocprof/installed` 記下路徑）、下載的
+  `/opt/omnistat/<version>/rocprof/` 與 counter probe，`service.yml` 再移除 drop-in、把 config 換回沒有 rocprofiler 的版本並
+  重啟 exporter；不是 swallow 放的 extension（image 的 Omnistat 自帶的）保留，exporter 不載入它。
+
+  uninstall 移除 drop-in；下載的 asset 在
   `/opt/omnistat/<version>/rocprof/`，隨 `/opt/omnistat` 一起移除，image 的 extension 目錄保留。已知限制：已放進
   omnistat package 而 probe 通過的 extension 不會因為宣告了新的 revision 而更換；uninstall 移除整個 `/opt/omnistat`，也包括
   image 帶的 Omnistat。
@@ -1180,7 +1195,8 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   | `configure-omnistat` | `install-omnistat`（`configure-omnistat` playbook，全部 targets） | compute 收斂 Omnistat 的環境（先探測，見上方「Omnistat 的環境先探測」）並裝 exporter（`allowed_ips`＝`127.0.0.1`＋scrape addresses），每台在 `127.0.0.1:8001/metrics` 確認自己的 exporter；primary 寫 result `{grafanaUrl}` |
 
   （DME 時最後一列改為 `configure-device-metrics-exporter`：`install-device-metrics-exporter` →
-  `record-device-metrics-exporter`，ansible 目標與 assignment＝GPU compute。）不再組入 Prometheus：Site 的 Prometheus
+  `record-device-metrics-exporter`，ansible 目標與 assignment＝GPU compute。部署後只開關 hardware counters 的
+  `configure-omnistat` Workflow 只有 `prepare-hosts`（`wait-for-ssh`）與這一列，見上方「Omnistat 的 hardware counters」。）不再組入 Prometheus：Site 的 Prometheus
   收集每個 exporter。在這之前部署、組入過 Prometheus 的 Platform 保留那筆 `prometheus` Software Assignment，沒有任何東西
   會移除它，要移除時經 software API uninstall。
 
@@ -1208,7 +1224,7 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
 - **非目標（後續）**：SlurmDBD/accounting、RSMI GPU accounting、production 等級/外部 HA controller-state
   filesystem（controller state 目前為 lab 等級 managed NFS）、非 NFS 的 workload 儲存型別、多個
   workload filesystem、使用者/UID-GID 佈建（swallow 只提供 mount,不管身分）、`auth/slurm`、部署後單獨
-  開關 Omnistat、部署後關閉 Platform Grafana、經 `scrun` 的 Podman、cluster-wide `MpiDefault`（job 以 `--mpi=pmix_v5` 明確要求）。
+  開關 Omnistat（它的 hardware counters 可以開關）、部署後關閉 Platform Grafana、經 `scrun` 的 Podman、cluster-wide `MpiDefault`（job 以 `--mpi=pmix_v5` 明確要求）。
 - **設計理由**：per-daemon 角色、套件由 image 提供、選用的 slurmrestd credential 見 decision 019；swallow 供給 HA state
   與 primary 先啟動見 decision 023；login 與 workload storage 見 decision 024；GRES、driver options、Omnistat 與
   Grafana 組入見 decision 063，Site 的 Prometheus 與 Platform Grafana 的閘道見 decision 003；dispatcher、共用節點、DME、OCI、PMIx 見 decision 066。各 ADR 保留完整的
@@ -1220,7 +1236,7 @@ Slurm 模組的 `roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、
 `slurm_cluster_credential`、`slurm_job_hooks`）；Device Metrics Exporter：
 [`deploy-device-metrics-exporter.yml`](../../api-server/modules/software/device-metrics-exporter/playbooks/deploy-device-metrics-exporter.yml)
 （standalone 與 Slurm 共用；舊名 `configure-device-metrics-exporter` 為 manifest alias）與共用的 `roles/device_metrics_exporter`（套件宣告的 path／SHA-256 與上游 `config.json` 在 role 內，上游 URL 在模組的 `artifacts`）；Omnistat：[`configure-omnistat.yml`](../../api-server/modules/platform/slurm/playbooks/configure-omnistat.yml)
-與 `roles/omnistat`（上游 tag 壓縮檔宣告的 path 與 sha256 在 `defaults/main.yml`，上游 URL 在 Slurm 模組的 `artifacts`，swallow 維護的 patch、環境的 hash lock 與兩個 probe 在 `files/`；收斂在 `tasks/converge.yml`、`probe.yml`、`install.yml`，hardware counters 在 `hardware_counters.yml`、`hardware_counters_probe.yml`、`counter_probe.yml`，exporter 的設定與 unit 在 `service.yml`）。
+與 `roles/omnistat`（上游 tag 壓縮檔宣告的 path 與 sha256 在 `defaults/main.yml`，上游 URL 在 Slurm 模組的 `artifacts`，swallow 維護的 patch、環境的 hash lock 與兩個 probe 在 `files/`；收斂在 `tasks/converge.yml`、`probe.yml`、`install.yml`，hardware counters 在 `hardware_counters.yml`、`hardware_counters_probe.yml`、`counter_probe.yml`、`hardware_counters_remove.yml`，exporter 的設定與 unit 在 `service.yml`）。
 
 **swallow 維護的 Omnistat patch（[decision 064](../decisions/064-upstream-patches-are-the-exception.md)（upstream patches are the exception））**：
 `roles/omnistat/defaults/main.yml` 的 `omnistat_sources[<version>].patches` 列出每個版本要套的 patch；role 的 probe 逐一以

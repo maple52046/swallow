@@ -11,12 +11,17 @@
 #                     provides an extension for this ROCm minor
 #   probe_failed      the extension does not load and sample the counters in an isolated probe
 # Sets omnistat_rocprofiler_enabled and omnistat_hardware_counters_result ({} when not asked for;
-# otherwise serverId, state collecting or unavailable, and reason).
+# otherwise serverId, state collecting or unavailable, and reason). A node not asked for them, which
+# a deployed Platform switches to, goes back to plain Omnistat (hardware_counters_remove.yml).
 
 - name: Start with the hardware counters off
   ansible.builtin.set_fact:
     omnistat_rocprofiler_enabled: false
     omnistat_counters_reason: "{{ '' if omnistat_gpu | bool else 'no_gpu' }}"
+
+- name: Go back to plain Omnistat when the counters are not asked for
+  ansible.builtin.include_tasks: hardware_counters_remove.yml
+  when: not omnistat_hardware_counters | bool
 
 - name: Check whether this node can collect the hardware counters
   when: omnistat_hardware_counters | bool and omnistat_gpu | bool

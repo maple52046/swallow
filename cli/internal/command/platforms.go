@@ -30,6 +30,7 @@ func newPlatformsCommand() *cobra.Command {
 		platformsSlurmCmd(),
 		platformsSlurmRequirementsCmd(),
 		platformsGPUOperatorCmd(),
+		platformsHardwareCountersCmd(),
 		platformsKubernetesCmd(),
 	)
 	return cmd
@@ -86,10 +87,60 @@ func platformsGPUOperatorCmd() *cobra.Command {
 	return cmd
 }
 
+// platformsHardwareCountersCmd switches Omnistat's GPU hardware counters (glossary Omnistat Hardware
+// Counters) on a deployed Slurm Platform (platforms.md "Omnistat"). They are the spec's
+// settings.omnistat.hardwareCounters: `enable` and `disable` read the Platform and write its spec
+// back with only that field changed, at the generation they read. The change is non-destructive, so
+// it starts at once without a Change Plan; a Platform whose spec has no enabled Omnistat is refused
+// here, before anything is written.
+func platformsHardwareCountersCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "hardware-counters",
+		Short: "Turn Omnistat's GPU hardware counters (VALUBusy) on or off on a deployed Slurm platform",
+		Long: "Turn Omnistat's GPU hardware counters (VALUBusy) on or off on a deployed Slurm platform.\n\n" +
+			"A configure-omnistat workflow reconfigures Omnistat on every compute node while the\n" +
+			"platform stays active; each exporter restarts and running jobs keep running. Turned on,\n" +
+			"a node that cannot collect them keeps its other metrics and reports why; turned off,\n" +
+			"every compute node runs Omnistat without them. Read the outcome with `platforms get`\n" +
+			"(omnistat.hardwareCounters).",
+	}
+	for _, change := range []struct {
+		use, short string
+		wanted     bool
+	}{
+		{"enable <platformId>", "Collect the hardware counters on every compute node that can", true},
+		{"disable <platformId>", "Run Omnistat without the hardware counters on every compute node", false},
+	} {
+		cmd.AddCommand(&cobra.Command{
+			Use:   change.use,
+			Short: change.short,
+			Args:  cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return updatePlatformSetting(cmd, args[0], "omnistat", func(current any) (any, error) {
+					omnistat, _ := current.(map[string]any)
+					if enabled, _ := omnistat["enabled"].(bool); !enabled {
+						return nil, fmt.Errorf("platform %s has no Omnistat in its spec, so it has no hardware counters to switch", args[0])
+					}
+					omnistat["hardwareCounters"] = change.wanted
+					return omnistat, nil
+				})
+			},
+		})
+	}
+	return cmd
+}
+
 // changePlatformSetting reads a Platform and writes its spec back with one setting replaced, at the
 // generation it read, and prints the result (the Platform and the Change Plan, if any) and what
 // happens to the plan. The calling command registers --approve.
 func changePlatformSetting(cmd *cobra.Command, platformID, key string, value any) error {
+	return updatePlatformSetting(cmd, platformID, key, func(any) (any, error) { return value, nil })
+}
+
+// updatePlatformSetting is changePlatformSetting with the new value computed from the stored one
+// (nil when the spec has no such setting); an error from change refuses the write before anything is
+// sent. Every other part of the spec is written back as read.
+func updatePlatformSetting(cmd *cobra.Command, platformID, key string, change func(current any) (any, error)) error {
 	c, err := newClient()
 	if err != nil {
 		return err
@@ -107,6 +158,10 @@ func changePlatformSetting(cmd *cobra.Command, platformID, key string, value any
 	settings, _ := platform.Spec["settings"].(map[string]any)
 	if settings == nil {
 		settings = map[string]any{}
+	}
+	value, err := change(settings[key])
+	if err != nil {
+		return err
 	}
 	settings[key] = value
 	spec := map[string]any{"members": platform.Spec["members"], "settings": settings}

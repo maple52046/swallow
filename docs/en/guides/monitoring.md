@@ -191,7 +191,11 @@ Choose the monitoring exporter in the Slurm workspace's Features step:
     The Platform page lists, per compute node, whether it collects them or why not. While a node
     collects them, its exporter holds the `CAP_PERFMON` capability and keeps a profiling session on
     every GPU (about 160 MB of GPU memory each); uncheck the option if you do not want that.
-    Changing it after deployment is not supported yet.
+    On a deployed Platform, turn them on or off with **Collect GPU hardware counters (VALUBusy)**
+    in the **GPU hardware counters** section of its **Configuration** tab, or with
+    `swallow platforms hardware-counters enable|disable <platformId>`. Swallow reconfigures
+    Omnistat on every compute node while the Platform stays active; each exporter restarts, and
+    running jobs keep running. Turned off, every compute node runs Omnistat without them.
 - **AMD Device Metrics Exporter** collects per-GPU metrics labelled with the job on each GPU, and
   jobs keep sharing nodes. It needs a compute node with AMD GPUs.
 - **None** installs neither.

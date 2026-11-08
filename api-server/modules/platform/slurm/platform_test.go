@@ -85,18 +85,43 @@ func TestChangesFollowTheClassification(t *testing.T) {
 		t.Errorf("an explicit true over an omitted setting = %+v, want no change", changes)
 	}
 
-	// The hardware counters are part of Omnistat's settings, so asking for them, or dropping them,
-	// after the deployment is the Omnistat change swallow cannot carry out yet.
+	// Omnistat's hardware counters switch on a running Platform: alone they reconfigure only
+	// Omnistat, an absent setting is off, and any other Omnistat change is still refused.
 	withOmnistat := applied.Clone()
 	withOmnistat.Settings["omnistat"] = map[string]any{"enabled": true, "hardwareCounters": false}
 	withCounters := withOmnistat.Clone()
 	withCounters.Settings["omnistat"] = map[string]any{"enabled": true, "hardwareCounters": true}
-	for _, change := range []struct{ from, to platformdomain.PlatformSpec }{{withOmnistat, withCounters}, {withCounters, withOmnistat}} {
+	withoutKey := withOmnistat.Clone()
+	withoutKey.Settings["omnistat"] = map[string]any{"enabled": true}
+	for _, change := range []struct {
+		from, to platformdomain.PlatformSpec
+		action   string
+	}{
+		{withOmnistat, withCounters, "enable-hardware-counters"},
+		{withoutKey, withCounters, "enable-hardware-counters"},
+		{withCounters, withOmnistat, "disable-hardware-counters"},
+		{withCounters, withoutKey, "disable-hardware-counters"},
+	} {
 		changes, _ = Platform{}.Changes(&change.from, change.to)
-		if changes.Destructive() || !reflect.DeepEqual(changes.Unsupported, []string{"change-omnistat"}) {
-			t.Errorf("hardwareCounters %v -> %v = %+v; want the unsupported change-omnistat",
-				change.from.Settings["omnistat"], change.to.Settings["omnistat"], changes)
+		if changes.Destructive() || len(changes.Unsupported) != 0 || changes.Realization != platformdomain.RealizeHardwareCounters ||
+			len(changes.Actions) != 1 || changes.Actions[0].Action != change.action {
+			t.Errorf("hardwareCounters %v -> %v = %+v; want only %s, realized by the hardware counters change",
+				change.from.Settings["omnistat"], change.to.Settings["omnistat"], changes, change.action)
 		}
+	}
+	if changes, _ = (Platform{}).Changes(&withOmnistat, withoutKey); !changes.Empty() {
+		t.Errorf("an absent hardwareCounters over false = %+v, want no change", changes)
+	}
+	withMember := withCounters.Clone()
+	withMember.Members = append(withMember.Members, platformdomain.PlatformMember{ServerID: "s9", Roles: []string{RoleCompute}})
+	if changes, _ = (Platform{}).Changes(&withOmnistat, withMember); len(changes.Unsupported) != 0 || changes.Realization != platformdomain.RealizeDeploy {
+		t.Errorf("counters with a new member = %+v; want the convergent deploy, which reruns Omnistat with them", changes)
+	}
+	nativeCounters := withCounters.Clone()
+	nativeCounters.Settings["omnistat"] = map[string]any{"enabled": true, "hardwareCounters": true, "installMethod": "native"}
+	changes, _ = Platform{}.Changes(&withOmnistat, nativeCounters)
+	if changes.Destructive() || !reflect.DeepEqual(changes.Unsupported, []string{"change-omnistat"}) {
+		t.Errorf("counters with a new install method = %+v; want the unsupported change-omnistat to refuse the write", changes)
 	}
 
 	desired = applied.Clone()

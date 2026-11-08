@@ -601,6 +601,8 @@ swallow platforms slurm-requirements set -f slurm-req.yaml
 swallow platforms gpu-operator releases                       # AMD GPU Operator versions Swallow ships
 swallow platforms gpu-operator set plat1 -f gpu-operator.yaml --approve  # install or change the operator
 swallow platforms gpu-operator uninstall plat1 --approve                 # remove it; the platform keeps running
+swallow platforms hardware-counters enable plat1      # Omnistat collects VALUBusy on each compute node that can
+swallow platforms hardware-counters disable plat1     # every compute node runs Omnistat without the counters
 ```
 
 A platform is written as a spec: its members with their roles, the type's settings, and how members
@@ -608,7 +610,8 @@ get an operating system. Creating a platform and destructive changes (changing o
 Operator, deleting the platform) answer with a Change Plan. With `--approve` the plan is approved
 with the write and the change starts at once, unless the Change Plan policy requires a separate
 approval (`swallow plans policy`); without it nothing changes until `swallow plans approve`
-approves it. Adding a member converges at once.
+approves it. Adding a member, and turning a Slurm platform's hardware counters on or off,
+converge at once.
 
 `platforms delete` uninstalls any platform whose deployment started, even one still deploying
 (add `--cancel-active-workflows`) or whose deployment failed; only a platform whose install never
@@ -738,7 +741,12 @@ and the Grafana gets Omnistat's dashboards. `installMethod: container` (the defa
 as a container on the primary controller's runtime (the `containerRuntime` above, else Docker CE);
 `native` installs it from Grafana's apt/yum repository instead. `hardwareCounters: true` also
 collects the GPU hardware counter `VALUBusy` on each compute node that can (omitted, none); a node
-that cannot reports why in `omnistat.hardwareCounters.nodes` and keeps its other metrics. This
+that cannot reports why in `omnistat.hardwareCounters.nodes` and keeps its other metrics. On a
+deployed platform, `swallow platforms hardware-counters enable <platformId>` and `disable` turn them
+on or off: a `configure-omnistat` workflow reconfigures Omnistat on every compute node while the
+platform stays active, and each exporter restarts without stopping running jobs. Follow it with
+`swallow workflows get <workflowId>` (the platform's `status.realizingWorkflowId`) and read the
+outcome in `omnistat.hardwareCounters` with `swallow platforms get`. This
 `platform-slurm-omnistat.yaml` is the file of a lab run:
 
 ```yaml

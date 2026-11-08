@@ -844,6 +844,57 @@ test.describe('Slurm Omnistat visual review', () => {
   })
 })
 
+/**
+ * Captures the hardware counters switch on a deployed Slurm Platform's Configuration route (platforms.md
+ * "Omnistat"): on with each node's outcome summarized, both confirmations, and a change running. Element
+ * captures keep the sticky shell out of the section being inspected.
+ */
+test.describe('Slurm hardware counters visual review', () => {
+  test('slurm-hardware-counters', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    await installApiFixtures(page, { slurmDeployed: true, platformDeploymentWorkflows: true })
+    await setAppearance(page, appearance)
+
+    await page.goto('/platforms/platform-slurm-ha/configuration?site=site-a')
+    const section = page.getByRole('region', { name: 'GPU hardware counters' })
+    const toggle = section.getByRole('switch', { name: 'Collect GPU hardware counters (VALUBusy)' })
+    await expect(section).toContainText('VALUBusy is collected on 1 of 2 compute nodes.')
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await section.scrollIntoViewIfNeeded()
+    await section.screenshot({ path: testInfo.outputPath(`slurm-hardware-counters-on-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide' })
+
+    await toggle.locator('..').click()
+    await expect(page.getByRole('alertdialog', { name: 'Turn off GPU hardware counters' })).toBeVisible()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'slurm-hardware-counters-off-dialog', false)
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Turn off counters' }).click()
+
+    await expect(section).toContainText('Turning off')
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await section.screenshot({ path: testInfo.outputPath(`slurm-hardware-counters-turning-off-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide' })
+  })
+
+  test('slurm-hardware-counters-on-dialog', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    await installApiFixtures(page, { slurmDeployed: true, platformDeploymentWorkflows: true, slurmHardwareCountersOff: true })
+    await setAppearance(page, appearance)
+
+    await page.goto('/platforms/platform-slurm-ha/configuration?site=site-a')
+    const section = page.getByRole('region', { name: 'GPU hardware counters' })
+    await expect(section).toContainText('Every compute node runs Omnistat without the counters.')
+    await prepareCapture(page, appearance)
+    await section.scrollIntoViewIfNeeded()
+    await section.screenshot({ path: testInfo.outputPath(`slurm-hardware-counters-off-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide' })
+    await section.getByRole('switch', { name: 'Collect GPU hardware counters (VALUBusy)' }).locator('..').click()
+    await expect(page.getByRole('alertdialog', { name: 'Turn on GPU hardware counters' })).toBeVisible()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'slurm-hardware-counters-on-dialog', false)
+  })
+})
+
 /** Captures the experimental Add servers path for libvirt virtual machines with a listed hypervisor. */
 test.describe('Add servers virtual machines visual review', () => {
   test('add-servers-virtual-machines', async ({ page }, testInfo) => {

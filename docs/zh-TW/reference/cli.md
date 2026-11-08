@@ -84,7 +84,7 @@ usage manual。
   `zones` 與 `pools` 都提供 `list`、`get`、`create`、`update`、`delete`。
 - [`platforms`](../../../cli/docs/usage.zh-TW.md#platforms)：提供 `list`、`get`、
   `create`、`set-spec`、`update`、`delete`、`sync`、`sync-all`；讀取 live
-  Slurm（`slurm`）、管理 `slurm-requirements` 與 `gpu-operator`，並以 nested `kubernetes`
+  Slurm（`slurm`）、管理 `slurm-requirements`、`gpu-operator` 與 Omnistat 的 `hardware-counters`，並以 nested `kubernetes`
   explorer 管理 node、namespace、application、Pod、related resource、log 與 YAML apply。
 - [`plans`](../../../cli/docs/usage.zh-TW.md#plans)：`list`、`get`、`approve`、`reject`
   Change Plan，以及讀取或設定 Change Plan `policy`（安全開關）。Platform 的寫入加上 `--approve` 時

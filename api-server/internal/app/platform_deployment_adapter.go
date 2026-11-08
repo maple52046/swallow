@@ -131,7 +131,18 @@ func (p *preparedPlatformDeployment) OperationID() string { return p.workflow.ID
 // and Slurm share the ensure-os Job (OS provisioning plus the SSH readiness gate) and differ only
 // in the configure Job's playbook, workflow kind, and post-install validation.
 func (l platformDeploymentLauncher) PrepareDeployment(ctx context.Context, launch platformdomain.DeploymentLaunch) (platformdomain.PreparedWorkflow, error) {
-	if launch.Platform != nil && launch.Platform.Type == platformdomain.PlatformTypeSlurm {
+	slurm := launch.Platform != nil && launch.Platform.Type == platformdomain.PlatformTypeSlurm
+	switch launch.Realization {
+	case platformdomain.RealizeNothing, platformdomain.RealizeDeploy:
+	case platformdomain.RealizeHardwareCounters:
+		if slurm {
+			return l.prepareSlurmHardwareCounters(ctx, launch)
+		}
+		return nil, fmt.Errorf("%w: only a Slurm Platform has a hardware counters change", platformdomain.ErrInvalidDeployment)
+	default:
+		return nil, fmt.Errorf("platform deployment launcher cannot plan a %q Workflow", launch.Realization)
+	}
+	if slurm {
 		return l.prepareSlurm(ctx, launch)
 	}
 	return l.prepareKubernetes(ctx, launch)

@@ -64,7 +64,10 @@ overlay. Prometheus and Grafana are generic single programs that other runtimes 
   in a separate process loads the extension and samples the counter; then its exporter gets
   `CAP_PERFMON` and the counter profile. Otherwise that node's counters are off with a reason, its
   exporter runs as before, and the install Task still succeeds. The Platform records each node's
-  outcome. Changing them after a deployment is unsupported, like every other Omnistat change.
+  outcome. A deployed Platform turns them on or off through its spec without a Change Plan: only
+  what each exporter collects and its `CAP_PERFMON` change, so the Platform reruns only the Omnistat
+  Job, deciding again per node, and a node turned off runs plain Omnistat. Every other Omnistat
+  change after a deployment stays unsupported.
 - **Grafana is Managed Software composed as a Job; the Site Prometheus collects.** Omnistat is the
   Slurm Platform's default GPU monitoring, and it suits a CPU-only Platform too, collecting host and
   job metrics without GPUs. Its exporters are scraped by the Site Prometheus
@@ -176,7 +179,7 @@ moved `omnistat-query` to Grafana's datasource proxy (original text in git histo
 - With hardware counters, a node's exporter holds `CAP_PERFMON` and keeps a ROCProfiler-SDK session
   on every GPU it can see (about 160 MB of VRAM per GPU on the lab's MI308X), and only `VALUBusy` on
   gfx942 with ROCm 10.0 has been verified on hardware; a user who does not want that leaves the
-  wizard's option unchecked.
+  wizard's option unchecked, or turns the counters off on the deployed Platform.
 - Omnistat 1.15.0's report locates a job's nodes by GPU utilization, which SR-IOV virtual
   functions do not report, so on them it cannot build a report; that is reported to users rather
   than patched.
@@ -189,3 +192,4 @@ moved `omnistat-query` to Grafana's datasource proxy (original text in git histo
 - 2026-11-03: Omnistat became the default and is scraped by the Site Prometheus; the deployment composes only the Platform's Grafana, which reads through Swallow's gateway, and no longer a Prometheus on the controller.
 - 2026-11-03: the Monitoring Link is recorded by the Platform's Grafana install rather than from the Omnistat run's result.
 - 2026-11-08: added hardware counters (`VALUBusy`), asked for by the wizard and degraded per node instead of failing the deployment; Omnistat's environment is built by uv from a hash lock (decisions 079 and 080).
+- 2026-11-09: a deployed Platform turns the hardware counters on or off without a Change Plan, rerunning only the Omnistat Job; they used to be fixed at deployment.

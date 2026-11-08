@@ -7,6 +7,8 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/google/uuid"
+
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
@@ -200,10 +202,8 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 			"to the URL the Servers reach swallow at (swallowctl sets it from SWALLOW_ADDRESS), or turn monitoringDashboards off",
 			platformdomain.ErrMonitoringEndpointMissing)
 	}
-	if launch.Omnistat != nil && len(l.monitoring.scrapeAddresses) == 0 {
-		return plan, fmt.Errorf("%w: the Omnistat exporter admits only the Site's Prometheus, so set "+
-			"SWALLOW_API_MONITORING_SCRAPE_ADDRESSES to the addresses it scrapes from (swallowctl sets SWALLOW_ADDRESS)",
-			platformdomain.ErrMonitoringEndpointMissing)
+	if err := l.requireOmnistatScrapeAddresses(launch); err != nil {
+		return plan, err
 	}
 	previous := installPlatformStepID
 
@@ -237,41 +237,123 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 	if monitoring == nil {
 		return plan, nil
 	}
-	trustedVars := maps.Clone(monitoring.trustedVars)
-	if trustedVars == nil {
-		trustedVars = map[string]any{}
-	}
-	if monitoring.grafanaPortVar != "" {
-		// The software domain owns the Grafana port; the URL the feature reports must use the same one.
-		trustedVars[monitoring.grafanaPortVar] = softwaredomain.GrafanaPort
-	}
 	if monitoring.composedKind != "" {
 		// The software install with the Slurm side laid over it.
 		_, err = l.appendComposedInstall(ctx, &plan, launch, operationID, provisionFirst, previous,
 			monitoring.composedKind, monitoring.composedServerIDs, map[string]any{},
 			"Install "+l.software.Label(monitoring.composedKind)+" on "+launch.Platform.Name,
-			composedInstallExtras{trustedVars: trustedVars, completions: monitoring.completions(launch.Platform.ID, operationID)})
+			composedInstallExtras{trustedVars: monitoring.taskVars(), completions: monitoring.completions(launch.Platform.ID, operationID)})
 		return plan, err
 	}
+	task, _, err := l.omnistatTask(ctx, launch, monitoring, operationID, provisionFirst, monitoring.stepName, []string{previous})
+	if err != nil {
+		return plan, err
+	}
+	plan.steps = append(plan.steps, task)
+	return plan, nil
+}
+
+// requireOmnistatScrapeAddresses refuses an Omnistat launch in an installation without the Site
+// metrics store's scrape addresses, which the exporter admits as its only remote clients.
+func (l platformDeploymentLauncher) requireOmnistatScrapeAddresses(launch platformdomain.DeploymentLaunch) error {
+	if launch.Omnistat != nil && len(l.monitoring.scrapeAddresses) == 0 {
+		return fmt.Errorf("%w: the Omnistat exporter admits only the Site's Prometheus, so set "+
+			"SWALLOW_API_MONITORING_SCRAPE_ADDRESSES to the addresses it scrapes from (swallowctl sets SWALLOW_ADDRESS)",
+			platformdomain.ErrMonitoringEndpointMissing)
+	}
+	return nil
+}
+
+// taskVars are the feature Task's trusted variables, with the software domain's Grafana port where
+// the feature reports a Grafana URL: the URL must use the port the Platform's Grafana listens on.
+func (m *slurmMonitoring) taskVars() map[string]any {
+	trustedVars := maps.Clone(m.trustedVars)
+	if trustedVars == nil {
+		trustedVars = map[string]any{}
+	}
+	if m.grafanaPortVar != "" {
+		trustedVars[m.grafanaPortVar] = softwaredomain.GrafanaPort
+	}
+	return trustedVars
+}
+
+// omnistatTask plans the configure-omnistat Task over the deployment's targets after dependsOn, with
+// its State and hardware counters completions fenced on the record of this Workflow. A deployment and
+// a hardware counters change run the same Task, so the nodes converge the same way.
+func (l platformDeploymentLauncher) omnistatTask(
+	ctx context.Context,
+	launch platformdomain.DeploymentLaunch,
+	monitoring *slurmMonitoring,
+	operationID string,
+	provisionFirst bool,
+	name string,
+	dependsOn []string,
+) (workflowdomain.Task, *workflowapp.PreparedAnsibleStep, error) {
+	trustedVars := monitoring.taskVars()
 	trustedVars[omnistatScrapeAddressesVar] = slices.Clone(l.monitoring.scrapeAddresses)
 	prepared, err := l.operations.PrepareAnsibleStep(ctx, workflowapp.CreateExecutionInput{
 		Kind: string(monitoring.workflowKind), PlaybookName: monitoring.playbook,
-		Intent:          "Install " + monitoring.label + " on " + launch.Platform.Name,
+		Intent:          name + " on " + launch.Platform.Name,
 		TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
 		TrustedVars: trustedVars, RequestedBy: launch.RequestedBy,
 	}, operationID, provisionFirst)
 	if err != nil {
-		return plan, err
+		return workflowdomain.Task{}, nil, err
 	}
-	plan.steps = append(plan.steps, workflowdomain.Task{
-		ID: monitoring.stepID, Kind: "ansible-playbook", Name: monitoring.stepName,
+	return workflowdomain.Task{
+		ID: monitoring.stepID, Kind: "ansible-playbook", Name: name,
 		Job:      monitoring.job,
-		Executor: workflowdomain.RunnerKindHostAutomation, DependsOn: []string{previous},
+		Executor: workflowdomain.RunnerKindHostAutomation, DependsOn: dependsOn,
 		Targets:    prepared.Targets,
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 		Completion: monitoring.completions(launch.Platform.ID, operationID),
-	})
-	return plan, nil
+	}, prepared, nil
+}
+
+// prepareSlurmHardwareCounters plans a hardware counters change on a deployed Slurm Platform
+// (RealizeHardwareCounters): prepare-hosts (SSH readiness), then the configure-omnistat Job a
+// deployment composes, under the Workflow id the deploy use case preassigned and its Omnistat record
+// names. Nothing else is planned: the Platform keeps its members, software, and Grafana, and its
+// lifecycle, which follows configure-slurm Workflows, stays active.
+func (l platformDeploymentLauncher) prepareSlurmHardwareCounters(ctx context.Context, launch platformdomain.DeploymentLaunch) (*preparedPlatformDeployment, error) {
+	monitoring := slurmMonitoringOf(launch)
+	if launch.Omnistat == nil || monitoring == nil {
+		return nil, fmt.Errorf("%w: a hardware counters change needs Omnistat", platformdomain.ErrInvalidOmnistat)
+	}
+	if err := l.requireOmnistatScrapeAddresses(launch); err != nil {
+		return nil, err
+	}
+	operationID := launch.OperationID
+	if operationID == "" {
+		operationID = uuid.NewString()
+	}
+	summary, name := "Disable Omnistat hardware counters on "+launch.Platform.Name, "Disable hardware counters"
+	if launch.Omnistat.HardwareCounters {
+		summary, name = "Enable Omnistat hardware counters on "+launch.Platform.Name, "Enable hardware counters"
+	}
+	task, prepared, err := l.omnistatTask(ctx, launch, monitoring, operationID, false, name, []string{softwareWaitStepID})
+	if err != nil {
+		return nil, err
+	}
+	steps := []workflowdomain.Task{
+		{
+			ID: softwareWaitStepID, Kind: "wait-for-ssh", Name: "Verify SSH readiness",
+			Job:      jobPrepareHosts,
+			Executor: workflowdomain.RunnerKindInternal, Targets: prepared.Targets,
+		},
+		task,
+	}
+	return &preparedPlatformDeployment{workflow: workflowapp.CreateWorkflowInput{
+		ID: operationID, Kind: workflowdomain.WorkflowKindConfigureOmnistat,
+		IntentSummary:  summary,
+		IntentSnapshot: map[string]any{"platformName": launch.Platform.Name, "extraVars": prepared.ExtraVars},
+		Definition:     "platform-hardware-counters", DefinitionVersion: 1,
+		SiteID: prepared.SiteID, PlatformID: launch.Platform.ID,
+		TargetServerIDs: launch.TargetServerIDs,
+		TargetResources: []workflowdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
+		Steps:           steps, Jobs: declareJobs(steps, workflowdomain.RetryJob),
+		RequestedBy: launch.RequestedBy, RequestCorrelation: launch.RequestCorrelation,
+	}}, nil
 }
 
 // composedInstallExtras is what a deployment adds to a composed software install beyond the

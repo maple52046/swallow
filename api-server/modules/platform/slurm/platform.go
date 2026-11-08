@@ -3,6 +3,7 @@ package slurm
 import (
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -93,8 +94,9 @@ func (Platform) SpecFromDeployRequest(body map[string]any) (platformdomain.Platf
 // storage, a container runtime, native OCI containers, or PMIx converge directly by rerunning the
 // convergent deploy; removing a member, changing roles, changing or disabling the storage or a
 // runtime, and changing the state save location, the GRES type, the GPU stack owner, or the driver
-// options are destructive. swallow cannot yet remove members, change roles, disable features (the
-// monitoring dashboards included), or reconfigure them.
+// options are destructive. Switching Omnistat's hardware counters on or off is not destructive and
+// reconfigures only Omnistat (RealizeHardwareCounters). swallow cannot yet remove members, change
+// roles, disable features (the monitoring dashboards included), or otherwise reconfigure them.
 func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdomain.PlatformSpec) (platformdomain.PlatformChanges, error) {
 	platform := convergence.ResourceRef{Kind: "platform"}
 	if desired.Desired == platformdomain.PlatformAbsent {
@@ -142,6 +144,18 @@ func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdo
 			add(convergence.PlannedAction{Target: platform, Action: "enable-" + feature, To: "enabled", Reason: "monitoring components are added"}, true)
 		case was && !is:
 			add(convergence.PlannedAction{Target: platform, Action: "disable-" + feature, From: "enabled", To: "disabled", Reason: "monitoring components are removed"}, false)
+		case was && is && feature == "omnistat":
+			// The hardware counters only change what each compute node's exporter collects, so they
+			// are switched on a running Platform; any other Omnistat change is not carried out yet.
+			switch before, after := hardwareCountersRequested(*applied), hardwareCountersRequested(desired); {
+			case !before && after:
+				add(convergence.PlannedAction{Target: platform, Action: "enable-hardware-counters", To: "enabled", Reason: "the Omnistat exporters collect the GPU hardware counters; jobs keep running"}, true)
+			case before && !after:
+				add(convergence.PlannedAction{Target: platform, Action: "disable-hardware-counters", From: "enabled", To: "disabled", Reason: "the Omnistat exporters stop collecting the GPU hardware counters; jobs keep running"}, true)
+			}
+			if !reflect.DeepEqual(omnistatWithoutCounters(*applied), omnistatWithoutCounters(desired)) {
+				add(convergence.PlannedAction{Target: platform, Action: "change-" + feature, Reason: "monitoring components are reconfigured"}, false)
+			}
 		case was && is && platformdomain.SettingChanged(*applied, desired, feature):
 			add(convergence.PlannedAction{Target: platform, Action: "change-" + feature, Reason: "monitoring components are reconfigured"}, false)
 		}
@@ -197,8 +211,31 @@ func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdo
 	}
 	if !changes.Empty() {
 		changes.Realization = platformdomain.RealizeDeploy
+		if !slices.ContainsFunc(changes.Actions, func(action convergence.PlannedAction) bool {
+			return action.Action != "enable-hardware-counters" && action.Action != "disable-hardware-counters"
+		}) {
+			// Alone, the counters reconfigure only Omnistat; with another change the convergent deploy
+			// reruns Omnistat with them anyway.
+			changes.Realization = platformdomain.RealizeHardwareCounters
+		}
 	}
 	return changes, nil
+}
+
+// hardwareCountersRequested reads omnistat.hardwareCounters; absent is off, as in a deploy request.
+func hardwareCountersRequested(spec platformdomain.PlatformSpec) bool {
+	object, _ := spec.Settings["omnistat"].(map[string]any)
+	requested, _ := object["hardwareCounters"].(bool)
+	return requested
+}
+
+// omnistatWithoutCounters is the omnistat setting with hardwareCounters left out, so two settings
+// that differ only in it compare equal.
+func omnistatWithoutCounters(spec platformdomain.PlatformSpec) map[string]any {
+	object, _ := spec.Settings["omnistat"].(map[string]any)
+	rest := maps.Clone(object)
+	delete(rest, "hardwareCounters")
+	return rest
 }
 
 func slurmSettings(spec platformdomain.PlatformSpec) map[string]any {

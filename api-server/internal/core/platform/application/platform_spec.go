@@ -602,8 +602,8 @@ func (p *PlatformPlanner) PrepareApply(ctx context.Context, plan *convergence.Ch
 			input.ReleaseServers, input.ReleaseOptions, input.CancelActiveWorkflows = removal.ReleaseServers, removal.ReleaseOptions, removal.CancelActiveWorkflows
 		}
 		return &platformApply{uninstall: input}, nil
-	case platformdomain.RealizeDeploy:
-		prepared, err := PrepareSpecDeployment(ctx, p.deploy, p.modules[platform.Type], platform, requestedBy)
+	case platformdomain.RealizeDeploy, platformdomain.RealizeHardwareCounters:
+		prepared, err := PrepareSpecDeployment(ctx, p.deploy, p.modules[platform.Type], platform, requestedBy, changes.Realization)
 		if err != nil {
 			return nil, err
 		}
@@ -675,12 +675,15 @@ func (a *platformApply) WorkflowID() string {
 
 // PrepareSpecDeployment plans the deploy Workflow of a Platform's current spec onto the stored
 // Platform. The deploy is convergent: members already in the Platform are left as they are.
+// realization is RealizeDeploy, or RealizeHardwareCounters for a Workflow that reconfigures only the
+// feature collecting the hardware counters.
 func PrepareSpecDeployment(
 	ctx context.Context,
 	deploy *DeployService,
 	module platformdomain.PlatformModule,
 	platform *platformdomain.Platform,
 	requestedBy string,
+	realization platformdomain.PlatformRealization,
 ) (*PreparedDeploy, error) {
 	if module == nil || platform.Spec == nil {
 		return nil, ErrPlatformNotAdopted
@@ -689,7 +692,7 @@ func PrepareSpecDeployment(
 	if err != nil {
 		return nil, err
 	}
-	input.PlatformID, input.RequestedBy = platform.ID, requestedBy
+	input.PlatformID, input.RequestedBy, input.realization = platform.ID, requestedBy, realization
 	return deploy.Prepare(ctx, input)
 }
 

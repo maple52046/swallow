@@ -218,6 +218,7 @@ Default User、Boot Media）尚未遷移，維持現行行為。
 | 啟用 GPU Operator | 非破壞性 | 只新增 user |
 | 停用 GPU Operator、變更它的設定 | 破壞性 | GPU workload 失去 device plugin，或使用 GPU 的 pod 重啟 |
 | 啟用或停用監控功能（Omnistat、Device Metrics Exporter） | 非破壞性 | 只增減 exporter 與監控元件，不中斷 Slurm 工作 |
+| 啟用或停用 Omnistat 的 hardware counters（2026-11-09 定案） | 非破壞性 | 只改變 compute node 上 Omnistat exporter 收集什麼與它的 `CAP_PERFMON`：exporter 以新設定重啟，Slurm daemon 與執行中的工作不受影響（§5.1 第 3 點不成立）；套回舊 spec 就以同一個 Workflow 回到原狀（第 4 點不成立）。不能收集的 node 照部署時的規則降級，不讓變更失敗 |
 | 第一次啟用 workload storage 或 container runtime | 非破壞性 | 加入新的能力，不影響執行中的工作 |
 | 變更或停用 workload storage、container runtime | 破壞性 | 重新掛載或改變工作的執行環境 |
 | 網路身分（`podCidr`、`serviceCidr`、`apiVip`、Slurm `clusterName`） | 不可變更 | 改變等於重建叢集；寫入回 `409`，要改就 uninstall 後重新建立 |
@@ -227,7 +228,8 @@ swallow 還沒有自動化的破壞性變更（移除成員、改變 Node Role�
 
 Platform 的 controller 在 worker 執行：第一次看到沒有 spec 的 Platform 時，由最近一次部署的紀錄接管（generation 1，
 已 active 的 spec 視為已套用）；讓 present spec 的成員都有 Platform Claim；非破壞性變更以 type 模組指定的 Workflow
-收斂（加入成員是對所有成員重跑可收斂的部署）；核准的 Change Plan 由它 apply；Workflow 成功後把當時那個 generation
+收斂（加入成員是對所有成員重跑可收斂的部署；只切換 Omnistat 的 hardware counters 是只跑 `configure-omnistat`
+的 Workflow，Platform 維持 active）；核准的 Change Plan 由它 apply；Workflow 成功後把當時那個 generation
 的 spec 記為已套用。同一個 generation 的 Workflow 失敗後不自動重啟，由 user 重跑或寫入新的 spec；新的 spec
 取代失敗的舊 generation 時，舊 generation 仍停在 `requires_attention` 的 Workflow 會佔著 target，controller 先取消它
 （原因 `Superseded by a newer spec of its Platform.`），等它結束後才啟動新 generation 的 Workflow。成員的
