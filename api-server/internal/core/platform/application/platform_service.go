@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -128,6 +129,17 @@ func (s *PlatformService) RecordDeviceMetricsExporterGPUIdentity(
 	return err
 }
 
+// RecordHardwareCounterNodes records each compute node's hardware counters outcome a successful
+// install reported, fenced on recordID like the record's state, so a superseded Workflow's late
+// result changes nothing. Nodes are kept sorted by Server id. It is called from the install Task's
+// completion, so a write failure fails that Task and its retry records them again.
+func (s *PlatformService) RecordHardwareCounterNodes(ctx context.Context, platformID, recordID string, nodes []platformdomain.HardwareCounterNode) error {
+	sorted := slices.Clone(nodes)
+	slices.SortFunc(sorted, func(a, b platformdomain.HardwareCounterNode) int { return strings.Compare(a.ServerID, b.ServerID) })
+	_, err := s.omnistats.SetHardwareCounterNodes(ctx, platformID, recordID, sorted, time.Now().UTC())
+	return err
+}
+
 // RecordMonitoringLink registers a monitoring UI swallow installed for the Platform as a
 // Monitoring Link: it replaces the link of the same name, removes the links named in replaces
 // (other names swallow registered for the same UI), and keeps every other link (glossary Monitoring
@@ -213,15 +225,31 @@ func toGPUDriverItem(settings platformdomain.GPUDriverSettings) *GPUDriverItem {
 
 // OmnistatItem is the wire shape of a Slurm Platform's swallow-managed Omnistat (platforms.md,
 // "Omnistat"): the pinned version, how Prometheus and Grafana were installed and on which Server,
-// and the Omnistat State of the Workflow installing it.
+// the Omnistat State of the Workflow installing it, and its hardware counters.
 type OmnistatItem struct {
-	Enabled               bool    `json:"enabled"`
-	Version               string  `json:"version"`
-	InstallMethod         string  `json:"installMethod"`
-	ObservabilityServerID string  `json:"observabilityServerId"`
-	State                 string  `json:"state"`
-	LastWorkflowID        *string `json:"lastWorkflowId"`
-	UpdatedAt             string  `json:"updatedAt"`
+	Enabled               bool                 `json:"enabled"`
+	Version               string               `json:"version"`
+	InstallMethod         string               `json:"installMethod"`
+	ObservabilityServerID string               `json:"observabilityServerId"`
+	State                 string               `json:"state"`
+	HardwareCounters      HardwareCountersItem `json:"hardwareCounters"`
+	LastWorkflowID        *string              `json:"lastWorkflowId"`
+	UpdatedAt             string               `json:"updatedAt"`
+}
+
+// HardwareCountersItem is the wire shape of the record's hardware counters: the deployment's
+// request and each compute node's outcome. Nodes is always an array, so a record written before the
+// counters existed reads as requested false with no nodes.
+type HardwareCountersItem struct {
+	Requested bool                      `json:"requested"`
+	Nodes     []HardwareCounterNodeItem `json:"nodes"`
+}
+
+// HardwareCounterNodeItem is one compute node's outcome; Reason is null while it collects.
+type HardwareCounterNodeItem struct {
+	ServerID string  `json:"serverId"`
+	State    string  `json:"state"`
+	Reason   *string `json:"reason"`
 }
 
 // DeviceMetricsExporterItem is the wire shape of a Slurm Platform's swallow-managed Device Metrics
@@ -733,15 +761,25 @@ func toGPUOperatorItem(operator *platformdomain.GPUOperator) *GPUOperatorItem {
 }
 
 // toOmnistatItem projects the record.
-func toOmnistatItem(omnistat *platformdomain.Omnistat) *OmnistatItem {
-	if omnistat == nil {
+func toOmnistatItem(record *platformdomain.Omnistat) *OmnistatItem {
+	if record == nil {
 		return nil
 	}
 	return &OmnistatItem{
-		Enabled: omnistat.Enabled, Version: omnistat.Version, InstallMethod: string(omnistat.InstallMethod),
-		ObservabilityServerID: omnistat.ObservabilityServerID, State: string(omnistat.State),
-		LastWorkflowID: wire.String(omnistat.LastWorkflowID), UpdatedAt: wire.Time(omnistat.UpdatedAt),
+		Enabled: record.Enabled, Version: record.Version, InstallMethod: string(record.InstallMethod),
+		ObservabilityServerID: record.ObservabilityServerID, State: string(record.State),
+		HardwareCounters: toHardwareCountersItem(record.HardwareCounters),
+		LastWorkflowID:   wire.String(record.LastWorkflowID), UpdatedAt: wire.Time(record.UpdatedAt),
 	}
+}
+
+// toHardwareCountersItem projects the hardware counters, with nodes as a non-nil array.
+func toHardwareCountersItem(counters platformdomain.HardwareCounters) HardwareCountersItem {
+	nodes := make([]HardwareCounterNodeItem, len(counters.Nodes))
+	for i, node := range counters.Nodes {
+		nodes[i] = HardwareCounterNodeItem{ServerID: node.ServerID, State: string(node.State), Reason: wire.String(node.Reason)}
+	}
+	return HardwareCountersItem{Requested: counters.Requested, Nodes: nodes}
 }
 
 // toDeviceMetricsExporterItem projects the record.

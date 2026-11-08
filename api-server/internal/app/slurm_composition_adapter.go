@@ -41,6 +41,9 @@ const (
 	// omnistatScrapeAddressesVar lists the addresses besides the node itself that the Omnistat
 	// exporter admits: the Site metrics store's scrape addresses.
 	omnistatScrapeAddressesVar = "swallow_omnistat_scrape_addresses"
+	// omnistatHardwareCountersVar tells configure-omnistat whether the deployment asks for the GPU
+	// hardware counters; false when it does not.
+	omnistatHardwareCountersVar = "swallow_omnistat_hardware_counters"
 
 	// deviceMetricsExporterStepID is the composed device-metrics-exporter install Task:
 	// appendComposedInstall names it install-<kind>, as the feature's Task was named before the
@@ -126,11 +129,17 @@ func slurmMonitoringOf(launch platformdomain.DeploymentLaunch) *slurmMonitoring 
 	switch {
 	case launch.Omnistat != nil:
 		omnistat := launch.Omnistat
+		trustedVars := maps.Clone(omnistat.TrustedVars)
+		if trustedVars == nil {
+			trustedVars = map[string]any{}
+		}
+		trustedVars[omnistatHardwareCountersVar] = omnistat.HardwareCounters
 		return &slurmMonitoring{
-			label: "Omnistat", dashboardBundle: softwaredomain.DashboardBundleOmnistat, trustedVars: omnistat.TrustedVars,
+			label: "Omnistat", dashboardBundle: softwaredomain.DashboardBundleOmnistat, trustedVars: trustedVars,
 			stepID: omnistatStepID, stepName: "Install Omnistat", job: jobConfigureOmnistat,
 			playbook: omnistatPlaybook, workflowKind: workflowdomain.WorkflowKindConfigureOmnistat,
-			stateCompletion: completionOmnistatState, grafanaPortVar: "swallow_omnistat_grafana_port",
+			stateCompletion: completionOmnistatState, resultCompletion: completionOmnistatHardwareCounters,
+			grafanaPortVar: "swallow_omnistat_grafana_port",
 		}
 	case launch.DeviceMetricsExporter != nil:
 		exporter := launch.DeviceMetricsExporter

@@ -37,9 +37,12 @@ const (
 
 // OmnistatSettings is the user's Omnistat intent in a Slurm deploy request. InstallMethod chooses
 // how the Platform's own dashboards are installed; empty is the container method.
+// HardwareCounters asks each compute node to also collect the GPU hardware counters (glossary
+// Omnistat Hardware Counters); false when the request omits it.
 type OmnistatSettings struct {
-	Enabled       bool
-	InstallMethod ObservabilityInstallMethod
+	Enabled          bool
+	InstallMethod    ObservabilityInstallMethod
+	HardwareCounters bool
 }
 
 // NormalizeOmnistatSettings defaults the install method and refuses an unknown one.
@@ -48,7 +51,33 @@ func NormalizeOmnistatSettings(settings OmnistatSettings) (OmnistatSettings, err
 	if err != nil {
 		return OmnistatSettings{}, err
 	}
-	return OmnistatSettings{Enabled: settings.Enabled, InstallMethod: method}, nil
+	return OmnistatSettings{Enabled: settings.Enabled, InstallMethod: method, HardwareCounters: settings.HardwareCounters}, nil
+}
+
+// HardwareCounterState is whether a compute node collects the GPU hardware counters its deployment
+// asked for. Values are the glossary's (Omnistat Hardware Counters).
+type HardwareCounterState string
+
+const (
+	HardwareCountersCollecting  HardwareCounterState = "collecting"
+	HardwareCountersUnavailable HardwareCounterState = "unavailable"
+)
+
+// HardwareCounterNode is one compute node's outcome as its install reported it. Reason is empty while
+// collecting and otherwise one of the glossary's reasons; the reasons name the vendor's runtime, so
+// the composition root, which reads them from the install's result, owns their list.
+type HardwareCounterNode struct {
+	ServerID string
+	State    HardwareCounterState
+	Reason   string
+}
+
+// HardwareCounters is the hardware counters part of the record: Requested is the deployment's intent,
+// written when the deployment is accepted; Nodes is observed, written only by the install's
+// completion under the record's fence, and empty until it ran.
+type HardwareCounters struct {
+	Requested bool
+	Nodes     []HardwareCounterNode
 }
 
 // Omnistat is the Platform's swallow-managed Omnistat record. ObservabilityServerID names the
@@ -61,6 +90,7 @@ type Omnistat struct {
 	InstallMethod         ObservabilityInstallMethod
 	ObservabilityServerID string
 	State                 OmnistatState
+	HardwareCounters      HardwareCounters
 	LastWorkflowID        string
 	UpdatedAt             time.Time
 }
@@ -75,11 +105,13 @@ func (o *Omnistat) Managed() bool {
 // ComputeServerIDs node, admitting only the node itself and the Site metrics store.
 // ObservabilityServerID is the primary controller, whose dashboards omnistat-query reads, and
 // InstallMethod how those dashboards are installed. TrustedVars are the configure-omnistat
-// playbook's swallow_omnistat_* variables the deploy use case owns.
+// playbook's swallow_omnistat_* variables the deploy use case owns; HardwareCounters is the
+// request's intent, which the composition root hands the playbook with the variable it names.
 type OmnistatLaunch struct {
 	ObservabilityServerID string
 	ComputeServerIDs      []string
 	InstallMethod         ObservabilityInstallMethod
+	HardwareCounters      bool
 	TrustedVars           map[string]any
 }
 
@@ -94,6 +126,10 @@ type OmnistatRecorder interface {
 	// and reports whether it did. A missing Platform or a different latest Workflow is not an error:
 	// the observer of a superseded or deleted Platform's Task has nothing to do.
 	UpdateOmnistatState(ctx context.Context, platformID, workflowID string, state OmnistatState, at time.Time) (bool, error)
+	// SetHardwareCounterNodes replaces the nodes' hardware counters outcome under the same fence as
+	// the state and reports whether it did; like the state, a missing Platform or a different latest
+	// Workflow changes nothing and is not an error. Requested is left as the deployment wrote it.
+	SetHardwareCounterNodes(ctx context.Context, platformID, workflowID string, nodes []HardwareCounterNode, at time.Time) (bool, error)
 }
 
 // UpsertMonitoringLink returns links with the link of the same name replaced, or the link appended

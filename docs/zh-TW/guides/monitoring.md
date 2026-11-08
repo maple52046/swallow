@@ -150,12 +150,19 @@ dashboard。
   metrics，所以 CPU-only 的 Platform 也適用。每台 compute node 一次只跑一個作業。compute node 上 Omnistat 的作業報告工具
   `omnistat-query` 經 Platform 的 Grafana 讀取 metrics，要使用它就保留 Grafana（報告需要 GPU 使用率，SR-IOV virtual
   function 不提供，這類 GPU 請改看 job dashboard）。
+  - **GPU hardware counters (VALUBusy)** 在 Omnistat 底下，預設勾選：另外收集每張 GPU 的向量 ALU 有多忙，Grafana 的
+    job dashboard 會以 hardware counters 顯示。每台 compute node 只在做得到時收集：需要 AMD GPU、swallow 提供 counter
+    extension 的 ROCm 版本（ROCm 10.0 與 10.1），以及在它的 GPU 上能成功取樣一次。做不到的節點不收集，其他 metrics
+    照常，部署也不會因此失敗。Platform 頁面列出每台 compute node 有沒有收集，或為什麼沒有。收集時，該節點的 exporter
+    帶有 `CAP_PERFMON` capability，並在每張 GPU 上保持一個 profiling session（每張約 160 MB 的 GPU 記憶體）；不想要時
+    取消勾選。部署後還不能更改。
 - **AMD Device Metrics Exporter** 收集每張 GPU 的 metrics，並標上該 GPU 上的作業，作業可繼續共用節點。需要至少一台有
   AMD GPU 的 compute node。
 - **None** 兩者都不安裝。
 
 Site 的 Prometheus 像收集其他 exporter 一樣收集選定的 exporter；Platform 頁面顯示它的狀態。在部署檔中以
-`omnistat: { enabled: true }` 或 `deviceMetricsExporter: { enabled: true }` 選擇其一；兩者都省略時都不安裝。
+`omnistat: { enabled: true }` 或 `deviceMetricsExporter: { enabled: true }` 選擇其一；兩者都省略時都不安裝。部署檔以
+`omnistat: { enabled: true, hardwareCounters: true }` 要求 hardware counters；和部署精靈不同，省略時不收集。
 
 ## 其他監控介面
 

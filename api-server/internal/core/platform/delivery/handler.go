@@ -265,10 +265,12 @@ type deployPlatformRequest struct {
 // monitoringFeatureRequest is the deploy body's optional intent for a Slurm monitoring feature: the
 // omnistat object (platforms.md, "Omnistat") and the deviceMetricsExporter object (platforms.md,
 // "Device Metrics Exporter") share it. An omitted object or enabled=false installs nothing; an
-// omitted installMethod is container.
+// omitted installMethod is container. HardwareCounters belongs to the omnistat object only (its
+// schema is the only one that has it); the deviceMetricsExporter object ignores it.
 type monitoringFeatureRequest struct {
-	Enabled       bool   `json:"enabled"`
-	InstallMethod string `json:"installMethod"`
+	Enabled          bool   `json:"enabled"`
+	InstallMethod    string `json:"installMethod"`
+	HardwareCounters bool   `json:"hardwareCounters"`
 }
 
 // containerRuntimeRequest is the deploy body's optional container runtime feature (platforms.md,
@@ -358,9 +360,10 @@ func DeployInputFromRequest(raw []byte) (application.DeployPlatformInput, error)
 		gpuOperator = &settings
 	}
 	var omnistat *platformdomain.OmnistatSettings
-	if req.Omnistat != nil {
+	if feature := req.Omnistat; feature != nil {
 		omnistat = &platformdomain.OmnistatSettings{
-			Enabled: req.Omnistat.Enabled, InstallMethod: platformdomain.ObservabilityInstallMethod(req.Omnistat.InstallMethod),
+			Enabled: feature.Enabled, InstallMethod: platformdomain.ObservabilityInstallMethod(feature.InstallMethod),
+			HardwareCounters: feature.HardwareCounters,
 		}
 	}
 	var exporter *platformdomain.DeviceMetricsExporterSettings

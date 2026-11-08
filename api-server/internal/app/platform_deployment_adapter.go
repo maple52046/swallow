@@ -911,6 +911,55 @@ func (o platformDeploymentObserver) completeDeviceMetricsExporter(
 	return o.platforms.RecordDeviceMetricsExporterGPUIdentity(ctx, platformID, recordID, platformdomain.ParseGPUIdentity(identity))
 }
 
+// hardwareCounterReasons are the reasons a compute node reports for not collecting the hardware
+// counters (glossary Omnistat Hardware Counters); they name the vendor's runtime, so they live here
+// rather than in the core.
+var hardwareCounterReasons = map[string]bool{
+	"no_gpu": true, "rocm_unsupported": true, "glibc_too_old": true,
+	"artifact_unavailable": true, "probe_failed": true, "exporter_failed": true,
+}
+
+// recordHardwareCounters records each compute node's hardware counters outcome a successful
+// configure-omnistat run reported, fenced on recordID (the Workflow the record names) like the
+// Omnistat State.
+func (o platformDeploymentObserver) recordHardwareCounters(
+	ctx context.Context,
+	platformID, workflowID, recordID string,
+	result workflowdomain.RunnerResult,
+) error {
+	if recordID == "" {
+		recordID = workflowID
+	}
+	return o.platforms.RecordHardwareCounterNodes(ctx, platformID, recordID, hardwareCounterNodesOf(platformID, workflowID, result.Data))
+}
+
+// hardwareCounterNodesOf reads hardwareCounters.nodes of a configure-omnistat result; a result
+// without it (the counters were not asked for) has no nodes. A node the playbook reported in a shape
+// swallow does not know is left out and logged rather than failing the Task: the counters never fail
+// a deployment (decision 063), and the exporter is already installed.
+func hardwareCounterNodesOf(platformID, workflowID string, data map[string]any) []platformdomain.HardwareCounterNode {
+	counters, _ := data["hardwareCounters"].(map[string]any)
+	raw, _ := counters["nodes"].([]any)
+	nodes := make([]platformdomain.HardwareCounterNode, 0, len(raw))
+	for _, item := range raw {
+		entry, _ := item.(map[string]any)
+		node := platformdomain.HardwareCounterNode{
+			ServerID: stringField(entry, "serverId"),
+			State:    platformdomain.HardwareCounterState(stringField(entry, "state")),
+			Reason:   stringField(entry, "reason"),
+		}
+		valid := node.ServerID != "" && ((node.State == platformdomain.HardwareCountersCollecting && node.Reason == "") ||
+			(node.State == platformdomain.HardwareCountersUnavailable && hardwareCounterReasons[node.Reason]))
+		if !valid {
+			slog.Warn("configure-omnistat reported a hardware counters node swallow does not know; it is not recorded",
+				"platformId", platformID, "workflowId", workflowID, "node", item)
+			continue
+		}
+		nodes = append(nodes, node)
+	}
+	return nodes
+}
+
 func stringField(data map[string]any, key string) string {
 	if value, ok := data[key].(string); ok {
 		return value

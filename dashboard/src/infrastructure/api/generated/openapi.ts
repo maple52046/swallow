@@ -4702,6 +4702,16 @@ export interface components {
             provisioners: components["schemas"]["GroupRealization"][];
             updatedAt: components["schemas"]["Timestamp"];
         };
+        /**
+         * @description Why a compute node does not collect the Omnistat Hardware Counters.
+         * @enum {string}
+         */
+        HardwareCounterReason: "no_gpu" | "rocm_unsupported" | "glibc_too_old" | "artifact_unavailable" | "probe_failed" | "exporter_failed";
+        /**
+         * @description Whether a compute node collects the Omnistat Hardware Counters.
+         * @enum {string}
+         */
+        HardwareCounterState: "collecting" | "unavailable";
         /** @description swallow's registration of one external system for one Site (glossary Integration). It has no credential field of any kind; `hasCredential` and `hasOperatorCredential` only report whether one is stored. */
         Integration: {
             createdAt: components["schemas"]["Timestamp"];
@@ -5794,6 +5804,7 @@ export interface components {
         /** @description The swallow-managed Omnistat of a Slurm Platform. */
         PlatformOmnistat: {
             enabled: boolean;
+            hardwareCounters: components["schemas"]["PlatformOmnistatHardwareCounters"];
             installMethod: components["schemas"]["ObservabilityInstallMethod"];
             /** @description The only Workflow that may move `state`. */
             lastWorkflowId: string | null;
@@ -5802,6 +5813,18 @@ export interface components {
             state: components["schemas"]["OmnistatState"];
             updatedAt: components["schemas"]["Timestamp"];
             version: string;
+        };
+        PlatformOmnistatHardwareCounterNode: {
+            /** @description Null while `collecting`. */
+            reason: components["schemas"]["HardwareCounterReason"] | null;
+            serverId: string;
+            state: components["schemas"]["HardwareCounterState"];
+        };
+        /** @description The deployment's request for GPU hardware counters and each compute node's outcome, recorded by the install of `lastWorkflowId` once it succeeded. */
+        PlatformOmnistatHardwareCounters: {
+            /** @description The compute nodes, sorted by `serverId`; empty until the install recorded them. */
+            nodes: components["schemas"]["PlatformOmnistatHardwareCounterNode"][];
+            requested: boolean;
         };
         /** @description The optional removal choices of a Delete; every field defaults to false. */
         PlatformRemoval: {
@@ -6607,6 +6630,21 @@ export interface components {
             /** @description The collapsed scheduler state: a down, drain, or fail flag wins, otherwise the first flag (for example `idle`, `allocated`, `mixed`); `unknown` when Slurm reports none. */
             state: string;
         };
+        /** @description Omnistat on a Slurm deploy; omitted or `enabled: false` installs nothing. */
+        SlurmOmnistatFeature: {
+            /** @default false */
+            enabled: boolean;
+            /**
+             * @description Also collect GPU hardware counters (today `VALUBusy`) on each compute node that can; a node that cannot leaves them off and reports why, and the deployment does not fail.
+             * @default false
+             */
+            hardwareCounters: boolean;
+            /**
+             * @description How the Platform's Grafana is installed; without an enabled feature it uses `container`.
+             * @default container
+             */
+            installMethod: components["schemas"]["ObservabilityInstallMethod"];
+        };
         SlurmPartition: {
             name: string;
             /** @description The configured node list, for example `compute[1-4]`. */
@@ -6629,7 +6667,7 @@ export interface components {
              */
             monitoringDashboards: boolean;
             /** @description Install Omnistat; mutually exclusive with an enabled `deviceMetricsExporter`. */
-            omnistat?: components["schemas"]["SlurmMonitoringFeature"];
+            omnistat?: components["schemas"]["SlurmOmnistatFeature"];
             slurm?: components["schemas"]["SlurmSettings"];
             /** @default enforce */
             timeSyncCheck: components["schemas"]["TimeSyncCheck"];

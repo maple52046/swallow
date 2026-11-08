@@ -736,8 +736,10 @@ platform's Servers, and the platform gets the Monitoring Link `Platform Grafana`
 Omnistat, add `omnistat`: every compute node gets the exporter, which the Site Prometheus scrapes,
 and the Grafana gets Omnistat's dashboards. `installMethod: container` (the default) runs Grafana
 as a container on the primary controller's runtime (the `containerRuntime` above, else Docker CE);
-`native` installs it from Grafana's apt/yum repository instead. This `platform-slurm-omnistat.yaml`
-is the file of a lab run:
+`native` installs it from Grafana's apt/yum repository instead. `hardwareCounters: true` also
+collects the GPU hardware counter `VALUBusy` on each compute node that can (omitted, none); a node
+that cannot reports why in `omnistat.hardwareCounters.nodes` and keeps its other metrics. This
+`platform-slurm-omnistat.yaml` is the file of a lab run:
 
 ```yaml
 siteId: site1
@@ -754,6 +756,7 @@ spec:
     omnistat:
       enabled: true
       installMethod: container   # or native
+      hardwareCounters: true     # VALUBusy on each compute node that can; omitted is false
     gpuDriver:                   # optional; topology rules already apply pcie_p2p=0 where needed
       moduleOptions: {}
     slurm:
@@ -773,7 +776,7 @@ spec:
 ```bash
 swallow platforms create -f platform-slurm-omnistat.yaml --approve
 swallow workflows get <workflowId>    # ensure-os, configure-slurm, configure-podman, configure-grafana, configure-omnistat
-swallow platforms get <platformId>    # containerRuntime, omnistat.state, then the Platform Grafana link in monitoringLinks
+swallow platforms get <platformId>    # containerRuntime, omnistat.state and .hardwareCounters, then the Platform Grafana link in monitoringLinks
 ```
 
 Instead of Omnistat (never both), `deviceMetricsExporter` installs AMD's Device Metrics Exporter on

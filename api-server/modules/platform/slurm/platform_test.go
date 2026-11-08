@@ -85,6 +85,20 @@ func TestChangesFollowTheClassification(t *testing.T) {
 		t.Errorf("an explicit true over an omitted setting = %+v, want no change", changes)
 	}
 
+	// The hardware counters are part of Omnistat's settings, so asking for them, or dropping them,
+	// after the deployment is the Omnistat change swallow cannot carry out yet.
+	withOmnistat := applied.Clone()
+	withOmnistat.Settings["omnistat"] = map[string]any{"enabled": true, "hardwareCounters": false}
+	withCounters := withOmnistat.Clone()
+	withCounters.Settings["omnistat"] = map[string]any{"enabled": true, "hardwareCounters": true}
+	for _, change := range []struct{ from, to platformdomain.PlatformSpec }{{withOmnistat, withCounters}, {withCounters, withOmnistat}} {
+		changes, _ = Platform{}.Changes(&change.from, change.to)
+		if changes.Destructive() || !reflect.DeepEqual(changes.Unsupported, []string{"change-omnistat"}) {
+			t.Errorf("hardwareCounters %v -> %v = %+v; want the unsupported change-omnistat",
+				change.from.Settings["omnistat"], change.to.Settings["omnistat"], changes)
+		}
+	}
+
 	desired = applied.Clone()
 	slurm := map[string]any{"clusterName": "other"}
 	desired.Settings["slurm"] = slurm
