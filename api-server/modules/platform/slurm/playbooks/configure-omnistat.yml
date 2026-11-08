@@ -38,13 +38,17 @@
   hosts: all
   gather_facts: true
   tasks:
+    # group_by only sorts hosts in memory, so it never reports a change: a converged Platform reruns
+    # with changed=0.
     - name: Group the exporter hosts
       ansible.builtin.group_by:
         key: "omnistat_{{ 'exporter' if inventory_hostname in swallow_omnistat_compute_ids else 'other' }}"
+      changed_when: false
 
     - name: Group the observability host
       ansible.builtin.group_by:
         key: "omnistat_{{ 'observability' if inventory_hostname == swallow_omnistat_observability_id else 'member' }}"
+      changed_when: false
 
 - name: Install the Omnistat exporter on every compute node
   # The role ends by waiting until the node's own exporter serves metrics on 127.0.0.1.
@@ -69,11 +73,13 @@
                    if swallow_omnistat_hardware_counters | default(false) | bool else {}) }}
   tasks:
     - name: Write the Omnistat result for Swallow
+      # The result goes to this run's private directory on the executor, never to a host.
       ansible.builtin.copy:
         dest: "{{ swallow_result_path }}"
         content: "{{ omnistat_result | to_json }}"
         mode: "0600"
       delegate_to: localhost
+      changed_when: false
       when: swallow_result_path is defined and swallow_result_path | length > 0
 
 - name: Release the OS's automatic package maintenance

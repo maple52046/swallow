@@ -249,6 +249,33 @@ func TestOmnistatHardwareCountersReachTheExporterAndTheResult(t *testing.T) {
 	}
 }
 
+// A converged Platform reruns configure-omnistat with changed=0: grouping hosts in memory and writing
+// the run's result on the executor change no host, so they never report a change (as in
+// deploy-slurm). The lab's no-op redeploy found them reported as changes.
+func TestConfigureOmnistatBookkeepingReportsNoChange(t *testing.T) {
+	var plays []map[string]any
+	readYAML(t, shippedFile(t, "configure-omnistat.yml"), &plays)
+	checked := 0
+	for _, play := range plays {
+		tasks, _ := play["tasks"].([]any)
+		for _, item := range tasks {
+			task, _ := item.(map[string]any)
+			_, grouping := task["ansible.builtin.group_by"]
+			result := strings.Contains(fmt.Sprint(task["ansible.builtin.copy"]), "swallow_result_path")
+			if !grouping && !result {
+				continue
+			}
+			checked++
+			if task["changed_when"] != false {
+				t.Errorf("task %q reports a change on every run; set changed_when: false", task["name"])
+			}
+		}
+	}
+	if checked != 3 {
+		t.Errorf("found %d grouping and result tasks, want the two group_by tasks and the result write", checked)
+	}
+}
+
 func argvOf(task map[string]any) []string {
 	command, _ := task["ansible.builtin.command"].(map[string]any)
 	raw, _ := command["argv"].([]any)
