@@ -1,0 +1,8 @@
+{# Top-level settings must come before the [[index]] table, which would otherwise own them. #}
+# Managed by Swallow (artifact_sources): the Site's Local Repository is this host's Python package
+# index for uv. uv installs no Python of its own: a role brings the interpreter it builds with.
+python-downloads = "never"
+
+[[index]]
+url = "{{ swallow_artifacts.python_index }}"
+default = true

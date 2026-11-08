@@ -1,11 +1,28 @@
 ---
-# From the upstreams pip and the container runtimes resolve as they would without swallow, so a run
-# removes what a run with the Local Repository wrote for them, and only that (Docker's entry is
+# From the upstreams pip, uv, and the container runtimes resolve as they would without swallow, so a
+# run removes what a run with the Local Repository wrote for them, and only that (Docker's entry is
 # docker.yml's).
 
-- name: Stop pointing pip and the container runtimes at the Local Repository
+- name: Stop pointing pip, uv, and the container runtimes at the Local Repository
   become: true
   block:
+    - name: Read uv's system configuration
+      ansible.builtin.slurp:
+        src: "{{ artifact_sources_root }}{{ artifact_sources_uv_conf }}"
+      register: artifact_sources_uv_conf_file
+      failed_when: false
+
+    - name: Remove the uv configuration the role wrote
+      # A uv.toml without the role's marker is the user's.
+      ansible.builtin.file:
+        path: "{{ artifact_sources_root }}{{ artifact_sources_uv_conf }}"
+        state: absent
+      when:
+        - artifact_sources_uv_conf_file.content is defined
+        - >-
+          (artifact_sources_uv_conf_file.content | b64decode)
+          is search('(?m)^# Managed by Swallow \(artifact_sources\)')
+
     - name: Read pip's configuration
       ansible.builtin.slurp:
         src: "{{ artifact_sources_root }}{{ artifact_sources_pip_conf }}"
