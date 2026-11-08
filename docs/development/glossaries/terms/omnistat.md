@@ -21,7 +21,9 @@
   | `absent` | the Platform was uninstalled; swallow manages no Omnistat on it |
 
   Only the Workflow recorded as the latest change may move the state. The exporter answers only
-  the node itself and the Site Prometheus.
+  the node itself and the Site Prometheus. A deployment may also ask Omnistat for GPU hardware
+  counters (Omnistat Hardware Counters); a compute node that cannot collect them leaves them off and
+  does not change the Omnistat State.
 - Disallowed meaning: Not Managed Software (the target is the Slurm Platform and its job
   attribution, not one host's software) and not a metrics Integration — swallow never queries
   Omnistat. Not the GPU GRES of the Slurm Platform, which swallow configures whether
@@ -37,11 +39,12 @@
   the uninstall the Omnistat State is `absent`, while the Grafana Software Assignment stays until
   it is uninstalled."
 - Related terms: Platform, Managed Software, Software Assignment, Monitoring Link, Workflow, Job,
-  Task, GPU Inventory.
+  Task, GPU Inventory, Omnistat Hardware Counters.
 - Change note: Added 2026-10-21 ([decision 063](../../../decisions/063-omnistat-slurm-observability.md) (omnistat slurm observability)) when swallow started installing Omnistat with a
   Slurm deployment instead of users overlaying it by hand. 2026-10-22: added the install
   method (`container` default, `native`). 2026-10-29 ([decision 066](../../../decisions/066-slurm-job-hooks-and-device-metrics-exporter.md) (slurm job hooks and device metrics exporter)): its job attribution became a
   hook of the Prolog/Epilog dispatcher, and it is mutually exclusive with the Device Metrics
   Exporter. 2026-11-03 ([decision 063](../../../decisions/063-omnistat-slurm-observability.md) (omnistat slurm observability)): the Site Prometheus scrapes it, no
   Prometheus is composed for it, its install method chooses only the Platform's Grafana, and the
-  Platform Grafana's own install records the Monitoring Link.
+  Platform Grafana's own install records the Monitoring Link. 2026-11-08 (decision 063): a deployment
+  may ask for hardware counters, which degrade per compute node without changing the Omnistat State.

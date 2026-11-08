@@ -190,7 +190,9 @@ registry 建立失敗。source 的合併規則見 §5.3。
   來源，名稱就是 host（例如 `docker.io`），上游是 `https://<host>`；有 Python requirement 時一個 `python` 來源 `pypi`
   （`https://pypi.org/`）。已宣告同名、同格式的來源時，以它的 URL 為上游。
 - 宣告的 image 在它的 registry 來源 `ready` 之後預先抓進 provider，並持續觀察到它的每一層都已儲存；下載被中斷或失敗時
-  重新抓取。其他 pull-through 的內容（包括 Python 套件）在第一次被要求時取得並保留。
+  重新抓取。其他 pull-through 的內容（包括 Python 套件）在第一次被要求時取得並保留。所以 `python` 來源 `ready` 只表示
+  provider 能提供它，不表示宣告的 Python 套件已在 Site：Site 第一次部署需要它們的 playbook 時，provider 必須連得到
+  PyPI。沒有網際網路的 Site 要等從磁碟匯入（§9.1）。
 
 ## 6. 各格式怎麼實現
 

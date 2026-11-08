@@ -100,8 +100,9 @@ api-server/modules/
   - `python`：固定版本的 requirement，`name==version`；同一個 project（名稱依 index 的規則正規化後）只出現一次。
   - `url` 都必須是絕對的 http 或 https URL，不得帶 user info、query 或 fragment。
   - role 只取宣告過的 artifact，而且只從 `swallow_artifacts` 指出的位址取得：它下載的檔案、引用的 image 與設定的套件
-    來源都必須出現在 `artifacts`，新增或升級時同時改宣告。image 與 Python 套件在 Local Repository 是 pull-through，宣告的
-    清單決定預先抓取哪些；container runtime 或 pip 自己解析出的間接依賴不必逐一宣告。
+    來源都必須出現在 `artifacts`，新增或升級時同時改宣告。image 與 Python 套件在 Local Repository 是 pull-through：
+    宣告的 image 會預先抓取，Python 套件則在第一次被要求時才取得（[local-repository.md](local-repository.md) §5.3）；
+    container runtime 或 pip 自己解析出的間接依賴不必逐一宣告。
   - OS 套件不在這裡宣告：發行版 archive 的套件來自 Site 的 OS 套件來源（Site 使用 Local Repository 時是 Site 的 user 宣告
     的 `ubuntu` 來源，否則是主機自己的 OS 套件來源），模組只宣告 OS 來源以外的東西。共用 role 的 artifact 由使用它的一個
     模組宣告（例如共用的 `helm` 由 kubernetes 模組宣告）。
