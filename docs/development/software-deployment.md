@@ -80,7 +80,7 @@ image（`cloud-user`）的機器。所有候選帳號都登不進去時（例如
 | `grafana` | 無 role；`installMethod`；`containerRuntime` | `installMethod`、`containerRuntime`、`version`（預設 `12.4.12`）、`prometheusUrl`（省略＝同機 Prometheus）、`dashboards`（bundle：`node-exporter`、`omnistat`、`device-metrics-exporter`） | container method 需 runtime 已 `installed` |
 | `device-metrics-exporter` | 無 role；只有 native 一種安裝路徑 | 無（版本固定 `1.5.3`，assignment spec 記錄 `version`） | GPU Inventory 須有 AMD compute GPU；拒絕 Kubernetes member 與帶 Platform Claim 的 Server（`refusedForClaimedServers`，install 與 uninstall 皆拒）；OS 限 Ubuntu 24.04（playbook 檢查） |
 | `node-exporter` | 無 role；只有 OS 套件一種安裝路徑 | 無（版本由 OS 套件決定） | 可與 Platform 共存；OS 限 Debian／Ubuntu 與 RHEL 家族（playbook 檢查） |
-| `victoriametrics` | 無 role；只有 native 一種安裝路徑 | `listen`（`loopback` 預設／`management`）、`retention`（整數加 `d`／`w`／`M`／`y`，預設 `1M`，至多 100 年）；版本固定 `1.155.0`，assignment spec 記錄 `version` | 可與 Platform 共存；只宣告 amd64 的 release |
+| `victoriametrics` | 無 role；只有 native 一種安裝路徑 | `listen`（`loopback` 預設／`management`）、`retention`（整數加 `d`／`w`／`M`／`y`，預設 `1M`，至多 100 年）；版本固定 `1.155.0`，assignment spec 記錄 `version` | 可與 Platform 共存；只宣告 amd64 的 release；只在 Ubuntu 24.04 驗證過，RHEL 家族未驗證 |
 
 catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴充新 kind（未來 PostgreSQL、LDAP client）
 就是新增一個 Software 模組，前提是仍只依賴本文件的契約：
@@ -278,6 +278,8 @@ Prometheus 相容的寫入與查詢 API。依 §0 的分界，長期運作在一
   只能寫 data 目錄 `/var/lib/swallow/victoriametrics`）執行。沒有 `container` method：binary 是一個靜態檔案，不需要
   runtime。只宣告 amd64：Local Repository 要等每個宣告的檔案都到齊才 `ready`，所以不宣告用不到的架構；其他架構以
   `victoriametrics_release_unavailable` 失敗。
+- **OS**：只在 Ubuntu 24.04 驗證過（lab 經 swallow 的 install、reconfigure、uninstall）。RHEL 家族未驗證：playbook
+  不拒絕它，但沒有在 RHEL 主機上跑過，不得宣稱支援。
 - **已安裝的判斷**：以 binary 回報的版本判斷，不以檔案存在判斷，所以中斷留下的 binary 會被取代；release 或 unit 改變時
   重啟 service，舊的 release 目錄被移除。解壓時不保留 archive 記錄的 owner：上游記錄的是 uid 1000，多數 cloud image 的
   預設使用者，保留它會讓那個帳號能替換 service 執行的 binary。

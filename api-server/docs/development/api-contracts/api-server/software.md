@@ -480,6 +480,8 @@ needed, and no deployment composes it. A `grafana` reads it through `prometheusU
   deployed Server.
 - The install Task fails with `victoriametrics_release_unavailable` on a target that is not amd64,
   and the install succeeds only once VictoriaMetrics answers `/health` on the address it listens on.
+- It is verified on Ubuntu 24.04 only. The RHEL family is not verified: the install does not refuse
+  it, but it has not been run there.
 - Re-installing with another `listen` or `retention` restarts VictoriaMetrics with it and keeps its
   data.
 - Uninstall removes the service, the release, its data, and its system user.

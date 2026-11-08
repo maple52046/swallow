@@ -117,7 +117,8 @@ exporter container are left alone.
 
 VictoriaMetrics installs VictoriaMetrics 1.155.0 (single-node) from its official
 release binary, which swallow fetches from the Site's chosen source and verifies. It
-needs no container runtime and runs on amd64 Servers only. It serves VictoriaMetrics's
+needs no container runtime and runs on amd64 Servers only. It is verified on Ubuntu
+24.04; the RHEL family is not verified yet. It serves VictoriaMetrics's
 Prometheus-compatible write and query API on port 8428. It has two settings:
 
 - **Answers on:** `loopback` (the default) answers only programs on the same Server,

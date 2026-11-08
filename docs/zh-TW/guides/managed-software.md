@@ -98,7 +98,8 @@ Prometheus 收集不到時再安裝一次（見 [Monitoring](monitoring.md#node-
 ## VictoriaMetrics
 
 VictoriaMetrics 安裝 VictoriaMetrics 1.155.0（single-node）的官方 release binary，swallow 從 Site
-選擇的來源取得並驗證。它不需要 container runtime，只支援 amd64 的 Server，在 port 8428 提供
+選擇的來源取得並驗證。它不需要 container runtime，只支援 amd64 的 Server，目前只在 Ubuntu 24.04 驗證過，
+RHEL 家族尚未驗證。它在 port 8428 提供
 VictoriaMetrics 與 Prometheus 相容的寫入與查詢 API。它有兩個設定：
 
 - **Answers on：** `loopback`（預設）只回應同一台 Server 上的程式，例如那裡的 Grafana；
