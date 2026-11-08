@@ -1102,6 +1102,20 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   從模組宣告的 Grafana apt 來源（或 Local Repository 的鏡像）安裝固定版本的 Grafana 套件（安裝方法的細節見
   [software-deployment.md](software-deployment.md) §2）。dashboard 的部署精靈預設選 Omnistat；API 只有在請求啟用
   時才安裝監控功能。
+- **Omnistat 的環境先探測、不能用才重建（[decision 080](../decisions/080-host-toolchains-probe-first.md)（host toolchains probe first））**：每台 compute 的 Omnistat 在
+  `/opt/omnistat/<version>/venv`，`/opt/omnistat/current` 指向 `/opt/omnistat/<version>`（Prolog 經它呼叫
+  `omnistat-rms-env`）。`roles/omnistat` 先以環境自己的 interpreter 執行 `files/omnistat-probe.py`，再以
+  `patch --dry-run --reverse` 對已安裝的 package 檢查 swallow 的每個 patch；interpreter 是 CPython 3.12、hash lock 的每個
+  套件與 Omnistat 都是固定的版本、每個 patch 都已套上，就是能用的環境，不論是之前的 run 還是 OS image 建的，什麼都不
+  安裝，只確保 `current` 指向它（另一個版本的樹保留在原處）。不能用時才重建：以 `python_toolchain` 取得 CPython 3.12
+  與 uv，下載宣告的 source、套上 patch，刪掉舊環境，以 `uv venv` 建立新環境，`uv pip install --require-hashes --no-build`
+  安裝 `files/omnistat-1.15.0-requirements.txt`（Omnistat 的執行與建置依賴，固定版本加上每個檔案的 sha256，與模組
+  `artifacts.python` 相同），再以 `--no-deps --no-build-isolation` 安裝套過 patch 的 source（`GIT_PYTHON_REFRESH=quiet`，
+  版本取自 source 的 `VERSION`，節點不需要 git）。重建後再探測一次，仍不能用時以 `[omnistat_environment_unusable]`
+  失敗。role 不指定任何 index：uv 依 `artifact_sources` 寫的 `/etc/uv/uv.toml` 使用 Local Repository，從上游取得時用
+  PyPI。compute 不再為 Omnistat 安裝 `python3-venv`、`python3-dev`、`build-essential`（已裝的不移除），只在缺少時安裝
+  `patch`；以 pip 建的舊環境缺少 lock 的建置依賴，第一次執行時重建一次。uninstall 照舊移除整個 `/opt/omnistat`；
+  swallow 提供的 uv（`/opt/swallow/uv`、`/opt/swallow/bin/uv`）與 OS 的 `python3.12` 套件保留，就像其他 OS 套件。
 - **選用功能：Device Metrics Exporter（decision 066）**：deploy request 帶 `deviceMetricsExporter.enabled`
   時（與 Omnistat 互斥、至少一台 GPU compute，否則 `ErrInvalidDeviceMetricsExporter`），deploy use case 預先指定
   Workflow id、寫入 `Platform.deviceMetricsExporter`（`installing`），並把
@@ -1130,7 +1144,7 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   | --- | --- | --- |
   | `configure-docker-ce`／`configure-podman` | `install-<runtime>` → `record-<runtime>` | 目標＝container runtime 功能的 compute＋login，加上 Platform Grafana 以 `container` method 安裝時的 primary controller（採 primary 已 assign 的 runtime，否則 Docker CE）；已 `installed` 的 Server 跳過；Docker CE `enableApi: false` |
   | `configure-grafana` | `install-grafana` → `record-grafana` | `monitoringDashboards` 開啟時（預設），primary controller；監控功能的 install method（無功能時 `native`），datasource＝Platform metrics 閘道並帶 monitoring token（sealed secret），dashboards `node-exporter` 加上功能的 bundle；`install-grafana` 宣告 `platform-grafana-result` |
-  | `configure-omnistat` | `install-omnistat`（`configure-omnistat` playbook，全部 targets） | compute 裝 exporter（`allowed_ips`＝`127.0.0.1`＋scrape addresses），每台在 `127.0.0.1:8001/metrics` 確認自己的 exporter；primary 寫 result `{grafanaUrl}` |
+  | `configure-omnistat` | `install-omnistat`（`configure-omnistat` playbook，全部 targets） | compute 收斂 Omnistat 的環境（先探測，見上方「Omnistat 的環境先探測」）並裝 exporter（`allowed_ips`＝`127.0.0.1`＋scrape addresses），每台在 `127.0.0.1:8001/metrics` 確認自己的 exporter；primary 寫 result `{grafanaUrl}` |
 
   （DME 時最後一列改為 `configure-device-metrics-exporter`：`install-device-metrics-exporter` →
   `record-device-metrics-exporter`，ansible 目標與 assignment＝GPU compute。）不再組入 Prometheus：Site 的 Prometheus
@@ -1173,12 +1187,12 @@ Slurm 模組的 `roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、
 `slurm_cluster_credential`、`slurm_job_hooks`）；Device Metrics Exporter：
 [`deploy-device-metrics-exporter.yml`](../../api-server/modules/software/device-metrics-exporter/playbooks/deploy-device-metrics-exporter.yml)
 （standalone 與 Slurm 共用；舊名 `configure-device-metrics-exporter` 為 manifest alias）與共用的 `roles/device_metrics_exporter`（套件宣告的 path／SHA-256 與上游 `config.json` 在 role 內，上游 URL 在模組的 `artifacts`）；Omnistat：[`configure-omnistat.yml`](../../api-server/modules/platform/slurm/playbooks/configure-omnistat.yml)
-與 `roles/omnistat`（上游 tag 壓縮檔宣告的 path 與 sha256 在 `defaults/main.yml`，上游 URL 在 Slurm 模組的 `artifacts`，swallow 維護的 patch 與依賴 constraints 在 `files/`）。
+與 `roles/omnistat`（上游 tag 壓縮檔宣告的 path 與 sha256 在 `defaults/main.yml`，上游 URL 在 Slurm 模組的 `artifacts`，swallow 維護的 patch、環境的 hash lock 與 probe 在 `files/`；收斂在 `tasks/converge.yml`、`probe.yml`、`install.yml`）。
 
 **swallow 維護的 Omnistat patch（[decision 064](../decisions/064-upstream-patches-are-the-exception.md)（upstream patches are the exception））**：
-`roles/omnistat/defaults/main.yml` 的 `omnistat_sources[<version>].patches` 列出每個版本要套的 patch；role 逐一以
-`patch --dry-run --reverse` 檢查，沒套過的才套，任一 patch 套上就重新 `pip install` 並重啟 exporter，所以新增的 patch
-也會套到已經帶有舊 patch 的節點。**升級 Omnistat 時**：先找看看有沒有不需要 patch 就能用的上游版本或 commit；對新版
+`roles/omnistat/defaults/main.yml` 的 `omnistat_sources[<version>].patches` 列出每個版本要套的 patch；role 的 probe 逐一以
+`patch --dry-run --reverse` 檢查已安裝的 Omnistat 是否帶有它，少了任何一個就重建環境（source 也逐一檢查，沒套過的才套）
+並重啟 exporter，所以新增的 patch 也會套到已經帶有舊 patch 的節點。**升級 Omnistat 時**：先找看看有沒有不需要 patch 就能用的上游版本或 commit；對新版
 逐一依下表「如何確認」判斷，上游已修好的 patch 不要帶過去；仍需要的 patch 要對新版原始碼重新產生（行號會變），放進新版
 的 `patches`，並更新本表（`TestOmnistatPatchesAreDocumented` 會檢查 role 套用的每個 patch 都列在這裡）。
 
@@ -1270,7 +1284,7 @@ playbook 使用的內容放在 `shared/`。
 | Prometheus／Grafana（Managed Software） | `software/prometheus/`、`software/grafana/`（datasource 與 dashboard bundles 在共用 role `grafana_provisioning`） |
 | Node Exporter（Managed Software，OS 部署組入） | `software/node-exporter/`：`deploy-node-exporter.yml`、`uninstall-node-exporter.yml`；role `node_exporter` |
 | 共用 playbook | `shared/playbooks/`：`diagnostic-ping.yml`、`configure-ntp.yml` |
-| 共用 role | `shared/roles/`：`amdgpu_loader`（GPU Operator、Slurm GRES 與 DME）、`device_metrics_exporter`（Slurm 與 DME）、`helm`（固定版本的 helm 與 SHA-256，GPU Operator 與 Kubernetes 的 Platform Grafana）、`grafana_provisioning`（每個 swallow 安裝的 Grafana 共用的 datasource、dashboard provider 與 `files/dashboards/<bundle>`：`node-exporter`、`omnistat`、`device-metrics-exporter`；以檔案交給 Grafana Managed Software，以 Helm values 與 ConfigMap 交給 Kubernetes 的 Platform Grafana）、`time_sync_check`（`deploy-kubernetes.yml` 與 `deploy-slurm.yml` 開頭使用；SNTP 量測 `files/ntp_offset.py`）、`ntp_client`（decision 065；偵測與 client 順序在 `vars/`，timesyncd／chrony／ntpd 設定 template 在 `templates/`）、`package_maintenance_hold`（decision 073；改套件的 playbook 第一個 play 取得、最後一個 play 釋放）、`artifact_sources`（decision 078；取得 hold 之後的下一個 play，把 apt、pip、uv 與 container runtime 指向 Site 選擇的 artifact 來源：Local Repository 或宣告的上游）、`python_toolchain`（[decision 080](../decisions/080-host-toolchains-probe-first.md)（host toolchains probe first）；找出任何 CPython 3.12 與任何 uv，缺少時才從 OS 套件與宣告的 uv release 補上）；`docker_runtime` 與 `rdc_exporter` 仍在，但沒有 playbook 使用 |
+| 共用 role | `shared/roles/`：`amdgpu_loader`（GPU Operator、Slurm GRES 與 DME）、`device_metrics_exporter`（Slurm 與 DME）、`helm`（固定版本的 helm 與 SHA-256，GPU Operator 與 Kubernetes 的 Platform Grafana）、`grafana_provisioning`（每個 swallow 安裝的 Grafana 共用的 datasource、dashboard provider 與 `files/dashboards/<bundle>`：`node-exporter`、`omnistat`、`device-metrics-exporter`；以檔案交給 Grafana Managed Software，以 Helm values 與 ConfigMap 交給 Kubernetes 的 Platform Grafana）、`time_sync_check`（`deploy-kubernetes.yml` 與 `deploy-slurm.yml` 開頭使用；SNTP 量測 `files/ntp_offset.py`）、`ntp_client`（decision 065；偵測與 client 順序在 `vars/`，timesyncd／chrony／ntpd 設定 template 在 `templates/`）、`package_maintenance_hold`（decision 073；改套件的 playbook 第一個 play 取得、最後一個 play 釋放）、`artifact_sources`（decision 078；取得 hold 之後的下一個 play，把 apt、pip、uv 與 container runtime 指向 Site 選擇的 artifact 來源：Local Repository 或宣告的上游）、`python_toolchain`（decision 080；找出任何 CPython 3.12 與任何 uv，缺少時才從 OS 套件與宣告的 uv release 補上）；`docker_runtime` 與 `rdc_exporter` 仍在，但沒有 playbook 使用 |
 
 映像：production 於 build 時把 `api-server/modules`（去掉 Go 原始碼）複製到 `/opt/swallow/automation/modules`；`ansible`
 與 API/worker 共用同一映像，以不同 command 啟動。

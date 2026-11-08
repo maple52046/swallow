@@ -1,0 +1,62 @@
+---
+# Decide whether the environment of the expected version is usable (decision 080): its interpreter
+# is CPython 3.12, every locked dependency and Omnistat itself are installed at their versions
+# (files/omnistat-probe.py), and every patch swallow maintains is applied to what is installed.
+# Installs nothing. Sets omnistat_probe_problems, empty when the environment is usable.
+
+- name: Look for the environment's interpreter
+  ansible.builtin.stat:
+    path: "{{ omnistat_venv }}/bin/python"
+  register: omnistat_venv_python
+
+- name: Report the environment's interpreter and packages
+  ansible.builtin.command:
+    argv:
+      - "{{ omnistat_venv }}/bin/python"
+      - "{{ omnistat_prefix }}/omnistat-probe.py"
+      - --lock
+      - "{{ omnistat_prefix }}/{{ omnistat_sources[omnistat_version].requirements }}"
+      - --omnistat
+      - "{{ omnistat_version }}"
+  register: omnistat_probe_packages
+  changed_when: false
+  failed_when: false
+  when: omnistat_venv_python.stat.exists
+
+- name: Read the environment's report
+  ansible.builtin.set_fact:
+    omnistat_probe_report: >-
+      {{ (omnistat_probe_packages.stdout_lines | last | from_json)
+         if (omnistat_probe_packages.rc | default(1)) == 0 and omnistat_probe_packages.stdout_lines | length > 0
+         else {'site_packages': '',
+               'problems': ['there is no environment at ' ~ omnistat_venv]
+                           if not omnistat_venv_python.stat.exists else
+                           ['its interpreter does not run the probe: '
+                            ~ (omnistat_probe_packages.stderr | default('') | trim)]} }}
+
+- name: Check which patches the installed Omnistat carries
+  ansible.builtin.command:
+    argv:
+      - patch
+      - -p1
+      - --dry-run
+      - --reverse
+      - --force
+      - --silent
+      - -d
+      - "{{ omnistat_probe_report.site_packages }}"
+      - -i
+      - "{{ omnistat_prefix }}/{{ item }}"
+  loop: "{{ omnistat_sources[omnistat_version].patches }}"
+  register: omnistat_probe_patches
+  changed_when: false
+  failed_when: false
+  when: omnistat_probe_report.site_packages | length > 0
+
+- name: Collect what makes the environment unusable
+  ansible.builtin.set_fact:
+    omnistat_probe_problems: >-
+      {{ omnistat_probe_report.problems
+         + (omnistat_probe_patches.results | default([]) | selectattr('rc', 'defined')
+            | rejectattr('rc', 'equalto', 0) | map(attribute='item')
+            | map('regex_replace', '^', 'patch not applied: ') | list) }}
