@@ -252,6 +252,18 @@ SELinux、哪些 role 依 OS 分支）見 platform-deployment §2.3。
     上層目錄也設成該 task 的 owner 與 mode，所以 role 建立 data 目錄之前先 `include_role` 共用 role
     `shared_data_dir`，讓 `/var/lib/swallow` 維持 `root:root 0755`；否則最先安裝的軟體會擁有它，`0750` 的 data
     目錄（例如 Grafana native）更會讓其他軟體讀不到自己的 data。它也修正先前的安裝留下的錯誤 owner。
+11. **Python 工具鏈是需求，不是固定版本的安裝**（[decision 080](../decisions/080-host-toolchains-probe-first.md)（host
+    toolchains probe first））：需要以 Python 建置環境的 role 以 `include_role` 執行共用 role `python_toolchain`，取得
+    任何 CPython 3.12 與任何能執行的 uv，不自己安裝 `python3-venv` 或編譯工具。
+    - 它依序找 `/usr/bin/python3.12`、`/opt/swallow/python/3.12/bin/python3.12`、`PATH` 上的 `python3.12`（必須是
+      CPython 3.12），以及 `/usr/local/bin/uv`、`/opt/swallow/bin/uv`、`PATH` 上的 `uv`，用第一個能用的，路徑寫入
+      `python_toolchain_python` 與 `python_toolchain_uv`。都找到時不改變主機。
+    - 缺 CPython 3.12 時從 OS 套件安裝（`python_toolchain_python_packages`，以 `<distribution>-<major version>` 為 key，
+      目前只有 Ubuntu 24.04 的 `python3.12`）；沒有對應套件的 OS 以 `[python312_unavailable]` 失敗。
+    - 缺 uv 時下載固定版本的 uv release（file artifact，由 slurm 模組宣告），驗證 sha256 後解開在 `/opt/swallow/uv/`，
+      連結到 `/opt/swallow/bin/uv`；沒有宣告該架構時以 `[uv_unavailable]` 失敗。這個固定版本只決定 swallow 提供哪一份，
+      主機已有的任何 uv 都接受。
+    - 用到它的 playbook 會安裝套件與下載檔案，所以標 `fetchesArtifacts`，並依 §5 取得與釋放 hold。
 
 ## 5. 改套件的內容
 
@@ -325,6 +337,9 @@ role 的行為要實際執行才看得出來時（改寫主機設定、冪等、
   所以會取代上次中斷留下的檔案，來源沒有的版本在下載前就失敗。
 - `victoriametrics_role_test.go`：以 `newRoleTasksRun` 只跑 `victoriametrics` 的 `release` 與 `preflight`（`service` 需要
   systemd）：release archive 的下載、驗證與解壓，重跑沒有變更，舊版被移除；不接受的 listen 與 retention 在碰主機之前停下。
+- `python_toolchain_role_test.go`：`python_toolchain` 依序使用第一個能用的 CPython 3.12 與 uv（跳過不存在的路徑、其他版本
+  與不是 uv 的程式），都有時不改變主機；缺 uv 時從 httptest server 下載宣告的 release 並連結，第二次執行沒有變更；
+  沒有 CPython 3.12 套件的 OS 以 `[python312_unavailable]` 停下。
 
 端到端的驗證在 lab 以真機進行，規則（可用哪些機器、事先確認什麼）見 skill
 [`skills/lab-verification/SKILL.md`](../../skills/lab-verification/SKILL.md)。

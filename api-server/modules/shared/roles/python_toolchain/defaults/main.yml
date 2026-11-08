@@ -1,0 +1,34 @@
+---
+# A role that builds with Python requires any CPython 3.12 and any uv that runs, not particular
+# versions (decision 080). This role looks for them in these orders, uses the first that works, and
+# supplies only what the host lacks; it sets python_toolchain_python and python_toolchain_uv to their
+# absolute paths. The orders are the contract with OS images that bring their own toolchain.
+python_toolchain_python_candidates:
+  - /usr/bin/python3.12
+  - /opt/swallow/python/3.12/bin/python3.12
+  - python3.12
+python_toolchain_uv_candidates:
+  - /usr/local/bin/uv
+  - "{{ python_toolchain_uv_link }}"
+  - uv
+
+# The OS package that provides CPython 3.12, by "<distribution>-<major version>" as Ansible reports
+# them. An OS without an entry has no package swallow installs yet, and a run there stops with
+# [python312_unavailable].
+python_toolchain_python_packages:
+  Ubuntu-24: python3.12
+
+# Where the uv swallow supplies goes: its release is unpacked under python_toolchain_uv_home and
+# linked from python_toolchain_uv_link, one of the candidates above.
+python_toolchain_uv_home: /opt/swallow/uv
+python_toolchain_uv_link: /opt/swallow/bin/uv
+
+# The uv release swallow supplies when a host has none, by architecture: its declared path (its key
+# in swallow_artifacts.files), its SHA-256, and the directory its archive unpacks to. The slurm module
+# declares the same file artifact, which a content test keeps in step. The pin only decides what
+# swallow supplies; any uv a host already has satisfies a role.
+python_toolchain_uv_releases:
+  x86_64:
+    path: uv/0.13.7/uv-x86_64-unknown-linux-gnu.tar.gz
+    sha256: c5221ff41b7892bfc223543883600125f6a47fe845093e0f5bdff4f359196d83
+    dir: uv-x86_64-unknown-linux-gnu
