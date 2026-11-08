@@ -196,6 +196,30 @@ func TestSlurmPlaybookWiresLoginAndWorkloadStorage(t *testing.T) {
 // authoritative slurm.conf rendered by slurm_config; only pure login clients converge to
 // configless discovery. Otherwise the later login play removes the primary controller's config
 // and systemd skips slurmrestd because its packaged ConditionPathExists is no longer satisfied.
+// A rerun of a converged Platform must not touch the mounted workload share: its root belongs to
+// the export's owner and a root_squash export refuses root's chown, so the client role ensures
+// the mountpoint directory only after checking that nothing is mounted there. The lab's first
+// redeploy of a Platform with self-hosted storage failed on exactly that chown.
+func TestSlurmWorkloadClientLeavesAMountedShareAlone(t *testing.T) {
+	var tasks []map[string]any
+	readYAML(t, filepath.Join(roleDir(t, "slurm_workload_storage_client"), "tasks", "main.yml"), &tasks)
+	check, directory := -1, -1
+	for i, task := range tasks {
+		switch task["name"] {
+		case "Check whether the workload filesystem is already mounted":
+			check = i
+		case "Ensure the workload mount directory exists":
+			directory = i
+			if task["when"] != "slurm_workload_mountcheck.rc != 0" {
+				t.Errorf("the mount directory task runs %v, want only while the share is not mounted", task["when"])
+			}
+		}
+	}
+	if check < 0 || directory < 0 || check > directory {
+		t.Errorf("mount check at task %d and mount directory at task %d; the check must come first", check, directory)
+	}
+}
+
 func TestSlurmLoginPreservesControllerConfiguration(t *testing.T) {
 	path := filepath.Join(roleDir(t, "slurm_login"), "tasks", "main.yml")
 	raw, err := os.ReadFile(path)

@@ -18,9 +18,19 @@
   become: true
   when: slurm_workload_fstype in ['nfs', 'nfs4']
 
+- name: Check whether the workload filesystem is already mounted
+  ansible.builtin.command:
+    argv: [mountpoint, -q, "{{ slurm_workload_mount_path }}"]
+  register: slurm_workload_mountcheck
+  changed_when: false
+  failed_when: false
+  become: true
+
 - name: Ensure the workload mount directory exists
   # A non-overlapping mountpoint (never /home), so mounting cannot hide the automation user's
-  # home and SSH keys.
+  # home and SSH keys. Only while nothing is mounted there: once mounted, the path is the share's
+  # root, owned by the export's owner, and a root_squash export refuses root's chown, which made
+  # every rerun of a converged Platform fail here.
   ansible.builtin.file:
     path: "{{ slurm_workload_mount_path }}"
     state: directory
@@ -28,6 +38,7 @@
     group: root
     mode: "0755"
   become: true
+  when: slurm_workload_mountcheck.rc != 0
 
 - name: Register the workload mount in fstab
   ansible.builtin.lineinfile:
@@ -41,14 +52,6 @@
     owner: root
     group: root
     mode: "0644"
-  become: true
-
-- name: Check whether the workload filesystem is already mounted
-  ansible.builtin.command:
-    argv: [mountpoint, -q, "{{ slurm_workload_mount_path }}"]
-  register: slurm_workload_mountcheck
-  changed_when: false
-  failed_when: false
   become: true
 
 - name: Mount the workload filesystem
