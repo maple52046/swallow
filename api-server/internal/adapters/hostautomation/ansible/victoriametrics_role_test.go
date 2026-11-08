@@ -211,3 +211,28 @@ func TestVictoriaMetricsUnitBindsOnlyTheChosenAddress(t *testing.T) {
 		t.Error("release.yml must unpack the binary without the archive's owner")
 	}
 }
+
+// The file module gives the directories it creates the task's owner and mode, so the service user's
+// 0750 data directory would make /var/lib/swallow its own on a fresh host and lock Grafana and
+// Prometheus out of their data. The role keeps the shared parent root-owned and 0755 before it
+// creates the data directory.
+func TestVictoriaMetricsKeepsTheSharedDataDirectoryRootOwned(t *testing.T) {
+	var tasks []map[string]any
+	readYAML(t, shippedFile(t, filepath.Join("roles", "victoriametrics", "tasks", "service.yml")), &tasks)
+	parent, data := -1, -1
+	for i, task := range tasks {
+		args, _ := task["ansible.builtin.file"].(map[string]any)
+		switch args["path"] {
+		case "{{ victoriametrics_data_dir | dirname }}":
+			parent = i
+			if args["owner"] != "root" || args["group"] != "root" || args["mode"] != "0755" {
+				t.Errorf("the shared data directory task sets %v:%v %v, want root:root 0755", args["owner"], args["group"], args["mode"])
+			}
+		case "{{ victoriametrics_data_dir }}":
+			data = i
+		}
+	}
+	if parent < 0 || data < 0 || parent > data {
+		t.Errorf("service.yml must make the shared data directory root-owned (task %d) before it creates the data directory (task %d)", parent, data)
+	}
+}
