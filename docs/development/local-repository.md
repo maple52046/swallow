@@ -34,7 +34,7 @@ Docker Hub、Quay 與 `registry.k8s.io` 的 image、PyPI 的 Python 套件。結
 
 Local Repository 是一個 provider 類別：core 定義它的 port，Pulp 3 是目前的 adapter，以 Site 的 `repository` Integration
 登錄，與控制平面共置，每個 installation 都安裝。swallow 擁有「它必須包含什麼」，provider 擁有 artifact 本身；Site 使用
-它時，worker 的 controller 把前者收斂到 provider，Server 上的 apt、pip 與 container runtime（containerd、Docker、Podman）
+它時，worker 的 controller 把前者收斂到 provider，Server 上的 apt、pip、uv 與 container runtime（containerd、Docker、Podman）
 都指向它，不再連到上游。
 
 ```mermaid
@@ -202,7 +202,7 @@ Site 使用 Local Repository 時，各格式這樣實現；從上游取得時主
 | --- | --- | --- | --- |
 | `deb` | 宣告的來源（模組或 Site） | `on_demand` 同步宣告的 suite、component 與 architecture：metadata 先鏡像，套件在第一次被要求時取得並保留；每次同步以上游為準（mirror），additive 同步會讓上游更新後同路徑的新舊索引並存而被 Pulp 拒絕；以 Site 自己的金鑰簽章 Release | deb822 來源 `<contentOrigin>/pulp/content/deb/<name>/`，以 Signed-By 驗證 |
 | `oci` | 每個 registry host 一個 pull-through 來源 | 第一次 pull 時取得並保留；宣告的 image 預先經 registry 抓取（index 取 linux/amd64），直到 config 與每一層都已儲存才是 `ready`；下載失敗時隔一段間隔再抓，被中斷的下載在下一輪重新開始 | containerd 的 mirror `<contentOrigin>/v2/<host>`；Docker 與 Podman 直接寫 `<registry>/<host>/<repository>:<tag>` |
-| `python` | `pypi` | pull-through：第一次被要求時取得並保留 | pip 的 index `<contentOrigin>/pypi/pypi/simple/` |
+| `python` | `pypi` | pull-through：第一次被要求時取得並保留 | pip 與 uv 的 index `<contentOrigin>/pypi/pypi/simple/` |
 | `file` | 每個宣告檔案自己的 URL | 下載一次，與宣告的 sha256 比對；不符時移除、該檔案為 `failed`，隔一段間隔再重新下載 | `<contentOrigin>/pulp/content/files/<path>`，role 再以 sha256 驗證 |
 | `rpm` | 宣告的來源 | 設計上預留（§9） | — |
 
@@ -305,6 +305,7 @@ automation））之後，在安裝或下載任何東西之前，先跑共用 rol
 | `/etc/apt/keyrings/swallow-upstream-<name>.gpg` | 每個上游 deb 來源驗證過的金鑰，binary（只在 `upstream`） |
 | `/etc/apt/apt.conf.d/90swallow-local-repository` | `Acquire::http::Proxy::<repo host> "DIRECT";`（只在 `local_repository`） |
 | `/etc/pip.conf` | pip 的 index（只在 `local_repository`，帶 swallow 的標記） |
+| `/etc/uv/uv.toml` | uv 的系統層級設定：預設 index 與 `python-downloads = "never"`（只在 `local_repository`，帶 swallow 的標記） |
 | `/etc/k0s/containerd.d/swallow-registry-mirrors.toml` 與 `/etc/k0s/containerd.d/certs.d/` | k0s 的 containerd 的 mirror（只在 `local_repository`） |
 | `/etc/docker/daemon.json` 的 `insecure-registries`，與 `/var/lib/swallow/artifact-sources/docker-insecure-registry` | role 加入的 registry 與它的紀錄（只在 `local_repository`） |
 | `/etc/containers/registries.conf.d/50-swallow-local-repository.conf` | Podman 的 drop-in（只在 `local_repository`） |
@@ -317,6 +318,10 @@ automation））之後，在安裝或下載任何東西之前，先跑共用 rol
   停用而不刪除，否則 apt 每次 update 仍會從網際網路抓它們的索引；主機還需要的 archive 要加成 Site 的 user 來源（§5.2）。
   移除每個 `swallow-upstream-*.gpg` 金鑰，再刷新套件索引。
 - pip：`/etc/pip.conf`（`index-url` 與 `trusted-host`）。
+- uv：`/etc/uv/uv.toml`，以 Local Repository 的 Python index 為唯一的預設 index（`[[index]]` 的 `default = true`），並以
+  `python-downloads = "never"` 禁止 uv 自己下載 Python（Python 由使用 uv 的 role 提供，[decision 080](../decisions/080-host-toolchains-probe-first.md)（host toolchains probe first））。uv
+  讀這個系統層級的檔，環境變數與命令列參數優先於它，所以 role 不必傳任何 index。plain HTTP 的 index 不需要
+  `allow-insecure-host`（2026-11-08 以 uv 0.13.7 對 plain HTTP 的 PEP 503 index 確認；對 Pulp 的 index 仍待 lab 確認）。
 - container runtime（呼叫者指定的才設定）：
   - k0s 的 containerd：drop-in（`version = 3`，`config_path`）與 `certs.d/<host>/hosts.toml`（`override_path = true`）。
     k0s 1.36 使用 containerd 2，drop-in 必須是 `version = 3`；hosts.toml 帶路徑時要 `override_path = true`。
@@ -339,8 +344,8 @@ automation））之後，在安裝或下載任何東西之前，先跑共用 rol
     stanza。fingerprint 不符時以 `[artifact_signing_key_mismatch]` 失敗；主機沒有 gpg，或 URL 提供的不是 OpenPGP
     公鑰時以 `[artifact_signing_key_unverifiable]` 失敗。兩者都在 apt 讀到任何以它簽章的東西之前停下，所以主機需要 gpg。
   - 移除 Site 的金鑰、DIRECT 設定與這次不再加的來源的金鑰，再刷新套件索引。主機的 OS 套件來源照舊使用。
-- 移除 `local_repository` 模式為 pip 與 container runtime 寫的設定：帶 swallow 標記的 `/etc/pip.conf`（沒有標記的是
-  user 的，保留）、containerd 的 drop-in 與整個 `certs.d` 目錄、紀錄中的 Docker registry（保留 `daemon.json` 的其他 key
+- 移除 `local_repository` 模式為 pip、uv 與 container runtime 寫的設定：帶 swallow 標記的 `/etc/pip.conf` 與
+  `/etc/uv/uv.toml`（沒有標記的是 user 的，保留）、containerd 的 drop-in 與整個 `certs.d` 目錄、紀錄中的 Docker registry（保留 `daemon.json` 的其他 key
   與 user 的項目，再 reload Docker）與 Podman 的 drop-in。這些清除不看 `artifact_sources_containerd`、`_docker`、
   `_podman`：來源是整個 Site 的選擇，主機上任何指向 Local Repository 的設定都要移除。
 

@@ -415,6 +415,20 @@ func TestArtifactSourcesPointsTheHostAtTheLocalRepository(t *testing.T) {
 	if got := readScratch(t, root, "etc/pip.conf"); !strings.Contains(got, "[global]\nindex-url = http://10.0.0.20:8080/pypi/pypi/simple/\ntrusted-host = 10.0.0.20\n") {
 		t.Errorf("pip.conf =\n%s\nwant the Python index and its trusted host", got)
 	}
+	uvConf := readScratch(t, root, "etc/uv/uv.toml")
+	if !strings.HasPrefix(uvConf, "# Managed by Swallow (artifact_sources)") {
+		t.Errorf("uv.toml =\n%s\nwant it to start with the role's marker", uvConf)
+	}
+	if settings := parseTOML(t, uvConf); settings != nil {
+		indexes, _ := settings["index"].([]any)
+		var index map[string]any
+		if len(indexes) == 1 {
+			index, _ = indexes[0].(map[string]any)
+		}
+		if settings["python-downloads"] != "never" || index["url"] != "http://10.0.0.20:8080/pypi/pypi/simple/" || index["default"] != true {
+			t.Errorf("uv.toml parses as %v, want python-downloads never and one default index at the Local Repository", settings)
+		}
+	}
 	wantDropin := "version = 3\n\n[plugins.\"io.containerd.cri.v1.images\".registry]\n  config_path = \"/etc/k0s/containerd.d/certs.d\"\n"
 	if got := readScratch(t, root, "etc/k0s/containerd.d/swallow-registry-mirrors.toml"); !strings.HasSuffix(got, wantDropin) {
 		t.Errorf("containerd drop-in =\n%s\nwant it to end in\n%s", got, wantDropin)
@@ -458,7 +472,7 @@ func TestArtifactSourcesPointsTheHostAtTheLocalRepository(t *testing.T) {
 
 // From the upstreams, artifact_sources adds the declared deb sources next to the host's own, each
 // signed by its declared key, which it downloads and verifies; it leaves the host's apt sources,
-// pip, and Docker settings as they are, and a declared source the host already configures (with
+// pip, uv, and Docker settings as they are, and a declared source the host already configures (with
 // its own key, as earlier Docker CE and Grafana installs left it) stays the host's, since apt
 // refuses one URI with two keys. A second run changes nothing. A key that is not the declared one,
 // or that gpg cannot read, stops the run before apt trusts it.
@@ -473,6 +487,7 @@ func TestArtifactSourcesAddsTheDeclaredUpstreams(t *testing.T) {
 	hostGrafanaList := "deb [signed-by=/etc/apt/keyrings/grafana.asc] https://apt.grafana.com stable main\n"
 	writeScratch(t, root, "etc/apt/sources.list.d/grafana.list", hostGrafanaList)
 	writeScratch(t, root, "etc/pip.conf", "[global]\ntimeout = 60\n")
+	writeScratch(t, root, "etc/uv/uv.toml", "native-tls = true\n")
 	host := snapshotScratch(t, root)
 	vars := func(artifacts map[string]any) map[string]any { return artifactSourcesVars(root, artifacts) }
 
@@ -536,8 +551,8 @@ func TestArtifactSourcesAddsTheDeclaredUpstreams(t *testing.T) {
 
 // A Site switches between its Local Repository and the upstreams, and every host follows on its
 // next run: from the upstreams the run restores the apt sources it set aside and removes only what
-// it wrote for the Local Repository (the Site's key, the proxy bypass, its pip.conf, the containerd
-// drop-in and hosts files, its Docker registry, the Podman drop-in); back on the Local Repository
+// it wrote for the Local Repository (the Site's key, the proxy bypass, its pip.conf and uv.toml, the
+// containerd drop-in and hosts files, its Docker registry, the Podman drop-in); back on the Local Repository
 // the host is exactly as the first run left it. Each mode is idempotent.
 func TestArtifactSourcesSwitchesModesBothWays(t *testing.T) {
 	t.Parallel()
@@ -574,6 +589,7 @@ func TestArtifactSourcesSwitchesModesBothWays(t *testing.T) {
 		"etc/apt/keyrings/swallow-local-repository.asc",
 		"etc/apt/apt.conf.d/90swallow-local-repository",
 		"etc/pip.conf",
+		"etc/uv/uv.toml",
 		"etc/k0s/containerd.d/swallow-registry-mirrors.toml",
 		"etc/k0s/containerd.d/certs.d",
 		"etc/containers/registries.conf.d/50-swallow-local-repository.conf",
@@ -608,6 +624,35 @@ func TestArtifactSourcesSwitchesModesBothWays(t *testing.T) {
 	if out, changed, failed := run.run(local); failed != 0 || changed != 0 {
 		t.Errorf("second run back on the Local Repository changed %d and failed %d tasks, want nothing:\n%s", changed, failed, out)
 	}
+}
+
+// parseTOML decodes content with python3's tomllib, so a test checks the structure uv reads rather
+// than the text; it returns nil, and the caller skips its checks, where python3 lacks tomllib.
+func parseTOML(t *testing.T, content string) map[string]any {
+	t.Helper()
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Log("python3 is not available; the TOML structure is not checked")
+		return nil
+	}
+	cmd := exec.Command(python, "-c", "import json, sys, tomllib; print(json.dumps(tomllib.loads(sys.stdin.read())))")
+	cmd.Stdin = strings.NewReader(content)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		if strings.Contains(stderr.String(), "No module named 'tomllib'") {
+			t.Log("python3 has no tomllib; the TOML structure is not checked")
+			return nil
+		}
+		t.Errorf("%s does not parse as TOML: %v\n%s", content, err, stderr.String())
+		return nil
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(out, &decoded); err != nil {
+		t.Errorf("decode tomllib's output: %v", err)
+	}
+	return decoded
 }
 
 // stringsOf returns the strings of a decoded JSON array.

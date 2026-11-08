@@ -227,7 +227,7 @@ SELinux、哪些 role 依 OS 分支）見 platform-deployment §2.3。
    - 會安裝套件、下載檔案或拉 image 的 playbook，在 manifest 的 entry 標 `"fetchesArtifacts": true`：swallow 才會注入
      這個 var；Site 使用 Local Repository 而它沒有 ready 時，在受理時就拒絕。別名的 entry 也要標。
    - 這類 playbook 在取得 hold（§5）之後的下一個 play 以 `hosts: all` 執行共用 role `artifact_sources`，之前不得有任何套件、
-     下載或拉 image 的 task。它依 `swallow_artifacts.source` 設定主機的 apt、pip 與 container runtime：從 Local Repository
+     下載或拉 image 的 task。它依 `swallow_artifacts.source` 設定主機的 apt、pip、uv 與 container runtime：從 Local Repository
      取得時把它們指向 Local Repository（主機其他的 apt sources，包括 image 帶的，改名為 `.disabled-by-swallow`，可以還原）；
      從上游取得時以宣告的金鑰（確認 fingerprint，主機需要 gpg）加入宣告的 deb 來源，保留主機的 OS 來源，並移除前一種
      模式寫過的設定。playbook 以變數指出它的 run 用哪些 container runtime 拉 image：`artifact_sources_containerd`（k0s 的
