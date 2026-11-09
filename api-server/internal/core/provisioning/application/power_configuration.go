@@ -30,6 +30,9 @@ type PowerConfigurationItem struct {
 	Editable       bool                    `json:"editable"`
 	ReadOnlyReason string                  `json:"readOnlyReason"`
 	Drivers        []PowerDriverOptionItem `json:"drivers"`
+	// PowerState is the power the provisioner read through the configuration before a write
+	// counted (on or off). It answers only a write; a read omits it.
+	PowerState string `json:"powerState,omitempty"`
 }
 
 // SetPowerConfigurationInput is a user's replacement Power Configuration. Password follows
@@ -49,8 +52,9 @@ type SetPowerConfigurationInput struct {
 // Both directions are live: the provisioner is the source of truth and swallow stores nothing, so a
 // read always reflects the provisioner and a write is read back before it is reported. The write is
 // gated on the provider-owned Server Lock like every mutation, validated by the driver family's
-// power adapter before the provisioner is called, and never switches power or resumes a Workflow.
-// The password crosses this use case only inward, on a write; it is never returned or logged.
+// power adapter before the provisioner is called, and kept only when the provisioner can then read
+// the Server's power through it; it never switches power or resumes a Workflow. The password
+// crosses this use case only inward, on a write; it is never returned or logged.
 type PowerConfigurationUseCase struct {
 	servers   serverdomain.ServerRepository
 	providers provisioningdomain.ProviderFactory
@@ -85,11 +89,15 @@ func (uc *PowerConfigurationUseCase) Get(ctx context.Context, serverID string) (
 	return uc.read(ctx, server, reader)
 }
 
-// Set validates input with the power adapter of its driver, writes it through to the provisioner,
-// and returns the configuration read back. A driver no supported family knows, or a parameter the
-// family refuses, is ErrInvalidPowerConfiguration before anything is sent; a locked Server is
-// ErrServerLocked; a Server whose power a provisioner VM host manages is
-// ErrPowerConfigurationManaged; a refusal by the provisioner is its ProviderError.
+// Set validates input with the power adapter of its driver, writes it through to the provisioner
+// only if the provisioner can read the Server's power through it, and returns the configuration
+// read back with the power state that read found. A driver no supported family knows, or a
+// parameter the family refuses, is ErrInvalidPowerConfiguration before anything is sent; a locked
+// Server is ErrServerLocked; a Server whose power a provisioner VM host manages is
+// ErrPowerConfigurationManaged; a configuration the provisioner cannot read the power through is
+// ErrPowerConfigurationUnverified with its reason, the previous one left in place; any other
+// refusal by the provisioner is its ProviderError. The call lasts as long as the provisioner takes
+// to read the power, bounded by the adapter's check window (server-detail-actions.md).
 func (uc *PowerConfigurationUseCase) Set(ctx context.Context, serverID string, input SetPowerConfigurationInput) (*PowerConfigurationItem, error) {
 	driver := provisioningdomain.PowerDriver(strings.ToLower(strings.TrimSpace(input.Driver)))
 	adapter, ok := uc.adapters.ForDriver(driver)
@@ -113,17 +121,27 @@ func (uc *PowerConfigurationUseCase) Set(ctx context.Context, serverID string, i
 	if err != nil {
 		return nil, err
 	}
-	reader, writer, err := powerConfigurationPorts(provider)
+	reader, _, err := powerConfigurationPorts(provider)
 	if err != nil {
 		return nil, err
+	}
+	verifier, ok := provider.(provisioningdomain.PowerConfigurationVerifier)
+	if !ok {
+		return nil, unsupported("power configuration")
 	}
 	if err := requireServerUnlocked(ctx, uc.servers, server, provider); err != nil {
 		return nil, err
 	}
-	if err := writer.SetPowerConfiguration(ctx, server.Source.ProviderMachineID, change); err != nil {
+	state, err := verifier.SetVerifiedPowerConfiguration(ctx, server.Source.ProviderMachineID, change)
+	if err != nil {
 		return nil, err
 	}
-	return uc.read(ctx, server, reader)
+	item, err := uc.read(ctx, server, reader)
+	if err != nil {
+		return nil, err
+	}
+	item.PowerState = string(state)
+	return item, nil
 }
 
 // read shapes the live configuration into the API item, dropping the password.

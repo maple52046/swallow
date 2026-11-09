@@ -21,20 +21,23 @@ type machineJSON struct {
 	// disks."), populated while the machine is in a failure state. It is the detail an
 	// user needs to tell why a deploy or release failed and is otherwise buried only in
 	// the provider event log; carried through so swallow can surface it on the failed state.
-	ErrorDescription string     `json:"error_description"`
-	Architecture     string     `json:"architecture"`
-	CPUCount         int        `json:"cpu_count"`
-	Memory           int64      `json:"memory"`
-	Storage          float64    `json:"storage"`
-	PowerState       string     `json:"power_state"`
-	OSystem          string     `json:"osystem"`
-	DistroSeries     string     `json:"distro_series"`
-	IPAddresses      []string   `json:"ip_addresses"`
-	TagNames         []string   `json:"tag_names"`
-	Zone             *namedJSON `json:"zone"`
-	Pool             *namedJSON `json:"pool"`
-	Pod              *namedJSON `json:"pod"`
-	Locked           bool       `json:"locked"`
+	ErrorDescription string  `json:"error_description"`
+	Architecture     string  `json:"architecture"`
+	CPUCount         int     `json:"cpu_count"`
+	Memory           int64   `json:"memory"`
+	Storage          float64 `json:"storage"`
+	PowerState       string  `json:"power_state"`
+	// PowerType is the machine's power driver, read only to classify its power control; the
+	// driver's parameters are a separate admin-only call and are never read here.
+	PowerType    string     `json:"power_type"`
+	OSystem      string     `json:"osystem"`
+	DistroSeries string     `json:"distro_series"`
+	IPAddresses  []string   `json:"ip_addresses"`
+	TagNames     []string   `json:"tag_names"`
+	Zone         *namedJSON `json:"zone"`
+	Pool         *namedJSON `json:"pool"`
+	Pod          *namedJSON `json:"pod"`
+	Locked       bool       `json:"locked"`
 
 	CommissioningStatusName string `json:"commissioning_status_name"`
 	TestingStatusName       string `json:"testing_status_name"`
@@ -272,7 +275,13 @@ func toDomainMachine(m *machineJSON) *provisioningdomain.Machine {
 	}
 
 	powerState, ok := maasPowerStateToDomain[strings.ToLower(m.PowerState)]
-	if !ok {
+	powerControl := provisioningdomain.PowerControlOf(powerDriverOf(m.PowerType))
+	// Without a driver nothing can query the power, so an error MAAS still holds is left over from
+	// a driver the machine no longer has: for example the failed query of a refused Power
+	// Configuration's check, which MAAS finishes after the driver was put back to none. It is
+	// reported as unknown rather than as a fault. A recorded on or off is kept, because enlistment
+	// records the power-off that ends it even without a driver (the enrollment wait relies on it).
+	if !ok || (powerControl == provisioningdomain.PowerControlNone && powerState == provisioningdomain.PowerStateError) {
 		powerState = provisioningdomain.PowerStateUnknown
 	}
 
@@ -283,6 +292,7 @@ func toDomainMachine(m *machineJSON) *provisioningdomain.Machine {
 		Status:              status,
 		ProviderStatus:      m.StatusName,
 		PowerState:          powerState,
+		PowerControl:        powerControl,
 		Architecture:        m.Architecture,
 		CPUCores:            m.CPUCount,
 		MemoryMiB:           m.Memory,

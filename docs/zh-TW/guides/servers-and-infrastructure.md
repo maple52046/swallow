@@ -45,6 +45,21 @@ Exporter，不需要額外步驟就有用量圖表（[Monitoring](monitoring.md#
 provisioner 的 API key，這是 MAAS 所需；只在可信任的主機執行，
 否則請在 MAAS 更換該 key。
 
+swallow 中 Server 的位址，是 MAAS 記在主機網卡上的位址，而 MAAS 可能接受了第一次硬體回報卻
+沒有記下它。因此指令會確認 MAAS 記下了主機連往 MAAS 時用的位址，沒有就再回報一次；仍然沒有
+時會印出警告，並指出要檢查的 MAAS machine。已經加入卻沒有位址的主機，以同一個指令加上
+`--system-id <Provider machine ID>` 再執行一次即可補上：它會重新回報硬體，而不是重新註冊。
+
+MAAS 註冊保留 OS 的主機時不會設定 power driver，所以它的 power 按鈕顯示 **NO DRIVER**，swallow
+也無法切換。之後替它設定 [Power configuration](#power-configuration)（Server 列表上的
+power 按鈕會直接開啟設定），或在 **Add servers** 勾選 **Also set up its BMC over IPMI**，
+讓指令多帶 `--configure-bmc`。加上它時，主機會經本機的 IPMI interface 在自己的 BMC 上
+建立或重用一個 IPMI 使用者，在 MAAS 把 BMC 記成這台 server 的 `ipmi` power driver，並
+確認 MAAS 讀得到電源；MAAS 讀不到時會回復原本的 driver。主機上需要 `ipmitool` 與
+`/dev/ipmi0`；它不安裝任何套件、不切換電源，也不改 BMC 的網路設定，BMC 沒有 IP 位址時
+會拒絕。密碼只從主機交給 MAAS。已經加入的主機，以
+`--configure-bmc --system-id <Provider machine ID>` 執行指令。
+
 ## libvirt virtual machine
 
 libvirt hypervisor 上的 virtual machine 以 domain 名稱納管，不需要輸入 MAC 位址。
@@ -263,6 +278,12 @@ Server 的 power configuration 是 MAAS 用來切換與讀取它電源的 power 
 **Summary**：有 BMC 的 Server 在 **Management controller** 卡片，沒有 BMC 的 Server 在
 **Power control** 卡片。選擇 **Edit power configuration**（或 **Set power configuration**）。
 
+Server 列表上的 power 按鈕也會用到它。沒有 power driver 的 Server 會顯示 **NO DRIVER**
+（由人工開關電源的顯示 **MANUAL**），而不是 power state，按下後直接開啟同一份表單；儲存成功後
+dialog 關閉，按鈕也會跟著更新。MAAS 讀不到 driver 的
+Server（power state 為 **Unknown** 或 **Error**）會在開關機上方顯示警告，並提供
+**Edit power configuration**。
+
 | Driver | 適用 | 設定 |
 | --- | --- | --- |
 | IPMI、Redfish | 實體 Server 的 BMC | BMC 位址、帳號、密碼 |
@@ -272,6 +293,7 @@ BMC driver 讓 Server 有 Redfish Boot Media；不論 MAAS 用這兩種 driver �
 BMC 探測。URI 指向 swallow Server 的 `virsh` driver，則讓 Server 經由該 hypervisor 取得
 libvirt Boot Media（見 [Boot Media](os-provisioning.md#沒有-provisioner-dhcp-的網路boot-media)）。
 密碼只寫不讀：留空即保留原密碼（更換 driver 時，除非輸入新密碼，否則會移除）。
+密碼欄位的眼睛按鈕可以顯示你輸入的內容，儲存前可以先確認。
 
 使用 `virsh` driver 時，連到 hypervisor 的是 MAAS 而不是 swallow，因此 MAAS rack
 controller 必須先能以 SSH 連到 hypervisor 帳號，driver 才會生效。Production 安裝會替同機
@@ -283,8 +305,12 @@ MAAS 以 snap 安裝時，把金鑰、`known_hosts` 與 SSH 選項放在
 URI 保持乾淨：MAAS 不接受 `?keyfile=` 之類的 query 參數。同一台 hypervisor 上的多台
 VM 共用同一個 URI，以 domain 區分。
 
-儲存不會切換電源，也不會恢復檢視。先讀 **Power state** 確認 MAAS 連得到 driver，
-再 retry 檢視。屬於 MAAS VM host 的 virtual machine 由 VM host 提供電源，在這裡為唯讀。
+儲存時會先驗證設定：MAAS 會用這些設定讀一次 Server 的電源，最多 20 秒。只有讀到 on 或
+off 才會儲存，確認訊息會顯示讀到的狀態。否則（位址、帳號或密碼錯誤，或 MAAS 連不到該位址；
+有些 BMC 對錯誤密碼完全不回應，所以會等滿 20 秒）什麼都不會改變：dialog 保持開啟，顯示原因
+並保留你輸入的內容，讓你修正。
+儲存不會切換電源，也不會恢復檢視；之後再 retry 檢視。屬於 MAAS VM host 的 virtual machine
+由 VM host 提供電源，在這裡為唯讀。
 
 ## Provider 與 observation failure
 

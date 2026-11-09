@@ -45,10 +45,20 @@ test('keeping the OS shows one command that downloads swallow from this console'
   await dialog.getByRole('button', { name: /Yes, keep its OS/ }).click()
   // The Site's only provisioner is resolved without another choice.
   const origin = new URL(page.url()).origin
-  await expect(dialog.getByLabel('Enrollment command', { exact: true })).toContainText(
-    `curl -fsSL '${origin}/downloads/swallow-enroll.sh' | sudo sh -s -- --provisioner=maas --endpoint 'https://maas.example/MAAS' --token 'consumer-maas-a:token:secret'`,
-  )
+  const bundleCommand = `curl -fsSL '${origin}/downloads/swallow-enroll.sh' | sudo sh -s -- --provisioner=maas --endpoint 'https://maas.example/MAAS' --token 'consumer-maas-a:token:secret'`
+  const command = dialog.getByLabel('Enrollment command', { exact: true })
+  await expect(command).toHaveText(bundleCommand)
   await expect(dialog.getByText("Contains the provisioner's API key.")).toBeVisible()
+  expect(swallowUrls).toEqual([origin])
+
+  // Registration leaves the server without a power driver; the opt-in BMC setup is one more flag.
+  const bmc = dialog.getByRole('checkbox', { name: 'Also set up its BMC over IPMI' })
+  await expect(bmc).not.toBeChecked()
+  await expect(dialog.getByText('Without it, the server has no power driver')).toBeVisible()
+  await dialog.getByText('Also set up its BMC over IPMI').click()
+  await expect(bmc).toBeChecked()
+  await expect(command).toHaveText(`${bundleCommand} --configure-bmc`)
+  await expect(dialog.getByText(/creates or reuses an IPMI user on its BMC/)).toBeVisible()
   expect(swallowUrls).toEqual([origin])
 })
 

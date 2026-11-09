@@ -132,8 +132,12 @@ type ProvisioningAxisItem struct {
 	// why a lifecycle action failed (e.g. "Failed to erase disks.") without a separate event read.
 	ErrorDescription string `json:"errorDescription,omitempty"`
 	PowerState       string `json:"powerState"`
-	OSSystem         string `json:"osSystem"`
-	DistroSeries     string `json:"distroSeries"`
+	// PowerControl is what the power driver lets the provisioner do (none, manual, automatic),
+	// so a client can tell "no driver" from "driver set but power unreadable" without the live
+	// Power Configuration read (servers-list.md). Omitted until it has been observed.
+	PowerControl string `json:"powerControl,omitempty"`
+	OSSystem     string `json:"osSystem"`
+	DistroSeries string `json:"distroSeries"`
 	// DeployedImageName is the effective display name of the deployed OS image (provider
 	// catalog name overlaid with any swallow custom name), mirrored during reconcile. Empty
 	// when nothing is deployed or the image could not be resolved from the catalog.
@@ -281,6 +285,7 @@ func toServerStatusItem(s *serverdomain.Server) ServerStatusItem {
 			ProviderState:            p.ProviderState,
 			ErrorDescription:         p.ErrorDescription,
 			PowerState:               p.PowerState,
+			PowerControl:             p.PowerControl,
 			OSSystem:                 p.OSSystem,
 			DistroSeries:             p.DistroSeries,
 			DeployedImageName:        p.DeployedImageName,

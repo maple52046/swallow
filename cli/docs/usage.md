@@ -385,7 +385,8 @@ swallow servers mark-fixed srv1
 swallow servers rescue-mode srv1
 swallow servers exit-rescue-mode srv1
 
-# Power Configuration: the provisioner's power driver and parameters, written through to it.
+# Power Configuration: the provisioner's power driver and parameters, written through to it and
+# kept only if the provisioner can then read the power through it (otherwise the previous one stays).
 # The password is write-only; without a password flag it is kept for an unchanged driver.
 swallow servers power-configuration get srv1
 swallow servers power-configuration set srv1 --driver virsh \
@@ -443,13 +444,42 @@ provisioner's, not swallow's.
 
 ```bash
 sudo swallow servers enroll --provisioner=maas \
-  --endpoint http://10.0.0.5:5240/MAAS --token '<MAAS API key>' [--hostname db-03]
+  --endpoint http://10.0.0.5:5240/MAAS --token '<MAAS API key>' [--hostname db-03] [--configure-bmc]
 # SWALLOW_ENROLL_TOKEN keeps the key out of shell history
+
+# A host enrolled before: report its hardware again under its Machine (the system ID is its
+# Provider machine ID), for example to repair a missing address; add --configure-bmc for its BMC
+sudo swallow servers enroll --provisioner=maas \
+  --endpoint http://10.0.0.5:5240/MAAS --token '<MAAS API key>' --system-id 4y3h7p [--configure-bmc]
 ```
 
 For MAAS it downloads `maas-run-scripts` from the endpoint, runs
 `register-machine` and `report-results`, and deletes what it downloaded. The host
-needs `python3`.
+needs `python3`. The Server's address in swallow comes from the addresses MAAS
+links to the Machine's interfaces, and MAAS can process a first report without
+linking the host's; so after reporting, the CLI checks that MAAS recorded the
+address this host reaches MAAS from, reports once more if it did not, and prints a
+warning naming the Machine if it still did not. With `--system-id` it skips
+registration for a host already registered as that Machine (which must share a
+MAC address with the host, or, when MAAS recorded no interfaces for it, the
+hostname), reports its hardware again under it with the same check, and with
+`--configure-bmc` then sets up the BMC.
+
+MAAS registers the host **without a power driver**, so swallow
+cannot switch or read its power until you set its Power Configuration
+(`servers power-configuration set`, or the power button on the Dashboard's Server
+list) or enroll with `--configure-bmc`.
+
+`--configure-bmc` sets up the BMC from the host itself, over the local IPMI
+interface. It needs `ipmitool` and `/dev/ipmi0` already on the host and installs
+nothing. It creates or reuses one IPMI user (MAAS's `maas_auto_ipmi_user`, `maas`
+by default) with a random password, records the BMC as the Machine's `ipmi` power
+driver in MAAS, and checks that MAAS reads the power through it; when MAAS cannot,
+it restores the previous driver and leaves the IPMI user on the BMC. It never
+switches power, never changes the BMC's network, and refuses a BMC without an IP
+address or a MAAS that sets a K_g key. The password goes from the host to MAAS
+only; swallow never sees it. Running it again on a Machine MAAS already powers
+changes nothing.
 
 ### provisioning
 

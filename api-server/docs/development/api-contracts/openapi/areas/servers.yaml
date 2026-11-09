@@ -1392,6 +1392,12 @@ components:
             and `rescue`.
         powerState:
           $ref: '#/components/schemas/ServerPowerState'
+        powerControl:
+          type: string
+          enum: [none, manual, automatic]
+          description: >-
+            What the power driver lets the provisioner do, mirrored with `powerState`; the same
+            classification as the Power Configuration's `control`. Omitted until observed.
         osSystem:
           type: string
         distroSeries:
@@ -1824,6 +1830,12 @@ components:
           description: The drivers a write may choose.
           items:
             $ref: '#/components/schemas/PowerDriverOption'
+        powerState:
+          type: string
+          enum: ['on', 'off']
+          description: >-
+            Present only on a write's response: the power the provisioner read through the new
+            configuration before the write was kept.
     PowerDriverOption:
       type: object
       required: [driver, family]

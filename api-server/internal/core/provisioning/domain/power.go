@@ -144,6 +144,10 @@ var (
 	// ErrPowerConfigurationManaged marks a write to a machine whose power the provisioner takes
 	// from another object (a MAAS VM host); that object's configuration must change instead.
 	ErrPowerConfigurationManaged = errors.New("the machine's power is managed by its provisioner VM host")
+	// ErrPowerConfigurationUnverified marks a Power Configuration the provisioner accepted but
+	// could not read the machine's power through, so it was not kept: the previous configuration
+	// is back in place. Errors wrapping it carry the provisioner's reason, which says what to fix.
+	ErrPowerConfigurationUnverified = errors.New("the provisioner cannot read the power through this configuration")
 )
 
 // PowerAdapter is the code model of one power driver family (decision 054). It knows the drivers
@@ -277,4 +281,24 @@ type PowerConfigurationReader interface {
 // unavailable errors otherwise.
 type PowerConfigurationWriter interface {
 	SetPowerConfiguration(ctx context.Context, machineID string, change PowerConfigurationChange) error
+}
+
+// PowerConfigurationVerifier writes a user's Power Configuration only if it works: the provisioner
+// must read the machine's power through it before the write counts. A user's save goes through it
+// so that a wrong address or password is refused rather than stored; an adapter that sets
+// ProviderCapabilities.PowerConfiguration must implement it.
+//
+// change has already been normalized by its family's adapter. On success the configuration stays
+// and the power state the provisioner read (on or off) is returned. When the provisioner cannot
+// read the power (a failed read, or a state that is neither on nor off), the implementation puts
+// the machine's previous driver and parameters back exactly as they were, password included, and
+// returns an error wrapping ErrPowerConfigurationUnverified with the provisioner's reason; when
+// putting them back fails too, it returns a *ProviderError{Kind: ProviderErrorUnavailable} saying
+// the new configuration is still set. It never switches power, never logs or returns a password
+// (reasons are redacted), and otherwise returns the errors PowerConfigurationWriter does.
+// Implementations bound the read with a short window of their own and treat no answer within it as
+// unreadable: a provisioner retrying a BMC that does not respond can take minutes, and the caller
+// is a user waiting on a dialog.
+type PowerConfigurationVerifier interface {
+	SetVerifiedPowerConfiguration(ctx context.Context, machineID string, change PowerConfigurationChange) (PowerState, error)
 }

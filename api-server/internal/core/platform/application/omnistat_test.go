@@ -410,7 +410,9 @@ func (slurmSpecModule) PlatformType() platformdomain.PlatformType {
 	return platformdomain.PlatformTypeSlurm
 }
 
-func (slurmSpecModule) DeployRequest(platformdomain.PlatformSpec) map[string]any { return map[string]any{} }
+func (slurmSpecModule) DeployRequest(platformdomain.PlatformSpec) map[string]any {
+	return map[string]any{}
+}
 
 func (slurmSpecModule) SpecFromDeployRequest(map[string]any) (platformdomain.PlatformSpec, error) {
 	return platformdomain.PlatformSpec{}, nil

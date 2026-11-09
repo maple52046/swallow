@@ -5942,6 +5942,11 @@ export interface components {
             family: "" | "bmc" | "virsh";
             passwordSet: boolean;
             powerId: string;
+            /**
+             * @description Present only on a write's response: the power the provisioner read through the new configuration before the write was kept.
+             * @enum {string}
+             */
+            powerState?: "on" | "off";
             readOnlyReason: string;
             serverId: string;
             username: string;
@@ -6440,6 +6445,11 @@ export interface components {
             locked: boolean;
             observedAt: components["schemas"]["Timestamp"];
             osSystem: string;
+            /**
+             * @description What the power driver lets the provisioner do, mirrored with `powerState`; the same classification as the Power Configuration's `control`. Omitted until observed.
+             * @enum {string}
+             */
+            powerControl?: "none" | "manual" | "automatic";
             powerState: components["schemas"]["ServerPowerState"];
             /** @description The provider's own lifecycle label; display only. */
             providerState: string;

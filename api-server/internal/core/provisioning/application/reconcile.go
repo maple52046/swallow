@@ -734,6 +734,7 @@ func apply(server *serverdomain.Server, source serverdomain.Source, machine *pro
 		ProviderState:            machine.ProviderStatus,
 		ErrorDescription:         machine.ErrorDescription,
 		PowerState:               string(machine.PowerState),
+		PowerControl:             string(machine.PowerControl),
 		OSSystem:                 machine.OSSystem,
 		DistroSeries:             machine.DistroSeries,
 		DeployedImageName:        image.Name,

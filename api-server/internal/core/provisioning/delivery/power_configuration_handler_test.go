@@ -3,6 +3,7 @@ package delivery
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -37,6 +38,8 @@ type powerHandlerProvider struct {
 	provisioningdomain.OSProvisioningProvider
 	managedBy string
 	change    *provisioningdomain.PowerConfigurationChange
+	// unreadable makes the verified write fail its power read with this reason.
+	unreadable string
 }
 
 func (p *powerHandlerProvider) Capabilities() provisioningdomain.ProviderCapabilities {
@@ -59,6 +62,21 @@ func (p *powerHandlerProvider) SetPowerConfiguration(_ context.Context, _ string
 	}
 	p.change = &change
 	return nil
+}
+
+// SetVerifiedPowerConfiguration records the change like SetPowerConfiguration and reads the power
+// as off, unless unreadable makes the check fail.
+func (p *powerHandlerProvider) SetVerifiedPowerConfiguration(
+	ctx context.Context, machineID string, change provisioningdomain.PowerConfigurationChange,
+) (provisioningdomain.PowerState, error) {
+	if err := p.SetPowerConfiguration(ctx, machineID, change); err != nil {
+		return provisioningdomain.PowerStateUnknown, err
+	}
+	if p.unreadable != "" {
+		return provisioningdomain.PowerStateUnknown, fmt.Errorf("%w (%s); the previous configuration was kept",
+			provisioningdomain.ErrPowerConfigurationUnverified, p.unreadable)
+	}
+	return provisioningdomain.PowerStateOff, nil
 }
 
 type powerHandlerProviders struct {
@@ -127,8 +145,8 @@ func TestSetPowerConfiguration(t *testing.T) {
 	app := newPowerHandlerApp(t, provider)
 
 	resp, body := putPower(t, app, `{"driver":"virsh","address":"qemu+ssh://maas@h/system","powerId":"vm"}`)
-	if resp.StatusCode != http.StatusOK || body["driver"] != "virsh" {
-		t.Fatalf("status %d body %v, want 200 with the read-back configuration", resp.StatusCode, body)
+	if resp.StatusCode != http.StatusOK || body["driver"] != "virsh" || body["powerState"] != "off" {
+		t.Fatalf("status %d body %v, want 200 with the read-back configuration and the power its check read", resp.StatusCode, body)
 	}
 	if provider.change == nil || provider.change.Password != nil {
 		t.Errorf("change = %+v, want an omitted password passed as nil", provider.change)
@@ -156,5 +174,15 @@ func TestSetPowerConfiguration(t *testing.T) {
 		`{"driver":"virsh","address":"qemu+ssh://h/system","powerId":"vm"}`)
 	if errBody, _ := body["error"].(map[string]any); resp.StatusCode != http.StatusConflict || errBody["code"] != string(apierror.CodeConflict) {
 		t.Errorf("VM-host member: status %d body %v, want 409 conflict", resp.StatusCode, body)
+	}
+
+	// A configuration the provisioner cannot read the power through is refused with its reason.
+	resp, body = putPower(t, newPowerHandlerApp(t, &powerHandlerProvider{unreadable: "ipmi: password invalid"}),
+		`{"driver":"ipmi","address":"10.0.0.5","username":"maas","password":"wrong"}`)
+	errBody, _ := body["error"].(map[string]any)
+	message, _ := errBody["message"].(string)
+	if resp.StatusCode != http.StatusBadRequest || errBody["code"] != string(apierror.CodeValidation) ||
+		!strings.Contains(message, "password invalid") || !strings.Contains(message, "previous configuration was kept") {
+		t.Errorf("unreadable power: status %d body %v, want 400 validation_error with the reason", resp.StatusCode, body)
 	}
 }

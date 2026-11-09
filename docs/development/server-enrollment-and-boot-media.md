@@ -71,11 +71,42 @@ Machine；之後的 Server 一律來自 reconcile。
 - `swallow servers enroll` 對 MAAS 包裝 `maas-run-scripts register-machine`（Machine 建成 Deployed）與
   `report-results`（從執行中的 OS 記錄硬體），完成後刪除下載的一切。provider 邏輯只存在於 CLI，不在
   shell script 裡重寫。
+- **回報後檢查位址**：Server 的位址來自 Machine 的 `ip_addresses`，也就是 MAAS 連到網卡上的 IP link。MAAS 3.7 可能
+  處理完回報、沒有錯誤事件，卻沒替帶著主機位址的網卡建 link（實測於 MAAS 3.7.2，觸發條件尚未從原始碼確定；以同一份
+  回報再送一次就會建）。因此 CLI 在 `report-results` 之後，以 bundle 的 API key 讀回 Machine，確認主機連往 MAAS 時用的
+  來源位址（routing table 選出的那個；loopback 不檢查）在 `ip_addresses` 中；沒有就再送一次，仍沒有就印出警告與要
+  檢查的 Machine，不讓 enrollment 失敗。MAAS 在回報的請求內同步處理資料，所以不需要等待。
+- **已加入的主機**以 `--system-id <id>`（Server 的 Provider machine ID）跳過註冊：先確認該 Machine 是這台主機（同一個
+  MAC，或 MAAS 沒記錄網卡時同一個 hostname），以 `maas-run-scripts get-machine-token` 取得它的 credentials 重新回報，
+  並做同樣的位址檢查，用來補上當初沒記到的位址；加上 `--configure-bmc` 時接著設定 BMC。
 - 指令中的 provisioner endpoint 與 API key 由 admin-only 的 enroll-bundle 路由交出（`Cache-Control:
   no-store`、不記 log）。這是「credential write-only」的唯一例外：MAAS 的 `register-machine` 需要 MAAS
   API key，沒有更窄的 credential。執行過指令的主機可以使用該 key；不信任主機時應輪替。
 - Server 投影為 `deployed` 並保留 OS，**永遠不會被自動 inspection**（inspection 會重開機）。
   enrollment 不帶入 [Server Default User](glossaries/terms/server-default-user.md)。
+- **註冊後沒有 power driver**：`report-results` 只跑 MAAS 帶 `deploy-info` tag 的 script，MAAS 設定 BMC 的
+  `30-maas-01-bmc-config` 不在其中，所以 Machine 的 driver 是空的或 `manual`（control `none` 或 `manual`），
+  Server 的 power state 是 `unknown`。swallow 不知道主機的 BMC，不會替它設定；`swallow servers enroll` 結束時印出兩條路：在 swallow 設定
+  [Power Configuration](glossaries/terms/power-configuration.md)（§3，Server 列表的 power 按鈕會直接開啟設定），
+  或從主機設定 BMC（下一點）。
+- **`--configure-bmc`（opt-in）從主機本身設定 IPMI BMC**，Add servers 的「Also set up its BMC over IPMI」會把它
+  加在指令後面：
+  - 只用主機已有的 `ipmitool` 與本機 KCS（`ipmitool -I open`，`/dev/ipmi0`）；沒有時拒絕，不安裝套件、不載入
+    kernel module。
+  - 註冊之前先做完所有不改變任何東西的檢查（`ipmitool`、IPMI device、MAAS 的 `maas_auto_ipmi_*` policy、BMC 在
+    某個 LAN channel 上的 IP），任一項不符就拒絕，主機也不會被註冊。BMC 沒有 IP，或 MAAS 設了 K_g key 時拒絕：
+    設定 BMC 的 IP 或 K_g 會改變 BMC 的網路或所有使用者的登入方式。
+  - 在 BMC 上選 policy 使用者（預設 `maas`）已有的 slot，否則用第一個空 slot（不用 user 1，也不動其他具名
+    使用者），依序設定名稱、16 字元隨機密碼、privilege、IPMI messaging，最後才 enable。
+  - 以 bundle 的 MAAS API key 寫入 Machine 的 `ipmi` power 參數（`LAN_2_0`、BMC 位址、policy 的 privilege 與
+    cipher suite，UEFI 主機的 boot type 為 `efi`），再請 MAAS `query_power_state`。MAAS 讀不到電源（多半是 rack
+    controller 連不到 BMC）時，把 Machine 的 driver 回復成原本的值並回報；BMC 上的使用者保留。
+  - Machine 已有 automatic driver 時整步跳過，重跑不會輪替可用的密碼。
+  - 密碼以 `crypto/rand` 產生，經 root-only 的暫存指令檔交給 `ipmitool exec`（不出現在 process 參數），經 MAAS
+    API 交給 MAAS；不經過 swallow、不印出、不記錄。從不執行開關機，只讀電源。
+  - 已經加入的主機以 `--configure-bmc --system-id <id>` 重新回報硬體並設定 BMC（見上一點的 `--system-id`）。
+  - 只支援 IPMI：只有 Redfish host interface 的 BMC、或沒有本機 IPMI 的主機，改在 swallow 設定 Power
+    Configuration。
 - CLI 檔案來自設定 `api.cliBinary`（`SWALLOW_API_CLI_BINARY`，production 為 bundle 的 `bin/swallow`），
   每次 request 檢查檔案；未設定或檔案不存在時回 `404` 與純文字原因。
 
@@ -125,6 +156,13 @@ provisioner。
   （[decision 053](../decisions/053-server-enrollment-and-automatic-inspection.md)（server enrollment and automatic inspection））。
 - 主機很少裝有 CLI、常常不能上網，而 installation 本來就附帶 CLI，所以由 installation 提供下載
   （decision 053）。
+- existing OS 的 BMC 不原樣執行 MAAS 的 `30-maas-01-bmc-config`：它會先試 Redfish host interface 並可能改寫主機的
+  netplan、在 BMC 沒有 IP 時改 BMC 的 IP 來源，而且需要安裝 `freeipmi-tools` 等套件，都不適合仍在跑 workload 的
+  主機。只走本機 KCS 的 IPMI 設定可以不重開機、不改網路地完成。
+- BMC 設定由主機端 CLI 直接寫進 MAAS，而不是經 swallow 的 Power Configuration API：主機沒有 swallow 的
+  credential，而 enrollment 本來就交給主機 MAAS API key；密碼因此從主機直接到 provisioner，swallow 不經手，符合
+  [decision 054](../decisions/054-provisioner-power-configuration.md)（provisioner power configuration）。它是 opt-in，
+  因為它會改 BMC 的使用者表。
 - VM 以名稱 enroll，而不是 MAAS `add-chassis` 或 VM host：前者以名稱前綴選 VM、把 domain 改成先網路後磁碟
   開機（破壞 external DHCP 的 iPXE ISO）且非同步；後者把 VM 的生命週期與開機順序交給 MAAS
   （[decision 055](../decisions/055-libvirt-virtual-machine-enrollment.md)（libvirt virtual machine enrollment））。
@@ -249,12 +287,32 @@ Server、existing-OS enrollment 的 `deployed` Server，以及自動檢視失敗
   `power_parameters`），由 provisioner 擁有。swallow 從 API（`GET`／`PUT /servers/{id}/power-configuration`）、
   CLI（`swallow servers power-configuration get|set`）與 Dashboard 即時讀取並 write-through，**從不儲存**，
   也從不回傳或記錄密碼（回應 `Cache-Control: no-store`）。需要 provider capability `powerConfiguration`。
+- 唯一投影的是 control 分類（§3.3）：reconcile 與 refresh 讀 Machine 時依 driver 算出 control，與 power state 一起寫在
+  Server 的 provisioning axis（`provisioning.powerControl`，observed），因為 `unknown` 的 power state 分不出「沒有
+  driver」與「driver 讀不到電源」。driver 名稱、參數與密碼都不投影。沒有 driver 的機器不會有當下的 power
+  error：MAAS 還留著的 `error` 是已移除的 driver 留下的，投影為 `unknown`；記錄的 on／off 保留（enlistment 結束時的
+  關機，§2.2 的 enrollment wait 依賴它）。
 - 密碼 write-only：省略時，driver 不變就保留、driver 改變就清除（前一個 driver 的 secret 不得帶到新 driver）；
   `""` 清除；其他值取代。
-- swallow 先依 family 驗證，provisioner 再驗證並可能拒絕。寫入只改 Power Configuration：不開關電源、不測試
-  provisioner 能否連線（之後讀 `GET /servers/{id}/power-state`）、也不會 resume 停在 attention 的
-  `inspect-hardware` Workflow（需另外 retry 或 Inspect）。
+- swallow 先依 family 驗證，provisioner 再驗證並可能拒絕。**寫入先驗證才保留**：provisioner 接受後，swallow 請它
+  經新的設定讀一次電源（MAAS `query_power_state`，會連到 BMC 或 hypervisor，但不開關機）；讀到 on 或 off 才保留，
+  否則把原本的 driver 與參數（含密碼）原樣寫回，並以 provisioner 的原因拒絕（`400`）。寫回也失敗時回 `503`，說明
+  新設定仍在。讀電源最多等 20 秒：設定正確時 MAAS 幾秒內就回；BMC 沒有回應時（位址錯、網路不通，或 BMC 對錯誤
+  密碼不回應），`ipmipower` 回報 connection timeout，MAAS 會以 4／8／16／32 秒的間隔重試超過兩分鐘，因此 20 秒內
+  沒有結論就視為讀不到並說明要檢查什麼。MAAS 在這之後可能還在查，但只讀電源，保留的是寫回的設定；它留下的
+  `error` 在沒有 driver 的機器上投影成 `unknown`（見下一點）。驗證與寫回在 MAAS adapter 內完成，
+  因為只有它讀得到原本的密碼：純量參數原樣寫回；清單型參數（例如 IPMI workaround flags）在 driver 不變時本來
+  就沒被改，driver 改變時回到 MAAS 的預設值。
+- 寫入只改 Power Configuration：不開關電源，也不會 resume 停在 attention 的 `inspect-hardware` Workflow（需另外
+  retry 或 Inspect）。
 - 屬於 provisioner VM host（MAAS pod）的 VM，電源由 VM host 管理，在 swallow 中唯讀（`editable: false`）。
+- Dashboard 有兩個入口，共用同一份表單：Server Summary 的 Management controller 卡，以及 Server 列表的 power
+  按鈕。power 按鈕依投影的 control 顯示：`none` 為「NO DRIVER」、`manual` 為「MANUAL」，其他顯示 power state。
+  開啟時依投影的 control 立即決定畫面，同時即時讀 Power Configuration 作為表單的 driver 選項與預設值：control 為
+  `automatic` 時顯示開關機，power state 為 `unknown` 或 `error` 時另加警告與編輯入口；`none` 或 `manual`（且可編輯）
+  時直接顯示設定表單，driver 選擇等讀取回來；投影還沒有 control 時才先等讀取。存檔是一步：Save 顯示「Checking…」
+  直到 API 驗證完；被拒絕時留在表單、顯示原因並保留輸入，成功時關閉並以 toast 顯示讀到的 power state，同時
+  refresh 該 Server 讓列表的按鈕跟著更新；讀不到 Power Configuration 時說明原因並照常顯示開關機。
 - MAAS 的 Integration 帳號必須是 administrator 才能讀寫 power parameters（Boot Media 讀 BMC 帳密也依賴這點）。
 - 欄位與錯誤碼見
   [server-detail-actions.md](../../api-server/docs/development/api-contracts/api-server/server-detail-actions.md#power-configuration)。
@@ -628,6 +686,8 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
 | iPXE 固定版本與 GRUB／打包工具 | `deploy/production/api-server.Dockerfile` |
 | CLI：Boot ISO、Boot Media、Power Configuration、VM enrollment、enroll-bundle | `cli/internal/command/bootisos.go`、`bootmedia.go`、`powerconfig.go`、`virtualmachines.go`、`integrations.go` |
 | CLI：主機端 `swallow servers enroll`（MAAS） | `cli/internal/hostenroll/hostenroll.go` |
+| CLI：`--configure-bmc`（本機 KCS 的 IPMI 設定、MAAS power 參數與回復） | `cli/internal/hostenroll/ipmi.go`、`cli/internal/hostenroll/maas_bmc.go` |
+| Dashboard：Power Configuration 表單（Summary 與 Server 列表共用）、列表的 power dialog | `dashboard/src/presentation/pages/servers/usePowerConfigurationForm.ts`、`PowerConfigurationFields.tsx`、`ServerPowerDialog.tsx` |
 
 ---
 

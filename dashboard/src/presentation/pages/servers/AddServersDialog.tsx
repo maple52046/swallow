@@ -13,6 +13,7 @@ import { InProgressSpinner } from '@/presentation/components/InProgressSpinner'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
+import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
 import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
@@ -290,15 +291,29 @@ type BundleState =
   | { status: 'ready'; bundle: HostEnrollmentBundle }
 
 /**
+ * The command the existing-OS step shows and copies. The enrollment script passes every argument
+ * to `swallow servers enroll` (contract server-enrollment.md), so the opt-in BMC setup is one more
+ * flag on the bundle's command rather than another request.
+ */
+function enrollmentCommand(bundle: HostEnrollmentBundle, configureBMC: boolean): string {
+  return configureBMC ? `${bundle.command} --configure-bmc` : bundle.command
+}
+
+/**
  * The existing-OS step: one line to run as root on the host. It downloads the enrollment script
  * from this console's own origin, and the script downloads the swallow CLI from there too, so the
  * host needs nothing installed beforehand. The bundle is read as soon as a provisioner is known
  * (immediately with one provisioner), because choosing this path is the user's request for it.
+ *
+ * Registration leaves the Server without a power driver. The BMC option, off by default because it
+ * changes the BMC's user table, adds `--configure-bmc` so the host sets up its BMC over its own
+ * IPMI interface; its hint says what happens without it.
  */
 function ExistingOSAction({ provisioners }: { provisioners: readonly Integration[] }) {
   const { provisioning } = useApp()
   const [integrationId, setIntegrationId] = useState(provisioners.length === 1 ? provisioners[0].id : '')
   const [bundle, setBundle] = useState<{ integrationId: string; state: BundleState } | null>(null)
+  const [configureBMC, setConfigureBMC] = useState(false)
 
   // Reads the bundle for the chosen provisioner; switching provisioners discards the previous one so
   // its credential is never shown under another name. The host reaches swallow where this console does.
@@ -328,6 +343,7 @@ function ExistingOSAction({ provisioners }: { provisioners: readonly Integration
     : bundle?.integrationId === integrationId
       ? bundle.state
       : { status: 'loading' }
+  const command = state?.status === 'ready' ? enrollmentCommand(state.bundle, configureBMC) : ''
 
   return (
     <Stack gap="3">
@@ -352,11 +368,21 @@ function ExistingOSAction({ provisioners }: { provisioners: readonly Integration
       )}
       {state?.status === 'ready' && (
         <>
+          <Stack gap="1">
+            <Checkbox checked={configureBMC} onCheckedChange={setConfigureBMC}>
+              Also set up its BMC over IPMI
+            </Checkbox>
+            <Text color="fg.muted" fontSize="sm">
+              {configureBMC
+                ? 'The server creates or reuses an IPMI user on its BMC through its own IPMI interface and makes it the power driver. It needs ipmitool, installs nothing, and never switches power.'
+                : 'Without it, the server has no power driver: set its power configuration after it appears.'}
+            </Text>
+          </Stack>
           <HStack justify="space-between">
             <Action>Run this on the server.</Action>
-            <CopyButton value={state.bundle.command} label="Copy command" />
+            <CopyButton value={command} label="Copy command" />
           </HStack>
-          <CodeBlock code={state.bundle.command} language="bash" aria-label="Enrollment command" />
+          <CodeBlock code={command} language="bash" aria-label="Enrollment command" />
           <HStack gap="1.5" color="fg.warning" fontSize="sm">
             <TriangleAlert size={14} aria-hidden />
             <Text>Contains the provisioner&apos;s API key.</Text>

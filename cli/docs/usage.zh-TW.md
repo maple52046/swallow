@@ -373,7 +373,8 @@ swallow servers mark-fixed srv1
 swallow servers rescue-mode srv1
 swallow servers exit-rescue-mode srv1
 
-# Power Configuration：provisioner 的 power driver 與參數，寫入時直接寫回 provisioner。
+# Power Configuration：provisioner 的 power driver 與參數，寫入時直接寫回 provisioner，
+# 而且只有 provisioner 讀得到電源才會保留（否則保留原本的設定）。
 # 密碼只寫不讀；未帶密碼 flag 時，driver 不變就保留原密碼。
 swallow servers power-configuration get srv1
 swallow servers power-configuration set srv1 --driver virsh \
@@ -429,12 +430,35 @@ Boot ISO 放到 domain 的 CD-ROM 並設為第一開機裝置，最後以 `virsh
 
 ```bash
 sudo swallow servers enroll --provisioner=maas \
-  --endpoint http://10.0.0.5:5240/MAAS --token '<MAAS API key>' [--hostname db-03]
+  --endpoint http://10.0.0.5:5240/MAAS --token '<MAAS API key>' [--hostname db-03] [--configure-bmc]
 # 以 SWALLOW_ENROLL_TOKEN 傳入可避免 key 留在 shell history
+
+# 已經加入的主機：以它的 Machine 重新回報硬體（system ID 就是它的 Provider machine ID），
+# 例如補上缺少的位址；加上 --configure-bmc 會接著設定 BMC
+sudo swallow servers enroll --provisioner=maas \
+  --endpoint http://10.0.0.5:5240/MAAS --token '<MAAS API key>' --system-id 4y3h7p [--configure-bmc]
 ```
 
 MAAS 會從 endpoint 下載 `maas-run-scripts`，執行 `register-machine` 與
-`report-results`，最後刪除下載的檔案。主機需要 `python3`。
+`report-results`，最後刪除下載的檔案。主機需要 `python3`。swallow 中 Server 的位址
+來自 MAAS 連到 Machine 網卡上的位址，而 MAAS 處理第一次回報時可能沒有連上主機的位址；
+所以回報後 CLI 會確認 MAAS 記下了這台主機連往 MAAS 時用的位址，沒有就再回報一次，仍然
+沒有就印出警告與要檢查的 Machine。加上 `--system-id` 時會跳過註冊（該 Machine 必須與
+主機有相同的 MAC 位址；MAAS 沒有記錄它的 interface 時改比對 hostname），以它重新回報
+硬體並做同樣的檢查，加上 `--configure-bmc` 時接著設定 BMC。
+
+MAAS 註冊主機時
+**不會設定 power driver**，所以在你設定它的 Power Configuration
+（`servers power-configuration set`，或 Dashboard Server 列表上的 power 按鈕），
+或加上 `--configure-bmc` 納管之前，swallow 無法切換或讀取它的電源。
+
+`--configure-bmc` 從主機本身經本機的 IPMI interface 設定 BMC。主機上必須已經有
+`ipmitool` 與 `/dev/ipmi0`，它不會安裝任何套件。它會建立或重用一個 IPMI 使用者
+（MAAS 的 `maas_auto_ipmi_user`，預設 `maas`）並設定隨機密碼，在 MAAS 把 BMC 記成
+Machine 的 `ipmi` power driver，再確認 MAAS 讀得到電源；MAAS 讀不到時，會回復原本的
+driver，IPMI 使用者則留在 BMC 上。它不會切換電源，也不會改 BMC 的網路設定；BMC
+沒有 IP 位址，或 MAAS 設定了 K_g key 時會拒絕。密碼只從主機交給 MAAS，swallow
+看不到它。對 MAAS 已經能控制電源的 Machine 再執行一次，不會有任何改變。
 
 ### provisioning
 

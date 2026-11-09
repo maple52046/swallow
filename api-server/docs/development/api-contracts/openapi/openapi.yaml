@@ -12918,6 +12918,12 @@ components:
           type: boolean
         powerId:
           type: string
+        powerState:
+          description: 'Present only on a write''s response: the power the provisioner read through the new configuration before the write was kept.'
+          enum:
+            - "on"
+            - "off"
+          type: string
         readOnlyReason:
           type: string
         serverId:
@@ -14039,6 +14045,13 @@ components:
         observedAt:
           $ref: '#/components/schemas/Timestamp'
         osSystem:
+          type: string
+        powerControl:
+          description: What the power driver lets the provisioner do, mirrored with `powerState`; the same classification as the Power Configuration's `control`. Omitted until observed.
+          enum:
+            - none
+            - manual
+            - automatic
           type: string
         powerState:
           $ref: '#/components/schemas/ServerPowerState'

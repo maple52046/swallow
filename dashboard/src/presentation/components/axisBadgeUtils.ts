@@ -32,3 +32,11 @@ export const POWER_PRESENTATION: Record<
 export function powerStateLabel(powerState: ProvisioningAxis['powerState'] | null): string {
   return powerState === null ? 'No power state reported' : POWER_PRESENTATION[powerState].label
 }
+
+/**
+ * Narrows a power state read live (`GET /servers/{id}/power-state`, typed as a plain string) to the
+ * states the labels know; a value a newer API might add reads as `unknown`, never as on or off.
+ */
+export function knownPowerState(powerState: string): ProvisioningAxis['powerState'] {
+  return powerState === 'on' || powerState === 'off' || powerState === 'error' ? powerState : 'unknown'
+}

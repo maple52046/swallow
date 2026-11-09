@@ -140,13 +140,16 @@ type provisioningDoc struct {
 	State string `bson:"state"`
 	// StateSince is absent on documents written before it existed, which reads as zero
 	// (unknown) until the next observation records it.
-	StateSince        time.Time `bson:"stateSince,omitempty"`
-	ProviderState     string    `bson:"providerState"`
-	ErrorDescription  string    `bson:"errorDescription,omitempty"`
-	PowerState        string    `bson:"powerState"`
-	OSSystem          string    `bson:"osSystem,omitempty"`
-	DistroSeries      string    `bson:"distroSeries,omitempty"`
-	DeployedImageName string    `bson:"deployedImageName,omitempty"`
+	StateSince       time.Time `bson:"stateSince,omitempty"`
+	ProviderState    string    `bson:"providerState"`
+	ErrorDescription string    `bson:"errorDescription,omitempty"`
+	PowerState       string    `bson:"powerState"`
+	// PowerControl is the mirrored classification of the power driver; absent on documents
+	// written before it existed, which reads as not observed until the next reconcile.
+	PowerControl      string `bson:"powerControl,omitempty"`
+	OSSystem          string `bson:"osSystem,omitempty"`
+	DistroSeries      string `bson:"distroSeries,omitempty"`
+	DeployedImageName string `bson:"deployedImageName,omitempty"`
 	// DeployedImageDefaultUser mirrors the deployed image's effective default login user
 	// (decision 039); absent on documents written before it existed, which reads as unknown.
 	DeployedImageDefaultUser string `bson:"deployedImageDefaultUser,omitempty"`
@@ -1053,6 +1056,7 @@ func toDoc(s *serverdomain.Server) *serverDoc {
 			ProviderState:            p.ProviderState,
 			ErrorDescription:         p.ErrorDescription,
 			PowerState:               p.PowerState,
+			PowerControl:             p.PowerControl,
 			OSSystem:                 p.OSSystem,
 			DistroSeries:             p.DistroSeries,
 			DeployedImageName:        p.DeployedImageName,
@@ -1190,6 +1194,7 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 			ProviderState:            p.ProviderState,
 			ErrorDescription:         p.ErrorDescription,
 			PowerState:               p.PowerState,
+			PowerControl:             p.PowerControl,
 			OSSystem:                 p.OSSystem,
 			DistroSeries:             p.DistroSeries,
 			DeployedImageName:        p.DeployedImageName,

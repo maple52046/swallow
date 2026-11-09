@@ -238,7 +238,9 @@ func serversActionCmds() []*cobra.Command {
 // does not call api-server: it drives the provisioner's own tooling through the
 // hostenroll package, and the Server appears in swallow as `deployed` after the
 // next reconcile. Its --endpoint and --token therefore name the provisioner and
-// shadow the global api-server flags of the same name.
+// shadow the global api-server flags of the same name. --configure-bmc is opt-in
+// because it changes the BMC's user table; --system-id lets an already enrolled
+// host report its hardware again (and set up its BMC) without registering.
 func serversEnrollCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "enroll",
@@ -246,9 +248,21 @@ func serversEnrollCmd() *cobra.Command {
 		Long: "Register the host this command runs on with the provisioner and record its hardware, without a reboot. " +
 			"Usually run by the enrollment script from the command in the Dashboard (Servers > Add servers) or " +
 			"`swallow integrations enroll-bundle`, which downloads this CLI first. " +
-			"--endpoint and --token are the provisioner's, not swallow's. MAAS needs python3 on the host.",
-		Example: "  sudo swallow servers enroll --provisioner=maas --endpoint http://10.0.0.5:5240/MAAS --token '<MAAS API key>'",
-		Args:    cobra.NoArgs,
+			"--endpoint and --token are the provisioner's, not swallow's. MAAS needs python3 on the host.\n\n" +
+			"MAAS registers the host without a power driver. --configure-bmc also sets one up from this host: it " +
+			"creates or reuses an IPMI user (MAAS's maas_auto_ipmi_user, default maas) with a random password over " +
+			"the local IPMI interface, records the BMC as the Machine's ipmi power driver, and checks that MAAS reads " +
+			"the power through it, restoring the previous driver when it cannot. It needs ipmitool and /dev/ipmi0, " +
+			"installs nothing, never switches power, and leaves the BMC's network alone.\n\n" +
+			"After reporting the hardware it checks that MAAS recorded the address this host reaches MAAS from, and " +
+			"reports once more when MAAS left it out (MAAS 3.7 can); without it the Server has no address in swallow. " +
+			"A host enrolled before passes --system-id (its Provider machine ID in swallow) to skip registration and " +
+			"report its hardware again, which repairs a missing address; add --configure-bmc to set up its BMC too.",
+		Example: "  sudo swallow servers enroll --provisioner=maas --endpoint http://10.0.0.5:5240/MAAS --token '<MAAS API key>'\n" +
+			"  sudo swallow servers enroll --provisioner=maas --endpoint http://10.0.0.5:5240/MAAS --token '<MAAS API key>' --configure-bmc\n" +
+			"  sudo swallow servers enroll --provisioner=maas --endpoint http://10.0.0.5:5240/MAAS --token '<MAAS API key>' \\\n" +
+			"    --configure-bmc --system-id 4y3h7p",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			provisioner, _ := cmd.Flags().GetString("provisioner")
 			endpoint, _ := cmd.Flags().GetString("endpoint")
@@ -257,8 +271,11 @@ func serversEnrollCmd() *cobra.Command {
 				token = os.Getenv("SWALLOW_ENROLL_TOKEN")
 			}
 			hostname, _ := cmd.Flags().GetString("hostname")
+			configureBMC, _ := cmd.Flags().GetBool("configure-bmc")
+			systemID, _ := cmd.Flags().GetString("system-id")
 			return hostenroll.Enroll(ctx(cmd), hostenroll.Options{
 				Provisioner: provisioner, Endpoint: endpoint, Token: token, Hostname: hostname,
+				ConfigureBMC: configureBMC, SystemID: systemID,
 				Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr(),
 			})
 		},
@@ -267,6 +284,8 @@ func serversEnrollCmd() *cobra.Command {
 	cmd.Flags().String("endpoint", "", "provisioner address this host reaches, e.g. the MAAS region URL (not the swallow API)")
 	cmd.Flags().String("token", "", "provisioner credential from the enrollment bundle; SWALLOW_ENROLL_TOKEN keeps it out of shell history")
 	cmd.Flags().String("hostname", "", "name to register this host under (default: the short host name)")
+	cmd.Flags().Bool("configure-bmc", false, "also set up this host's BMC over the local IPMI interface as the Machine's power driver")
+	cmd.Flags().String("system-id", "", "the Machine this host is already registered as: skip registration and report the hardware again")
 	return cmd
 }
 

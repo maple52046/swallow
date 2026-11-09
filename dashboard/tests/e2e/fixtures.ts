@@ -470,6 +470,18 @@ export interface FixtureOptions {
   networkSubnetName?: string
   ephemeralServerIds?: string[]
   lockedServerIds?: string[]
+  /** Projected power states by serverId, in place of `on` (the list's power button shows them). */
+  powerStates?: Record<string, 'on' | 'off' | 'error' | 'unknown'>
+  /**
+   * What `GET /servers/{id}/power-state` reads live by serverId. Omitted: `on` through an automatic
+   * driver, `unknown` without one, as the provisioner reads it.
+   */
+  livePowerStates?: Record<string, string>
+  /**
+   * Servers whose projection carries no `powerControl` (stored before the field existed), so the
+   * Server list's power dialog must wait for the live Power Configuration read.
+   */
+  powerControlUnobservedServerIds?: string[]
   /** Servers whose OS swallow did not deploy: provisioning `deployed` with no `deployment` record. */
   existingServerIds?: string[]
   failedServerIds?: string[]
@@ -1732,6 +1744,17 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   for (const serverId of options.lockedServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
     if (server) server.status.provisioning.locked = true
+  }
+  for (const [serverId, powerState] of Object.entries(options.powerStates ?? {})) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) server.status.provisioning.powerState = powerState
+  }
+  // The projection mirrors each Server's power control (servers-list.md) from its Power
+  // Configuration, except where a test needs a projection that has not observed it yet.
+  for (const server of fleet) {
+    if (!(options.powerControlUnobservedServerIds ?? []).includes(server.id)) {
+      server.status.provisioning.powerControl = powerConfigurationView(server.id).control
+    }
   }
   for (const serverId of options.existingServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)
@@ -3524,6 +3547,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       observeRelease(serverId)
       const server = fleet.find((item) => item.id === serverId)
       if (!server) return json(route, { error: { code: "not_found", message: "Server not found" } }, 404)
+      // A refresh re-projects the provisioning axis, power control included.
+      server.status.provisioning.powerControl = powerConfigurationView(serverId).control
       return json(route, {
         serverId, state: server.status.provisioning.state, providerState: server.status.provisioning.providerState,
         powerState: server.status.provisioning.powerState, osSystem: server.status.provisioning.osSystem,
@@ -3613,8 +3638,19 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         powerConfigurations[serverId] = {
           driver, address: String(body.address ?? ''), powerId: String(body.powerId ?? ''), username: String(body.username ?? ''), passwordSet,
         }
+        // The real write is kept only after the provisioner read the power through it; a refused
+        // check is a powerConfigurationError (400) that stores nothing.
+        return json(route, { ...powerConfigurationView(serverId), powerState: 'on' })
       }
       return json(route, powerConfigurationView(serverId))
+    }
+    // Live power read (server-detail-actions.md): the provisioner reads it through the driver.
+    const powerStateMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/power-state$/)
+    if (powerStateMatch && request.method() === 'GET') {
+      const serverId = decodeURIComponent(powerStateMatch[1])
+      if (!fleet.some((entry) => entry.id === serverId)) return json(route, { error: { code: 'not_found', message: 'Server not found.' } }, 404)
+      const readable = powerConfigurationView(serverId).control === 'automatic'
+      return json(route, { serverId, powerState: options.livePowerStates?.[serverId] ?? (readable ? 'on' : 'unknown') })
     }
     // Boot Media (server-detail-actions.md "Boot Media"): the real API drives the BMC over Redfish;
     // the fixture records writes and keeps one per-page setting so the Summary re-reads it.

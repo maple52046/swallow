@@ -114,6 +114,15 @@ export interface ProvisioningAxis {
    */
   errorDescription?: string
   powerState: 'on' | 'off' | 'error' | 'unknown'
+  /**
+   * What the power driver lets the provisioner do, mirrored with `powerState` (servers-list.md,
+   * the Power Configuration's `control`): it tells a Server without a usable driver (`none`,
+   * `manual`) from one whose power the provisioner cannot read (`automatic` with `unknown` or
+   * `error`), without the live Power Configuration read. Only the classification is mirrored; the
+   * driver's parameters stay with the provisioner. Absent until observed, and a value this
+   * dashboard does not know must be read like an absent one (`projectedPowerControl`).
+   */
+  powerControl?: PowerControl
   osSystem: string
   distroSeries: string
   /**
@@ -759,6 +768,11 @@ export interface ServerPowerConfiguration {
   editable: boolean
   readOnlyReason: string
   drivers: PowerDriverOption[]
+  /**
+   * Present only on a write's answer: the power the provisioner read through the new
+   * configuration before it was kept (a write whose check fails is refused instead).
+   */
+  powerState?: 'on' | 'off'
 }
 
 /**

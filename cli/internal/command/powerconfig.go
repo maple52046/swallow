@@ -42,8 +42,9 @@ func serversPowerConfigurationCmd() *cobra.Command {
 			"The password is write-only. Without a password flag the provisioner keeps the stored password\n" +
 			"when the driver is unchanged and clears it when the driver changes. Prefer --password-stdin to\n" +
 			"keep it out of shell history; --clear-password removes it.\n\n" +
-			"Setting the configuration does not switch power or resume an inspection waiting for attention:\n" +
-			"check `swallow servers power-state`, then retry with `swallow servers inspect`.",
+			"The configuration is kept only if the provisioner can then read the power through it (this can take\n" +
+			"up to 20 seconds); otherwise the previous one stays and the error says why. Setting it never\n" +
+			"switches power or resumes an inspection waiting for attention: retry with `swallow servers inspect`.",
 		Example: "  swallow servers power-configuration set srv-1 --driver virsh \\\n" +
 			"    --address qemu+ssh://maas@hv-01.example/system --power-id simple-pig\n" +
 			"  printf '%s' \"$BMC_PASSWORD\" | swallow servers power-configuration set srv-2 --driver ipmi \\\n" +

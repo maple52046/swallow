@@ -292,6 +292,13 @@ type ProvisioningStatus struct {
 	// a user does not have to read the provider event log to find the reason.
 	ErrorDescription string
 	PowerState       string
+	// PowerControl is what the Server's power driver lets the provisioner do (none, manual, or
+	// automatic; glossary Power Configuration), mirrored with PowerState on every observation. It
+	// tells a Server without a usable driver from one whose power the provisioner cannot read,
+	// without the live Power Configuration read. Only the classification is mirrored: the driver's
+	// parameters and password stay with the provisioner (decision 054). Empty on a projection
+	// stored before it existed, until the next observation.
+	PowerControl string
 	// OSSystem and DistroSeries describe what is currently deployed.
 	OSSystem     string
 	DistroSeries string

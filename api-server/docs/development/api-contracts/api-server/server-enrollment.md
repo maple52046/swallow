@@ -343,7 +343,26 @@ For MAAS, `swallow servers enroll --provisioner=maas --endpoint … --token …`
 Deployed) and `report-results` (the hardware is recorded from the running OS), and deletes
 everything it downloaded, including the Machine's own credentials. The host needs `python3` and
 HTTP access to swallow and to the endpoint (MAAS supports Ubuntu). After the next reconcile the
-Server appears as `deployed`.
+Server appears as `deployed`, without a power driver it can use: MAAS does not set up the BMC
+of a registered machine, so its Power Configuration ([server-detail-actions.md](server-detail-actions.md#power-configuration))
+has `control` `none` (or `manual`) and its power state reads `unknown` until one is set.
+
+Appending `--configure-bmc` to the command (the script passes it on) also sets one up from the
+host: over the host's local IPMI interface, with the host's own `ipmitool`, it creates or reuses
+the IPMI user of MAAS's `maas_auto_ipmi_user` policy with a random password, writes the Machine's
+`ipmi` power parameters to MAAS with the same API key, and requires MAAS to read the power through
+them, restoring the previous driver when it cannot. It is refused before registration when the host
+has no `ipmitool` or IPMI device, the BMC has no IP address, or MAAS sets a K_g key. The password
+goes from the host to MAAS only; api-server never receives it.
+
+After reporting the hardware the CLI reads the Machine back and checks that its `ip_addresses`
+include the address the host reaches MAAS from, since the Server's addresses come from them; MAAS
+can process a first report without linking that address, so the CLI then reports once more, and
+warns (without failing) if it is still missing. `--system-id <id>` skips registration for a host
+already registered as that Machine, which must share a MAC address with the host (or its hostname,
+when MAAS recorded no interfaces for it): the CLI reports the hardware again under it, with the
+same check, and with `--configure-bmc` then sets up the BMC. No route, field, or status changes:
+this is the CLI's behavior.
 
 ## Errors
 

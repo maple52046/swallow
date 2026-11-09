@@ -271,6 +271,17 @@ export function normalizeServerInventoryParams(params: URLSearchParams): URLSear
  * verifying. This is what the Deployment cell marks with a spinner, so the Active deployments
  * view, the Active count, the default order, the row tone, and the refresh poll all use it.
  */
+/**
+ * The Server's projected power control (`provisioning.powerControl`), or null when it has not been
+ * observed yet or carries a value this dashboard does not know. Callers fall back to the live Power
+ * Configuration read on null rather than guess, because the two answers lead to different screens:
+ * the Power Configuration form for `none`/`manual`, the power actions for `automatic`.
+ */
+export function projectedPowerControl(server: Server): 'none' | 'manual' | 'automatic' | null {
+  const control = server.status.provisioning?.powerControl
+  return control === 'none' || control === 'manual' || control === 'automatic' ? control : null
+}
+
 export function isServerChanging(server: Server): boolean {
   return isProvisioningInProgress(server.status.provisioning?.state) || isServerDeploymentChanging(server)
 }

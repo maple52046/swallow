@@ -30,7 +30,10 @@ Three gaps met there:
 
 - **Power Configuration is provisioner-owned and written through.** swallow reads a Server's power
   driver and parameters live and writes them through to the provisioner from the API, the CLI, and
-  the Dashboard, and never stores them. The password is write-only. A VM-host member's power
+  the Dashboard, and never stores them. The password is write-only. Only the driver's control
+  classification is mirrored, as an observation on the Server's provisioning axis beside the
+  power state, so the fleet can tell a Server without a usable driver from one whose power cannot
+  be read. A VM-host member's power
   belongs to its VM host and is read-only.
 - **Power adapters are the code model.** Each driver family is one adapter — `bmc` (`ipmi`,
   `redfish`) and `virsh` — that validates and normalizes a configuration. Functions only some
@@ -85,3 +88,4 @@ names a Hypervisor use `libvirt` Boot Media ([ADR 055](055-libvirt-virtual-machi
 ## Revision history
 
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
+- 2026-11-09: the Server projection mirrors the control classification (`provisioning.powerControl`), because an `unknown` power state alone could not tell a missing driver from an unreachable one; parameters and the password are still never stored.

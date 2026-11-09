@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
@@ -74,6 +76,126 @@ func (p *Provider) SetPowerConfiguration(ctx context.Context, machineID string, 
 		return translatePowerParametersError(err, machineID, "write")
 	}
 	return nil
+}
+
+// powerCheckWindow bounds the power read that decides whether a written configuration is kept. A
+// working driver answers within seconds. A BMC that does not answer (a wrong address, a network
+// the rack cannot reach, or a BMC that silently drops a wrong password) makes ipmipower report a
+// connection timeout, which MAAS retries four times with 4-32 s pauses for over two minutes
+// before failing; waiting for that would leave the user staring at the dialog, so the check gives
+// up first and says why. It is a variable only so tests can shorten it.
+var powerCheckWindow = 20 * time.Second
+
+// SetVerifiedPowerConfiguration implements provisioningdomain.PowerConfigurationVerifier: it
+// snapshots the machine's power_type and power_parameters, writes the change like
+// SetPowerConfiguration, and asks MAAS to query the power through it (query_power_state, which
+// reaches the BMC or hypervisor and changes nothing) for at most powerCheckWindow. A state other
+// than on or off, a failed query, or no answer in time restores the snapshot and refuses the
+// change with the reason, so a wrong address or password is never left behind. MAAS may keep
+// querying after the window closes; that query reads only the power, and the restored
+// configuration is what MAAS keeps. The snapshot holds the previous password (and any K_g) in
+// memory for that one write and nowhere else; reasons have both passwords redacted.
+func (p *Provider) SetVerifiedPowerConfiguration(
+	ctx context.Context, machineID string, change provisioningdomain.PowerConfigurationChange,
+) (provisioningdomain.PowerState, error) {
+	unknown := provisioningdomain.PowerStateUnknown
+	var m powerMachineJSON
+	if err := p.client.get(ctx, machinePath(machineID), nil, &m); err != nil {
+		return unknown, translateError(err, machineID)
+	}
+	if host := nameOf(m.Pod); host != "" {
+		return unknown, fmt.Errorf("%w: change the power settings of VM host %q in the provisioner", provisioningdomain.ErrPowerConfigurationManaged, host)
+	}
+	fields, err := powerUpdateFields(powerDriverOf(m.PowerType), change)
+	if err != nil {
+		return unknown, err
+	}
+	previous, previousPassword, err := p.powerSnapshot(ctx, machineID, m.PowerType)
+	if err != nil {
+		return unknown, err
+	}
+	if err := p.client.putMultipartExact(ctx, machinePath(machineID), fields, nil); err != nil {
+		return unknown, translatePowerParametersError(err, machineID, "write")
+	}
+
+	var out struct {
+		State string `json:"state"`
+	}
+	queryCtx, cancel := context.WithTimeout(ctx, powerCheckWindow)
+	queryErr := p.client.getOperation(queryCtx, machinePath(machineID), "query_power_state", &out)
+	timedOut := errors.Is(queryCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
+	cancel()
+	state, known := maasPowerStateToDomain[strings.ToLower(out.State)]
+	if queryErr == nil && known && (state == provisioningdomain.PowerStateOn || state == provisioningdomain.PowerStateOff) {
+		return state, nil
+	}
+	reason := powerQueryReason(queryErr, out.State)
+	if timedOut {
+		reason = fmt.Sprintf("the BMC or hypervisor did not answer within %d seconds: check the address and the password "+
+			"(some BMCs do not answer a wrong one), and that the provisioner reaches that network", int(powerCheckWindow/time.Second))
+	}
+	for _, secret := range []string{fields["power_parameters_power_pass"], previousPassword} {
+		if secret != "" {
+			reason = strings.ReplaceAll(reason, secret, "[REDACTED]")
+		}
+	}
+
+	if err := p.client.putMultipartExact(ctx, machinePath(machineID), previous, nil); err != nil {
+		return unknown, &provisioningdomain.ProviderError{
+			Kind: provisioningdomain.ProviderErrorUnavailable,
+			Detail: "The provisioner could not read the power through the new configuration (" + reason +
+				"), and putting the previous configuration back failed, so the new one is still set. Fix or replace it.",
+			Err: err,
+		}
+	}
+	return unknown, fmt.Errorf("%w (%s); the previous configuration was kept", provisioningdomain.ErrPowerConfigurationUnverified, reason)
+}
+
+// powerSnapshot returns the machine-update fields that put its current power driver and
+// parameters back, and the stored password so reasons can be redacted. Scalar parameters are
+// restored verbatim (an empty driver included, which is how MAAS clears one). List-valued ones,
+// such as IPMI workaround flags, are left out: an unchanged driver keeps its stored values because
+// the change never sends them, and a changed driver returns to MAAS's defaults for them.
+func (p *Provider) powerSnapshot(ctx context.Context, machineID, powerType string) (map[string]string, string, error) {
+	fields := map[string]string{"power_type": powerType}
+	if strings.TrimSpace(powerType) == "" {
+		return fields, "", nil
+	}
+	var params map[string]any
+	if err := p.client.getOperation(ctx, machinePath(machineID), "power_parameters", &params); err != nil {
+		return nil, "", translatePowerParametersError(err, machineID, "read")
+	}
+	for name, value := range params {
+		switch v := value.(type) {
+		case string:
+			fields["power_parameters_"+name] = v
+		case bool:
+			fields["power_parameters_"+name] = strconv.FormatBool(v)
+		case float64:
+			fields["power_parameters_"+name] = strconv.FormatFloat(v, 'f', -1, 64)
+		case nil:
+			fields["power_parameters_"+name] = ""
+		}
+	}
+	// A driver without a password reports none (or not a string); there is then nothing to redact.
+	password, _ := params["power_pass"].(string)
+	return fields, password, nil
+}
+
+// powerQueryReason is MAAS's own explanation of a failed power query, which names what to fix
+// (a refused login, an unreachable address), or the state it read when that was neither on nor off.
+func powerQueryReason(err error, state string) string {
+	var apiErr *apiError
+	switch {
+	case errors.As(err, &apiErr) && strings.TrimSpace(apiErr.Body) != "":
+		return strings.TrimSpace(apiErr.Body)
+	case err != nil:
+		return "the provisioner did not answer the power query: " + err.Error()
+	case strings.TrimSpace(state) == "":
+		return "it read no power state"
+	default:
+		return "it read the power state as " + state
+	}
 }
 
 // powerUpdateFields maps a normalized change onto MAAS machine-update fields. Every non-secret

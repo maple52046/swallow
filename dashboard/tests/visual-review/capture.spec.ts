@@ -358,6 +358,79 @@ test.describe('dashboard visual review', () => {
 })
 
 /**
+ * Captures the Server list's power dialog for a Server enrolled with its OS kept and no power
+ * driver (decision 054): the Power Configuration form it opens straight to, the power actions with
+ * the live read after a save, and the warning for a driver the provisioner cannot read. Then the
+ * Add servers existing-OS step with its opt-in BMC setup.
+ */
+test.describe('Server power setup visual review', () => {
+  test('server-power-setup', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    await installApiFixtures(page, {
+      powerStates: { 'srv-1': 'unknown', 'srv-2': 'error' },
+      powerConfigurations: { 'srv-1': { driver: '' } },
+    })
+    await setAppearance(page, appearance)
+    await page.goto('/servers?site=site-a')
+    const powerButton = (name: string) => page.getByRole('button', { name: new RegExp(`^Power actions for ${name}`) }).filter({ visible: true }).first()
+
+    // The button itself says the Server has no power driver instead of an unexplained UNKNOWN.
+    await expect(powerButton('gpu-node-01')).toHaveText('NO DRIVER')
+    await prepareCapture(page, appearance)
+    const surface = mobile
+      ? page.getByRole('article').filter({ hasText: 'gpu-node-01' }).first()
+      : page.getByRole('table', { name: 'Servers' }).getByRole('row').filter({ hasText: 'gpu-node-01' }).first()
+    await surface.screenshot({ path: testInfo.outputPath(`server-power-button-no-driver-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide' })
+
+    await powerButton('gpu-node-01').click()
+    const setup = page.getByRole('dialog', { name: 'Power configuration' })
+    await expect(setup).toContainText('has no power driver the provisioner can use')
+    await setup.getByRole('combobox', { name: 'Driver' }).click()
+    await page.getByRole('option', { name: 'IPMI — BMC', exact: true }).click()
+    await setup.getByRole('textbox', { name: /^BMC address/ }).fill('192.0.2.30')
+    await setup.getByRole('textbox', { name: 'Account' }).fill('maas')
+    await setup.getByLabel('Password', { exact: true }).fill('bmc-secret')
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'server-power-dialog-setup', false)
+    await setup.getByRole('button', { name: 'Show password' }).click()
+    await expect(setup.getByLabel('Password', { exact: true })).toHaveAttribute('type', 'text')
+    await capture(page, testInfo, 'server-power-dialog-password-shown', false)
+
+    // A wrong password: the provisioner cannot read the power, so the save is refused in place.
+    await page.route('**/api/v1/servers/srv-1/power-configuration', (route) => (
+      route.request().method() === 'PUT'
+        ? route.fulfill({ status: 400, json: { error: {
+            code: 'validation_error', requestId: 'req-power-check',
+            message: 'The provisioner cannot read the power through this configuration (Failed to query power: password invalid); the previous configuration was kept',
+          } } })
+        : route.fallback()
+    ))
+    await setup.getByRole('button', { name: 'Save' }).click()
+    await expect(setup.getByText('The power configuration was not changed')).toBeVisible()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'server-power-dialog-refused', false)
+    await setup.getByRole('button', { name: 'Cancel' }).click()
+
+    const actions = page.getByRole('dialog', { name: 'Power actions' })
+    await powerButton('gpu-node-02').click()
+    await expect(actions.getByText('The provisioner cannot read its power')).toBeVisible()
+    await prepareCapture(page, appearance)
+    await capture(page, testInfo, 'server-power-dialog-unreadable', false)
+    await actions.getByRole('button', { name: 'Cancel' }).click()
+
+    await page.getByRole('button', { name: 'Add servers' }).first().click()
+    const guide = page.getByRole('dialog', { name: 'Add servers' })
+    await guide.getByRole('button', { name: /Yes, keep its OS/ }).click()
+    await guide.getByText('Also set up its BMC over IPMI').click()
+    await expect(guide.getByLabel('Enrollment command', { exact: true })).toContainText('--configure-bmc')
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'add-servers-existing-os-bmc', false)
+  })
+})
+
+/**
  * Captures the Server and Platform operations polish: a deploying Platform's running cue on the
  * list and detail header, the Deployed OS link of a Server whose last deployment failed, the bulk
  * delete dialog with its Platform and running-work warnings, and the Release dialog opting in to

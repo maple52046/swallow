@@ -79,6 +79,7 @@ import {
   matchesServerInventoryQuery,
   normalizeServerInventoryParams,
   parseServerInventoryQuery,
+  projectedPowerControl,
   serverContextAction,
   serverContextActionPath,
   serverDeploymentCellInputs,
@@ -1524,7 +1525,7 @@ function ServerPowerIndicator({ server }: { server: Server }) {
 
 const POWER_BUTTON_PRESENTATION: Record<
   NonNullable<Server['status']['provisioning']>['powerState'],
-  { label: string; colorPalette: 'green' | 'gray' | 'red' }
+  { label: string; colorPalette: 'green' | 'gray' | 'red' | 'orange' }
 > = {
   on: { label: 'ON', colorPalette: 'green' },
   off: { label: 'OFF', colorPalette: 'gray' },
@@ -1533,9 +1534,21 @@ const POWER_BUTTON_PRESENTATION: Record<
 }
 
 /**
+ * What the button says instead of the power state when the projected power control explains it:
+ * without a driver the provisioner can use, the state can only be unknown, and the useful fact is
+ * that the Server needs a Power Configuration (which the dialog then opens to).
+ */
+const POWER_CONTROL_BUTTON_PRESENTATION = {
+  none: { label: 'NO DRIVER', colorPalette: 'orange', detail: 'no power driver' },
+  manual: { label: 'MANUAL', colorPalette: 'gray', detail: 'powered by hand' },
+} as const
+
+/**
  * Keeps the provider-owned power fact actionable without turning it into a Deployment state.
  * The short state label and tinted background make the current fact scannable; the accessible name
- * and tooltip retain the complete action and state wording.
+ * and tooltip retain the complete action and state wording. A Server whose projected power control
+ * is `none` or `manual` says so instead of `UNKNOWN`, and its tooltip and accessible name say the
+ * button sets up the Power Configuration.
  */
 function ServerPowerButton({ server, onOpen }: { server: Server; onOpen: () => void }) {
   const fullLabel = powerStateLabel(server.status.provisioning?.powerState ?? null)
@@ -1547,15 +1560,19 @@ function ServerPowerButton({ server, onOpen }: { server: Server; onOpen: () => v
       </span>
     )
   }
-  const presentation = POWER_BUTTON_PRESENTATION[server.status.provisioning.powerState]
+  const control = projectedPowerControl(server)
+  const withoutDriver = control === 'none' || control === 'manual' ? POWER_CONTROL_BUTTON_PRESENTATION[control] : null
+  const presentation = withoutDriver ?? POWER_BUTTON_PRESENTATION[server.status.provisioning.powerState]
+  const ramDeployment = server.status.provisioning.ephemeral
+  const tooltip = withoutDriver ? `Set power configuration (${withoutDriver.detail})` : `Power actions (${fullLabel})`
   return (
-    <Tooltip content={`Power actions (${fullLabel})${server.status.provisioning.ephemeral ? ' · RAM deployment' : ''}`}>
+    <Tooltip content={`${tooltip}${ramDeployment ? ' · RAM deployment' : ''}`}>
       <Button
         variant="subtle"
         colorPalette={presentation.colorPalette}
         size="xs"
         className="sw-power-button"
-        aria-label={`Power actions for ${serverDisplayName(server)}${server.status.provisioning.ephemeral ? '; RAM deployment' : ''}`}
+        aria-label={`Power actions for ${serverDisplayName(server)}${withoutDriver ? `; ${withoutDriver.detail}` : ''}${ramDeployment ? '; RAM deployment' : ''}`}
         onClick={(event) => {
           event.stopPropagation()
           onOpen()

@@ -6,6 +6,7 @@ import { useApp } from '@/di/AppProvider'
 import type { ProvisionerCapabilities, ProvisioningActionResult, ReleaseServerInput, Server } from '@/domain/server/types'
 import { serverDisplayName } from '@/domain/server/types'
 import { softwareInstallBlocker } from '@/domain/software/targets'
+import { knownPowerState, powerStateLabel } from '@/presentation/components/axisBadgeUtils'
 import { failureOf, failureText } from '@/presentation/components/failure'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
@@ -167,7 +168,7 @@ export function ServerActionMenu({
   const queryPower = async () => {
     try {
       const result = await servers.queryPowerState(serverId)
-      showToast({ tone: 'info', title: `Live power state: ${result.powerState}` })
+      showToast({ tone: 'info', title: `Live power state: ${powerStateLabel(knownPowerState(result.powerState))}` })
     } catch (error) {
       showToast({ tone: 'error', title: 'Could not read power state', description: failureText(failureOf(error, 'Unknown error')) })
     }

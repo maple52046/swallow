@@ -130,6 +130,7 @@ default (`1` and `20`) instead of being refused.
           "stateSince": "2026-05-02T14:12:09Z",
           "providerState": "Deployed",
           "powerState": "on",
+          "powerControl": "automatic",
           "osSystem": "ubuntu",
           "distroSeries": "jammy",
           "deployedImageName": "Ubuntu 22.04 LTS",
@@ -357,6 +358,17 @@ It is omitted when neither applies, in which case automation falls back to the S
 and built-in candidates. A value with source `server` is cleared when swallow starts a new
 OS deployment on the Server and when the Server is observed `ready` or `allocated`.
 
+`powerControl` is what the Server's power driver lets the provisioner do, mirrored with
+`powerState` on every observation: `none` (no driver), `manual` (a person switches power), or
+`automatic` (the provisioner switches and reads it). It is the classification the
+[Power Configuration](server-detail-actions.md#power-configuration) reports as `control`, so a
+client can tell a Server without a usable driver from one whose `powerState` is `unknown` or
+`error` because the provisioner cannot read it, without that live read. Only the classification is
+mirrored; the driver's parameters and password are read live from the provisioner and never
+stored. It is omitted until observed. A Server whose `powerControl` is `none` never reads
+`powerState` `error`: nothing can query its power, so an error the provisioner still holds from a
+removed driver reads `unknown`, while a recorded `on` or `off` is kept.
+
 Also on the provisioning axis, `errorDescription` is the provisioner's own
 machine-level failure reason (for example `"Failed to erase disks."`), mirrored
 only for the failure states (`failed`, `broken`, `rescue`) and **omitted** for every
@@ -407,6 +419,11 @@ its absence.
 `provisioning.inspectionRequired` and `provisioning.inspectionRequiredReason` were added on
 2026-10-19 as optional fields; their absence means false. A projection stored before then
 gains them at the next reconcile or refresh of the Server.
+
+`provisioning.powerControl` was added on 2026-11-09 as an optional field; clients must accept its
+absence (a projection stored before then gains it at the next reconcile or refresh) and treat an
+unknown value like an absent one. The same day a Server without a power driver stopped reading
+`powerState` `error` (it reads `unknown`); no client branched on that combination.
 
 `gpus[].kind` was added on 2026-10-06. It is additive for clients that ignore unknown fields;
 the server always emits it, including for inventory stored before the field existed by deriving

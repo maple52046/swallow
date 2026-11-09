@@ -383,8 +383,10 @@ reports, such as a VM host's own driver).
 
 ### Write
 
-`PUT /api/v1/servers/{id}/power-configuration` replaces the Server's Power Configuration and
-returns `200 OK` with the Read shape, read back from the provisioner after the write.
+`PUT /api/v1/servers/{id}/power-configuration` replaces the Server's Power Configuration only if
+the provisioner can read the Server's power through it, and returns `200 OK` with the Read shape,
+read back from the provisioner after the write, plus `powerState`: the power (`on` or `off`) that
+check read.
 
 ```json
 {
@@ -407,8 +409,19 @@ swallow validates the body against the driver's family before calling the provis
 provisioner then validates it again and may refuse it. The provisioner itself connects with these
 values, so the provisioner — not swallow — must reach the address: for `virsh`, the MAAS rack
 controller needs SSH access to the hypervisor account (its key in the MAAS snap's
-`/var/snap/maas/current/root/.ssh`). A write does not test that access; read `GET
-/servers/{id}/power-state` afterwards.
+`/var/snap/maas/current/root/.ssh`).
+
+That is why a write is checked before it counts: after the provisioner accepts the values, it
+reads the Server's power through them (for MAAS, `query_power_state`, which reaches the BMC or
+hypervisor and switches nothing). When it reads `on` or `off`, the write is kept. Otherwise — a
+wrong address, account, or password, or an address the provisioner cannot reach — the previous
+configuration is put back exactly as it was (password included) and the write is refused with
+`400 validation_error`, whose message carries the provisioner's reason. The check waits at most 20
+seconds for that read. A working driver answers within seconds; a BMC that does not answer (a
+wrong address, a network the provisioner cannot reach, or a BMC that silently drops a wrong
+password) leaves MAAS retrying for minutes, so the write is refused after the 20 seconds with a
+message saying what to check. A configuration can therefore be set only while the provisioner can
+reach it.
 
 A write changes only the Power Configuration; it never switches power, and it does not resume
 an `inspect-hardware` Workflow waiting for attention. Retry that Workflow (or `POST
@@ -416,10 +429,10 @@ an `inspect-hardware` Workflow waiting for attention. Retry that Workflow (or `P
 
 | Status | Code | When |
 | --- | --- | --- |
-| 400 | `validation_error` | The body is not a JSON object; `driver` is missing or not one of `drivers`; a parameter is missing, malformed, or does not apply to the driver; the provisioner lacks the capability; or the provisioner refused the configuration (the message carries its explanation). |
+| 400 | `validation_error` | The body is not a JSON object; `driver` is missing or not one of `drivers`; a parameter is missing, malformed, or does not apply to the driver; the provisioner lacks the capability; the provisioner refused the configuration; or the provisioner could not read the Server's power through it, so the previous configuration was kept (the message carries the provisioner's explanation). |
 | 404 | `not_found` | The Server does not exist, or the provisioner no longer has its Machine. |
 | 409 | `conflict` | The Server is locked, or its power is managed by a provisioner VM host (`editable` is `false`). |
-| 503 | `provider_unavailable` | The provisioner could not be reached, its credential may not read or write power parameters (a MAAS account that is not an administrator), or the Server Lock state is unavailable. |
+| 503 | `provider_unavailable` | The provisioner could not be reached, its credential may not read or write power parameters (a MAAS account that is not an administrator), the Server Lock state is unavailable, or the check failed and putting the previous configuration back failed too, so the new one is still set. |
 
 The Read answers `404` and `503` the same way, and `400` only for a provisioner without the
 capability.
@@ -746,6 +759,12 @@ not alter the Server projection. These are provider events, not a claim that swa
 owns a complete durable audit trail.
 
 ## Compatibility Notes
+
+On 2026-11-09 a Power Configuration write became checked: it is kept only when the provisioner
+reads the Server's power through it, and is otherwise refused with `400 validation_error` after the
+previous configuration is put back. Before, any configuration the provisioner accepted was stored,
+working or not. The response gained `powerState`, additive for clients that ignore unknown fields;
+clients that expected a write to succeed for an unreachable BMC must now expect the refusal.
 
 On 2026-11-03 (breaking) the provisioner-detail capability `operatorState` was renamed
 `stateActions`, with the same meaning, and a provisioner without it refuses with "This provisioner

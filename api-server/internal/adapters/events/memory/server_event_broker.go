@@ -170,6 +170,10 @@ func serverFingerprintJSON(s *serverdomain.Server) string {
 		// InspectionRequired is included because a new inspection can clear it without changing
 		// any other field here; suppressing that event would keep the stale warning on screen.
 		InspectionRequired bool
+		// PowerControl is included because setting a Power Configuration can change only it
+		// (the power state may stay unknown until the provisioner reads it), and the list's
+		// power button reads it.
+		PowerControl string
 	}
 	type membership struct{ PlatformID, NodeName, Role, State string }
 	type deployment struct {
@@ -220,6 +224,7 @@ func serverFingerprintJSON(s *serverdomain.Server) string {
 			Locked:                   s.Provisioning.Locked, HWEKernel: s.Provisioning.HWEKernel,
 			CommissioningStatus: s.Provisioning.CommissioningStatus, TestingStatus: s.Provisioning.TestingStatus,
 			InspectionRequired: s.Provisioning.InspectionRequired,
+			PowerControl:       s.Provisioning.PowerControl,
 		}
 	}
 	if s.Membership != nil {

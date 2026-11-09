@@ -35,6 +35,8 @@ type powerProvider struct {
 	config  provisioningdomain.PowerConfiguration
 	writes  []provisioningdomain.PowerConfigurationChange
 	setErr  error
+	// checkErr makes the verified write fail its power read; the configuration is then put back.
+	checkErr error
 }
 
 func (p *powerProvider) Capabilities() provisioningdomain.ProviderCapabilities {
@@ -63,6 +65,22 @@ func (p *powerProvider) SetPowerConfiguration(_ context.Context, _ string, chang
 		Driver: change.Driver, Address: change.Address, PowerID: change.PowerID, Username: change.Username, Password: password,
 	}
 	return nil
+}
+
+// SetVerifiedPowerConfiguration writes like SetPowerConfiguration, then reads the power as on, or
+// fails with checkErr after restoring the previous configuration, as the verifier port promises.
+func (p *powerProvider) SetVerifiedPowerConfiguration(
+	ctx context.Context, machineID string, change provisioningdomain.PowerConfigurationChange,
+) (provisioningdomain.PowerState, error) {
+	previous := p.config
+	if err := p.SetPowerConfiguration(ctx, machineID, change); err != nil {
+		return provisioningdomain.PowerStateUnknown, err
+	}
+	if p.checkErr != nil {
+		p.config = previous
+		return provisioningdomain.PowerStateUnknown, p.checkErr
+	}
+	return provisioningdomain.PowerStateOn, nil
 }
 
 func newPowerUseCase(provider *powerProvider) *PowerConfigurationUseCase {
@@ -119,8 +137,25 @@ func TestPowerConfigurationSet(t *testing.T) {
 		if len(provider.writes) != 1 || provider.writes[0].Driver != "virsh" || provider.writes[0].Address != "qemu+ssh://maas@hv-01/system" {
 			t.Errorf("writes = %+v, want one normalized virsh change", provider.writes)
 		}
-		if item.Driver != "virsh" || item.Family != "virsh" || item.PasswordSet {
-			t.Errorf("Set = %+v", item)
+		if item.Driver != "virsh" || item.Family != "virsh" || item.PasswordSet || item.PowerState != "on" {
+			t.Errorf("Set = %+v, want the virsh configuration and the power state its check read", item)
+		}
+	})
+	t.Run("a configuration the provisioner cannot read the power through is not kept", func(t *testing.T) {
+		provider := &powerProvider{
+			capable:  true,
+			config:   provisioningdomain.PowerConfiguration{Driver: "ipmi", Address: "10.0.0.5", Password: "old"},
+			checkErr: errors.Join(provisioningdomain.ErrPowerConfigurationUnverified, errors.New("password invalid")),
+		}
+		bad := "wrong"
+		_, err := newPowerUseCase(provider).Set(context.Background(), "srv-1", SetPowerConfigurationInput{
+			Driver: "ipmi", Address: "10.0.0.6", Password: &bad,
+		})
+		if !errors.Is(err, provisioningdomain.ErrPowerConfigurationUnverified) {
+			t.Errorf("Set error = %v, want ErrPowerConfigurationUnverified", err)
+		}
+		if provider.config.Address != "10.0.0.5" || provider.config.Password != "old" {
+			t.Errorf("config after a failed check = %+v, want the previous one", provider.config)
 		}
 	})
 	t.Run("an invalid change never reaches the provisioner", func(t *testing.T) {

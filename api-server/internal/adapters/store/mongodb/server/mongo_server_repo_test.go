@@ -41,6 +41,19 @@ func TestProvisioningStateLegacyCompatibility(t *testing.T) {
 	}
 }
 
+// The mirrored power control round-trips through the provisioning document, and a document
+// stored before it existed reads as not observed rather than as a guessed control.
+func TestProvisioningPowerControlRoundTrip(t *testing.T) {
+	server := &serverdomain.Server{ID: "srv-1", Provisioning: &serverdomain.ProvisioningStatus{State: "deployed", PowerControl: "manual"}}
+	if got := toServer(toDoc(server)).Provisioning.PowerControl; got != "manual" {
+		t.Errorf("round trip PowerControl = %q, want %q", got, "manual")
+	}
+	legacy := &serverDoc{ID: "srv-2", Provisioning: &provisioningDoc{State: "deployed", PowerState: "on"}}
+	if got := toServer(legacy).Provisioning.PowerControl; got != "" {
+		t.Errorf("legacy PowerControl = %q, want empty", got)
+	}
+}
+
 // The running Boot Media apply round-trips through its document, including a phase end.
 func TestBootMediaApplyDocRoundTrip(t *testing.T) {
 	ends := time.Date(2026, 10, 5, 1, 36, 25, 0, time.UTC)

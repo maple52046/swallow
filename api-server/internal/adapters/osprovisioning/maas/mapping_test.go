@@ -3,7 +3,56 @@ package maas
 import (
 	"encoding/json"
 	"testing"
+
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
+
+// The machine's power_type is classified into its power control with the same rule the Power
+// Configuration uses: no driver, MAAS's manual driver, or any other driver MAAS switches itself.
+func TestToDomainMachinePowerControl(t *testing.T) {
+	cases := []struct {
+		body string
+		want provisioningdomain.PowerControl
+	}{
+		{`{"system_id":"abc","power_type":""}`, provisioningdomain.PowerControlNone},
+		{`{"system_id":"abc"}`, provisioningdomain.PowerControlNone},
+		{`{"system_id":"abc","power_type":"manual"}`, provisioningdomain.PowerControlManual},
+		{`{"system_id":"abc","power_type":"ipmi"}`, provisioningdomain.PowerControlAutomatic},
+		{`{"system_id":"abc","power_type":"lxd"}`, provisioningdomain.PowerControlAutomatic},
+	}
+	for _, tc := range cases {
+		var parsed machineJSON
+		if err := json.Unmarshal([]byte(tc.body), &parsed); err != nil {
+			t.Fatalf("unmarshal %s: %v", tc.body, err)
+		}
+		if got := toDomainMachine(&parsed).PowerControl; got != tc.want {
+			t.Errorf("toDomainMachine(%s).PowerControl = %q, want %q", tc.body, got, tc.want)
+		}
+	}
+}
+
+// A machine without a driver cannot have a current power error: one MAAS still holds is left over
+// from a removed driver and reads as unknown, while a recorded on or off (enlistment's power-off)
+// is kept. A driver's own error is reported.
+func TestToDomainMachineStalePowerError(t *testing.T) {
+	cases := []struct {
+		body string
+		want provisioningdomain.PowerState
+	}{
+		{`{"system_id":"abc","power_type":"","power_state":"error"}`, provisioningdomain.PowerStateUnknown},
+		{`{"system_id":"abc","power_type":"","power_state":"off"}`, provisioningdomain.PowerStateOff},
+		{`{"system_id":"abc","power_type":"ipmi","power_state":"error"}`, provisioningdomain.PowerStateError},
+	}
+	for _, tc := range cases {
+		var parsed machineJSON
+		if err := json.Unmarshal([]byte(tc.body), &parsed); err != nil {
+			t.Fatalf("unmarshal %s: %v", tc.body, err)
+		}
+		if got := toDomainMachine(&parsed).PowerState; got != tc.want {
+			t.Errorf("toDomainMachine(%s).PowerState = %q, want %q", tc.body, got, tc.want)
+		}
+	}
+}
 
 // The Deploy path treats an explicit ephemeral_deploy=false as evidence that MAAS
 // ignored an ephemeral request, and silence as no evidence at all. That distinction only

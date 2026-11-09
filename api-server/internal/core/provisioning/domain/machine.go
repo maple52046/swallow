@@ -89,8 +89,13 @@ type Machine struct {
 	// action failed without digging through the provider event log. Never branch on it.
 	ErrorDescription string
 	PowerState       PowerState
-	Architecture     string
-	CPUCores         int
+	// PowerControl is what the machine's power driver lets the provisioner do, classified from the
+	// driver the provider reports (PowerControlOf). It is an observation mirrored with the power
+	// state so a reader can tell a machine without a driver from one whose power cannot be read;
+	// the driver's parameters and password are never part of it.
+	PowerControl PowerControl
+	Architecture string
+	CPUCores     int
 	// MemoryMiB is usable RAM in mebibytes. Mebibytes rather than megabytes
 	// because that is the unit providers report and users see in the
 	// provider's own UI; converting would make the two screens disagree.

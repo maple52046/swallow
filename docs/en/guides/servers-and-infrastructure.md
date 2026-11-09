@@ -50,6 +50,28 @@ step ([Monitoring](monitoring.md#the-node-exporter-is-kept-installed)). The
 command contains the provisioner's API key, which
 MAAS requires; run it only on trusted hosts and rotate the key in MAAS otherwise.
 
+The Server's address in swallow is the one MAAS records on the host's network
+interfaces, and MAAS can accept the first hardware report without recording it.
+The command therefore checks that MAAS recorded the address the host reaches MAAS
+from and reports once more if it did not; if the address is still missing it
+prints a warning naming the MAAS machine to look at. A host enrolled before
+without an address gets one by running the same command again with
+`--system-id <Provider machine ID>`: it reports the hardware again instead of
+registering.
+
+MAAS registers a kept-OS host without a power driver, so its power button reads
+**NO DRIVER** and swallow cannot switch it. Either set its
+[Power configuration](#power-configuration) afterwards (the power button on the
+Server list opens it), or check **Also set up its BMC over IPMI** in **Add
+servers**, which appends `--configure-bmc` to the command. With it, the host
+creates or reuses an IPMI user on its own BMC through its local IPMI interface,
+records the BMC as the server's `ipmi` power driver in MAAS, and checks that MAAS
+reads the power; when MAAS cannot, the previous driver is restored. It needs
+`ipmitool` and `/dev/ipmi0` on the host, installs nothing, never switches power,
+and leaves the BMC's network alone; a BMC without an IP address is refused. The
+password goes from the host to MAAS only. For a host enrolled before, run the
+command with `--configure-bmc --system-id <Provider machine ID>`.
+
 ## Libvirt virtual machines
 
 Virtual machines on a libvirt hypervisor are enrolled by their domain names; you
@@ -303,6 +325,12 @@ saves your changes to MAAS. It is on the Server detail **Summary**: in the
 control** card for a Server without one. Choose **Edit power configuration** (or
 **Set power configuration**).
 
+The power button on the Server list uses it too. A Server without a power driver
+shows **NO DRIVER** (one switched by hand, **MANUAL**) instead of its power state,
+and its button opens straight to the same form; a successful save closes it and the
+button updates. A Server whose driver MAAS cannot read (power state **Unknown** or
+**Error**) gets a warning above the power actions with **Edit power configuration**.
+
 | Driver | For | Settings |
 | --- | --- | --- |
 | IPMI, Redfish | A physical Server's BMC | BMC address, account, password |
@@ -313,7 +341,8 @@ the two drivers MAAS uses. A `virsh` driver whose URI names a swallow Server
 gives libvirt Boot Media through that hypervisor (see
 [Boot Media](os-provisioning.md#boot-media-for-networks-without-provisioner-dhcp)).
 The password is write-only: leave it empty to keep the stored one (changing the
-driver removes it unless you enter a new one).
+driver removes it unless you enter a new one). The eye button in the password
+field shows what you typed, so you can check it before saving.
 
 For a `virsh` driver, MAAS — not swallow — connects to the hypervisor, so its
 rack controller needs SSH access to the hypervisor account before the driver
@@ -326,10 +355,15 @@ snap: `sudo snap run --shell maas -c 'virsh -c qemu+ssh://user@host/system list 
 Keep the URI clean: MAAS refuses query parameters such as `?keyfile=`. Several
 VMs on one hypervisor share its URI and differ by domain.
 
-Saving does not switch power or resume an inspection. Read **Power state** to
-confirm MAAS can reach the driver, then retry the inspection. A virtual machine
-that belongs to a MAAS VM host takes its power from the VM host and is read-only
-here.
+Saving checks the settings first: MAAS reads the Server's power through them,
+which can take up to 20 seconds. Only when MAAS reads it as on or off is the
+configuration saved, and the confirmation shows what it read. Otherwise (a wrong
+address, account, or password, or an address MAAS cannot reach; some BMCs do not
+answer a wrong password at all, so it takes the full 20 seconds) nothing changes:
+the dialog stays open with MAAS's reason and what you typed, so you can correct
+it. Saving never switches power or resumes an inspection; retry the inspection
+afterwards. A virtual machine that belongs to a MAAS VM host takes its power from
+the VM host and is read-only here.
 
 ## Provider and observation failures
 

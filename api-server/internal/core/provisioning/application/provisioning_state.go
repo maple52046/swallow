@@ -95,6 +95,7 @@ func updateProvisioningProjection(
 		ProviderState:            machine.ProviderStatus,
 		ErrorDescription:         machine.ErrorDescription,
 		PowerState:               string(machine.PowerState),
+		PowerControl:             string(machine.PowerControl),
 		OSSystem:                 machine.OSSystem,
 		DistroSeries:             machine.DistroSeries,
 		DeployedImageName:        deployedImageName,

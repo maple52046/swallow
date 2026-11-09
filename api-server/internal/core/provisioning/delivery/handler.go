@@ -217,7 +217,8 @@ func (h *ProvisioningHandler) GetPowerConfiguration(c *fiber.Ctx) error {
 }
 
 // SetPowerConfiguration serves PUT /servers/{id}/power-configuration: it writes the user's
-// Power Configuration through to the provisioner and answers 200 with the configuration read back.
+// Power Configuration through to the provisioner, keeps it only when the provisioner reads the
+// power through it, and answers 200 with the configuration read back and that power state.
 // The request carries a write-only password; nothing here logs the body, and the shared error
 // mapper logs only the provider's client-safe detail.
 func (h *ProvisioningHandler) SetPowerConfiguration(c *fiber.Ctx) error {
@@ -793,6 +794,7 @@ func RespondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, provisioningdomain.ErrOSImageMetadataInvalid),
 		errors.Is(err, provisioningdomain.ErrInvalidOSImageUpload),
 		errors.Is(err, provisioningdomain.ErrInvalidPowerConfiguration),
+		errors.Is(err, provisioningdomain.ErrPowerConfigurationUnverified),
 		errors.Is(err, provisioningdomain.ErrInvalidHTTPProxy),
 		errors.Is(err, provisioningdomain.ErrInvalidSubnetDNS),
 		errors.Is(err, provisioningdomain.ErrInvalidTag):
