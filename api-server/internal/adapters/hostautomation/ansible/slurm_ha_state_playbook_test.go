@@ -192,10 +192,6 @@ func TestSlurmPlaybookWiresLoginAndWorkloadStorage(t *testing.T) {
 	}
 }
 
-// Login is a capability, not an exclusive node type. A controller+login node must retain the
-// authoritative slurm.conf rendered by slurm_config; only pure login clients converge to
-// configless discovery. Otherwise the later login play removes the primary controller's config
-// and systemd skips slurmrestd because its packaged ConditionPathExists is no longer satisfied.
 // A rerun of a converged Platform must not touch the mounted workload share: its root belongs to
 // the export's owner and a root_squash export refuses root's chown, so the client role ensures
 // the mountpoint directory only after checking that nothing is mounted there. The lab's first
@@ -220,6 +216,10 @@ func TestSlurmWorkloadClientLeavesAMountedShareAlone(t *testing.T) {
 	}
 }
 
+// Login is a capability, not an exclusive node type. A controller+login node must retain the
+// authoritative slurm.conf rendered by slurm_config; only pure login clients converge to
+// configless discovery. Otherwise the later login play removes the primary controller's config
+// and systemd skips slurmrestd because its packaged ConditionPathExists is no longer satisfied.
 func TestSlurmLoginPreservesControllerConfiguration(t *testing.T) {
 	path := filepath.Join(roleDir(t, "slurm_login"), "tasks", "main.yml")
 	raw, err := os.ReadFile(path)
