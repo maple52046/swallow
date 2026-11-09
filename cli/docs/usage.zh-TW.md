@@ -582,7 +582,7 @@ swallow platforms slurm-requirements set -f slurm-req.yaml
 swallow platforms gpu-operator releases                       # Swallow 提供的 AMD GPU Operator 版本
 swallow platforms gpu-operator set plat1 -f gpu-operator.yaml --approve  # 安裝或調整 operator
 swallow platforms gpu-operator uninstall plat1 --approve                 # 移除 operator，平台照常運作
-swallow platforms hardware-counters enable plat1      # 做得到的每台 compute node 由 Omnistat 收集 VALUBusy
+swallow platforms hardware-counters enable plat1      # 開啟 Omnistat 的 GPU hardware counters（目前收集 VALUBusy）
 swallow platforms hardware-counters disable plat1     # 每台 compute node 改跑不含 counters 的 Omnistat
 ```
 

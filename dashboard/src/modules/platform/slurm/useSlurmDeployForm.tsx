@@ -331,7 +331,7 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
           },
           ...(monitoring === 'omnistat' ? [{
             label: 'GPU hardware counters',
-            value: hardwareCounters ? 'VALUBusy on each compute node that can collect it' : 'Not included',
+            value: hardwareCounters ? 'On each compute node that can collect them (today VALUBusy)' : 'Not included',
           }] : []),
           {
             label: 'Platform Grafana',

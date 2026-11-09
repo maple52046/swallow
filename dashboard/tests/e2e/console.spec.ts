@@ -630,7 +630,7 @@ test.describe('user interactions', () => {
     await expect(page.getByText(/Its job report tool reads the metrics through the Platform Grafana/)).toBeVisible()
     // Omnistat proposes its GPU hardware counters (the API's default is off); the option can be
     // dropped and taken again.
-    const counters = page.getByRole('checkbox', { name: /GPU hardware counters \(VALUBusy\)/ })
+    const counters = page.getByRole('checkbox', { name: /GPU hardware counters/ })
     await expect(counters).toBeChecked()
     await expect(page.getByText(/Collecting needs CAP_PERFMON and about 160 MB of GPU memory per GPU/)).toBeVisible()
     await counters.locator('xpath=following-sibling::*[1]').click()
@@ -666,7 +666,7 @@ test.describe('user interactions', () => {
     await expect(nodesReview.getByText('None', { exact: true })).toBeVisible()
     await expect(page.getByText('Podman on compute and login nodes')).toBeVisible()
     await expect(page.getByText('Omnistat, collected by the Site Prometheus')).toBeVisible()
-    await expect(page.getByText('VALUBusy on each compute node that can collect it')).toBeVisible()
+    await expect(page.getByText('On each compute node that can collect them (today VALUBusy)')).toBeVisible()
     await expect(page.getByText('On gpu-node-01 as a native package')).toBeVisible()
     await expect(page.getByText('Included automatically for AMD GPU compute nodes as type mi308x_vf')).toBeVisible()
     await expect(page.getByText('pcie_p2p=0', { exact: true })).toBeVisible()
@@ -684,7 +684,7 @@ test.describe('user interactions', () => {
     await expect(page.getByLabel('Omnistat', { exact: true })).toContainText('Installing')
     await expect(page.getByLabel('Omnistat', { exact: true })).toContainText('installed natively')
     // No node has reported the counters while the install runs.
-    await expect(page.getByLabel('GPU hardware counters (VALUBusy)')).toContainText('when the Omnistat install finishes')
+    await expect(page.getByLabel('GPU hardware counters', { exact: true })).toContainText('when the Omnistat install finishes')
     await page.getByRole('tablist', { name: 'Platform workspace' }).getByRole('tab', { name: 'Configuration' }).click()
     await expect(page.getByText('GPU GRES type', { exact: true })).toBeVisible()
     await expect(page.getByText('mi308x_vf', { exact: true })).toBeVisible()

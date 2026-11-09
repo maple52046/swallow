@@ -96,8 +96,9 @@ func platformsGPUOperatorCmd() *cobra.Command {
 func platformsHardwareCountersCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "hardware-counters",
-		Short: "Turn Omnistat's GPU hardware counters (VALUBusy) on or off on a deployed Slurm platform",
-		Long: "Turn Omnistat's GPU hardware counters (VALUBusy) on or off on a deployed Slurm platform.\n\n" +
+		Short: "Turn Omnistat's GPU hardware counters on or off on a deployed Slurm platform",
+		Long: "Turn Omnistat's GPU hardware counters on or off on a deployed Slurm platform. Which counters\n" +
+			"Omnistat samples is fixed by Swallow; today it is VALUBusy.\n\n" +
 			"A configure-omnistat workflow reconfigures Omnistat on every compute node while the\n" +
 			"platform stays active; each exporter restarts and running jobs keep running. Turned on,\n" +
 			"a node that cannot collect them keeps its other metrics and reports why; turned off,\n" +

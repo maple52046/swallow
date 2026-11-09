@@ -601,7 +601,7 @@ swallow platforms slurm-requirements set -f slurm-req.yaml
 swallow platforms gpu-operator releases                       # AMD GPU Operator versions Swallow ships
 swallow platforms gpu-operator set plat1 -f gpu-operator.yaml --approve  # install or change the operator
 swallow platforms gpu-operator uninstall plat1 --approve                 # remove it; the platform keeps running
-swallow platforms hardware-counters enable plat1      # Omnistat collects VALUBusy on each compute node that can
+swallow platforms hardware-counters enable plat1      # turn on Omnistat's GPU hardware counters (today VALUBusy)
 swallow platforms hardware-counters disable plat1     # every compute node runs Omnistat without the counters
 ```
 

@@ -194,8 +194,8 @@ root filesystem.
 Platform detail reads live Slurm state through the Platform API and correlates
 nodes back to Server IDs.
 
-On a deployed Slurm Platform with Omnistat, the **Monitoring** tab lists the hardware counters
-(VALUBusy) under **Omnistat**, with a switch that turns them on or off without a Change Plan;
+On a deployed Slurm Platform with Omnistat, the **Monitoring** tab lists Omnistat's GPU hardware
+counters under **Omnistat**, with a switch that turns them on or off without a Change Plan;
 swallow reconfigures Omnistat on every compute node while the Platform stays active (see
 [GPU and job monitoring on Slurm](monitoring.md#gpu-and-job-monitoring-on-slurm)).
 

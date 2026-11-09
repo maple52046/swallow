@@ -141,8 +141,8 @@ test('a Slurm Platform lists, per compute node, whether Omnistat collects the ha
   await installApiFixtures(page, { slurmDeployed: true, platformDeploymentWorkflows: true })
   await page.goto('/platforms/platform-slurm-ha/monitoring?site=site-a')
 
-  const counters = page.getByLabel('GPU hardware counters (VALUBusy)')
-  await expect(counters).toContainText('VALUBusy is collected on 1 of 2 compute nodes.')
+  const counters = page.getByLabel('GPU hardware counters', { exact: true })
+  await expect(counters).toContainText('Collecting on 1 of 2 compute nodes.')
   // Each node is named by its hostname and links to its Server; the state is text, and the
   // unavailable node says why instead of looking failed.
   const rows = counters.getByRole('listitem')
@@ -167,16 +167,19 @@ test('a deployed Slurm Platform turns its hardware counters off where Monitoring
   })
   await page.goto('/platforms/platform-slurm-ha/monitoring?site=site-a')
 
-  const counters = page.getByRole('group', { name: 'GPU hardware counters (VALUBusy)' })
+  const counters = page.getByRole('group', { name: 'GPU hardware counters' })
   const toggle = counters.getByRole('switch', { name: 'Collect GPU hardware counters' })
   await expect(toggle).toBeChecked()
   await expect(counters).toContainText('On')
-  await expect(counters).toContainText('VALUBusy is collected on 1 of 2 compute nodes.')
+  await expect(counters).toContainText('Collecting on 1 of 2 compute nodes.')
+  // Turning the counters on enables the collection; what it samples is named on its own.
+  await expect(counters).toContainText('Counters collected: VALUBusy')
 
   await toggle.locator('..').click()
   const dialog = page.getByRole('alertdialog', { name: 'Turn off GPU hardware counters' })
-  await expect(dialog).toContainText('back to Omnistat without the counters')
-  await expect(dialog).toContainText('running jobs keep running')
+  await expect(dialog).toContainText('back to Omnistat without hardware counters')
+  await expect(dialog).toContainText('Slurm and running jobs are not touched')
+  await expect(dialog).not.toContainText('rocprofv3')
   await dialog.getByRole('button', { name: 'Turn off counters' }).click()
 
   await expect(dialog).toHaveCount(0)
@@ -201,7 +204,7 @@ test('turning the hardware counters on retries a spec that changed in between', 
   })
   await page.goto('/platforms/platform-slurm-ha/monitoring?site=site-a')
 
-  const counters = page.getByRole('group', { name: 'GPU hardware counters (VALUBusy)' })
+  const counters = page.getByRole('group', { name: 'GPU hardware counters' })
   const toggle = counters.getByRole('switch', { name: 'Collect GPU hardware counters' })
   await expect(toggle).not.toBeChecked()
   await expect(counters).toContainText('Every compute node runs Omnistat without the counters.')
@@ -210,6 +213,8 @@ test('turning the hardware counters on retries a spec that changed in between', 
   const dialog = page.getByRole('alertdialog', { name: 'Turn on GPU hardware counters' })
   await expect(dialog).toContainText('CAP_PERFMON')
   await expect(dialog).toContainText('keeps its other metrics and reports why')
+  await expect(dialog).toContainText('may not get the counters, because a GPU allows one profiler session at a time')
+  await expect(dialog).toContainText('It usually takes a few minutes.')
   await dialog.getByRole('button', { name: 'Turn on counters' }).click()
   await expect(dialog).toContainText('The platform spec changed since it was read')
   await expect(dialog).toContainText('req-platform-spec-conflict')
@@ -227,7 +232,7 @@ test('a Slurm Platform that asked for no hardware counters shows no breakdown fo
 
   await expect(page.getByLabel('Omnistat', { exact: true })).toContainText('Ready')
   // Its spec has no Omnistat to switch, so there is neither a breakdown nor a switch.
-  await expect(page.getByLabel('GPU hardware counters (VALUBusy)')).toHaveCount(0)
+  await expect(page.getByLabel('GPU hardware counters', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('switch', { name: 'Collect GPU hardware counters' })).toHaveCount(0)
 })
 

@@ -12,16 +12,19 @@ import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import type { PlatformSectionProps } from '@/modules/types'
 import { useSlurmPlatform } from './SlurmModuleProvider'
-import { hardwareCountersSwitch } from './slurmHardwareCounters'
+import { COLLECTED_HARDWARE_COUNTERS, hardwareCountersSwitch } from './slurmHardwareCounters'
 
 /**
  * The switch for Omnistat's GPU hardware counters (glossary Omnistat Hardware Counters) on a deployed
  * Slurm Platform, rendered by the Monitoring route right under the counters' title in the Omnistat
  * component, above the summary and each compute node's outcome (platforms.md "Omnistat").
  *
- * The switch shows the spec's setting and the badge what the last Omnistat install did with it.
- * Turning it asks for confirmation that names the consequences (each compute node's exporter
- * restarts, running jobs keep running), then writes the spec through the Slurm port; the change is
+ * Turning the counters on enables Omnistat's counter collection; which counters it samples is a
+ * separate, fixed list (`COLLECTED_HARDWARE_COUNTERS`), named under the switch. The switch shows the
+ * spec's setting and the badge what the last Omnistat install did with it. Turning it asks for
+ * confirmation that names what changes on the nodes, how long it takes, and what users notice (Slurm
+ * and running jobs untouched, each exporter restarting once, and while the counters are on a user's
+ * own GPU profiler possibly not getting them), then writes the spec through the Slurm port; the change is
  * non-destructive, so it starts without a Change Plan and the page follows it through the workspace
  * shell's convergence polling. The switch is disabled, with the reason as text, while the Platform
  * is not active or a change is still running. The request's error (a `conflict` when the spec
@@ -95,6 +98,7 @@ export function SlurmHardwareCountersControl({ platform, onChanged }: PlatformSe
           {counters.inProgress && <InProgressSpinner color="blue.fg" />}
         </HStack>
       </HStack>
+      <Text color="fg.muted" fontSize="sm">Counters collected: {COLLECTED_HARDWARE_COUNTERS}.</Text>
       {counters.blockedReason && <Text color="fg.muted" fontSize="sm">{counters.blockedReason}</Text>}
 
       <ConfirmDialog
@@ -109,10 +113,13 @@ export function SlurmHardwareCountersControl({ platform, onChanged }: PlatformSe
         <Stack gap="3">
           <Text>
             {target
-              ? `Swallow reconfigures Omnistat on every compute node of ${platform.name}. A node that can collect VALUBusy gets the counter extension, CAP_PERFMON, and a profiler session that holds about 160 MB of GPU memory per GPU; a node that cannot keeps its other metrics and reports why.`
-              : `Swallow takes every compute node of ${platform.name} back to Omnistat without the counters: the counter extension Swallow installed, CAP_PERFMON, and the profiler session are removed, and VALUBusy is no longer collected. Omnistat's other metrics continue.`}
+              ? `Swallow turns on Omnistat's GPU hardware counters on every compute node of ${platform.name}. A node that can collect them gets the counter extension and CAP_PERFMON, and its exporter keeps a profiler session on each GPU (about 160 MB of GPU memory per GPU) to sample ${COLLECTED_HARDWARE_COUNTERS}. A node that cannot keeps its other metrics and reports why.`
+              : `Swallow takes every compute node of ${platform.name} back to Omnistat without hardware counters: the counter extension Swallow installed, CAP_PERFMON, and the profiler sessions are removed, and the counters are no longer collected. Omnistat's other metrics continue.`}
           </Text>
-          <Text>Each node's exporter restarts with its new configuration; running jobs keep running.</Text>
+          {target && (
+            <Text>While the counters are on, a user's own GPU profiler on these nodes (rocprofv3, Omniperf) may not get the counters, because a GPU allows one profiler session at a time.</Text>
+          )}
+          <Text>It usually takes a few minutes. Slurm and running jobs are not touched; each node's Omnistat exporter restarts once near the end, so its metrics can miss a scrape.</Text>
           {error && <Alert status="error" title="The change could not be started"><FailureMessage failure={error} /></Alert>}
         </Stack>
       </ConfirmDialog>

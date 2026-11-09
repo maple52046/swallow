@@ -6,6 +6,7 @@ import { AdvancedSettings } from '@/presentation/pages/platforms/AdvancedSetting
 import { FeatureToggleCard } from '@/presentation/pages/platforms/FeatureToggleCard'
 import { PlatformGrafanaFeatureCard } from '@/presentation/pages/platforms/PlatformGrafanaFeatureCard'
 import { platformGrafanaContainerCopy } from './slurmGrafanaCopy'
+import { COLLECTED_HARDWARE_COUNTERS } from './slurmHardwareCounters'
 
 type WorkloadStorageMode = 'none' | 'self-hosted' | 'external'
 
@@ -326,8 +327,8 @@ export function SlurmDeploymentFeatures({
             <fieldset className="sw-platform-option-group">
               <legend>Omnistat options</legend>
               <OptionCard
-                label="GPU hardware counters (VALUBusy)"
-                description="Also sample how busy each GPU's vector ALUs are. A node collects them only when its ROCm version and GPUs allow; any other node keeps its other metrics. Collecting needs CAP_PERFMON and about 160 MB of GPU memory per GPU."
+                label="GPU hardware counters"
+                description={`Turn on Omnistat's GPU hardware counter collection; today it samples ${COLLECTED_HARDWARE_COUNTERS}. A node collects them only when its ROCm version and GPUs allow; any other node keeps its other metrics. Collecting needs CAP_PERFMON and about 160 MB of GPU memory per GPU, and a user's own GPU profiler on the node may then not get the counters.`}
                 checked={hardwareCounters}
                 onCheckedChange={onHardwareCountersChange}
               />

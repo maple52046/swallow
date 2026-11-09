@@ -3,6 +3,14 @@ import type { HardwareCounterReason, Platform, PlatformSpec } from '@/domain/pla
 import type { PlatformMonitoringServerStates } from '@/modules/types'
 
 /**
+ * The hardware counters Omnistat samples once a Platform's GPU hardware counters are on (the omnistat
+ * role's `omnistat_counters`; glossary Omnistat Hardware Counters). Turning the counters on enables
+ * Omnistat's counter collection; this is what that collection samples. The API does not report the
+ * list, so the screens name it from here, kept in step with the role.
+ */
+export const COLLECTED_HARDWARE_COUNTERS = 'VALUBusy, how busy each GPU\u2019s vector ALUs are'
+
+/**
  * What each reason a compute node reports (glossary Omnistat Hardware Counters) means for the user,
  * phrased as the node's situation rather than as a failure: the node's other metrics are collected.
  */
@@ -29,7 +37,7 @@ export function hardwareCounterStates(platform: Platform): PlatformMonitoringSer
   const counters = hardwareCountersSwitch(platform)
   if (!counters || !platform.omnistat) return undefined
   return {
-    title: 'GPU hardware counters (VALUBusy)',
+    title: 'GPU hardware counters',
     summary: counters.summary,
     servers: platform.omnistat.hardwareCounters.nodes.map((node) => ({
       serverId: node.serverId,
@@ -102,7 +110,7 @@ export function hardwareCountersSwitch(platform: Platform): HardwareCountersSwit
     const collecting = counters.nodes.filter((node) => node.state === 'collecting').length
     status = { value: 'active', label: 'On' }
     summary = counters.nodes.length > 0
-      ? `VALUBusy is collected on ${collecting} of ${counters.nodes.length} compute nodes. A node that cannot collect it keeps its other metrics.`
+      ? `Collecting on ${collecting} of ${counters.nodes.length} compute nodes. A node that cannot keeps its other metrics.`
       : 'No compute node reported them.'
   } else {
     status = { value: 'offline', label: 'Off' }

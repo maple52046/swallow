@@ -858,8 +858,8 @@ test.describe('Slurm hardware counters visual review', () => {
 
     await page.goto('/platforms/platform-slurm-ha/monitoring?site=site-a')
     const omnistat = page.getByLabel('Omnistat', { exact: true })
-    const counters = page.getByRole('group', { name: 'GPU hardware counters (VALUBusy)' })
-    await expect(counters).toContainText('VALUBusy is collected on 1 of 2 compute nodes.')
+    const counters = page.getByRole('group', { name: 'GPU hardware counters' })
+    await expect(counters).toContainText('Collecting on 1 of 2 compute nodes.')
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'slurm-hardware-counters-monitoring')
@@ -884,7 +884,7 @@ test.describe('Slurm hardware counters visual review', () => {
 
     await page.goto('/platforms/platform-slurm-ha/monitoring?site=site-a')
     const omnistat = page.getByLabel('Omnistat', { exact: true })
-    const counters = page.getByRole('group', { name: 'GPU hardware counters (VALUBusy)' })
+    const counters = page.getByRole('group', { name: 'GPU hardware counters' })
     await expect(counters).toContainText('Every compute node runs Omnistat without the counters.')
     await prepareCapture(page, appearance)
     await omnistat.screenshot({ path: testInfo.outputPath(`slurm-hardware-counters-off-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide' })
