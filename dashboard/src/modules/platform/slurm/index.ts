@@ -4,16 +4,15 @@ import type { PlatformModuleUI } from '@/modules/types'
 import { slurmPlatformFacts, slurmSpecTopology } from './slurmFacts'
 import { hardwareCounterStates } from './slurmHardwareCounters'
 import { SlurmAccess } from './SlurmAccess'
-import { SlurmHardwareCountersSection } from './SlurmHardwareCountersSection'
+import { SlurmHardwareCountersControl } from './SlurmHardwareCountersControl'
 import { SlurmNodesRoute, SlurmPartitionsRoute } from './SlurmWorkspaceRoutes'
 import { useSlurmDeployForm } from './useSlurmDeployForm'
 import { SlurmSettingsPage } from './SlurmSettingsPage'
 
 /**
  * The Slurm module's UI: its deploy form, access summary, native workspace routes, configuration
- * facts, the Configuration section that switches Omnistat's hardware counters on a deployed
- * Platform, and monitoring contributions (Omnistat with its per-node hardware counters, or the
- * Device Metrics Exporter).
+ * facts, and monitoring contributions (Omnistat with its hardware counters, whose switch sits with
+ * each compute node's outcome, or the Device Metrics Exporter).
  */
 export const slurmModule: PlatformModuleUI = {
   kind: 'platform',
@@ -36,7 +35,7 @@ export const slurmModule: PlatformModuleUI = {
       'Collected by the Site Prometheus',
       ...(grafana ? [`Platform Grafana installed ${installMethod === 'native' ? 'natively' : 'as a container'} on the primary controller`] : []),
     ].join(' · ')
-    const counters = platform.omnistat ? hardwareCounterStates(platform.omnistat) : undefined
+    const counters = hardwareCounterStates(platform)
     return [
       ...(platform.omnistat ? [{
         name: 'Omnistat',
@@ -45,7 +44,7 @@ export const slurmModule: PlatformModuleUI = {
         detail: detail(platform.omnistat.version, platform.omnistat.installMethod),
         workflowId: platform.omnistat.lastWorkflowId,
         serverId: platform.omnistat.observabilityServerId,
-        ...(counters ? { serverStates: counters } : {}),
+        ...(counters ? { serverStates: { ...counters, Control: SlurmHardwareCountersControl } } : {}),
       }] : []),
       ...(platform.deviceMetricsExporter ? [{
         name: 'Device Metrics Exporter',
@@ -69,7 +68,6 @@ export const slurmModule: PlatformModuleUI = {
   ],
   deploy: { icon: Cpu, namePlaceholder: 'lab-slurm', useForm: useSlurmDeployForm },
   Settings: SlurmSettingsPage,
-  configurationSections: [SlurmHardwareCountersSection],
   facts: slurmPlatformFacts,
   specTopology: slurmSpecTopology,
 }

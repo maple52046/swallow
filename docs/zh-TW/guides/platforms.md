@@ -147,8 +147,8 @@ scheduler capacity，也不保證 OS image 能放進 ephemeral root filesystem�
 
 Platform detail 透過 Platform API 讀取 live Slurm state，並把 node 關聯回 Server ID。
 
-已部署且有 Omnistat 的 Slurm Platform，在 **Configuration** 分頁有 **GPU hardware counters** 區塊。它的開關不經
-Change Plan 開啟或關閉 counters（VALUBusy）；swallow 在每台 compute node 重新設定 Omnistat，Platform 維持 active（見
+已部署且有 Omnistat 的 Slurm Platform，**Monitoring** 分頁在 **Omnistat** 底下列出 hardware counters（VALUBusy），
+旁邊的開關不經 Change Plan 開啟或關閉它們；swallow 在每台 compute node 重新設定 Omnistat，Platform 維持 active（見
 [Slurm 的 GPU 與作業監控](monitoring.md#slurm-的-gpu-與作業監控)）。
 
 ## Platform runtime workspace

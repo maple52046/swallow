@@ -155,8 +155,9 @@ dashboard。
     extension 的 ROCm 版本（ROCm 10.0 與 10.1），以及在它的 GPU 上能成功取樣一次。做不到的節點不收集，其他 metrics
     照常，部署也不會因此失敗。Platform 頁面列出每台 compute node 有沒有收集，或為什麼沒有。收集時，該節點的 exporter
     帶有 `CAP_PERFMON` capability，並在每張 GPU 上保持一個 profiling session（每張約 160 MB 的 GPU 記憶體）；不想要時
-    取消勾選。已部署的 Platform 在 **Configuration** 分頁的 **GPU hardware counters** 區塊以
-    **Collect GPU hardware counters (VALUBusy)** 開關，或使用 `swallow platforms hardware-counters enable|disable <platformId>`。
+    取消勾選。已部署的 Platform 在 **Monitoring** 分頁開關：**Omnistat** 底下的 **GPU hardware counters (VALUBusy)**
+    有 **Collect GPU hardware counters** 開關，下面就是每台 compute node 的結果。CLI 則用
+    `swallow platforms hardware-counters enable|disable <platformId>`。
     swallow 在每台 compute node 重新設定 Omnistat，Platform 維持 active；每台 exporter 會重啟，執行中的作業不受影響。
     關閉後，每台 compute node 改跑不含 counters 的 Omnistat。
 - **AMD Device Metrics Exporter** 收集每張 GPU 的 metrics，並標上該 GPU 上的作業，作業可繼續共用節點。需要至少一台有

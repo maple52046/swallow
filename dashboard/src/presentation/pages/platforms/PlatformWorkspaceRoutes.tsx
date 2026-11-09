@@ -189,18 +189,25 @@ export function PlatformConfigurationRoute() {
 
 /**
  * A monitoring component's per-Server breakdown (for example Omnistat's hardware counters on each
- * compute node), as the module projected it from the Platform record. Each Server links to its page
- * by its hostname once the members have loaded, else by its id; the state is a text badge and the
- * reason plain text, so nothing depends on colour. A summary stands in while no Server has reported.
+ * compute node), as the module projected it from the Platform record. The module's control for the
+ * part (its on/off switch) sits under the title, so the setting is changed next to its outcome. Each
+ * Server links to its page by its hostname once the members have loaded, else by its id; the state
+ * is a text badge and the reason plain text, so nothing depends on colour. A summary stands in while
+ * no Server has reported.
  */
-function MonitoringServerStates({ states, members, serverHref }: {
+function MonitoringServerStates({ states, platform, members, serverHref, onChanged, onOpenWorkflow }: {
   states: PlatformMonitoringServerStates
-  members: readonly Server[]
+  platform: Platform
+  members: Server[]
   serverHref: (serverId: string) => string
+  onChanged: () => void
+  onOpenWorkflow: (workflowId: string) => void
 }) {
+  const Control = states.Control
   return (
     <Stack gap="1" role="group" aria-label={states.title}>
       <Text fontWeight="medium" fontSize="sm">{states.title}</Text>
+      {Control && <Control platform={platform} members={members} onChanged={onChanged} onOpenWorkflow={onOpenWorkflow} />}
       <Text color="fg.muted" fontSize="sm">{states.summary}</Text>
       {states.servers.length > 0 && (
         <ul className="sw-platform-monitoring-servers">
@@ -222,8 +229,9 @@ function MonitoringServerStates({ states, members, serverHref }: {
 
 /** Monitoring entries and installation state; charts remain in the dedicated Monitoring console. */
 export function PlatformMonitoringRoute() {
-  const { platform } = usePlatformWorkspaceContext()
+  const { platform, reload } = usePlatformWorkspaceContext()
   const { scopedHref } = useSiteScope()
+  const navigate = useNavigate()
   // Only to name the Servers of a per-Server breakdown; a failed or slow load falls back to ids.
   const members = useMembersForRoute(platform)
   const resolvedMembers = members.status === 'ready' ? members.data.members : []
@@ -287,8 +295,11 @@ export function PlatformMonitoringRoute() {
                 {feature.serverStates && (
                   <MonitoringServerStates
                     states={feature.serverStates}
+                    platform={platform}
                     members={resolvedMembers}
                     serverHref={(serverId) => scopedHref(`/servers/${encodeURIComponent(serverId)}`, platform.siteId)}
+                    onChanged={() => reload()}
+                    onOpenWorkflow={(workflowId) => navigate(scopedHref('/workflows/' + workflowId, platform.siteId))}
                   />
                 )}
               </Stack>

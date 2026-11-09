@@ -1,5 +1,5 @@
 import { platformConvergesWithoutInput, settingObject } from '@/domain/platform/spec'
-import type { HardwareCounterReason, Platform, PlatformOmnistat, PlatformSpec } from '@/domain/platform/types'
+import type { HardwareCounterReason, Platform, PlatformSpec } from '@/domain/platform/types'
 import type { PlatformMonitoringServerStates } from '@/modules/types'
 
 /**
@@ -17,29 +17,21 @@ const REASON_TEXT: Record<HardwareCounterReason, string> = {
 
 /**
  * Projects a Slurm Platform's Omnistat hardware counters (platforms.md "Omnistat") into the Monitoring
- * route's per-Server breakdown, or nothing when the deployment did not ask for them or Omnistat was
- * uninstalled. The nodes are the record of the install that last ran; while it has not finished, or
- * when it failed before reporting, the summary says so instead of showing an empty list. A reason the
- * contract adds later is shown as its raw value rather than hidden.
+ * route's per-Server breakdown under Omnistat, or nothing when the Platform has no swallow-managed
+ * Omnistat whose spec keeps it on. It is shown whether or not the counters are asked for, because the
+ * module's switch for them sits in it (the caller adds the Control). The summary is the switch
+ * projection's: what the last install did with the counters, a change still running, or a spec it
+ * has not carried out yet. The nodes are the record of the install that last ran, empty while one
+ * runs or when the counters are off. A reason the contract adds later is shown as its raw value
+ * rather than hidden.
  */
-export function hardwareCounterStates(omnistat: PlatformOmnistat): PlatformMonitoringServerStates | undefined {
-  const counters = omnistat.hardwareCounters
-  if (!counters.requested || omnistat.state === 'absent') return undefined
-  const collecting = counters.nodes.filter((node) => node.state === 'collecting').length
-  let summary: string
-  if (counters.nodes.length > 0) {
-    summary = `VALUBusy is collected on ${collecting} of ${counters.nodes.length} compute nodes. A node that cannot collect it keeps its other metrics.`
-  } else if (omnistat.state === 'installing') {
-    summary = 'Each compute node reports whether it collects them when the Omnistat install finishes.'
-  } else if (omnistat.state === 'failed') {
-    summary = 'The Omnistat install did not finish, so no compute node reported them.'
-  } else {
-    summary = 'No compute node reported them.'
-  }
+export function hardwareCounterStates(platform: Platform): PlatformMonitoringServerStates | undefined {
+  const counters = hardwareCountersSwitch(platform)
+  if (!counters || !platform.omnistat) return undefined
   return {
     title: 'GPU hardware counters (VALUBusy)',
-    summary,
-    servers: counters.nodes.map((node) => ({
+    summary: counters.summary,
+    servers: platform.omnistat.hardwareCounters.nodes.map((node) => ({
       serverId: node.serverId,
       state: node.state,
       statusLabel: node.state === 'collecting' ? 'Collecting' : 'Unavailable',
@@ -57,9 +49,9 @@ export function hardwareCountersWanted(spec: PlatformSpec | null): boolean {
 }
 
 /**
- * What the Configuration route's hardware counters switch shows for a deployed Slurm Platform
- * (platforms.md "Omnistat"): `wanted` is the spec's setting, which the switch shows; `status` and
- * `summary` describe the Omnistat record, which follows the install that last ran.
+ * What the hardware counters switch under Omnistat on the Monitoring route shows for a deployed Slurm
+ * Platform (platforms.md "Omnistat"): `wanted` is the spec's setting, which the switch shows; `status`
+ * and `summary` describe the Omnistat record, which follows the install that last ran.
  */
 export interface HardwareCountersSwitch {
   wanted: boolean
@@ -110,7 +102,7 @@ export function hardwareCountersSwitch(platform: Platform): HardwareCountersSwit
     const collecting = counters.nodes.filter((node) => node.state === 'collecting').length
     status = { value: 'active', label: 'On' }
     summary = counters.nodes.length > 0
-      ? `VALUBusy is collected on ${collecting} of ${counters.nodes.length} compute nodes.`
+      ? `VALUBusy is collected on ${collecting} of ${counters.nodes.length} compute nodes. A node that cannot collect it keeps its other metrics.`
       : 'No compute node reported them.'
   } else {
     status = { value: 'offline', label: 'Off' }

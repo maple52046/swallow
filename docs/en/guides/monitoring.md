@@ -191,8 +191,9 @@ Choose the monitoring exporter in the Slurm workspace's Features step:
     The Platform page lists, per compute node, whether it collects them or why not. While a node
     collects them, its exporter holds the `CAP_PERFMON` capability and keeps a profiling session on
     every GPU (about 160 MB of GPU memory each); uncheck the option if you do not want that.
-    On a deployed Platform, turn them on or off with **Collect GPU hardware counters (VALUBusy)**
-    in the **GPU hardware counters** section of its **Configuration** tab, or with
+    On a deployed Platform, turn them on or off on its **Monitoring** tab: under **Omnistat**, the
+    **GPU hardware counters (VALUBusy)** part has a **Collect GPU hardware counters** switch above
+    each compute node's outcome. The CLI does the same with
     `swallow platforms hardware-counters enable|disable <platformId>`. Swallow reconfigures
     Omnistat on every compute node while the Platform stays active; each exporter restarts, and
     running jobs keep running. Turned off, every compute node runs Omnistat without them.

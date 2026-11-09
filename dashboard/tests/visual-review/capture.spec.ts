@@ -845,9 +845,9 @@ test.describe('Slurm Omnistat visual review', () => {
 })
 
 /**
- * Captures the hardware counters switch on a deployed Slurm Platform's Configuration route (platforms.md
- * "Omnistat"): on with each node's outcome summarized, both confirmations, and a change running. Element
- * captures keep the sticky shell out of the section being inspected.
+ * Captures the hardware counters switch under Omnistat on a deployed Slurm Platform's Monitoring route
+ * (platforms.md "Omnistat"): on with each node's outcome, both confirmations, a change running, and
+ * off. Element captures of the Omnistat component keep the sticky shell out of what is inspected.
  */
 test.describe('Slurm hardware counters visual review', () => {
   test('slurm-hardware-counters', async ({ page }, testInfo) => {
@@ -856,25 +856,25 @@ test.describe('Slurm hardware counters visual review', () => {
     await installApiFixtures(page, { slurmDeployed: true, platformDeploymentWorkflows: true })
     await setAppearance(page, appearance)
 
-    await page.goto('/platforms/platform-slurm-ha/configuration?site=site-a')
-    const section = page.getByRole('region', { name: 'GPU hardware counters' })
-    const toggle = section.getByRole('switch', { name: 'Collect GPU hardware counters (VALUBusy)' })
-    await expect(section).toContainText('VALUBusy is collected on 1 of 2 compute nodes.')
+    await page.goto('/platforms/platform-slurm-ha/monitoring?site=site-a')
+    const omnistat = page.getByLabel('Omnistat', { exact: true })
+    const counters = page.getByRole('group', { name: 'GPU hardware counters (VALUBusy)' })
+    await expect(counters).toContainText('VALUBusy is collected on 1 of 2 compute nodes.')
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
-    await section.scrollIntoViewIfNeeded()
-    await section.screenshot({ path: testInfo.outputPath(`slurm-hardware-counters-on-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide' })
+    await capture(page, testInfo, 'slurm-hardware-counters-monitoring')
+    await omnistat.screenshot({ path: testInfo.outputPath(`slurm-hardware-counters-on-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide' })
 
-    await toggle.locator('..').click()
+    await counters.getByRole('switch', { name: 'Collect GPU hardware counters' }).locator('..').click()
     await expect(page.getByRole('alertdialog', { name: 'Turn off GPU hardware counters' })).toBeVisible()
     await prepareCapture(page, appearance)
     await capture(page, testInfo, 'slurm-hardware-counters-off-dialog', false)
     await page.getByRole('alertdialog').getByRole('button', { name: 'Turn off counters' }).click()
 
-    await expect(section).toContainText('Turning off')
+    await expect(counters).toContainText('Turning off')
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
-    await section.screenshot({ path: testInfo.outputPath(`slurm-hardware-counters-turning-off-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide' })
+    await omnistat.screenshot({ path: testInfo.outputPath(`slurm-hardware-counters-turning-off-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide' })
   })
 
   test('slurm-hardware-counters-on-dialog', async ({ page }, testInfo) => {
@@ -882,13 +882,13 @@ test.describe('Slurm hardware counters visual review', () => {
     await installApiFixtures(page, { slurmDeployed: true, platformDeploymentWorkflows: true, slurmHardwareCountersOff: true })
     await setAppearance(page, appearance)
 
-    await page.goto('/platforms/platform-slurm-ha/configuration?site=site-a')
-    const section = page.getByRole('region', { name: 'GPU hardware counters' })
-    await expect(section).toContainText('Every compute node runs Omnistat without the counters.')
+    await page.goto('/platforms/platform-slurm-ha/monitoring?site=site-a')
+    const omnistat = page.getByLabel('Omnistat', { exact: true })
+    const counters = page.getByRole('group', { name: 'GPU hardware counters (VALUBusy)' })
+    await expect(counters).toContainText('Every compute node runs Omnistat without the counters.')
     await prepareCapture(page, appearance)
-    await section.scrollIntoViewIfNeeded()
-    await section.screenshot({ path: testInfo.outputPath(`slurm-hardware-counters-off-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide' })
-    await section.getByRole('switch', { name: 'Collect GPU hardware counters (VALUBusy)' }).locator('..').click()
+    await omnistat.screenshot({ path: testInfo.outputPath(`slurm-hardware-counters-off-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide' })
+    await counters.getByRole('switch', { name: 'Collect GPU hardware counters' }).locator('..').click()
     await expect(page.getByRole('alertdialog', { name: 'Turn on GPU hardware counters' })).toBeVisible()
     await prepareCapture(page, appearance)
     await capture(page, testInfo, 'slurm-hardware-counters-on-dialog', false)

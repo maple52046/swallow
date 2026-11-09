@@ -221,13 +221,20 @@ export interface PlatformMonitoringEntry {
  * A part of a monitoring component that each Server reports on its own (Omnistat's hardware
  * counters on each compute node). The shared Monitoring route renders it under the component with a
  * link to each Server; `summary` is shown even while `servers` is empty (for example before the
- * install recorded them). `state` drives only the badge colour; `statusLabel` and `reason` carry the
- * meaning in text.
+ * install recorded them, or while the part is off). `state` drives only the badge colour;
+ * `statusLabel` and `reason` carry the meaning in text.
  */
 export interface PlatformMonitoringServerStates {
   title: string
   summary: string
   servers: ReadonlyArray<{ serverId: string; state: string; statusLabel: string; reason?: string }>
+  /**
+   * The module's control for this part, rendered right under its title with the Platform
+   * workspace's section props, so the setting is changed where its outcome is read (for example the
+   * switch that turns Omnistat's hardware counters on or off). It owns its own requests and dialogs
+   * and calls `onChanged` after an accepted change.
+   */
+  Control?: ComponentType<PlatformSectionProps>
 }
 
 /** Monitoring entries another module contributes to one Platform type. */
