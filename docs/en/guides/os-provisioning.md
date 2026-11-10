@@ -148,7 +148,8 @@ Some Servers sit on a network whose DHCP is run by the site, not by the
 provisioner, so they cannot PXE-boot into it. For those, the Server's BMC mounts
 a swallow-built [Boot ISO](../../development/glossaries/terms/boot-iso.md) as
 virtual media and boots it first. The ISO takes an address from the site's DHCP
-and chains to that Server's provisioner.
+(or a static address typed at the Server's console) and chains to that Server's
+provisioner.
 
 A libvirt virtual machine has no BMC. When its `virsh` power configuration names
 a hypervisor that is a swallow Server, its Boot Media goes through that
@@ -175,20 +176,52 @@ with a Boot ISO sets this up for you.
 - **Fixed boot flow:** swallow renders a fixed script rather than accepting
   script edits. It gets DHCP from the site network, sets the rack as
   `next-server`, and never uses the DHCP boot filename. The firmware decides
-  which boot loader runs: BIOS runs iPXE, which chains the rack's `ipxe.cfg`
-  (DHCP retries after failure, and Ctrl-B opens the iPXE shell); UEFI runs a
-  GRUB built into the ISO, which takes a DHCP lease and loads the rack's
-  `grub/grub.cfg-<mac>`, MAAS's own UEFI path, and returns to the next firmware
-  boot device if MAAS does not boot it. That matters because MAAS gives a
-  Machine an EFI system partition only when it saw a UEFI boot; without one, a
+  which boot loader runs: BIOS runs iPXE, which chains the rack's `ipxe.cfg`;
+  UEFI runs a GRUB built into the ISO, which takes a DHCP lease and loads the
+  rack's `grub/grub.cfg-<mac>`, MAAS's own UEFI path, followed by MAAS's default
+  configuration, which enlists a machine MAAS does not know yet; it returns to
+  the next firmware boot device if MAAS does not boot it. That matters because MAAS gives
+  a Machine an EFI system partition only when it saw a UEFI boot; without one, a
   UEFI disk deployment fails while installing GRUB. The synchronous build
   normally takes seconds.
+- **Boot mode menu:** both boot loaders first show a text menu on the Server's
+  console (BMC KVM or VM console): **DHCP (default)** or **Static IPv4
+  address**; BIOS also offers the iPXE shell. With no key pressed, DHCP starts
+  after 10 seconds, so unattended inspections and deployments wait only that
+  long. When DHCP fails, BIOS shows why for a few seconds and returns to the
+  menu, whose countdown retries. UEFI first lists the network cards GRUB can use
+  (up to 64), asks every card for a DHCP lease at once, and then tries the cards
+  that answered one at a time: it takes a DHCP lease on that card alone and
+  checks that the rack is reachable through it, so a broken card or a card on
+  another network shows its own result and the next card is still tried. When
+  no card reaches the rack, every card is tried one at a time after 10 seconds,
+  and Esc returns to the menu. A card missing from the list is one the
+  firmware does not give to boot loaders (for example its UEFI network stack or
+  UEFI PXE is off) or whose UEFI driver failed to start; enable it in the
+  firmware settings.
+- **Static IPv4 address:** choose the network card from the list (each shows its
+  MAC), then enter the IPv4 address, subnet mask (for example `255.255.255.0`),
+  and gateway (leave it empty when the rack is on the same subnet). On BIOS
+  this is a form: move between fields with the arrow keys, edit with
+  Backspace, and press Enter on the last field or Ctrl-X to continue. On UEFI
+  each value is a row: select it, type the value, and press Enter; Backspace
+  does not work there, so select the row again to fix a typo, then choose
+  **Continue**. When the rack address is a hostname, UEFI also asks for a DNS
+  server; BIOS needs the rack as an IPv4 address. A value that is not an
+  address, or a rack that cannot be reached, brings the settings back with the
+  reason. The values are typed at every boot and never stored. The static
+  address only reaches the rack: MAAS still takes a DHCP lease when it enlists,
+  commissions, deploys, or rescues the machine, so those still need DHCP on
+  that network. Without any DHCP, a static address only lets a deployed Server
+  boot its disk through the ISO.
 - **Rebuild after a template change:** a card marked **UEFI needs rebuild** was
   built before the UEFI hand-off. Choose **Rebuild** (or **More → Rebuild Boot
   ISO**): swallow renders the current script for the same rack and replaces the
   file at the same URL, so no Boot Media setting changes. Then inspect each
   UEFI Server that uses it again before its next deployment, so MAAS records the
-  UEFI boot and recreates its disk layout with an EFI system partition.
+  UEFI boot and recreates its disk layout with an EFI system partition. A Boot
+  ISO built before the boot mode menu only takes DHCP; rebuild it to get the
+  menu and the static mode.
 - **Boot compatibility:** each ISO contains iPXE v2.0.0 for BIOS and a GRUB for
   UEFI x86_64. Neither is signed, so turn off Secure Boot on Servers that use it.
 - **Manage the small setup:** the page uses one card per configured ISO rather

@@ -192,7 +192,8 @@ func (b *GenfsimgBuilder) Build(ctx context.Context, id string, content provisio
 		return fmt.Errorf("%w: %s: %s", provisioningdomain.ErrBootISOBuildFailed, tool, summary)
 	}
 	// The configuration goes into GRUB's memdisk as /boot/grub/grub.cfg, which GRUB reads at start;
-	// locales, fonts, and themes are left out because the UEFI path only prints status lines.
+	// locales, fonts, and themes are left out because the UEFI path only prints status lines and
+	// text menus on the firmware console.
 	if out, err := b.run(buildCtx, work, "grub-mkstandalone",
 		"-O", "x86_64-efi", "-d", grubModuleDir, "-o", grubImage,
 		"--locales=", "--fonts=", "--themes=",

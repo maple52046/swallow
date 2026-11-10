@@ -530,7 +530,7 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
   （數秒，不需要 durable Workflow）。名稱在同一 Integration 內唯一（不分大小寫）、1–63 字元；rack 位址為 IPv4
   或 hostname，可帶 `:port`（預設 5248），swallow 不解析也不連線。
 - script 一律由 swallow 的**固定範本**產生，沒有 free-form script：iPXE script（BIOS）與 GRUB 設定（UEFI）
-  都只填入 rack 位址（§5.2）。
+  都只填入 rack 位址（§5.2）。開機時在 console 輸入的靜態位址不進 ISO，也不存進 swallow。
 - **runtime 不需要 compiler**：api-server image 內含從固定 tag（iPXE `v2.0.0`，並核對 commit）編譯、不內嵌
   script 的 `ipxe.lkrn`，iPXE 的 `genfsimg`，以及 `grub-common`（`grub-mkstandalone`）、`grub-efi-amd64-bin`、
   mtools、xorriso、ISOLINUX／syslinux。每個 ISO 以 `genfsimg -s autoexec.ipxe` 打包：BIOS 的 `ipxe.lkrn` 以該
@@ -547,16 +547,61 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
 
 韌體決定走哪條路徑；Boot ISO 不能用來選擇 Server 的韌體模式。
 
-- **BIOS（ISOLINUX → iPXE）**：從站點 DHCP 取得租約，`next-server` 設為 rack（MAAS 後續 script 以它組 URL），
-  chain `http://<rack>:<port>/ipxe.cfg`，不使用 DHCP 的 boot filename，所以站點的 PXE server 不會接手；DHCP
-  失敗或 chain 返回就重試（Ctrl-B 進 iPXE shell）。
-- **UEFI（x86_64，ISO 自己的 GRUB）**：載入 `efinet`、`http` 與分割表模組 `part_gpt`、`part_msdos`；以
-  `net_bootp` 取得站點 DHCP 租約（每十秒重試，直到 `efinet0`…`efinet15` 之一有租約），取第一張有租約的網卡，
-  `net_default_interface` 設為 `<card>_dhcp`（GRUB 自己的變數命名，讓 MAAS 的 `BOOTIF` 能解出
-  `net_default_mac`）、`net_default_server` 設為 rack，兩者 export 給 MAAS 的設定，再經 HTTP 載入 rack 的
-  `grub/grub.cfg-<mac>`。這是 MAAS 原生的 UEFI 路徑：MAAS 記錄 `bios_boot_method=uefi`、以該 MAC 辨識
-  Machine（或 enlist 未知機器），下次 commission 給它 EFI system partition。MAAS 沒有開機時 GRUB 退回韌體的
-  下一個開機裝置。
+兩條路徑都先顯示 bootloader 自己的**開機模式選單**（BMC 的 KVM、virtual console 或 VM console 上的文字畫面，以方向鍵
+與 Enter 操作）：`DHCP`（預設）與 `Static IPv4 address`，iPXE 另有 `iPXE shell`。十秒內沒有選擇就走 DHCP，所以無人值守
+的開機（inspection、部署）只多等十秒；選了靜態之後就沒有 timeout。
+
+- **BIOS（ISOLINUX → iPXE）**：
+  - DHCP：從站點 DHCP 取得租約，`next-server` 設為 rack（MAAS 後續 script 以它組 URL），chain
+    `http://<rack>:<port>/ipxe.cfg`，不使用 DHCP 的 boot filename，所以站點的 PXE server 不會接手。DHCP 失敗或 chain
+    返回時顯示原因五秒，回到選單，由選單的倒數重試。
+  - 靜態：從網卡清單（名稱、MAC、晶片）選一張，再以 iPXE 的表單（`form`／`present`）填 IPv4 address、Subnet mask、
+    Gateway（可留空）；iPXE 拒絕不是 IPv4 的值，位址或 mask 留空時要求重填。先關閉所有網卡再只開啟所選的一張：MAAS 的
+    `ipxe.cfg` 與 per-MAC 設定以未指定網卡的 `${mac}` 組 URL 與 `BOOTIF`，iPXE 以最近開啟的網卡（`netX`）解出它。之後改選
+    DHCP 時清除存在網卡上的靜態值（它們優先於 DHCP 租約）。
+  - rack 必須是 IPv4：`next-server` 是 IPv4 型別的設定，hostname 存不進去，所以 BIOS 的表單沒有 DNS 欄位。
+- **UEFI（x86_64，ISO 自己的 GRUB）**：載入 `efinet`、`http`、`read`、`regexp`、`sleep` 與分割表模組 `part_gpt`、
+  `part_msdos`。
+  - DHCP：先列出 GRUB 找到的網卡與 MAC。efinet 列舉時會**不帶任何訊息**略過 firmware 沒交給 bootloader 的網卡（例如
+    UEFI network stack 或該 port 的 UEFI PXE 沒開），以及 SNP `start`／`initialize` 失敗的網卡，所以這份清單是唯一看得出
+    網卡缺少的地方。範本最多處理 `efinet0`…`efinet63`：GPU server 的 firmware 交給 GRUB 的網卡常超過 16 張（例如 pvt250
+    有 14 個 Broadcom port、一對 Intel X550 與 BMC 的 USB 網卡，唯一接線的 X550 port 排在第 16 張之後），還有第 65 張時
+    清單會註明多出來的網卡被略過。
+    - 第一輪同時對所有網卡 `net_bootp`（約 12 秒），因為 GPU server 有許多沒接線的 port，逐張問時每一張都要等完整的
+      DHCP 逾時。這時以 `net_<card>_dhcp_ip` 變數分辨哪些網卡有回應，只有這一輪可以信任它們：GRUB 2.06 在介面移除後
+      仍保留這些變數的 write hook，它們在同一個 context 裡會永遠停在第一次租約的值（`unset` 與 `set` 都無效）；標記
+      第一輪的 `swallow_dhcp_asked` 也是 export 的變數，與它們存在同一條 context 鏈上，所以兩者一致。移除這一輪的租約後，
+      只對有回應的網卡逐張嘗試。之後每一輪對每張網卡逐張嘗試。
+    - 嘗試一張網卡就是單獨對它跑 `net_bootp <card>`，依網卡順序：沒有 DHCP 回應或驅動送不出封包的網卡，會在自己那一段
+      印出 GRUB 的錯誤與「no DHCP lease」，然後換下一張，所以一張網卡壞掉不會擋住其他網卡；也只有正在嘗試的那張網卡的
+      路由決定流量怎麼到 rack。有沒有租約以 `net_bootp` 的結果判斷，不看那些變數；拿到租約時以 `net_ls_addr` 顯示實際
+      位址。
+    - 拿到租約的網卡必須先取得 rack 的靜態檔 `ipxe.cfg`（不會在 MAAS 留下紀錄，`grub.cfg-<mac>` 會），才以這張網卡的
+      MAC 載入設定：`net_default_interface` 設為 `<card>_dhcp`（GRUB 自己的變數命名，讓 MAAS 的 `BOOTIF` 能解出
+      `net_default_mac`）、`net_default_server` 設為 rack，兩者 export 給 MAAS 的設定，再經 HTTP 載入 rack 的
+      `grub/grub.cfg-<mac>`，接著和 MAAS 自己的 `grub/grub.cfg` pre-loader 一樣載入 `grub.cfg-default-${grub_cpu}`：rack 對
+      不認識的 MAC 回 404，只有 default 設定會 enlist 新機器（2026-11-10 在 pvt250 發現少了這一步，UEFI 的新機器因此一直
+      回到韌體）。這是 MAAS 原生的 UEFI 路徑：MAAS 記錄 `bios_boot_method=uefi`、以該 MAC 辨識 Machine，下次 commission
+      給它 EFI system partition。兩者都沒有讓機器開機時，GRUB 退回韌體的下一個開機裝置。
+    - 第一輪同時問所有網卡時，每張沒回應的網卡都會在 GRUB 只有十格的錯誤堆疊留下一筆，沒接線的 port 很多時會多印出
+      「error stack overflow」；畫面上會說明這是無害的。
+    - 連不到 rack 的網卡會移除路由與介面（DHCP 沒給 router 時，刪除不存在的 `:default` 路由不會出錯），再換下一張。
+      全部失敗時十秒後重試每一張，等待時按 Esc 回到選單。第一輪之後，沒有 DHCP 的網卡每一輪都要等它自己的 DHCP 逾時
+      （約 12 秒）。
+  - 靜態：網卡清單（名稱、MAC）之後是設定畫面，每列顯示一個欄位與目前的值：Network card、IPv4 address、Subnet mask、
+    Gateway（可留空），rack 是 hostname 時多一列 DNS server，最後是 `Continue` 與 `Back to the boot mode menu`。選一列就在
+    console 輸入那個值，完成後回到設定畫面並顯示新值；GRUB 的 `read` 不支援 Backspace，打錯就再選一次那一列。
+    `Continue` 檢查格式、以 Go 產生的對照表把 mask 換成 prefix，加入 `swallow_static` 介面、本地網段與 gateway 的路由
+    （以及 DNS），再以 `swallow_static` 與它的 MAC 載入同一個 `grub.cfg-<mac>`；任何一步失敗，或 MAAS 沒有讓機器開機，
+    就移除加入的設定，回到設定畫面並在第一列顯示原因。
+  - 每個畫面都是 `submenu`：GRUB 先執行 submenu 的內容、再顯示它的選單，換畫面不會累積 GRUB 有上限（數十層）的 script
+    遞迴；畫面之間只以 export 的變數傳值，Esc 回到上一個畫面與它當時的值。網卡在開機時探測一次（探測失敗會印錯誤，而
+    submenu 內印出錯誤會讓 GRUB 等待按鍵）。`net_add_addr` 會自動加一條 classful 的 `<name>:local` 路由（10.x 是 /8），
+    它比 gateway 的預設路由更具體，`net_del_addr` 也不會刪它，所以靜態介面與網卡探測都自己刪掉這條路由。
+- **靜態位址只負責連到 rack**：MAAS 的 ephemeral 環境（enlist、commission、deploy、rescue）的 kernel 參數固定是
+  `ip=::::<hostname>:BOOTIF:dhcp`，會再做一次 DHCP，所以這些流程仍需要該網路有 DHCP。完全沒有 DHCP 時，靜態模式只適用於
+  已 deployed 的 Machine 經 ISO 轉本機開機（MAAS 回應本機開機設定，不需要 ephemeral 環境），而且每次開機都要有人在
+  console 輸入。
 - **已 deployed 的 Machine 走同一路徑**：Boot ISO 排第一時，MAAS 回應本機開機設定，搜尋每顆磁碟的 EFI system
   partition 並 chainload 已安裝的 loader；GRUB 會自動載入檔案系統模組但不會載入分割表模組，所以必須事先載入
   `part_gpt` 與 `part_msdos`，否則搜尋不到任何分割區。
@@ -588,6 +633,7 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
   ISOs 頁面標示 "UEFI needs rebuild" 並提供 Rebuild。BIOS 不受影響。rebuild 後，經舊路徑 commission 過的 UEFI
   Server 仍需重新 inspect（§6）。
 - 換 iPXE 版本要 rebuild 才會用上；每個 ISO 記錄自己的 `ipxeVersion`。
+- 開機模式選單（§5.2）之前建的 ISO 沒有選單，只走 DHCP；rebuild 後才有選單與靜態模式。
 - CLI 目前提供 `swallow provisioning boot-isos list|get|create|delete`，尚無 rebuild 指令。
 
 ### 5.5 刪除與已退場的 installation ISO
@@ -612,6 +658,15 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
   （decision 047）。
 - 原地 rebuild 而不是建新 ISO 再逐台切換：後者讓舊 ISO 對仍使用它的人保持錯誤，且每台 Server 都要改一次 Boot
   Media（decision 047）。
+- 靜態位址不帶進 MAAS 的 ephemeral 環境：唯一能附加 kernel 參數的地方是 MAAS 的 `kernel_opts`（未 enlist 的機器只有
+  全域值；已知的 Machine 改用第一個帶 `kernel_opts` 的 tag，它取代全域值），而這些參數接在 `---` 之後，curtin 會把
+  它們寫進已部署 OS 的開機參數；同一張網卡兩個 `ip=` 誰生效取決於 initramfs 的實作（Ubuntu 26.04 起從 initramfs-tools
+  換成 dracut）；把 console 輸入的值帶進參數只能依賴 MAAS 原樣輸出 bootloader 變數這種沒有文件保證的行為；即使可行，
+  沒有 DHCP 時每次開機（自動 inspection、部署的 ephemeral 開機與安裝後重開）都要有人輸入，違反無人值守的 Workflow
+  （decision 047）。
+- 用 bootloader 原生的文字 UI，而不是開進小型 Linux 以安裝程式式的介面設定再 kexec MAAS 的 kernel：後者要 swallow
+  自己解讀並執行 MAAS 的 bootloader 設定、無法 chainload 已部署機器的 EFI loader、需要新的 kernel 與 initramfs 建置
+  流程，並推翻 UEFI 走 MAAS 自己的 GRUB 路徑（decision 047）。
 
 ---
 

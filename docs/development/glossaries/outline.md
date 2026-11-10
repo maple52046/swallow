@@ -67,7 +67,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Power Configuration](terms/power-configuration.md): The power driver and parameters that let the provisioner switch and read a Server's power — family `bmc` (`ipmi`, `redfish`) or `virsh`, control `none`/`manual`/`automatic`; the password is write-only.
 - [Boot Media](terms/boot-media.md): A Server's setting that a chosen Boot ISO is attached and booted first to reach the provisioner on externally served networks — method `redfish` (BMC virtual media) or `libvirt` (a VM's CD-ROM on its Hypervisor); applied as a preflight and re-ensured before every inspection and OS Deployment.
 - [Hypervisor](terms/hypervisor.md): A deployed Server that runs libvirt virtual machines swallow can enroll by name and give Boot Media, reached over SSH with the Deployment Key; the provisioner still switches their power.
-- [Boot ISO](terms/boot-iso.md): A boot ISO swallow builds for one provisioner Integration that takes a site DHCP lease and boots through its MAAS rack — iPXE on BIOS, the ISO's own GRUB on UEFI; built from fixed templates, served by swallow, selected by Boot Media.
+- [Boot ISO](terms/boot-iso.md): A boot ISO swallow builds for one provisioner Integration that takes a site DHCP lease (or a static address typed at its console) and boots through its MAAS rack — iPXE on BIOS, the ISO's own GRUB on UEFI; built from fixed templates, served by swallow, selected by Boot Media.
 
 ### Platform Management
 

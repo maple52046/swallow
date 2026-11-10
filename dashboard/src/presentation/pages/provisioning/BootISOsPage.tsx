@@ -342,6 +342,12 @@ export function BootISOsPage() {
   )
 }
 
+/**
+ * Static explainer above the Boot ISO cards: the external-network boot path a Boot ISO gives a
+ * Server (decision 047). The steps show the default path through the Site's DHCP; the note adds
+ * the static IPv4 mode chosen at the Server's console, which only reaches the rack and is never
+ * stored. It reads no data and carries no state.
+ */
 function BootPathGuide() {
   const steps = [
     { label: 'Server BMC', icon: Server },
@@ -377,7 +383,9 @@ function BootPathGuide() {
         })}
       </ol>
       <Text className="sw-boot-iso-guide__note" color="fg.muted" fontSize="sm">
-        The BMC mounts the ISO; its boot loader (iPXE on BIOS, GRUB on UEFI) obtains a Site DHCP lease, then chains to the selected MAAS rack.
+        The BMC mounts the ISO; its boot loader (iPXE on BIOS, GRUB on UEFI) obtains a Site DHCP lease, then chains to the selected
+        MAAS rack. Its boot menu waits 10 seconds for someone at the Server&apos;s console to choose a static IPv4 address instead; that
+        address only reaches the rack, and MAAS still needs DHCP to commission or deploy.
       </Text>
     </div>
   )

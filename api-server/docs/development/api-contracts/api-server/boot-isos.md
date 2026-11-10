@@ -16,7 +16,8 @@ Active
 ## Purpose
 
 Build, rebuild, list, and delete Boot ISOs: swallow-built boot ISOs, one provisioner Integration
-each, that take an address from the site's own DHCP and hand off to that provisioner's MAAS rack
+each, that take an address from the site's own DHCP (or a static IPv4 address typed at the
+machine's console) and hand off to that provisioner's MAAS rack
 (iPXE chaining `ipxe.cfg` on BIOS firmware; the ISO's own GRUB loading MAAS's per-MAC GRUB
 configuration on UEFI) ([decision 047](../../../../../docs/decisions/047-redfish-boot-media.md) (redfish boot media),
 decision 047). A Server's Boot
@@ -80,8 +81,8 @@ mounts the URL with no way to send a token; it is described in
 | `name` | User name, unique per Integration (case-insensitive), 1–63 characters. |
 | `siteId`, `integrationId` | The provisioner Integration the ISO chains to, and its Site. Only a Server of this Integration may use it. `siteId` is `""` when the Integration no longer exists, so its ISO can still be listed and deleted. |
 | `rackAddress` | The MAAS rack address as given: an IPv4 address or hostname, optionally with `:port`. |
-| `chainUrl` | Where iPXE chains after DHCP on BIOS firmware: `http://<rack host>:<port or 5248>/ipxe.cfg`. |
-| `uefiChainUrl` | What the ISO's GRUB loads after DHCP on UEFI firmware: `http://<rack host>:<port or 5248>/grub/grub.cfg-<mac>`, `<mac>` being the interface that took the lease. `""` for an ISO without a GRUB (built before decision 047, which sends UEFI firmware through iPXE too); rebuild it. |
+| `chainUrl` | Where iPXE chains once the network is up on BIOS firmware: `http://<rack host>:<port or 5248>/ipxe.cfg`. |
+| `uefiChainUrl` | What the ISO's GRUB loads once the network is up on UEFI firmware: `http://<rack host>:<port or 5248>/grub/grub.cfg-<mac>`, `<mac>` being the interface that took the lease or the static address; when MAAS has no configuration for that MAC (a machine it does not know), the GRUB then loads `grub/grub.cfg-default-x86_64` from the same rack. `""` for an ISO without a GRUB (built before decision 047, which sends UEFI firmware through iPXE too); rebuild it. |
 | `script` | The iPXE script BIOS firmware runs, rendered from swallow's fixed template (`autoexec.ipxe`). Display only. |
 | `grubConfig` | The GRUB configuration UEFI firmware runs, rendered from swallow's fixed template and embedded in the ISO's GRUB. `""` for an ISO that predates it. Display only. |
 | `ipxeVersion` | The iPXE release the ISO was built with. |
@@ -92,13 +93,23 @@ mounts the URL with no way to send a token; it is described in
 | `rebuiltAt`, `rebuiltBy` | When and by whom it was last rebuilt; omitted when it never was. |
 
 Both paths serve networks whose DHCP is not the provisioner's, and the firmware chooses between
-them. On BIOS (ISOLINUX) the ISO boots iPXE: take a DHCP lease, set `next-server` to the rack,
-chain `ipxe.cfg`, and retry DHCP after a failure (Ctrl-B opens the iPXE shell). On UEFI (x86_64)
-it boots its own GRUB: take a DHCP lease (retried every ten seconds), then load the rack's
-per-MAC configuration over HTTP — MAAS's own UEFI path, so MAAS records a UEFI boot and gives the
-Machine the EFI system partition its deployment needs; if MAAS does not boot it, GRUB returns to
-the firmware. Neither iPXE nor swallow's GRUB is signed: a Server booting the ISO must have Secure
-Boot off.
+them. Each opens with a boot mode menu at the machine's console: DHCP by default after ten
+seconds, or a static IPv4 address. On BIOS (ISOLINUX) the ISO boots iPXE: take a DHCP lease, set
+`next-server` to the rack, and chain `ipxe.cfg`; a failed DHCP or chain returns to the menu, whose
+countdown retries (the menu also opens the iPXE shell). Its static mode lists the interfaces and
+presents a form for the address, subnet mask, and gateway; it needs an IPv4 rack address. On UEFI
+(x86_64) it boots its own GRUB: list the network cards GRUB can use (up to 64), ask every card for
+a DHCP lease at once, then try the cards that answered one at a time — take a DHCP lease on it
+alone and check that the rack is reachable through it, moving on to the next card otherwise
+(after that, every card is tried one at a time every ten seconds; Esc returns to the menu) — then
+load the rack's per-MAC configuration over HTTP with that card's MAC, followed, as in MAAS's own
+GRUB pre-loader, by its default configuration, which enlists a machine MAAS does not know yet — MAAS's own UEFI path, so MAAS
+records a UEFI boot and gives the Machine the EFI system partition its deployment needs; if MAAS
+does not boot it, GRUB returns to the firmware. Its static mode lists the cards, then a settings
+screen for the address, subnet mask, gateway, and, for a hostname rack, a DNS server. The static
+address only reaches the rack: it is not stored in the ISO or this record, and MAAS's ephemeral
+environment still takes its own DHCP lease. Neither iPXE nor swallow's GRUB is signed: a Server
+booting the ISO must have Secure Boot off.
 
 ## List
 

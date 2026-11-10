@@ -58,8 +58,14 @@ and every disk deployment failed in curtin.
   an embedded script, and packages each ISO with iPXE's `genfsimg`.
 - **The firmware chooses the boot loader.** BIOS runs iPXE, which chains the rack's `ipxe.cfg`. UEFI
   runs a GRUB built for the ISO from a swallow template, which takes the lease itself and loads the
-  rack's `grub/grub.cfg-<mac>`: MAAS's own UEFI path, so MAAS records `uefi` and commissioning gives an
-  EFI system partition. Deployed Machines boot their installed loader through the same path.
+  rack's `grub/grub.cfg-<mac>`, then, as MAAS's own GRUB pre-loader does, its default configuration,
+  which enlists a machine MAAS does not know: MAAS's own UEFI path, so MAAS records `uefi` and
+  commissioning gives an EFI system partition. Deployed Machines boot their installed loader through
+  the same path.
+- **Both boot loaders open with a boot mode menu**, in their own text UI: DHCP by default after ten
+  seconds, or a static IPv4 address typed at the console (iPXE's form on BIOS, GRUB menus on UEFI).
+  The static address only reaches the rack; it is never stored, and MAAS's ephemeral environment still
+  takes its own DHCP lease.
 - **Boot ISOs are rebuilt in place** from the current templates and the stored rack address, under the
   same id, so every setting and accepted Workflow naming it stays valid; a failed rebuild keeps the
   previous file.
@@ -96,6 +102,13 @@ and every disk deployment failed in curtin.
   of the symptom; every new UEFI Server would need them.
 - **Build a new Boot ISO and switch every Server instead of rebuilding:** rejected; the old ISO stays
   wrong and every Server needs a Boot Media change.
+- **Carry the static address into MAAS's ephemeral environment through `kernel_opts`:** rejected after
+  research; MAAS appends those options after `---`, so curtin copies a static `ip=` into the deployed OS,
+  which `ip=` wins depends on the initramfs, a typed value reaches them only through undocumented
+  rendering of boot loader variables, and every unattended boot would still need someone at the console.
+- **Boot a small Linux with an installer-style UI that kexecs MAAS's kernel:** rejected; swallow would
+  interpret MAAS's boot loader configurations itself, could not chainload a deployed Machine's EFI
+  loader, and would need a kernel and initramfs build.
 - **Only warn about a layout that needs a new inspection:** rejected; every disk deployment of such a
   Server fails after minutes of work.
 
@@ -111,6 +124,9 @@ and every disk deployment failed in curtin.
 - Secure Boot must be off: neither iPXE nor swallow's GRUB is signed. A new iPXE version, like a fixed
   template, reaches a Boot ISO only through a rebuild; UEFI Servers commissioned through the old path
   also need a new inspection.
+- Every boot from a Boot ISO waits up to ten seconds at the boot mode menu. A network without any
+  DHCP still cannot enlist, commission, or deploy through a Boot ISO; there a static address only lets
+  a deployed Machine boot its disk, typed again at every boot.
 - Boot Media is not yet a spec/status resource under
   [decision 069](069-swallow-owns-desired-state.md) (swallow owns desired state); it keeps this
   behavior until its migration is designed.
@@ -121,3 +137,5 @@ and every disk deployment failed in curtin.
 - 2026-10-05: decision 047 replaced the installation-supplied ISO with Boot ISOs that swallow builds per provisioner from fixed templates.
 - 2026-10-13: decision 047 booted UEFI through the ISO's own GRUB into MAAS's UEFI path, rebuilt Boot ISOs in place, and (revised 2026-10-19) refused disk deployments of Servers whose layout needs a new inspection.
 - 2026-11-02: merged decision 047 into this ADR; the body states the current decision.
+- 2026-11-10: Boot ISOs open with a boot mode menu, DHCP by default or a static IPv4 address typed at the console that only reaches the rack, because MAAS's ephemeral environment cannot take a static address.
+- 2026-11-10: the UEFI GRUB also loads MAAS's default configuration after the per-MAC one, because the rack answers an unknown MAC with 404 and a new UEFI machine (pvt250) never enlisted.

@@ -129,7 +129,8 @@ Software Assignment，因為軟體隨 OS 一起消失。
 有些 Server 所在網路的 DHCP 由現場提供、而不是 provisioner，因此無法 PXE 開機進入 provisioner。
 對這類 Server，BMC 會以 virtual media 掛載 swallow 建置的
 [Boot ISO](../../development/glossaries/terms/boot-iso.md) 並優先開機。ISO 先從
-現場 DHCP 取得位址，再 chain 到該 Server 的 provisioner。
+現場 DHCP 取得位址（或使用在 Server console 輸入的靜態位址），再 chain 到該 Server 的
+provisioner。
 
 libvirt virtual machine 沒有 BMC。當它的 `virsh` power configuration 指向一台 swallow
 Server 作為 hypervisor 時，Boot Media 改由該 hypervisor 處理：swallow 把 Boot ISO 上傳到
@@ -152,17 +153,38 @@ development build 的實驗功能，CLI 與 API 則在每個 release 都提供�
   swallow 不會解析或連線測試。
 - **固定開機流程：** swallow 使用固定的 template render script，不提供 script
   編輯。它從現場網路取得 DHCP、將 rack 設為 `next-server`，不使用 DHCP boot
-  filename，接著由韌體決定開機程式：BIOS 執行 iPXE，chain 到 rack 的 `ipxe.cfg`
-  （DHCP 失敗時會 retry，Ctrl-B 可開啟 iPXE shell）；UEFI 執行 ISO 內建的 GRUB，
-  自行取得 DHCP 租約後載入 rack 的 `grub/grub.cfg-<mac>`，也就是 MAAS 原生的 UEFI
-  路徑；MAAS 沒有接手開機時就交給 firmware 的下一個 boot device。這很重要，因為
-  MAAS 只有看到 UEFI 開機時才會給 Machine EFI 系統分割區；少了它，UEFI 的 disk
-  deploy 會在安裝 GRUB 時失敗。同步建置通常只需數秒。
+  filename，接著由韌體決定開機程式：BIOS 執行 iPXE，chain 到 rack 的 `ipxe.cfg`；
+  UEFI 執行 ISO 內建的 GRUB，自行取得 DHCP 租約後載入 rack 的
+  `grub/grub.cfg-<mac>`，也就是 MAAS 原生的 UEFI 路徑，接著載入 MAAS 的 default 設定，
+  讓 MAAS 還不認識的機器 enlist；MAAS 沒有接手開機時就交給 firmware 的下一個 boot
+  device。這很重要，因為 MAAS 只有看到 UEFI 開機時才會給
+  Machine EFI 系統分割區；少了它，UEFI 的 disk deploy 會在安裝 GRUB 時失敗。同步
+  建置通常只需數秒。
+- **開機模式選單：** 兩種開機程式都會先在 Server 的 console（BMC KVM 或 VM
+  console）顯示文字選單：**DHCP (default)** 或 **Static IPv4 address**；BIOS 另有
+  iPXE shell。沒有按任何鍵時，10 秒後開始 DHCP，所以無人值守的 inspection 與
+  deployment 只多等這 10 秒。DHCP 失敗時，BIOS 會顯示原因幾秒後回到選單，由選單的
+  倒數重試。UEFI 會先列出 GRUB 可用的網卡（最多 64 張），同時向所有網卡要 DHCP 租約，再對
+  有回應的網卡一次只試一張：單獨在那張網卡上取得 DHCP 租約，並確認透過它連得到 rack；所以
+  本身有問題或接在其他網路的網卡，都會顯示自己的結果，並繼續嘗試下一張。沒有任何網卡連到
+  rack 時，10 秒後改為逐張嘗試每一張網卡，按 Esc 回到選單。清單裡沒有出現的網卡，是 firmware 沒有交給 bootloader（例如它的 UEFI network
+  stack 或 UEFI PXE 沒開），或它的 UEFI 驅動沒有啟動成功；請在 firmware 設定中開啟。
+- **靜態 IPv4 位址：** 從清單選擇網卡（每一列顯示它的 MAC），再輸入 IPv4 位址、
+  subnet mask（例如 `255.255.255.0`）與 gateway（rack 在同一個 subnet 時留空）。
+  BIOS 上是一個表單：用方向鍵切換欄位、用 Backspace 修改，在最後一個欄位按 Enter
+  或按 Ctrl-X 繼續。UEFI 上每個值是一列：選取它、輸入值後按 Enter；那裡不支援
+  Backspace，打錯就再選一次那一列，最後選 **Continue**。rack 位址是 hostname 時，
+  UEFI 還會詢問 DNS server；BIOS 需要以 IPv4 指定 rack。值不是位址或連不到 rack
+  時，會回到設定畫面並顯示原因。這些值每次開機都要輸入，不會儲存。靜態位址只負責
+  連到 rack：MAAS 在 enlist、commission、deploy 或 rescue 時仍會取得 DHCP 租約，
+  所以這些流程仍需要該網路有 DHCP。完全沒有 DHCP 時，靜態位址只能讓已部署的
+  Server 經由 ISO 從自己的磁碟開機。
 - **範本變更後要 Rebuild：** 標示 **UEFI needs rebuild** 的 card 是在 UEFI 分流之前
   建置的。按 **Rebuild**（或 **More → Rebuild Boot ISO**）：swallow 會為同一個 rack
   render 目前的 script，並在同一個 URL 取代檔案，因此不需要改任何 Boot Media 設定。
   之後，使用它的每台 UEFI Server 在下次部署前要重新 inspect，讓 MAAS 記錄 UEFI 開機，
-  並以含 EFI 系統分割區的磁碟配置重建。
+  並以含 EFI 系統分割區的磁碟配置重建。開機模式選單之前建置的 Boot ISO 只會走
+  DHCP；Rebuild 後才有選單與靜態模式。
 - **開機相容性：** 每個 ISO 內含 BIOS 用的 iPXE v2.0.0 與 UEFI x86_64 用的 GRUB。
   兩者都未簽署，因此使用它的 Server 必須關閉 Secure Boot。
 - **管理少量設定：** 頁面不再使用 inventory table，而是每個已設定 ISO 一張 card。

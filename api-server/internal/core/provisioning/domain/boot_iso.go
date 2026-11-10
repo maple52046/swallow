@@ -9,8 +9,10 @@ import (
 )
 
 // BootISO is a swallow-built network boot ISO for one provisioner Integration (decision 047): a
-// machine that boots it takes an address from the site's own DHCP and then chains to that
-// provisioner's boot server. A Server's Boot Media mounts one through its BMC.
+// machine that boots it takes an address from the site's own DHCP — or, when someone at its
+// console chooses so, a static address typed there — and then chains to that provisioner's boot
+// server. The static address is never part of the ISO or this record. A Server's Boot Media
+// mounts one through its BMC.
 //
 // Script (the script BIOS firmware runs) and GRUBConfig (the GRUB configuration UEFI firmware runs)
 // are rendered by the provisioner's BootChainRenderer from its fixed templates; users never
