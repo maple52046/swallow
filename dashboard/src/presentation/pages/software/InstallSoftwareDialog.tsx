@@ -321,11 +321,11 @@ export function InstallSoftwareDialog({
                   colorPalette="brand"
                   className="sw-software-picker-grid"
                   onValueChange={(details) => {
-                    if (details.value) chooseKind(details.value as SoftwareKind)
+                    if (details.value) chooseKind(details.value)
                   }}
                 >
                   {group.entries.map((candidate) => {
-                    const presentation = softwareCatalogPresentation(candidate.kind)
+                    const presentation = softwareCatalogPresentation(candidate)
                     const blocker = softwareChoiceBlocker(candidate)
                     const assignment = assignments.find((item) =>
                       item.serverId === fixedServer.id && item.kind === candidate.kind

@@ -8,7 +8,7 @@ import {
 } from '@/application/usecases/software/loadSoftwareWorkspace'
 import { useApp } from '@/di/AppProvider'
 import { serverDisplayName } from '@/domain/server/types'
-import { isSoftwareKind, type SoftwareAssignment } from '@/domain/software/types'
+import type { SoftwareAssignment } from '@/domain/software/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ModuleSettingsDetails } from '@/presentation/components/ModuleSettings'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -71,7 +71,8 @@ export function SoftwareDetailPage() {
   const [installTarget, setInstallTarget] = useState<'new' | SoftwareDeploymentRow | null>(null)
   const [uninstalling, setUninstalling] = useState<SoftwareAssignment | null>(null)
   const [viewingSettings, setViewingSettings] = useState<SoftwareDeploymentRow | null>(null)
-  const kind = requestedKind && isSoftwareKind(requestedKind) ? requestedKind : null
+  // Any route kind is looked up in the loaded catalog; one it does not publish is "not found".
+  const kind = requestedKind || null
 
   const load = useCallback(async (background = false) => {
     if (!kind) {
@@ -159,7 +160,7 @@ export function SoftwareDetailPage() {
   }
 
   const { entry } = state.data
-  const presentation = softwareCatalogPresentation(entry.kind)
+  const presentation = softwareCatalogPresentation(entry)
   const Icon = presentation.icon
   const query = searchParams.get('q') ?? ''
   const requestedLens = searchParams.get('state') as SoftwareDeploymentLens | null

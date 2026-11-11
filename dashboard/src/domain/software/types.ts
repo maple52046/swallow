@@ -9,25 +9,14 @@
 import type { SoftwareInstallMethod } from './installMethod'
 
 /**
- * A single installable software. Values are domain language owned by swallow's glossary;
- * `prometheus` and `grafana` install as containers (on Docker CE or Podman) or natively
- * (decision 063); `device-metrics-exporter` is AMD's per-GPU exporter, native only (decision 068);
- * `node-exporter` is the host exporter from the OS package, which an OS deployment also installs;
- * `victoriametrics` is a pinned single-node VictoriaMetrics, native only, configured through the
- * form its module's spec schema generates.
+ * A single installable software: the id of the Software module that provides it (decision 075),
+ * as the catalog publishes it (`GET /software/catalog`, software.md). The dashboard keeps no list
+ * of kinds: the catalog decides which exist, so a Software module added to a build appears here
+ * without a dashboard change. Code that treats one kind specially (curated catalog copy, dedicated
+ * settings fields, an assignment summary) compares against the module id and must keep a generic
+ * path for every kind it does not know.
  */
-export type SoftwareKind =
-  | 'docker-ce' | 'podman' | 'nfs' | 'prometheus' | 'grafana' | 'device-metrics-exporter' | 'node-exporter'
-  | 'victoriametrics'
-
-const SOFTWARE_KINDS: ReadonlySet<string> = new Set<SoftwareKind>([
-  'docker-ce', 'podman', 'nfs', 'prometheus', 'grafana', 'device-metrics-exporter', 'node-exporter', 'victoriametrics',
-])
-
-/** Narrows an untyped value (for example the kind inside a Workflow Job id) to a known SoftwareKind. */
-export function isSoftwareKind(value: string): value is SoftwareKind {
-  return SOFTWARE_KINDS.has(value)
-}
+export type SoftwareKind = string
 
 /** A variant of one software. NFS is the only first-cut kind with roles. */
 export type SoftwareRole = 'server' | 'client'

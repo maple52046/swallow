@@ -178,7 +178,7 @@ export function SoftwarePage() {
               </Box>
               <div className="sw-software-catalog-grid">
                 {group.entries.map((entry) => {
-                  const presentation = softwareCatalogPresentation(entry.kind)
+                  const presentation = softwareCatalogPresentation(entry)
                   const footprint = footprints.get(entry.kind)
                   const Icon = presentation.icon
                   return (

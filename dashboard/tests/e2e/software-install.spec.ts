@@ -474,6 +474,43 @@ test('an unknown software kind returns to the catalog safely', async ({ page }) 
   await expect(page).toHaveURL('/software?site=site-a')
 })
 
+// The catalog decides which kinds exist: a Software module the dashboard has no presentation for is
+// still listed, under Other software with its catalog label, and installs like any other kind.
+test('a Software kind without dashboard presentation is listed and installs', async ({ page }) => {
+  const installs: Array<Record<string, unknown>> = []
+  await installApiFixtures(page, {
+    fleetSize: 5,
+    extraSoftwareCatalog: [{
+      kind: 'example-agent', label: 'Example Agent', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false,
+      installMethods: [], containerRuntimes: [], specFields: [],
+    }],
+    onSoftwareInstallRequest: (body) => installs.push(body),
+  })
+  await page.goto('/software?site=site-a')
+
+  await expect(page.getByRole('heading', { name: 'Other software', exact: true })).toBeVisible()
+  const card = page.getByRole('link', { name: 'Open Example Agent' })
+  await expect(card).toContainText('Install Example Agent on deployed Servers and remove it again.')
+  await card.click()
+  await expect(page).toHaveURL('/software/example-agent?site=site-a')
+  await expect(page.getByRole('heading', { name: 'Example Agent', exact: true }).first()).toBeVisible()
+  await expect(page.getByText('Other software', { exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Install software', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Install software' })
+  await dialog.getByRole('textbox', { name: 'Search installation targets' }).fill('compute-node-005')
+  await dialog.getByText('Select all available results', { exact: true }).click()
+  await expect(dialog.getByRole('checkbox', { name: 'Select compute-node-005' })).toBeChecked()
+  await dialog.getByRole('button', { name: 'Next', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Install', exact: true }).click()
+
+  await expect(page).toHaveURL(/\/workflows\/op-docker-reapply\?site=site-a/)
+  expect(installs).toHaveLength(1)
+  expect(installs[0]).toMatchObject({ kind: 'example-agent' })
+  expect(installs[0].assignments).toHaveLength(1)
+  expect(installs[0].spec).toBeUndefined()
+})
+
 // AMD's Device Metrics Exporter is Managed Software (decision 068): it installs on an AMD GPU Server
 // no Platform claims, with nothing to configure, and is offered under Observability.
 test('the AMD Device Metrics Exporter installs on an AMD GPU Server with nothing to configure', async ({ page }) => {

@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { SoftwareKind } from '@/domain/software/types'
-import { isSoftwareKind } from '@/domain/software/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
@@ -32,7 +31,9 @@ export function SoftwareSettingsPage() {
   const { kind: routeKind } = useParams<{ kind: string }>()
   const [searchParams] = useSearchParams()
   const requested = routeKind ?? searchParams.get(SOFTWARE_SETTINGS_KIND_PARAM)
-  const requestedKind = requested && isSoftwareKind(requested) ? requested : null
+  // A kind without an entry in KIND_SETTINGS, including one the catalog does not publish, has no
+  // settings and gets the empty state below.
+  const requestedKind = requested || null
   const selected = KIND_SETTINGS.find((group) => group.kind === requestedKind)
     ?? (routeKind ? null : KIND_SETTINGS[0])
 

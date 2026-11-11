@@ -62,16 +62,12 @@ import type {
   DockerNetwork,
   DockerVolume,
 } from '@/domain/software/docker'
-import type { SoftwareOperationReference } from '@/domain/software/types'
+import type { SoftwareAssignment, SoftwareCatalogEntry, SoftwareOperationReference } from '@/domain/software/types'
 import type { ItemsEnvelope as DockerItemsEnvelope } from './ApiDockerHostRepository'
 import type { MetricRangeDto } from './ApiMonitoringRepository'
 import type { PlatformSpecWrite } from '@/application/platform/platformChangeResult'
 import type { PowerConfigurationDTO } from './ApiServerRepository'
-import type {
-  ItemsEnvelope as SoftwareItemsEnvelope,
-  WireSoftwareAssignment,
-  WireSoftwareCatalogEntry,
-} from './ApiSoftwareRepository'
+import type { ItemsEnvelope as SoftwareItemsEnvelope } from './ApiSoftwareRepository'
 import type { JsonResponse } from './contractTypes'
 import type { operations } from './generated/openapi'
 
@@ -385,9 +381,9 @@ export type ContractCompatibility = [
 
   // ApiSoftwareRepository
   // listCatalog: GET /api/v1/software/catalog
-  Assert<Readable<JsonResponse<operations['getSoftwareCatalog'], 200>, SoftwareItemsEnvelope<WireSoftwareCatalogEntry>>>,
+  Assert<Readable<JsonResponse<operations['getSoftwareCatalog'], 200>, SoftwareItemsEnvelope<SoftwareCatalogEntry>>>,
   // listAssignments: GET /api/v1/software/assignments
-  Assert<Readable<JsonResponse<operations['listSoftwareAssignments'], 200>, SoftwareItemsEnvelope<WireSoftwareAssignment>>>,
+  Assert<Readable<JsonResponse<operations['listSoftwareAssignments'], 200>, SoftwareItemsEnvelope<SoftwareAssignment>>>,
   // installSoftware: POST /api/v1/software/assignments
   Assert<Readable<JsonResponse<operations['installSoftware'], 202>, SoftwareOperationReference>>,
   // uninstallSoftware: POST /api/v1/software/uninstall

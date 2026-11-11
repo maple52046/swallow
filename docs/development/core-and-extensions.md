@@ -150,7 +150,7 @@ core 不 import 任何 adapter 或廠商 SDK，這一點已由 import 檢查守�
   常數、`operation.go` 的 Workflow kind 常數與 `builtInWorkflowKinds`、core `deploy_platform.go` 的 vars builder，以及
   上面列出的 `internal/app` 位置。完整的修改清單見 [platform-deployment.md](platform-deployment.md) §6.2。
 - **新的 Managed Software kind**：程式放在模組內（§4.3），core 不加 kind 常數；模組外仍要登錄的地方（`compiledModules`、
-  manifest、OpenAPI 的 Workflow kind、dashboard 的固定 kind 清單）見 [software-deployment.md](software-deployment.md) §2，
+  manifest、OpenAPI 的 Workflow kind，以及選用的 dashboard 專屬呈現）見 [software-deployment.md](software-deployment.md) §2，
   這些不是新的越界位置，不必登錄到本節。
 - **GPU 廠商專屬的行為**（新的廠商，或既有廠商的新功能）：先經 Accelerator 模組的 hook（§4.2）；hook 表達不了時，先以中性的詞彙擴充 platform domain
   的 `Accelerator` port。仍需要專屬流程的 Platform 功能（如 AMD 的 GPU Operator），允許比照 AMD 放在 `internal/app`；

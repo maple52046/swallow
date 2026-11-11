@@ -1,4 +1,4 @@
-import { Activity, Box, Container, Database, FolderSync, Gauge, LayoutDashboard, type LucideIcon } from 'lucide-react'
+import { Activity, Box, Container, Database, FolderSync, Gauge, LayoutDashboard, Package, type LucideIcon } from 'lucide-react'
 import { hasAMDComputeGPU } from '@/domain/platform/gpuOperator'
 import type { Server } from '@/domain/server/types'
 import { serverDisplayName } from '@/domain/server/types'
@@ -10,10 +10,16 @@ import type {
   SoftwareKind,
 } from '@/domain/software/types'
 
-/** Stable catalog section owned by Dashboard presentation, not by the software API. */
-export type SoftwareCategory = 'container-runtimes' | 'storage-file-sharing' | 'observability'
+/**
+ * Stable catalog section owned by Dashboard presentation, not by the software API. `other` holds
+ * every kind the dashboard has no curated presentation for.
+ */
+export type SoftwareCategory = 'container-runtimes' | 'storage-file-sharing' | 'observability' | 'other'
 
-/** Curated copy and visual identity for one fixed Managed Software kind. */
+/**
+ * Copy and visual identity for one Managed Software kind: curated for the kinds listed in
+ * `PRESENTATION`, generic (from the catalog label) for any other kind the catalog publishes.
+ */
 export interface SoftwareCatalogPresentation {
   category: SoftwareCategory
   description: string
@@ -62,7 +68,9 @@ export type SoftwareTargetBlocker =
   | 'mutually_exclusive'
   | 'server_unavailable'
 
-const PRESENTATION: Record<SoftwareKind, SoftwareCatalogPresentation> = {
+// Curated presentation by module id. A kind missing here is still listed: it gets the generic
+// presentation in the `other` section, so adding a Software module never requires an entry.
+const PRESENTATION: Readonly<Partial<Record<SoftwareKind, SoftwareCatalogPresentation>>> = {
   'docker-ce': {
     category: 'container-runtimes',
     description: 'Run and manage Docker workloads on deployed Servers, with optional access from the Containers workspace.',
@@ -145,6 +153,11 @@ const CATEGORIES: ReadonlyArray<Omit<SoftwareCatalogGroup, 'entries'>> = [
     label: 'Observability',
     description: 'Metrics collection and dashboards installed on a Server.',
   },
+  {
+    key: 'other',
+    label: 'Other software',
+    description: 'Other software this installation can install on a Server.',
+  },
 ]
 
 /** The singular badge naming one software's catalog section on its detail page. */
@@ -156,12 +169,25 @@ export function softwareCategoryBadge(category: SoftwareCategory): string {
       return 'Storage & file sharing'
     case 'observability':
       return 'Observability'
+    case 'other':
+      return 'Other software'
   }
 }
 
-/** Returns curated Dashboard presentation for a contract-owned software kind. */
-export function softwareCatalogPresentation(kind: SoftwareKind): SoftwareCatalogPresentation {
-  return PRESENTATION[kind]
+/**
+ * Returns the Dashboard presentation for one catalog entry: the curated copy for a kind the
+ * dashboard knows, otherwise a generic one named after the catalog's label, so a Software module
+ * the dashboard has never seen reads truthfully instead of disappearing.
+ */
+export function softwareCatalogPresentation(entry: Pick<SoftwareCatalogEntry, 'kind' | 'label'>): SoftwareCatalogPresentation {
+  return PRESENTATION[entry.kind] ?? {
+    category: 'other',
+    description: `Install ${entry.label} on deployed Servers and remove it again.`,
+    icon: Package,
+    order: 100,
+    capabilities: ['Install and uninstall'],
+    hasSettings: false,
+  }
 }
 
 /** Groups the small API catalog into stable app-catalog sections. */
@@ -169,8 +195,10 @@ export function groupSoftwareCatalog(catalog: readonly SoftwareCatalogEntry[]): 
   return CATEGORIES.map((category) => ({
     ...category,
     entries: catalog
-      .filter((entry) => PRESENTATION[entry.kind].category === category.key)
-      .sort((left, right) => PRESENTATION[left.kind].order - PRESENTATION[right.kind].order),
+      .filter((entry) => softwareCatalogPresentation(entry).category === category.key)
+      .sort((left, right) =>
+        softwareCatalogPresentation(left).order - softwareCatalogPresentation(right).order ||
+        left.label.localeCompare(right.label)),
   })).filter((category) => category.entries.length > 0)
 }
 

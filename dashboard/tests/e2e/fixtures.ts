@@ -1,6 +1,6 @@
 import { expect, type Page, type Route } from 'playwright/test'
 import type { HealthState, Server, ServerHealthCounts } from '@/domain/server/types'
-import type { SoftwareAssignment } from '@/domain/software/types'
+import type { SoftwareAssignment, SoftwareCatalogEntry } from '@/domain/software/types'
 
 const now = '2026-08-27T03:00:00Z'
 
@@ -664,6 +664,11 @@ export interface FixtureOptions {
   dockerAssignments?: Record<string, 'enabled' | 'disabled'>
   /** Generic Managed Software assignments used by catalog/detail and lifecycle tests. */
   softwareAssignments?: SoftwareAssignment[]
+  /**
+   * Entries appended to the Software catalog, each also listed as a Software module without a spec
+   * schema, to model a module the dashboard has no presentation for.
+   */
+  extraSoftwareCatalog?: SoftwareCatalogEntry[]
   /** GET request ordinals that should fail, allowing initial and background failure coverage. */
   softwareAssignmentFailureRequestNumbers?: number[]
   /** Called with the body of every POST /software/assignments (a Docker CE re-apply from the tab). */
@@ -2655,6 +2660,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         { kind: 'device-metrics-exporter', label: 'AMD Device Metrics Exporter', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: true, refusedForClaimedServers: true, requiresAmdComputeGpu: true, installMethods: [], containerRuntimes: [], specFields: [] },
         { kind: 'node-exporter', label: 'Node Exporter', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: [], containerRuntimes: [], specFields: [] },
         { kind: 'victoriametrics', label: 'VictoriaMetrics', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: [], containerRuntimes: [], specFields: ['listen', 'retention'] },
+        ...(options.extraSoftwareCatalog ?? []),
       ] })
     }
     // Modules (modules.md): the build's modules; NFS and VictoriaMetrics declare the spec schemas
@@ -2669,6 +2675,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         { kind: 'software', id: 'nfs', version: '0.1.0', spec: nfsSpecSchema },
         ...['node-exporter', 'podman', 'prometheus'].map((id) => ({ kind: 'software', id, version: '0.1.0', spec: null })),
         { kind: 'software', id: 'victoriametrics', version: '0.1.0', spec: victoriaMetricsSpecSchema },
+        ...(options.extraSoftwareCatalog ?? []).map((entry) => ({ kind: 'software', id: entry.kind, version: '0.1.0', spec: null })),
       ] })
     }
     // Registry Credentials (registry-credentials.md): responses never carry a password.

@@ -148,6 +148,8 @@ dashboard 不自行推導。
 - 第一方擴充模組（Kubernetes、Slurm、AMD、Managed Software）可以有專屬畫面，由共用的 Platform／Software
   外殼依模組 id 選擇；外殼本身不依平台或 GPU 廠商名稱分支。
 - 沒有專屬畫面的模組，依 API 提供的 spec schema 產生通用的表單與詳情。
+- Software 的 kind 是 catalog 發佈的模組 id：dashboard 不保存 kind 清單，也不濾掉不認得的 kind；沒有專屬呈現的 kind
+  以通用的呈現（catalog 的名稱、通用說明與圖示）列在 Other software。依 kind 特別處理的程式都要保留這條通用路徑。
 - 使用者概念以 port 呈現（例如「provisioner」），不以 adapter 名稱呈現（例如「MAAS」）；adapter 專屬的設定
   畫面（例如 MAAS Integration 的連線設定）例外。
 

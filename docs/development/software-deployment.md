@@ -107,7 +107,7 @@ catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴�
 - OpenAPI `areas/workflows.yaml` 的 `WorkflowKind` enum 加上 `configure-<kind>`、`uninstall-<kind>`，接著重新產生
   `openapi.yaml` 與 dashboard 的型別（[api-contracts README](../../api-server/docs/development/api-contracts/README.md)
   的 OpenAPI 一節）。`SoftwareKind` 在契約中是 pattern，不必改。
-- dashboard 的 kind 清單與呈現（[模組撰寫指南](module-authoring.md) §1.2）。
+- dashboard 的專屬呈現（選用：沒有時 kind 以通用的呈現列在 Other software，[模組撰寫指南](module-authoring.md) §1.2）。
 - 本文件 §2 的 kind 表與 §7 的位置表加上新 kind。
 - software 契約：新 kind 有專屬的欄位或規則時補一節（比照 Device Metrics Exporter）。
 - 列出 kind 的公開頁面：Managed Software 指南、concepts、dashboard 指南，以及它們的 zh-TW 對應頁。

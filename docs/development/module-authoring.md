@@ -157,11 +157,13 @@ api-server/modules/
   `src/di` 綁定。lint 規則守住這些邊界。
 - 沒有專屬畫面的模組，設定的表單與詳情不必寫程式：manifest 的 `spec`（§1.1）經 `GET /api/v1/modules` 提供，dashboard
   以 `ModuleSettingsFields` 與 `ModuleSettingsDetails` 產生（目前是 NFS 與 VictoriaMetrics）。
-- Software 模組仍要改 dashboard：`SoftwareKind` 是固定清單，dashboard 會濾掉不認得的 kind。新增 kind 時改：
-  - `src/domain/software/types.ts` 的 `SoftwareKind` 與 `SOFTWARE_KINDS`；
-  - `softwareCatalogPresentation.ts` 的 `PRESENTATION`（分類、說明、圖示、順序）；分類只有 `SoftwareCategory` 的
-    三種（container runtimes、storage and file sharing、observability），放不進去時新增一種；
-  - `softwarePresentation.ts` 的 `softwareKindLabel`（catalog 還沒載入時的名稱）；
+- Software 模組不必改 dashboard 就會出現：`SoftwareKind` 是 catalog 發佈的模組 id，dashboard 沒有 kind 清單，也不濾掉
+  不認得的 kind。沒有專屬呈現的 kind 列在 Software 頁的「Other software」，名稱取 catalog 的 label，說明與圖示是通用的；
+  設定依上一點的 spec schema 產生。要給新 kind 專屬的呈現時才改：
+  - `softwareCatalogPresentation.ts` 的 `PRESENTATION`（分類、說明、圖示、順序）；分類是 `SoftwareCategory`
+    （container runtimes、storage and file sharing、observability，以及給沒有專屬呈現的 kind 的 other），放不進去時
+    新增一種；
+  - `softwarePresentation.ts` 的 `softwareKindLabel`（catalog 還沒載入時的名稱，沒有時顯示 kind 本身）；
   - e2e fixture（`dashboard/tests/e2e/fixtures.ts`）的 software catalog 與 `/api/v1/modules` 回應。
 
 ## 2. 登錄 playbook
