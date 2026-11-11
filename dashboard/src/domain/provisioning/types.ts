@@ -292,14 +292,20 @@ export interface NetworkLinkInput {
 }
 
 /**
- * One tag known for a Site, as offered by the tag editor. `editable` is false for a
- * provider-computed automatic tag (a MAAS tag with a definition, e.g. one that may back
- * `amd-gpu`): it is real and meaningful but swallow cannot assign or unassign it, so the editor
- * shows it disabled. See swallow's `Tag` glossary term and decision 071.
+ * One tag known for a Site, as offered by the tag editor and the tag manager (server-tags.md).
+ *
+ * `editable` is false for an automatic tag, which the provisioner computes or maintains itself
+ * (for example one that may back `amd-gpu`): it is real and meaningful but swallow never assigns
+ * it, so the editor never offers to add it. `removable` says whether swallow can still take it off
+ * a Server; an automatic tag computed from a rule cannot be, and only deleting the whole tag takes
+ * it away. `serverCount` is how many of the Site's Servers carry the tag: in their spec for a
+ * manual tag, as observed for an automatic one. See swallow's `Tag` glossary term and decision 071.
  */
 export interface ServerTagOption {
   name: string;
   editable: boolean;
+  removable: boolean;
+  serverCount: number;
 }
 
 /**
@@ -315,15 +321,16 @@ export interface EditServerTagsInput {
 }
 
 /**
- * One Server's spec after a tag edit (`ServerTagSet`, server-tags.md), so callers can update rows
- * without a re-read. The edit only writes the spec: the provisioner converges afterwards, and the
- * Server's `realized` condition reports when it has for this `generation`.
+ * One Server's spec after a tag edit, deletion, or rename (`ServerTagSet`, server-tags.md), so
+ * callers can update rows without a re-read. For manual tags only the spec is written: the
+ * provisioner converges afterwards, and the Server's `realized` condition reports when it has for
+ * this `generation`.
  */
 export interface ServerTagsResult {
   serverId: string;
-  /** The Server's spec generation after the edit. */
+  /** The Server's spec generation after the change (unchanged when its manual tags did not change). */
   generation: number;
-  /** The complete manual-tag spec after the edit; `[]` when none. */
+  /** The complete manual-tag spec after the change; `[]` when none. */
   tags: string[];
 }
 

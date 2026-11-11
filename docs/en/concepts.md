@@ -83,7 +83,8 @@ guides describe.
 Zones and Pools are user-defined infrastructure grouping. Tags add
 capability or policy metadata. A Server's manual tags and its Zone and Pool are
 part of its spec, and the provisioner realizes them; tags the provisioner
-computes itself are observed only. A provisioner without the capability reports
+computes or maintains itself (automatic tags) are observed only, and you can
+remove or delete them but not assign them. A provisioner without the capability reports
 `capability_missing` instead of swallow keeping a substitute copy.
 
 A Server lock protects it from automation and destructive actions. It is not a

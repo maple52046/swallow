@@ -8,14 +8,26 @@ import (
 
 // MachineTag is one tag a provider knows about, in swallow's provider-neutral vocabulary.
 //
-// Editable separates a tag swallow may hand-assign from one the provider computes itself. A MAAS
-// automatic tag carries an XPath definition and is applied by MAAS to matching hardware, so
-// swallow must not try to assign or unassign it; the editor shows such a tag disabled and the API
-// reports Editable=false. A manual tag (no definition) is Editable.
+// Editable separates a manual tag, which swallow owns through the Server specs, from an automatic
+// tag the provider computes or maintains itself (decision 071). An automatic tag is observed only:
+// swallow never assigns it, never puts it in a spec, and never treats a change the provider makes to
+// it as drift. Which provider tags are automatic is the adapter's judgment; core never names them.
+//
+// Removable says whether swallow may still take the tag off a machine, as a one-off action. It is
+// always true for a manual tag. For an automatic tag it is true when the provider maintains the tag
+// without a rule, so it may apply it again later and swallow accepts that, and false when the
+// provider computes it from a rule, because the rule would re-apply it: such a tag can only be
+// deleted.
 type MachineTag struct {
-	Name     string
-	Editable bool
+	Name      string
+	Editable  bool
+	Removable bool
 }
+
+// ErrTagNotFound means a tag to delete or rename is unknown to the Site: its provisioner's catalog
+// does not hold it and no Server of that provisioner names it in its spec. It is a domain miss,
+// mapped by delivery onto a 404.
+var ErrTagNotFound = errors.New("tag not found")
 
 // maxTagNameLen bounds a tag name so a single label cannot carry an unbounded string into storage
 // or a provider request. It is generous for a user label while staying well within a

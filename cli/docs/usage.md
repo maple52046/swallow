@@ -517,6 +517,14 @@ swallow provisioning tags edit --server srv1 --server srv2 --add rack-a --remove
 # conditions: realized=true once MAAS carries the tags. A tag changed in the MAAS UI is put back
 # at the next periodic resync (10 minutes by default).
 swallow provisioning tags edit -f tags.yaml
+# `list` marks automatic tags (editable=false), which MAAS applies itself, such as `virtual` on VMs.
+# They are never put back or removed as drift. `--remove` on one takes it off the machines at once;
+# MAAS may add it again later. One computed from a rule (removable=false) can only be deleted.
+swallow provisioning tags edit --server srv1 --remove virtual
+# Delete or rename a tag across the Site: every Server that carries it changes, then the provisioner.
+# Renaming to an existing tag merges the two.
+swallow provisioning tags delete legacy --site-id site1
+swallow provisioning tags rename rack_a rack-a --site-id site1
 
 # Durable operations (canonical endpoints)
 swallow provisioning preflight --server srv1 --server srv2

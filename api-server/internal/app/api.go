@@ -323,6 +323,8 @@ func RunAPI(cfg config.APIConfig) error {
 		provisioningapp.NewSetOSImageMetadataUseCase(osImageMetadataRepo, reconcileUC),
 		provisioningapp.NewListServerTagsUseCase(integrationRepo, providerFactory, serverRepo),
 		provisioningapp.NewEditServerTagsUseCase(transactor, serverRepo, serverRepo, providerFactory),
+		provisioningapp.NewDeleteServerTagUseCase(transactor, integrationRepo, providerFactory, serverRepo, serverRepo),
+		provisioningapp.NewRenameServerTagUseCase(transactor, integrationRepo, providerFactory, serverRepo, serverRepo),
 	)
 
 	// Infrastructure: swallow-owned Zones and Pools (decision 071). The API writes their spec and
@@ -918,11 +920,13 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	// user of one image. Same query-parameter identity as DELETE /images (decision 071).
 	provisioning.Put("/images/metadata", deps.provisioning.SetImageMetadata)
 	provisioning.Delete("/images/metadata", deps.provisioning.ClearImageMetadata)
-	// Server tags: list the Site's known tags for the editor, and apply a tri-state add/remove edit
-	// to one or more Servers' spec (decision 071). Under /provisioning to avoid the GET /servers/:id
-	// route collision.
+	// Server tags: list the Site's known tags for the editor and the tag manager, apply a tri-state
+	// add/remove edit to one or more Servers' spec, and delete or rename a tag across a Site
+	// (decision 071). Under /provisioning to avoid the GET /servers/:id route collision.
 	provisioning.Get("/tags", deps.provisioning.ListServerTags)
 	provisioning.Post("/tags", deps.provisioning.EditServerTags)
+	provisioning.Delete("/tags/:name", deps.provisioning.DeleteServerTag)
+	provisioning.Patch("/tags/:name", deps.provisioning.RenameServerTag)
 	provisioning.Get("/templates", deps.provisioning.ListTemplates)
 	provisioning.Post("/templates", deps.provisioning.CreateTemplate)
 	provisioning.Get("/templates/:id", deps.provisioning.GetTemplate)

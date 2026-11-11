@@ -105,7 +105,7 @@ a route: `system` (`/livez`, `/readyz`, `/healthz`, `/metrics`), `auth`
 `PUT /api/v1/servers/{id}/placement`, `/api/v1/provisioning/integrations/{id}/http-proxy`,
 `/api/v1/provisioning/integrations/{id}/subnets*`), `servers` (`/api/v1/servers`,
 `/api/v1/servers/stream`, `/api/v1/servers/{id}` and the routes under it except
-`/docker*` and `/placement`, `/api/v1/provisioning/tags`), `provisioning` (the rest
+`/docker*` and `/placement`, `/api/v1/provisioning/tags*`), `provisioning` (the rest
 of `/api/v1/provisioning/*`, the Boot ISO file, `/downloads/*`), `platforms`
 (`/api/v1/platforms*`), `change-plans` (`/api/v1/change-plans*`, `/api/v1/change-plan-policy`),
 `workflows` (`/api/v1/workflows*`), `software` (`/api/v1/software/*`, `/api/v1/servers/{id}/docker*`),

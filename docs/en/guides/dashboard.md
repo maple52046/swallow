@@ -17,7 +17,7 @@ On a phone, the menu button opens the same sidebar as a drawer.
 | Area | What it is for |
 | --- | --- |
 | Overview | Site-scoped fleet health, attention items, integrations, Platforms, and recent Workflows |
-| Servers | Inventory, Add servers (enrollment guidance), shareable filter views, bulk actions, tags, locks, and Server details including Boot Media |
+| Servers | Inventory, Add servers (enrollment guidance), shareable filter views, bulk actions, tags and Manage tags (rename and delete across a Site), locks, and Server details including Boot Media |
 | Platforms | Kubernetes/Slurm deployment, lifecycle, settings, and runtime views |
 | Software | Grouped catalog (Docker CE, Podman, libvirt (QEMU/KVM), NFS, Prometheus, Grafana, AMD Device Metrics Exporter, Node Exporter, VictoriaMetrics, and any software of this release without its own card under Other software), per-software deployments, and multi-Server installation |
 | Monitoring | Fleet health, usage charts for selected Servers, Pools, Zones, and Platforms, current metrics, optional Grafana links, and (in development) alerts and silences |

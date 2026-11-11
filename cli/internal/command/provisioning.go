@@ -347,7 +347,7 @@ func userDataBody(cmd *cobra.Command) (any, error) {
 func provisioningTagsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "tags",
-		Short: "List a Site's tags and edit Server tags",
+		Short: "List a Site's tags, edit Server tags, and delete or rename a tag",
 	}
 
 	list := &cobra.Command{
@@ -389,7 +389,51 @@ func provisioningTagsCmd() *cobra.Command {
 	edit.Flags().StringSlice("add", nil, "tag to add to every listed Server (repeatable)")
 	edit.Flags().StringSlice("remove", nil, "tag to remove from every listed Server (repeatable)")
 	cmd.AddCommand(edit)
+
+	del := &cobra.Command{
+		Use:   "delete <name>",
+		Short: "Delete a tag from a Site, its provisioner, and every Server that carries it",
+		Long: "Delete a tag across a Site (server-tags.md). A manual tag leaves every Server spec that " +
+			"names it, then the provisioner; an automatic tag is deleted from the provisioner only, " +
+			"which may apply it again. Prints the Servers whose spec changed.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			q, err := tagSiteQuery(cmd)
+			if err != nil {
+				return err
+			}
+			return sendJSON(cmd, "DELETE", "provisioning/tags/"+url.PathEscape(args[0]), q, nil)
+		},
+	}
+	del.Flags().String("site-id", "", "the Site whose tag to delete (defaults to the global --site)")
+	cmd.AddCommand(del)
+
+	rename := &cobra.Command{
+		Use:   "rename <name> <new-name>",
+		Short: "Rename a manual tag across a Site, merging it into an existing tag of the new name",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			q, err := tagSiteQuery(cmd)
+			if err != nil {
+				return err
+			}
+			return sendJSON(cmd, "PATCH", "provisioning/tags/"+url.PathEscape(args[0]), q, map[string]any{"name": args[1]})
+		},
+	}
+	rename.Flags().String("site-id", "", "the Site whose tag to rename (defaults to the global --site)")
+	cmd.AddCommand(rename)
 	return cmd
+}
+
+// tagSiteQuery is the siteId query every Site-scoped tag route requires, from --site-id or the
+// global --site; without either it fails before any request, as the API would refuse it.
+func tagSiteQuery(cmd *cobra.Command) (url.Values, error) {
+	site, _ := cmd.Flags().GetString("site-id")
+	effective := defaultSite(site)
+	if effective == "" {
+		return nil, fmt.Errorf("a Site is required: pass --site-id or the global --site")
+	}
+	return newQuery().set("siteId", effective).build(), nil
 }
 
 func tagsEditBodyFromFlags(cmd *cobra.Command) (map[string]any, error) {

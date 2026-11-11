@@ -53,8 +53,11 @@ by network boot, through swallow, or with an OS installed; and who owns a manual
 ### The resources
 
 - **Server manual tags.** swallow owns every manual tag: the spec is the complete set, so one added or
-  removed in the provisioner UI is drift. Tags a provisioner computes (MAAS tags with a `definition`) are
-  observed only.
+  removed in the provisioner UI is drift. Deleting or renaming a tag across a Site rewrites every spec
+  that names it in one transaction, then calls the provisioner synchronously. Tags a provisioner
+  computes or maintains itself (MAAS tags with a `definition`, and the `virtual` tag MAAS commissioning
+  keeps) are observed only and never drift, whatever the provisioner does with them; removing one from
+  Servers or deleting it is an action written through to the provisioner, which may apply it again.
 - **Zone and Pool.** Site-scoped groupings owned by swallow in their own `infrastructure` feature, which
   depends only on the provisioning domain port. The catalog converges on every provisioner of the Site,
   including one added later; a group that exists only in a provisioner is adopted, never deleted, and the
@@ -124,3 +127,4 @@ by network boot, through swallow, or with an OS installed; and who owns a manual
 - 2026-10-13: decision 071 had swallow read the Provisioner HTTP Proxy live and write it through as a closed mode set, storing nothing.
 - 2026-10-31: decision 071 made provisioner-realized fields desired state served as spec and status, auto-corrected at the periodic resync and adopted at first observation, with a Server origin and swallow owning every manual tag.
 - 2026-11-02: merged decision 071 into this ADR; the body states the current decision.
+- 2026-11-11: a tag the provisioner maintains without a definition (MAAS `virtual`) became automatic and observed only, because removing it as drift fought the provisioner at every commissioning; Site-wide tag deletion and rename were added, calling the provisioner synchronously.

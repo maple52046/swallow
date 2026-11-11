@@ -89,8 +89,9 @@ type ProviderCapabilities struct {
 	// realize swallow-owned Zone and Pool intent and assign a machine to them.
 	Grouping bool
 	// Tagging reports that MachineTagController is implemented, i.e. the provider can realize a
-	// Server's spec tags: create, assign, and unassign manual tags. When false, the spec is kept
-	// and the Server reports realized=false with reason capability_missing (decision 071).
+	// Server's spec tags (create, assign, and unassign manual tags) and delete or rename a tag.
+	// When false, the spec is kept and the Server reports realized=false with reason
+	// capability_missing (decision 071).
 	Tagging bool
 	// SSHKeyRegistration reports that SSHKeyRegistrar is implemented, i.e. the provider holds SSH
 	// public keys for the account swallow authenticates as and authorizes them on machines it
@@ -406,22 +407,25 @@ type GroupingController interface {
 	SetMachinePool(ctx context.Context, machineID, poolName string) (*Machine, error)
 }
 
-// MachineTagController lets swallow realize Server spec tags on a provider: it lists the
-// provider's tags (automatic ones are not Editable), creates a manual tag, and assigns or unassigns
-// a tag across a batch of machines. The Server controller drives it (decision 071).
+// MachineTagController lets swallow act on a provider's tags: it lists them with their kind,
+// creates a manual tag, assigns or unassigns a tag across a batch of machines, and deletes or
+// renames a tag. The Server controller drives the first three to realize Server spec tags
+// (decision 071); the server-tags API drives deletion, rename, and the removal of an automatic
+// tag as one-off actions.
 //
 // The controller speaks tag names, swallow's currency, not any provider-internal identifier.
-// EnsureTag is idempotent create of a *manual* tag: a tag the provider already holds is treated
-// as satisfied. Add/Remove are batch-native (they take every machine id at once) because a
-// provider that owns tags globally — MAAS assigns one tag to many machines in a single
-// update_nodes call — must not be walked one machine at a time. A provider tag that is computed
-// from a definition (a MAAS automatic tag) is read-only: it is reported with Editable=false by
-// ListTags, and an attempt to Add/Remove it is refused by the provider and surfaced as a
-// *ProviderError{Kind: ProviderErrorRejected} rather than silently dropped. An adapter that sets
-// ProviderCapabilities.Tagging must implement this.
+// Every write is an ensure, so a repeated call, or the API and the Server controller racing on the
+// same tag, converges instead of failing: EnsureTag treats a tag the provider already holds as
+// satisfied, and RemoveTag, DeleteTag, and RenameTag treat a tag the provider no longer holds as
+// satisfied. Add/Remove are batch-native (they take every machine id at once) because a provider
+// that owns tags globally must not be walked one machine at a time. ListTags reports an automatic
+// tag (one the provider computes or maintains itself) with Editable=false; the adapter decides which
+// tags those are, and the Server controller never assigns them. A refusal is surfaced as a
+// *ProviderError{Kind: ProviderErrorRejected} rather than silently dropped; an unreachable provider
+// as any other provider error. An adapter that sets ProviderCapabilities.Tagging must implement
+// this.
 type MachineTagController interface {
-	// ListTags returns every tag the provider knows, each flagged Editable when swallow may
-	// assign or unassign it (a manual tag with no definition).
+	// ListTags returns every tag the provider knows, each with its kind (Editable, Removable).
 	ListTags(ctx context.Context) ([]MachineTag, error)
 	// EnsureTag creates the named manual tag, treating an existing tag as already satisfied.
 	EnsureTag(ctx context.Context, name string) error
@@ -429,8 +433,16 @@ type MachineTagController interface {
 	// machineIDs is a no-op.
 	AddTag(ctx context.Context, name string, machineIDs []string) error
 	// RemoveTag unassigns the named tag from every machine in machineIDs in one provider call.
-	// An empty machineIDs is a no-op.
+	// An empty machineIDs, or a tag the provider no longer holds, is a no-op.
 	RemoveTag(ctx context.Context, name string, machineIDs []string) error
+	// DeleteTag deletes the named tag, which unassigns it from every machine; a tag computed from a
+	// rule goes with its rule. A tag the provider does not hold is satisfied.
+	DeleteTag(ctx context.Context, name string) error
+	// RenameTag renames the tag from to the name to, so the machines carrying it keep carrying it.
+	// A tag from the provider does not hold is satisfied. When a tag named to already exists the
+	// two merge: from is deleted, and the caller has already made the Server specs that named from
+	// name to, so the Server controller assigns to wherever it is missing.
+	RenameTag(ctx context.Context, from, to string) error
 }
 
 // ProviderSSHKey is one SSH public key a provisioner holds for the account swallow authenticates

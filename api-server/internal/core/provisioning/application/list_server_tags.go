@@ -2,30 +2,36 @@ package application
 
 import (
 	"context"
-	"strings"
+	"slices"
 
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 )
 
-// ServerTagOption is one known tag offered to the editor, with whether swallow may assign it.
+// ServerTagOption is one tag a Site knows, as the editor and the tag manager offer it.
 //
-// Editable is false for a provider tag computed from a definition (a MAAS automatic tag), which the
-// editor shows disabled: it is real and meaningful (the `amd-gpu` tag still drives Server Type) but
-// swallow must not try to assign or unassign it.
+// Editable is false for an automatic tag, which the provisioner computes or maintains itself: it is
+// real and meaningful (the `amd-gpu` tag still drives Server Type) but swallow never assigns it, so
+// the editor never offers to add it. Removable says whether swallow may take the tag off a Server;
+// an automatic tag computed from a rule can only be deleted. ServerCount is how many of the
+// provisioner's Servers carry the tag: in their spec for a manual tag, as observed for an automatic
+// one.
 type ServerTagOption struct {
-	Name     string `json:"name"`
-	Editable bool   `json:"editable"`
+	Name        string `json:"name"`
+	Editable    bool   `json:"editable"`
+	Removable   bool   `json:"removable"`
+	ServerCount int    `json:"serverCount"`
 }
 
 // ListServerTagsUseCase lists the tags known for a Site, so the editor can offer existing names and
-// disable the ones that are not swallow-editable.
+// the tag manager can show how widely each is used.
 //
-// When the Site's provisioner supports tagging, the known set is its tag catalog, with automatic
-// tags flagged read-only. When it does not, the known set is the manual tags in the specs of the
-// Site's Servers, all editable: the spec is kept even though the provisioner cannot realize it
-// (the Servers report capability_missing). A Site with no provisioner yields an empty list.
+// The known set is the Site provisioner's tag catalog, with each tag's kind, plus every tag in the
+// specs of that provisioner's Servers that the catalog does not hold yet (one just added and not yet
+// created there). When the provisioner cannot set tags, it is those spec tags alone, all manual: the
+// spec is kept even though the provisioner cannot realize it (the Servers report
+// capability_missing). A Site with no enabled provisioner yields an empty list.
 type ListServerTagsUseCase struct {
 	integrations sitedomain.IntegrationRepository
 	providers    provisioningdomain.ProviderFactory
@@ -33,7 +39,8 @@ type ListServerTagsUseCase struct {
 }
 
 // NewListServerTagsUseCase wires the integration repository (to find a Site's provisioner), the
-// provider factory, and the Server repository whose specs list tags a provisioner cannot.
+// provider factory (to read its catalog), and the Server repository whose specs and observations
+// count each tag.
 func NewListServerTagsUseCase(
 	integrations sitedomain.IntegrationRepository,
 	providers provisioningdomain.ProviderFactory,
@@ -42,58 +49,46 @@ func NewListServerTagsUseCase(
 	return &ListServerTagsUseCase{integrations: integrations, providers: providers, servers: servers}
 }
 
-// Execute returns the known tags for the Site. An empty siteID, or a Site with no enabled
-// provisioner, returns an empty list.
+// Execute returns the known tags for the Site, catalog tags first in the provisioner's order. An
+// empty siteID, or a Site with no enabled provisioner, returns an empty list. A provisioner that
+// cannot be reached, or refuses the catalog read, fails the listing with its provider error.
 func (uc *ListServerTagsUseCase) Execute(ctx context.Context, siteID string) ([]ServerTagOption, error) {
-	siteID = strings.TrimSpace(siteID)
-	if siteID == "" {
+	scope, err := loadSiteTagScope(ctx, uc.integrations, uc.providers, uc.servers, siteID)
+	if err != nil {
+		return nil, err
+	}
+	if scope == nil {
 		return []ServerTagOption{}, nil
 	}
 
-	integrations, err := uc.integrations.List(ctx, sitedomain.IntegrationFilter{
-		SiteID:      siteID,
-		Kind:        sitedomain.IntegrationKindProvisioner,
-		EnabledOnly: true,
-	})
-	if err != nil {
-		return nil, err
+	options := make([]ServerTagOption, 0, len(scope.tags.catalog))
+	index := make(map[string]int, len(scope.tags.catalog))
+	for _, tag := range scope.tags.catalog {
+		index[tag.Name] = len(options)
+		options = append(options, ServerTagOption{Name: tag.Name, Editable: tag.Editable, Removable: tag.Removable})
 	}
-	if len(integrations) == 0 {
-		return []ServerTagOption{}, nil
-	}
-
-	// A Site has one provisioner (glossary: MAAS, one per site); use the first enabled one.
-	integrationID := integrations[0].ID
-	provider, err := uc.providers.For(ctx, integrationID)
-	if err != nil {
-		return nil, err
-	}
-
-	if controller, ok := provider.(provisioningdomain.MachineTagController); ok && provider.Capabilities().Tagging {
-		tags, err := controller.ListTags(ctx)
-		if err != nil {
-			return nil, err
-		}
-		options := make([]ServerTagOption, 0, len(tags))
-		for _, tag := range tags {
-			options = append(options, ServerTagOption{Name: tag.Name, Editable: tag.Editable})
-		}
-		return options, nil
-	}
-
-	result, err := uc.servers.List(ctx, serverdomain.ListFilter{IntegrationID: integrationID, IncludeAbsent: true})
-	if err != nil {
-		return nil, err
-	}
-	seen := map[string]struct{}{}
-	options := make([]ServerTagOption, 0)
-	for _, server := range result.Servers {
+	for _, server := range scope.servers {
 		for _, name := range server.Spec.Tags {
-			if _, dup := seen[name]; dup {
+			if automatic, _ := scope.kind(name); automatic {
 				continue
 			}
-			seen[name] = struct{}{}
-			options = append(options, ServerTagOption{Name: name, Editable: true})
+			i, ok := index[name]
+			if !ok {
+				i = len(options)
+				index[name] = i
+				options = append(options, ServerTagOption{Name: name, Editable: true, Removable: true})
+			}
+			options[i].ServerCount++
+		}
+	}
+	for i := range options {
+		if options[i].Editable {
+			continue
+		}
+		for _, server := range scope.servers {
+			if slices.Contains(server.Observed.Tags, options[i].Name) {
+				options[i].ServerCount++
+			}
 		}
 	}
 	return options, nil

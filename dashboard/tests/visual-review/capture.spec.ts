@@ -16,6 +16,7 @@ const visualCases = [
   { name: 'overview-without-alerts', path: '/?site=site-a', heading: 'Overview', authenticated: true, representative: false },
   { name: 'servers', path: '/servers?site=site-a', heading: 'Servers', authenticated: true, representative: true },
   { name: 'servers-hardware', path: '/servers?site=site-a&includeAbsent=true', heading: 'Servers', authenticated: true, representative: false },
+  { name: 'servers-tag-manager', path: '/servers?site=site-a', heading: 'Servers', authenticated: true, representative: false },
   { name: 'platform-list', path: '/platforms?site=site-a', heading: 'Platforms', authenticated: true, representative: false },
   { name: 'workflow-list', path: '/workflows?site=site-a', heading: 'Activity', authenticated: true, representative: false },
   { name: 'change-plans', path: '/change-plans?site=site-a', heading: 'Activity', authenticated: true, representative: false },
@@ -157,6 +158,17 @@ test.describe('dashboard visual review', () => {
           : {}),
         ...(visualCase.name === 'servers-hardware'
           ? { displayOnlyServerIds: ['srv-2'], cpuOnlyServerIds: ['srv-3'] }
+          : {}),
+        // Every kind of tag the manager lists: manual ones in use, an unused one, an automatic tag
+        // the provisioner maintains, and one it computes from a rule, with a long name to wrap.
+        ...(visualCase.name === 'servers-tag-manager'
+          ? {
+              automaticTags: { 'srv-2': ['virtual'], 'srv-1': ['amd-gpu'] },
+              serverTagCatalog: [
+                { name: 'amd-gpu', editable: false, removable: false },
+                { name: 'legacy-rack-b-decommissioned-2025.q3', editable: true, removable: true },
+              ],
+            }
           : {}),
         ...(visualCase.name.startsWith('monitoring')
           ? { serverHealth: { 'srv-2': 'unknown' as const, 'srv-3': 'not_applicable' as const } }
@@ -319,6 +331,32 @@ test.describe('dashboard visual review', () => {
         await table.screenshot({
           path: testInfo.outputPath(`${visualCase.name}-health-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
         })
+      }
+      // The header with its Manage tags command at real scale, the tag manager over the servers
+      // list, an inline rename, then the deletion confirmation of a tag in use.
+      if (visualCase.name === 'servers-tag-manager') {
+        await page.evaluate(() => window.scrollTo(0, 0))
+        await capture(page, testInfo, `${visualCase.name}-top`, false)
+        await page.getByRole('button', { name: 'Manage tags' }).click()
+        const manager = page.getByRole('dialog', { name: 'Manage tags' })
+        await expect(manager.getByRole('list', { name: 'Tags of Taipei Lab' })).toBeVisible()
+        await capture(page, testInfo, `${visualCase.name}-dialog`, false)
+        await manager.getByRole('button', { name: 'Rename tag gpu' }).click()
+        await capture(page, testInfo, `${visualCase.name}-rename`, false)
+        await manager.getByRole('button', { name: 'Cancel' }).click()
+        await manager.getByRole('button', { name: 'Delete tag production' }).click()
+        const deleteConfirm = page.getByRole('alertdialog', { name: 'Delete tag production?' })
+        await expect(deleteConfirm.getByRole('button', { name: 'Cancel' })).toBeFocused()
+        await capture(page, testInfo, `${visualCase.name}-delete-confirm`, false)
+        // Two tags selected (the long name among them), then their combined confirmation.
+        await deleteConfirm.getByRole('button', { name: 'Cancel' }).click()
+        await manager.getByRole('checkbox', { name: 'legacy-rack-b-decommissioned-2025.q3' }).locator('..').click()
+        await manager.getByRole('checkbox', { name: 'virtual' }).locator('..').click()
+        await expect(manager.getByRole('button', { name: 'Delete 2 tags' })).toBeEnabled()
+        await capture(page, testInfo, `${visualCase.name}-selected`, false)
+        await manager.getByRole('button', { name: 'Delete 2 tags' }).click()
+        await expect(page.getByRole('alertdialog', { name: 'Delete 2 tags?' }).getByRole('button', { name: 'Cancel' })).toBeFocused()
+        await capture(page, testInfo, `${visualCase.name}-bulk-delete-confirm`, false)
       }
       // The full mobile page is too long to read at its own scale; the changed card is captured too.
       if (visualCase.name === 'server-detail-vm-boot-media') {

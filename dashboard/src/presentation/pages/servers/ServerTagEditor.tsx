@@ -17,6 +17,7 @@ import {
   buildTagRows,
   computeTagDiff,
   cycleTagDecision,
+  isTagRowChangeable,
   tagCheckboxState,
   type TagDecision,
 } from './serverTagEditing'
@@ -44,9 +45,11 @@ const MAX_TAG_NAME_LENGTH = 100
  * Server has it, unchecked when none does, and indeterminate when some do. Toggling a tag applies or
  * removes it across all selected Servers, and only the tags whose state actually changed are sent as
  * a diff. Coverage is read from each Server's manual-tag spec, which is what the edit changes; the
- * backend then makes the provisioner match it asynchronously (decision 071). Automatic tags
- * (provider-computed, e.g. one that may back `amd-gpu`) are shown disabled because swallow cannot
- * assign them.
+ * backend then makes the provisioner match it asynchronously (decision 071). Automatic tags (the
+ * provisioner computes or maintains them) can never be added. One the provisioner maintains without
+ * a rule (`virtual`) can be unchecked, which the backend removes from the machines at once, and the
+ * provisioner may add it again later; one computed from a rule (e.g. one that may back `amd-gpu`)
+ * stays disabled, because only deleting the tag in the tag manager removes it.
  */
 export function ServerTagEditor({ servers, onClose, onSaved }: ServerTagEditorProps) {
   const { provisioning } = useApp()
@@ -87,7 +90,10 @@ export function ServerTagEditor({ servers, onClose, onSaved }: ServerTagEditorPr
   // Rows are the union of known tags, freshly typed tags, and tags already on the selection. Extra
   // tags are offered as editable because the user just created them.
   const rows = useMemo(() => {
-    const options: ServerTagOption[] = [...(known ?? []), ...extraTags.map((name) => ({ name, editable: true }))]
+    const options: ServerTagOption[] = [
+      ...(known ?? []),
+      ...extraTags.map((name) => ({ name, editable: true, removable: true, serverCount: 0 })),
+    ]
     const tagged = servers.map((server) => ({
       manualTags: serverManualTags(server),
       automaticTags: server.status.automaticTags,
@@ -101,10 +107,10 @@ export function ServerTagEditor({ servers, onClose, onSaved }: ServerTagEditorPr
 
   const toggle = (name: string) => {
     const row = rows.find((candidate) => candidate.name === name)
-    if (!row || !row.editable) return
+    if (!row || !isTagRowChangeable(row)) return
     setDecisions((previous) => {
       const next = new Map(previous)
-      const decision = cycleTagDecision(row.coverage, previous.get(name))
+      const decision = cycleTagDecision(row.coverage, previous.get(name), row.editable)
       if (decision === undefined) next.delete(name)
       else next.set(name, decision)
       return next
@@ -212,12 +218,18 @@ export function ServerTagEditor({ servers, onClose, onSaved }: ServerTagEditorPr
                     <Checkbox
                       id={`tag-${row.name}`}
                       checked={tagCheckboxState(row.coverage, decisions.get(row.name))}
-                      disabled={!row.editable}
+                      disabled={!isTagRowChangeable(row)}
                       onCheckedChange={() => toggle(row.name)}
                     >
                       {row.name}
                     </Checkbox>
-                    <TagRowHint editable={row.editable} coverage={row.coverage} count={row.count} total={total} />
+                    <TagRowHint
+                      editable={row.editable}
+                      removable={row.removable}
+                      coverage={row.coverage}
+                      count={row.count}
+                      total={total}
+                    />
                   </HStack>
                 ))}
               </Stack>
@@ -255,22 +267,28 @@ export function ServerTagEditor({ servers, onClose, onSaved }: ServerTagEditorPr
 
 /**
  * Right-aligned hint for a tag row: a non-colour status of the tag's coverage across the selection,
- * plus a disabled note for provider-managed automatic tags. Status is conveyed by text, not colour.
+ * plus an "Automatic" badge for a provisioner-managed tag whose tooltip says what swallow can still
+ * do with it. Status is conveyed by text, not colour.
  */
 function TagRowHint({
   editable,
+  removable,
   coverage,
   count,
   total,
 }: {
   editable: boolean
+  removable: boolean
   coverage: 'all' | 'some' | 'none'
   count: number
   total: number
 }) {
   if (!editable) {
+    const explanation = removable
+      ? 'Automatic tag, maintained by the provisioner. You can remove it here, but the provisioner may add it again.'
+      : 'Automatic tag, computed by the provisioner from a rule. Delete the tag in Manage tags to stop it.'
     return (
-      <Tooltip content="Automatic tag, managed by the provisioner. It cannot be assigned from swallow.">
+      <Tooltip content={explanation}>
         <Badge variant="subtle" colorPalette="gray">
           Automatic
         </Badge>

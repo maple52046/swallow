@@ -84,8 +84,8 @@ OS Provisioning bounded context 的參與者、上下游關係與翻譯方式見
 | Zone 與 Pool 的 catalog | swallow | spec；catalog controller 在 Site 的每個 provisioner 實現（§8） | `zones`、`pools` |
 | Server 的 placement（Zone／Pool） | swallow | Server 的 spec；Server controller 收斂（§8） | `servers` 的 `spec.zoneId`、`spec.poolId` |
 | Server 的 observed zone／pool | provisioner | reconcile 鏡射 | mirrored |
-| Server 的手動 tag | swallow | Server 的 spec；Server controller 收斂、resync 修正 drift（[desired-state-model.md](desired-state-model.md) §4.4） | `servers` 的 `spec.tags` |
-| Server 的自動 tag（provisioner 自己算的，例如 MAAS 帶 definition 的 tag） | provisioner | reconcile 鏡射，只觀察 | `servers` 的 `observed.automaticTags` |
+| Server 的手動 tag | swallow | Server 的 spec；Server controller 收斂、resync 修正 drift（[desired-state-model.md](desired-state-model.md) §4.4）；Site 範圍的刪除與改名先改寫所有 spec，再同步呼叫 provisioner | `servers` 的 `spec.tags` |
+| Server 的自動 tag（provisioner 自己算或自己維護的，例如 MAAS 帶 definition 的 tag、commissioning 維護的 `virtual`） | provisioner | reconcile 鏡射，只觀察，provisioner 加上或再加回來都不是 drift；從 Server 移除或刪除整個 tag 由 swallow 驅動，是一次性的動作 | `servers` 的 `observed.automaticTags` |
 | Provider recovery policy | swallow | 單一 domain 矩陣（§11） | — |
 | Release 後的 static link 清理 | swallow | [Provisioning Task](glossaries/terms/provisioning-task.md)（§6） | owned coordination state |
 

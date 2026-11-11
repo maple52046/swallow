@@ -41,6 +41,8 @@ type ProvisioningHandler struct {
 	imageMetadata   *application.SetOSImageMetadataUseCase
 	serverTagsList  *application.ListServerTagsUseCase
 	serverTagsEdit  *application.EditServerTagsUseCase
+	serverTagDelete *application.DeleteServerTagUseCase
+	serverTagRename *application.RenameServerTagUseCase
 	durable         application.DurableOperationLauncher
 	inspections     application.HardwareInspectionLauncher
 	enrollment      *application.HostEnrollmentUseCase
@@ -68,6 +70,8 @@ func NewProvisioningHandler(
 	imageMetadata *application.SetOSImageMetadataUseCase,
 	serverTagsList *application.ListServerTagsUseCase,
 	serverTagsEdit *application.EditServerTagsUseCase,
+	serverTagDelete *application.DeleteServerTagUseCase,
+	serverTagRename *application.RenameServerTagUseCase,
 	durable ...application.DurableOperationLauncher,
 ) *ProvisioningHandler {
 	handler := &ProvisioningHandler{
@@ -88,6 +92,8 @@ func NewProvisioningHandler(
 		imageMetadata:   imageMetadata,
 		serverTagsList:  serverTagsList,
 		serverTagsEdit:  serverTagsEdit,
+		serverTagDelete: serverTagDelete,
+		serverTagRename: serverTagRename,
 	}
 	if len(durable) > 0 {
 		handler.durable = durable[0]
@@ -623,10 +629,11 @@ func (h *ProvisioningHandler) ClearImageMetadata(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
-// ListServerTags returns the tags known for a Site, each flagged whether swallow may assign it, so
-// the tag editor can offer existing names and disable the provider-computed (automatic) ones. It is
-// under /provisioning rather than /servers to avoid colliding with GET /servers/:id, and scoped to a
-// Site because tags are provisioner-owned per Site (docs/decisions/031).
+// ListServerTags returns the tags known for a Site with each tag's kind and how many Servers carry
+// it, so the tag editor can offer existing names and the tag manager can show them. It is under
+// /provisioning rather than /servers to avoid colliding with GET /servers/:id, and scoped to a Site
+// because each Site's provisioner holds its own tag catalog; swallow owns the manual tags in the
+// Server specs, and the provisioner its automatic ones (docs/decisions/071).
 func (h *ProvisioningHandler) ListServerTags(c *fiber.Ctx) error {
 	siteID := c.Query("siteId")
 	if siteID == "" {
@@ -650,9 +657,10 @@ type editServerTagsRequest struct {
 }
 
 // EditServerTags writes a tag edit into the spec of one or more Servers and returns each Server's
-// new spec (docs/decisions/071); the Server controller converges the provisioner afterwards. Editing
-// tags is metadata, so it is not gated on Server Lock. An automatic tag is a 400 and a spec that
-// changed during the edit a 409, both through the shared error mapper.
+// spec (docs/decisions/071); the Server controller converges the provisioner afterwards, and an
+// automatic tag in remove is taken off by the provisioner before the response. Editing tags is
+// metadata, so it is not gated on Server Lock. A refused tag is a 400, a spec that changed during
+// the edit a 409, and an unreachable provisioner a 503, all through the shared error mapper.
 func (h *ProvisioningHandler) EditServerTags(c *fiber.Ctx) error {
 	var req editServerTagsRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -670,6 +678,46 @@ func (h *ProvisioningHandler) EditServerTags(c *fiber.Ctx) error {
 		Add:       req.Add,
 		Remove:    req.Remove,
 	})
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.JSON(fiber.Map{"servers": items})
+}
+
+// DeleteServerTag deletes the tag named in the path from the Site in the siteId query: from every
+// Server spec that names it, then from the provisioner (server-tags.md, Delete a tag). The response
+// lists the Servers whose spec changed. An unknown tag is a 404; a provider failure after the specs
+// were written is a 503 the caller resolves by repeating the request.
+func (h *ProvisioningHandler) DeleteServerTag(c *fiber.Ctx) error {
+	siteID := c.Query("siteId")
+	if siteID == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "siteId is required."))
+	}
+	items, err := h.serverTagDelete.Execute(c.Context(), siteID, c.Params("name"))
+	if err != nil {
+		return RespondError(c, err)
+	}
+	return c.JSON(fiber.Map{"servers": items})
+}
+
+// renameServerTagRequest carries the new name of a tag rename.
+type renameServerTagRequest struct {
+	Name string `json:"name"`
+}
+
+// RenameServerTag renames the manual tag named in the path across the Site in the siteId query,
+// merging it into an existing manual tag of the new name (server-tags.md, Rename a tag). Errors
+// follow DeleteServerTag; an automatic tag on either side is a 400.
+func (h *ProvisioningHandler) RenameServerTag(c *fiber.Ctx) error {
+	siteID := c.Query("siteId")
+	if siteID == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "siteId is required."))
+	}
+	var req renameServerTagRequest
+	if err := c.BodyParser(&req); err != nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
+	}
+	items, err := h.serverTagRename.Execute(c.Context(), siteID, c.Params("name"), req.Name)
 	if err != nil {
 		return RespondError(c, err)
 	}
@@ -802,6 +850,9 @@ func RespondError(c *fiber.Ctx, err error) error {
 
 	case errors.Is(err, provisioningdomain.ErrSubnetNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "The provisioner has no such subnet."))
+
+	case errors.Is(err, provisioningdomain.ErrTagNotFound):
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "The Site has no such tag."))
 
 	case errors.Is(err, sitedomain.ErrSiteNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Site not found."))

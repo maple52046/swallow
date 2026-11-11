@@ -469,15 +469,26 @@ func (s *serverStatus) set(t convergence.ConditionType, status convergence.Condi
 }
 
 // serverTags is the manual-tag field: the spec is the complete set of manual tags, so a missing
-// tag is added and an extra manual tag removed; automatic tags are never touched (decision 071).
+// tag is added and an extra manual tag removed; automatic tags are never touched (decision 071),
+// whatever the provisioner does with them.
 type serverTags struct {
 	store serverdomain.ServerConvergenceStore
 }
 
 func (serverTags) name() string { return "tags" }
 
-func (serverTags) drift(_ context.Context, server *serverdomain.Server) (string, error) {
-	missing, extra := tagDifference(server.Spec.Tags, server.Observed.ManualTags())
+// wanted is the manual tags the spec asks for: the spec without the tags the Server observes as
+// automatic. A spec adopted before the provisioner adapter recognized a tag as automatic can still
+// name it; converging it would fight the provisioner, so it is skipped until a spec write drops it
+// (server-tags.md). The classification is the reconcile's, read from the provisioner's catalog.
+func (serverTags) wanted(server *serverdomain.Server) []string {
+	return slices.DeleteFunc(slices.Clone(server.Spec.Tags), func(tag string) bool {
+		return slices.Contains(server.Observed.AutomaticTags, tag)
+	})
+}
+
+func (f serverTags) drift(_ context.Context, server *serverdomain.Server) (string, error) {
+	missing, extra := tagDifference(f.wanted(server), server.Observed.ManualTags())
 	var parts []string
 	if len(missing) > 0 {
 		parts = append(parts, "missing "+strings.Join(missing, ", "))
@@ -496,9 +507,9 @@ func (serverTags) capable(provider provisioningdomain.OSProvisioningProvider) bo
 	return ok && provider.Capabilities().Tagging
 }
 
-func (serverTags) realize(ctx context.Context, provider provisioningdomain.OSProvisioningProvider, server *serverdomain.Server) error {
+func (f serverTags) realize(ctx context.Context, provider provisioningdomain.OSProvisioningProvider, server *serverdomain.Server) error {
 	controller := provider.(provisioningdomain.MachineTagController)
-	missing, extra := tagDifference(server.Spec.Tags, server.Observed.ManualTags())
+	missing, extra := tagDifference(f.wanted(server), server.Observed.ManualTags())
 	machine := []string{server.Source.ProviderMachineID}
 	for _, name := range missing {
 		if err := controller.EnsureTag(ctx, name); err != nil {

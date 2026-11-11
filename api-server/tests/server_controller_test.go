@@ -327,6 +327,41 @@ func TestServerController_CorrectsDriftOnlyAtResync(t *testing.T) {
 	}
 }
 
+// An automatic tag the provisioner adds on its own (MAAS's `virtual` at commissioning) is observed,
+// not drift: the controller never removes it, even at the resync.
+func TestServerController_AcceptsAnAutomaticTagTheProvisionerAdds(t *testing.T) {
+	f := setupServerController(t, "gpu")
+	f.mustReconcile(t, convergence.TriggerResync)
+
+	f.machine.Tags = append(f.machine.Tags, "virtual")
+	f.server().Observed.Tags = slices.Clone(f.machine.Tags)
+	f.server().Observed.AutomaticTags = []string{"virtual"}
+	f.mustReconcile(t, convergence.TriggerResync)
+
+	if len(f.provider.actions) != 0 {
+		t.Fatalf("provider actions = %v, want none for an automatic tag", f.provider.actions)
+	}
+	f.assertCondition(t, convergence.ConditionDrifted, convergence.ConditionFalse, convergence.ReasonInSync)
+	f.assertCondition(t, convergence.ConditionRealized, convergence.ConditionTrue, convergence.ReasonConverged)
+}
+
+// A spec adopted before a tag was recognized as automatic can still name it. The controller skips
+// it: it is neither drift nor assigned again.
+func TestServerController_SkipsAnAutomaticTagLeftInTheSpec(t *testing.T) {
+	f := setupServerController(t, "gpu", "virtual")
+	f.server().Observed.AutomaticTags = []string{"virtual"}
+	f.server().Generation = 1
+	f.server().Spec.Tags = []string{"gpu", "virtual"}
+	f.server().Convergence.ObservedGeneration = 1
+
+	f.mustReconcile(t, convergence.TriggerResync)
+
+	if len(f.provider.actions) != 0 {
+		t.Fatalf("provider actions = %v, want none", f.provider.actions)
+	}
+	f.assertCondition(t, convergence.ConditionDrifted, convergence.ConditionFalse, convergence.ReasonInSync)
+}
+
 // While the Server is held, the controller reports why and makes no provider change; the change
 // converges once the hold ends.
 func TestServerController_HoldDefersConvergence(t *testing.T) {

@@ -376,9 +376,32 @@ mechanism.
 
 Tags can be edited for one Server or as a tri-state bulk change. swallow owns a
 Server's manual tags and applies them to MAAS; a tag changed directly in MAAS is
-put back at the next periodic check. Tags MAAS computes itself (tags with a
-definition) are shown but not editable. A provisioner without tag support
-reports it on the Server instead of swallow keeping a separate copy.
+put back at the next periodic check. A provisioner without tag support reports
+it on the Server instead of swallow keeping a separate copy.
+
+Automatic tags are the ones MAAS applies itself, and the editor and tag manager
+mark them **Automatic**. They include tags with a definition, such as one that
+may back `amd-gpu`, and the `virtual` tag MAAS commissioning keeps on every
+machine that is not physical. swallow shows them but never adds them, and when
+MAAS adds one again swallow does not treat it as drift. You can still take
+`virtual` off Servers by unchecking it in **Edit tags**: MAAS removes it right
+away, but may add it again the next time the machine is inspected. A tag with a
+definition cannot be removed from single Servers, because MAAS would apply it
+again; you can only delete it.
+
+**Manage tags** on the Servers page lists every tag the Site knows, how many
+Servers carry it, and whether it is automatic:
+
+- **Rename** a manual tag to change it on every Server of the Site and in MAAS.
+  Renaming to a tag that already exists merges the two, after a confirmation.
+- **Delete** a tag to remove it from every Server of the Site and from MAAS. The
+  confirmation says how many Servers carry it. Deleting a tag with a definition
+  deletes the definition too. Tags can select monitoring and automation targets,
+  so check which Servers use one before you delete or rename it.
+- To delete several tags at once, select them (or **Select all tags**) and choose
+  **Delete N tags**. The confirmation lists each tag with what deleting it does.
+  The tags are deleted one after another; if one cannot be deleted, the rest still
+  go ahead, and it stays selected with the reason so you can try again.
 
 ## Zones and Pools
 
@@ -423,7 +446,9 @@ swallow servers power-state server1
 swallow servers virtual-machines list hv1        # libvirt domains of a deployed hypervisor
 swallow servers virtual-machines enroll hv1 vm-01 vm-02 --integration int1
 swallow integrations enroll-bundle int1          # existing-OS command (contains the MAAS API key)
-swallow provisioning tags edit --server server1 --add amd-gpu
+swallow provisioning tags edit --server server1 --add rack-a
+swallow provisioning tags delete legacy --site-id site1
+swallow provisioning tags rename rack_a rack-a --site-id site1
 swallow infrastructure zones list --site-id site1
 ```
 

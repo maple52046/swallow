@@ -274,6 +274,39 @@ export class ApiProvisioningRepository implements ProvisioningRepository {
     return response.servers ?? [];
   }
 
+  async deleteServerTag(
+    siteId: string,
+    name: string,
+  ): Promise<ServerTagsResult[]> {
+    const response = await apiRequest<
+      JsonResponse<operations["deleteServerTag"], 200>
+    >(this.serverTagPath(siteId, name), { method: "DELETE" });
+    return response.servers;
+  }
+
+  async renameServerTag(
+    siteId: string,
+    name: string,
+    newName: string,
+  ): Promise<ServerTagsResult[]> {
+    const body: JsonRequestBody<operations["renameServerTag"]> = {
+      name: newName,
+    };
+    const response = await apiRequest<
+      JsonResponse<operations["renameServerTag"], 200>
+    >(this.serverTagPath(siteId, name), {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+    return response.servers;
+  }
+
+  /** The `/provisioning/tags/{name}` route of one Site's tag; the Site is a query parameter. */
+  private serverTagPath(siteId: string, name: string): string {
+    const query = new URLSearchParams({ siteId });
+    return `/api/v1/provisioning/tags/${encodeURIComponent(name)}?${query}`;
+  }
+
   async listBootISOs(filters?: {
     siteId?: string;
     integrationId?: string;

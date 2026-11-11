@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/netip"
@@ -553,12 +554,16 @@ type fakeProvider struct {
 	uploadImageErr        error
 	validateUploadErr     error
 	uploadedImages        []provisioningdomain.UploadOSImageRequest
-	// autoTags marks tag names reported by ListTags as non-editable (a MAAS automatic tag) and
-	// refused by AddTag, so the auto-tag path can be exercised. ensuredTags records EnsureTag calls
-	// and tagErr forces every tag call to fail.
-	autoTags    map[string]bool
-	ensuredTags []string
-	tagErr      error
+	// autoTags marks tag names reported by ListTags as automatic and not removable (a tag computed
+	// from a rule) and refused by AddTag, so the auto-tag path can be exercised. maintainedTags marks
+	// automatic tags the provider maintains without a rule, which ListTags reports removable.
+	// ensuredTags records EnsureTag calls and tagErr forces every tag call to fail; tagChangeErr
+	// fails only RemoveTag, DeleteTag, and RenameTag, so a catalog read still succeeds.
+	autoTags       map[string]bool
+	maintainedTags map[string]bool
+	ensuredTags    []string
+	tagErr         error
+	tagChangeErr   error
 	// actions records every capability action taken, as "op machineID", so a test can
 	// assert the provider was driven correctly.
 	actions []string
@@ -574,6 +579,7 @@ func newFakeProvider() *fakeProvider {
 		deployErrByMachine:    make(map[string]error),
 		readinessErrByMachine: make(map[string]error),
 		autoTags:              make(map[string]bool),
+		maintainedTags:        make(map[string]bool),
 		// The full set, matching the MAAS adapter, so capability assertions succeed by
 		// default; a test that needs an incapable provisioner uses minimalProvider.
 		capabilities: provisioningdomain.ProviderCapabilities{
@@ -742,8 +748,8 @@ func (p *fakeProvider) DeleteMachine(_ context.Context, machineID string) error 
 	return nil
 }
 
-// ListTags reports the union of every machine's tags plus any ensured tags, flagging a tag as not
-// editable when it is registered as an automatic tag.
+// ListTags reports the union of every machine's tags plus any ensured and automatic tags, flagging
+// a tag registered in autoTags or maintainedTags as automatic, and one in autoTags as not removable.
 func (p *fakeProvider) ListTags(_ context.Context) ([]provisioningdomain.MachineTag, error) {
 	if p.tagErr != nil {
 		return nil, p.tagErr
@@ -755,7 +761,11 @@ func (p *fakeProvider) ListTags(_ context.Context) ([]provisioningdomain.Machine
 			return
 		}
 		seen[name] = true
-		tags = append(tags, provisioningdomain.MachineTag{Name: name, Editable: !p.autoTags[name]})
+		tags = append(tags, provisioningdomain.MachineTag{
+			Name:      name,
+			Editable:  !p.autoTags[name] && !p.maintainedTags[name],
+			Removable: !p.autoTags[name],
+		})
 	}
 	for _, machine := range p.machines {
 		for _, tag := range machine.Tags {
@@ -768,7 +778,49 @@ func (p *fakeProvider) ListTags(_ context.Context) ([]provisioningdomain.Machine
 	for tag := range p.autoTags {
 		add(tag)
 	}
+	for tag := range p.maintainedTags {
+		add(tag)
+	}
 	return tags, nil
+}
+
+// DeleteTag drops the tag from the catalog and every machine; an absent tag is satisfied.
+func (p *fakeProvider) DeleteTag(_ context.Context, name string) error {
+	if err := errors.Join(p.tagErr, p.tagChangeErr); err != nil {
+		return err
+	}
+	p.actions = append(p.actions, "deleteTag "+name)
+	for _, machine := range p.machines {
+		machine.Tags = withoutTag(machine.Tags, name)
+	}
+	p.ensuredTags = withoutTag(p.ensuredTags, name)
+	delete(p.autoTags, name)
+	delete(p.maintainedTags, name)
+	return nil
+}
+
+// RenameTag renames the tag on every machine and in the catalog, merging into an existing tag of
+// the new name; an absent tag is satisfied.
+func (p *fakeProvider) RenameTag(_ context.Context, from, to string) error {
+	if err := errors.Join(p.tagErr, p.tagChangeErr); err != nil {
+		return err
+	}
+	p.actions = append(p.actions, "renameTag "+from+" "+to)
+	rename := func(tags []string) []string {
+		if !containsTag(tags, from) {
+			return tags
+		}
+		tags = withoutTag(tags, from)
+		if !containsTag(tags, to) {
+			tags = append(tags, to)
+		}
+		return tags
+	}
+	for _, machine := range p.machines {
+		machine.Tags = rename(machine.Tags)
+	}
+	p.ensuredTags = rename(p.ensuredTags)
+	return nil
 }
 
 // EnsureTag records the ensured manual tag; a repeated ensure is harmless.
@@ -805,10 +857,17 @@ func (p *fakeProvider) AddTag(_ context.Context, name string, machineIDs []strin
 	return nil
 }
 
-// RemoveTag unassigns the tag from each machine.
+// RemoveTag unassigns the tag from each machine, refusing a tag computed from a rule (autoTags) the
+// way the server-tags contract says swallow must never send one.
 func (p *fakeProvider) RemoveTag(_ context.Context, name string, machineIDs []string) error {
-	if p.tagErr != nil {
-		return p.tagErr
+	if err := errors.Join(p.tagErr, p.tagChangeErr); err != nil {
+		return err
+	}
+	if p.autoTags[name] {
+		return &provisioningdomain.ProviderError{
+			Kind:   provisioningdomain.ProviderErrorRejected,
+			Detail: "Cannot remove nodes from a tag that has a definition.",
+		}
 	}
 	p.actions = append(p.actions, "removeTag "+name)
 	for _, id := range machineIDs {

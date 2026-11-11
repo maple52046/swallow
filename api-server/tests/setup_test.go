@@ -186,6 +186,8 @@ func setupPlatform(t *testing.T) *platformFixture {
 		provisioningapp.NewSetOSImageMetadataUseCase(osImageMetadata, reconcileUC),
 		provisioningapp.NewListServerTagsUseCase(integrations, factory, servers),
 		provisioningapp.NewEditServerTagsUseCase(&storetest.Transactor{}, servers, servers, factory),
+		provisioningapp.NewDeleteServerTagUseCase(&storetest.Transactor{}, integrations, factory, servers, servers),
+		provisioningapp.NewRenameServerTagUseCase(&storetest.Transactor{}, integrations, factory, servers, servers),
 	)
 	provisioningHandler.AttachDurableOperations(launcher)
 	exporters := &fakeExporterInventory{}
@@ -311,6 +313,8 @@ func setupPlatform(t *testing.T) *platformFixture {
 	provisioningGroup.Delete("/images/metadata", provisioningHandler.ClearImageMetadata)
 	provisioningGroup.Get("/tags", provisioningHandler.ListServerTags)
 	provisioningGroup.Post("/tags", provisioningHandler.EditServerTags)
+	provisioningGroup.Delete("/tags/:name", provisioningHandler.DeleteServerTag)
+	provisioningGroup.Patch("/tags/:name", provisioningHandler.RenameServerTag)
 	provisioningGroup.Get("/templates", provisioningHandler.ListTemplates)
 	provisioningGroup.Post("/templates", provisioningHandler.CreateTemplate)
 	provisioningGroup.Get("/templates/:id", provisioningHandler.GetTemplate)

@@ -118,18 +118,35 @@ export interface ProvisioningRepository {
     architecture: string,
   ): Promise<void>;
   /**
-   * Lists the tags known for a Site, so the tag editor can offer existing names and disable the
-   * provider-computed (automatic) ones: the provisioner's tags when it has tagging, otherwise the
-   * union of the Servers' spec tags. A Site with no provisioner yields an empty list.
+   * Lists the tags known for a Site with each tag's kind and how many Servers carry it, so the tag
+   * editor can offer existing names and the tag manager can show how widely each is used: the
+   * provisioner's catalog plus the spec tags it does not hold yet. A Site with no provisioner
+   * yields an empty list.
    */
   listServerTags(siteId: string): Promise<ServerTagOption[]>;
   /**
-   * Applies a tri-state tag edit to one or more Servers' spec (decision 071) and returns each
-   * Server's resulting tags; the Server controller realizes them on the provisioner. Rejects with
-   * the shared error envelope on an invalid edit (for example an attempt to assign an automatic
-   * tag).
+   * Applies a tri-state tag edit to one or more Servers (decision 071) and returns each Server's
+   * resulting manual tags. Manual tags are written to the spec and realized later by the Server
+   * controller; a removable automatic tag in `remove` is taken off the machines by the provisioner
+   * before this resolves. Rejects with the shared error envelope on an invalid edit (for example
+   * adding an automatic tag) or `provider_unavailable` when the provisioner could not be reached
+   * (the specs are already written; repeating the edit finishes it).
    */
   editServerTags(input: EditServerTagsInput): Promise<ServerTagsResult[]>;
+  /**
+   * Deletes a tag across a Site (server-tags.md): a manual tag leaves every Server spec that names
+   * it and then the provisioner; an automatic tag is deleted from the provisioner only, which may
+   * apply it again later. Resolves with the Servers whose spec changed. Rejects with `not_found`
+   * for a tag the Site does not know, `conflict` while a Server not adopted yet carries it, or
+   * `provider_unavailable` (repeat the request: any spec change is already written).
+   */
+  deleteServerTag(siteId: string, name: string): Promise<ServerTagsResult[]>;
+  /**
+   * Renames a manual tag across a Site, merging it into an existing manual tag of the new name,
+   * and resolves with the Servers whose spec changed. Rejects like `deleteServerTag`, and with
+   * `validation_error` for an unchanged or invalid name or an automatic tag on either side.
+   */
+  renameServerTag(siteId: string, name: string, newName: string): Promise<ServerTagsResult[]>;
   /**
    * Lists Boot ISOs (contract boot-isos.md), optionally narrowed to a Site and/or provisioner
    * Integration, together with whether this installation can build them. A builder that cannot

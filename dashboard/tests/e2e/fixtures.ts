@@ -459,6 +459,15 @@ export interface FixtureOptions {
   extraTags?: Record<string, string[]>
   /** Adds provisioner-computed tags: observed (`status.tags`, `status.automaticTags`), never in the spec. */
   automaticTags?: Record<string, string[]>
+  /**
+   * Tags the Site's provisioner catalog holds beyond those its Servers carry (`GET
+   * /provisioning/tags`): an unused manual tag, or an automatic tag with its `removable` kind. The
+   * fleet's spec tags (manual) and observed automatic tags (removable unless listed here) are
+   * always in the list, with their Server counts.
+   */
+  serverTagCatalog?: Array<{ name: string; editable: boolean; removable: boolean }>
+  /** Called with each tag deletion or rename (`DELETE`/`PATCH /provisioning/tags/{name}`). */
+  onServerTagChange?: (method: 'DELETE' | 'PATCH', name: string, body: Record<string, unknown> | null) => void
   /** Servers whose manual tags were changed outside swallow: `drifted` true until the next resync. */
   driftedServerIds?: string[]
   /** Overrides a Server's placement spec (Zone and Pool ids; null is the provisioner's default). */
@@ -1633,6 +1642,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   })
   await page.unroute('**/api/v1/**')
   const fleet = Array.from({ length: options.fleetSize ?? 4 }, (_, index) => makeServer(index))
+  // The catalog-only tags; a deletion or rename through the fixture changes it like the fleet.
+  let tagCatalog = [...(options.serverTagCatalog ?? [])]
   let serverListRequestCount = 0
   let serverListFailuresRemaining = options.serverListFailuresAfterInitial ?? 0
   if (options.freePlatformCandidates) {
@@ -3102,6 +3113,49 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         integrationItems = integrationItems.filter((item) => item.id !== integration.id)
         return json(route, { success: true })
       }
+    }
+
+    // Server tags (server-tags.md): the list is the catalog-only tags plus what the Site's Servers
+    // carry, counted the way the API counts them; a deletion or rename rewrites the fleet's specs and
+    // observed tags at once, standing in for the provisioner following.
+    if (path === '/api/v1/provisioning/tags' && request.method() === 'GET') {
+      const siteServers = fleet.filter((server) => server.status.source.siteId === url.searchParams.get('siteId'))
+      const tags = new Map(tagCatalog.map((entry) => [entry.name, { ...entry, serverCount: 0 }]))
+      for (const server of siteServers) {
+        for (const name of server.status.automaticTags) {
+          const entry = tags.get(name) ?? { name, editable: false, removable: true, serverCount: 0 }
+          tags.set(name, { ...entry, serverCount: entry.serverCount + 1 })
+        }
+        for (const name of server.spec.tags) {
+          if (server.status.automaticTags.includes(name)) continue
+          const entry = tags.get(name) ?? { name, editable: true, removable: true, serverCount: 0 }
+          tags.set(name, { ...entry, serverCount: entry.serverCount + 1 })
+        }
+      }
+      return json(route, { tags: [...tags.values()] })
+    }
+    const serverTagMatch = path.match(/^\/api\/v1\/provisioning\/tags\/([^/]+)$/)
+    if (serverTagMatch && (request.method() === 'DELETE' || request.method() === 'PATCH')) {
+      const method = request.method() as 'DELETE' | 'PATCH'
+      const name = decodeURIComponent(serverTagMatch[1])
+      const body = method === 'PATCH' ? (request.postDataJSON() as Record<string, unknown>) : null
+      options.onServerTagChange?.(method, name, body)
+      const newName = body ? String(body.name ?? '') : ''
+      const change = (tags: string[]) => {
+        const kept = tags.filter((tag) => tag !== name)
+        return newName && tags.includes(name) && !kept.includes(newName) ? [...kept, newName] : kept
+      }
+      const changed: Array<{ serverId: string; generation: number; tags: string[] }> = []
+      for (const server of fleet.filter((item) => item.status.source.siteId === url.searchParams.get('siteId'))) {
+        server.status.tags = change(server.status.tags)
+        server.status.automaticTags = server.status.automaticTags.filter((tag) => tag !== name)
+        if (!server.spec.tags.includes(name)) continue
+        server.spec = { ...server.spec, tags: change(server.spec.tags) }
+        server.generation += 1
+        changed.push({ serverId: server.id, generation: server.generation, tags: server.spec.tags })
+      }
+      tagCatalog = tagCatalog.filter((entry) => entry.name !== name)
+      return json(route, { servers: changed })
     }
 
     if (path === '/api/v1/provisioning/image-uploads' && request.method() === 'POST') {

@@ -73,7 +73,7 @@ tag 與 placement、Zone 與 Pool、SSH key，以及 provisioner 的 HTTP proxy 
 
 Zone／Pool 是 user-defined infrastructure grouping；tag 加上 capability 或 policy
 metadata。Server 的手動 tag 與它的 Zone／Pool 屬於 spec，由 provisioner 實現；
-provisioner 自行計算的 tag 只是 observed。Provisioner 沒有這個能力時回報
+provisioner 自行計算或維護的 tag（automatic tag）只是 observed，可以移除或刪除，但不能指派。Provisioner 沒有這個能力時回報
 `capability_missing`，swallow 不另外保存替代的副本。
 
 Server lock 會保護 Server 不受 automation 與 destructive action 影響，但不能取代

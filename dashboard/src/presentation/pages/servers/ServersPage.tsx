@@ -63,6 +63,7 @@ import { ServerPowerOffWarningDialog } from './ServerPowerOffWarningDialog'
 import { useServerWorkingSet } from './useServerWorkingSet'
 import { useServerBulkActions } from './useServerBulkActions'
 import { ServerTagEditor } from './ServerTagEditor'
+import { ServerTagManager, type TagManagerSite } from './ServerTagManager'
 import { ServerActionResultDialog } from './ServerActionResultDialog'
 import { ServerTakeActionMenu } from './ServerTakeActionMenu'
 import { failedServerActionOutcomes, type ServerActionRunResult, type ServerActionTarget } from './serverActionResults'
@@ -456,6 +457,7 @@ export function ServersPage() {
   const [deleteTargets, setDeleteTargets] = useState<Server[] | null>(null)
   const [releaseTargets, setReleaseTargets] = useState<ServerActionTarget[] | null>(null)
   const [tagEditorTargets, setTagEditorTargets] = useState<Server[] | null>(null)
+  const [managingTags, setManagingTags] = useState(false)
   const [lastActionResult, setLastActionResult] = useState<ServerActionRunResult | null>(null)
   const [resultDialogOpen, setResultDialogOpen] = useState(false)
   const [pendingLockAction, setPendingLockAction] = useState<{
@@ -471,6 +473,14 @@ export function ServersPage() {
   const siteKey = siteId ?? ''
   const provisionersLoaded = provisionerState.siteKey === siteKey
   const provisioners = provisionersLoaded ? provisionerState.items : EMPTY_INTEGRATIONS
+  // The tag manager acts on one Site's provisioner at a time, so it offers the Sites in scope that
+  // have an enabled one (the same provisioner the tag list reads).
+  const tagManagerSites = useMemo<TagManagerSite[]>(() => {
+    const withProvisioner = new Set(provisioners.filter((item) => item.enabled).map((item) => item.siteId))
+    return sites
+      .filter((site) => withProvisioner.has(site.id))
+      .map((site) => ({ id: site.id, name: site.name }))
+  }, [provisioners, sites])
   const inspectionAttention = useInspectionAttention({ siteId })
   const [followedServers, setFollowedServers] = useState<{ siteKey: string; ids: readonly string[] }>({ siteKey, ids: [] })
   const followedServerIds = followedServers.siteKey === siteKey ? followedServers.ids : EMPTY_SERVER_IDS
@@ -811,6 +821,12 @@ export function ServersPage() {
               <RefreshCw size={16} />
               Refresh
             </Button>
+            {tagManagerSites.length > 0 && (
+              <Button variant="outline" onClick={() => setManagingTags(true)}>
+                <Tags size={16} />
+                Manage tags
+              </Button>
+            )}
             {provisioners.length > 0 && (
               <Button colorPalette="brand" onClick={() => setAddingServers(true)}>
                 <Plus size={16} />
@@ -821,6 +837,9 @@ export function ServersPage() {
         }
       />
       {addingServers && <AddServersDialog provisioners={provisioners} servers={workingSet} onClose={() => setAddingServers(false)} />}
+      {managingTags && (
+        <ServerTagManager sites={tagManagerSites} onClose={() => setManagingTags(false)} onChanged={reload} />
+      )}
       <InspectionAttentionAlert
         operations={inspectionAttention}
         onView={(operationId) => navigate(scopedHref(operationId

@@ -1907,20 +1907,50 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List the tags known for a Site, with whether swallow may assign each.
-         * @description Requires role `admin`. A Site with no enabled provisioner, including an unknown Site, answers an empty `tags` array. 400 for a missing `siteId` or a provisioner refusal; 503 when the provisioner cannot be reached or has no credential.
+         * List the tags known for a Site, with each tag's kind and how many Servers carry it.
+         * @description Requires role `admin`. The provisioner's tag catalog plus the spec tags it does not hold yet. A Site with no enabled provisioner, including an unknown Site, answers an empty `tags` array. 400 for a missing `siteId` or a provisioner refusal; 503 when the provisioner cannot be reached or has no credential.
          */
         get: operations["listServerTags"];
         put?: never;
         /**
          * Write a tri-state tag edit into the spec of one or more Servers.
-         * @description Requires role `admin`. Not gated on Server Lock. Atomic across the listed Servers; the provisioner converges asynchronously (the Servers' conditions report it). 400 for an invalid body, empty `serverIds`, no `add` or `remove`, or an invalid, contradictory, or automatic tag name; 404 for an unknown Server; 409 when a Server is not adopted yet or its spec changed during the edit.
+         * @description Requires role `admin`. Not gated on Server Lock. The spec part is atomic across the listed Servers and the provisioner converges it asynchronously (the Servers' conditions report it); an automatic tag in `remove` is removed by the provisioner before the response. 400 for an invalid body, empty `serverIds`, no `add` or `remove`, an invalid or contradictory tag name, an automatic tag in `add`, or a non-removable automatic tag in `remove`; 404 for an unknown Server; 409 when a Server is not adopted yet or its spec changed during the edit; 503 when removing an automatic tag could not reach the provisioner (the specs are written; repeat the request).
          */
         post: operations["editServerTags"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/provisioning/tags/{name}": {
+        parameters: {
+            query: {
+                /** @description The Site whose tag this is. */
+                siteId: string;
+            };
+            header?: never;
+            path: {
+                /** @description The tag name. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a tag from a Site, its provisioner, and every Server spec that names it.
+         * @description Requires role `admin`. Not gated on Server Lock. A manual tag is removed from every spec in one transaction, then deleted from the provisioner; an automatic tag is deleted from the provisioner only. 400 for a missing `siteId`, an invalid name, or a provisioner refusal; 404 when the Site knows no such tag; 409 when a Server not adopted yet carries it or a spec changed during the write; 503 when the provisioner cannot be reached (repeat the request).
+         */
+        delete: operations["deleteServerTag"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename a manual tag across a Site, its provisioner, and every Server spec.
+         * @description Requires role `admin`. Not gated on Server Lock. Every spec that names the tag gets the new name in one transaction, then the provisioner renames it; renaming to an existing manual tag merges the two. 400 for a missing `siteId`, an invalid or unchanged name, an automatic tag on either side, or a provisioner refusal; 404 when the Site knows no such tag; 409 when a Server not adopted yet carries it or a spec changed during the write; 503 when the provisioner cannot be reached (repeat the request).
+         */
+        patch: operations["renameServerTag"];
         trace?: never;
     };
     "/api/v1/provisioning/tasks/{id}": {
@@ -6557,9 +6587,13 @@ export interface components {
             servers: components["schemas"]["ServerTagSet"][];
         };
         ServerTagOption: {
-            /** @description False for a provider-computed automatic tag swallow must not assign. */
+            /** @description True for a manual tag (swallow's, in the Server specs); false for an automatic tag the provisioner computes or maintains, which swallow never assigns. */
             editable: boolean;
             name: string;
+            /** @description Whether swallow can remove the tag from a Server. Always true for a manual tag; false for an automatic tag the provisioner computes from a rule, which can only be deleted. */
+            removable: boolean;
+            /** @description How many of the provisioner's Servers carry the tag: in their spec for a manual tag, as observed for an automatic one. */
+            serverCount: number;
         };
         ServerTagSet: {
             /**
@@ -12276,6 +12310,80 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteServerTag: {
+        parameters: {
+            query: {
+                /** @description The Site whose tag this is. */
+                siteId: string;
+            };
+            header?: never;
+            path: {
+                /** @description The tag name. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Each Server whose spec the deletion changed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerTagEditResult"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    renameServerTag: {
+        parameters: {
+            query: {
+                /** @description The Site whose tag this is. */
+                siteId: string;
+            };
+            header?: never;
+            path: {
+                /** @description The tag name. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description The new tag name. */
+                    name: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Each Server whose spec the rename changed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerTagEditResult"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            503: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };

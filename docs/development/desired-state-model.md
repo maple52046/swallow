@@ -89,7 +89,7 @@ status 的位置本身就是標示）。新功能在實作前，必須先列出�
 - desired 也可以由政策推導而不儲存：功能規格宣告一條政策，從其他 desired 與 observed 的事實得出資源應該是什麼
   樣子（目前只有 Node Exporter，見 [software-deployment.md](software-deployment.md)）。推導的 desired 沒有欄位，所以
   沒有寫入者、`generation` 與 conditions；改變政策是規格變更，要經過審查。
-- 不是每個 observed 欄位都有 desired 對應：硬體 inventory、GPU inventory、provider 自動計算的 tag 只有
+- 不是每個 observed 欄位都有 desired 對應：硬體 inventory、GPU inventory、provider 自己計算或維護的 tag 只有
   observed。
 
 ### 3.3 observed
@@ -140,7 +140,7 @@ decision 069 相同）：
 
 | 資源 | desired | observed | 備註 |
 | --- | --- | --- | --- |
-| Server | OS 部署意圖（OS Image、Deploy Target、網路意圖、Deployment Template 參照）、Zone／Pool placement、user 指派的 tag、Boot Media 設定、Server Default User、Power Configuration | OS Provisioning State、硬體與 GPU inventory、位址、power 狀態、membership、health、provider 自動計算的 tag | tag 與 Zone／Pool placement 已遷移（§4.4）；Power Configuration 目前在 capable provider 上由 provider 擁有；power on／off 是 desired power 狀態還是保留為動作：待定；Server Lock 改為 swallow 的 hold 還是維持 provider 擁有：待定 |
+| Server | OS 部署意圖（OS Image、Deploy Target、網路意圖、Deployment Template 參照）、Zone／Pool placement、user 指派的 tag、Boot Media 設定、Server Default User、Power Configuration | OS Provisioning State、硬體與 GPU inventory、位址、power 狀態、membership、health、provider 自己計算或維護的 tag | tag 與 Zone／Pool placement 已遷移（§4.4）；Power Configuration 目前在 capable provider 上由 provider 擁有；power on／off 是 desired power 狀態還是保留為動作：待定；Server Lock 改為 swallow 的 hold 還是維持 provider 擁有：待定 |
 | Platform | type、拓樸、各 Server 的 Node Role、功能開關（GPU Operator、Omnistat、Device Metrics Exporter 等）與版本 | 叢集 membership、連線狀態、各功能的狀態讀回 | Platform Lifecycle State 改由 conditions 與 Workflow 推導；Platform Claim 是由 spec 的 target 推導的欄位，與 spec 在同一個 transaction 寫入 |
 | Managed Software（Software Assignment） | kind、variant 或 role、版本 | 已套用的狀態與版本 | 現行的 Software Assignment 記錄最後一次安裝的 spec 與結果（last-applied），安裝由 user 或計畫觸發，沒有 controller 依 observed 收斂（§1.1）；Node Exporter 已遷移（§4.4） |
 | Zone／Pool | 存在與否、名稱、說明 | provisioner 中的實現狀態 | 已遷移（§4.4） |
@@ -158,7 +158,7 @@ Power Configuration 這類欄位的 drift 只回報。已遷移的資源與其�
 
 | 資源 | spec | controller | 規格與契約 |
 | --- | --- | --- | --- |
-| Server 的手動 tag | `spec.tags`：Server 必須帶的手動 tag 全集；自動 tag 只觀察，不進 spec | Server controller：補上缺少的、移除多出的手動 tag；provisioner 沒有 tag 能力時 `capability_missing` | glossary [Tag](glossaries/terms/tag.md)、[os-provisioning.md](os-provisioning.md) §2、[server-tags.md](../../api-server/docs/development/api-contracts/api-server/server-tags.md)、[servers-list.md](../../api-server/docs/development/api-contracts/api-server/servers-list.md#spec-and-status) |
+| Server 的手動 tag | `spec.tags`：Server 必須帶的手動 tag 全集；自動 tag（provisioner 自己算或自己維護的）只觀察，不進 spec，也不是 drift | Server controller：補上缺少的、移除多出的手動 tag；provisioner 沒有 tag 能力時 `capability_missing`。Site 範圍的刪除與改名由 API 先改寫所有 spec、再同步呼叫 provisioner；自動 tag 的移除與刪除是 API 同步執行的動作 | glossary [Tag](glossaries/terms/tag.md)、[os-provisioning.md](os-provisioning.md) §2、[server-tags.md](../../api-server/docs/development/api-contracts/api-server/server-tags.md)、[servers-list.md](../../api-server/docs/development/api-contracts/api-server/servers-list.md#spec-and-status) |
 | Server 的 placement | `spec.zoneId`、`spec.poolId`：以 id 指向 catalog；`null` 為 provisioner 的預設 group | Server controller：以 group 在該 provisioner 上的名稱移動 machine；group 尚未建立時等待 | [os-provisioning.md](os-provisioning.md) §8、[infrastructure.md](../../api-server/docs/development/api-contracts/api-server/infrastructure.md#server-placement) |
 | Zone 與 Pool 的 catalog | 名稱與說明 | catalog controller：在 Site 的每個 provisioner 建立、改名、改說明；接管只存在於 provisioner 的 group；刪除由 API 同步執行 | glossary [Zone](glossaries/terms/zone.md)、[Pool](glossaries/terms/pool.md)、[os-provisioning.md](os-provisioning.md) §8 |
 | Provisioner HTTP Proxy | 每個 provisioner Integration 的 mode 與 URL | HTTP Proxy controller：寫入並讀回；第一次讀取接管 | glossary [Provisioner HTTP Proxy](glossaries/terms/provisioner-http-proxy.md)、[os-provisioning.md](os-provisioning.md) §7 |

@@ -495,6 +495,13 @@ swallow provisioning tags edit --server srv1 --server srv2 --add rack-a --remove
 # 編輯寫入 Server 的 spec，provisioner 隨後跟上。`servers get srv1` 會顯示 conditions：MAAS 套上 tag 後
 # 為 realized=true。在 MAAS UI 改動的 tag 會在下一次定期 resync（預設 10 分鐘）改回來。
 swallow provisioning tags edit -f tags.yaml
+# `list` 會標出 automatic tag（editable=false），也就是 MAAS 自己套上的 tag，例如 VM 上的 `virtual`。
+# 它們不會被當成 drift 改回或移除。對它使用 `--remove` 會立即從機器上拿掉，MAAS 之後可能再加回來；
+# 依規則計算的（removable=false）只能刪除。
+swallow provisioning tags edit --server srv1 --remove virtual
+# 在整個 Site 刪除或重新命名 tag：先改所有帶它的 Server，再改 provisioner。改名成既有的 tag 會合併兩者。
+swallow provisioning tags delete legacy --site-id site1
+swallow provisioning tags rename rack_a rack-a --site-id site1
 
 # Durable operations（canonical endpoints）
 swallow provisioning preflight --server srv1 --server srv2

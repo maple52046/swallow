@@ -321,8 +321,24 @@ reconcile 仍是 fleet mechanism。
 ## Tag
 
 Tag 可編輯單台 Server，也可用 tri-state bulk change。Server 的手動 tag 由 swallow 擁有並套用到 MAAS；
-直接在 MAAS 改的 tag 會在下一次定期檢查時改回。MAAS 自己算出的 tag（帶 definition 的 tag）會顯示但不能編輯。
-Provisioner 不支援 tag 時，Server 上會回報這件事，swallow 不另存一份。
+直接在 MAAS 改的 tag 會在下一次定期檢查時改回。Provisioner 不支援 tag 時，Server 上會回報這件事，
+swallow 不另存一份。
+
+Automatic tag 是 MAAS 自己套上的 tag，編輯器與 tag 管理畫面會標示 **Automatic**。它包括帶 definition 的
+tag（例如可能用來產生 `amd-gpu` 的那種），以及 MAAS commissioning 為每台非實體機維護的 `virtual`。
+swallow 會顯示它們，但從不加上；MAAS 再加回來時，swallow 也不當成 drift。你仍然可以在 **Edit tags**
+取消勾選 `virtual`，把它從 Server 上拿掉：MAAS 會立即移除，但下次 inspect 這台機器時可能再加回來。
+帶 definition 的 tag 不能從個別 Server 拿掉，因為 MAAS 會再套上，只能刪除整個 tag。
+
+Servers 頁的 **Manage tags** 列出 Site 知道的每個 tag、有幾台 Server 帶著它，以及它是否為 automatic：
+
+- **Rename** 手動 tag，會改掉 Site 所有 Server 與 MAAS 上的名稱。改成已存在的 tag 會在確認後合併兩者。
+- **Delete** tag，會把它從 Site 所有 Server 與 MAAS 移除，確認框會說明有幾台 Server 帶著它。刪除帶
+  definition 的 tag 會一併刪除 definition。Tag 可能決定監控與自動化的目標，刪除或改名前請先確認哪些
+  Server 在使用。
+- 要一次刪除多個 tag，勾選它們（或 **Select all tags**）後選 **Delete N tags**。確認框會逐一列出每個 tag
+  刪除後的影響。這些 tag 會依序刪除；其中一個刪不掉時，其餘照常進行，刪不掉的會保持勾選並顯示原因，
+  方便再試一次。
 
 ## Zone 與 Pool
 
@@ -362,7 +378,9 @@ swallow servers power-state server1
 swallow servers virtual-machines list hv1        # 已 deploy 的 hypervisor 上的 libvirt domain
 swallow servers virtual-machines enroll hv1 vm-01 vm-02 --integration int1
 swallow integrations enroll-bundle int1          # existing OS 指令（含 MAAS API key）
-swallow provisioning tags edit --server server1 --add amd-gpu
+swallow provisioning tags edit --server server1 --add rack-a
+swallow provisioning tags delete legacy --site-id site1
+swallow provisioning tags rename rack_a rack-a --site-id site1
 swallow infrastructure zones list --site-id site1
 ```
 
