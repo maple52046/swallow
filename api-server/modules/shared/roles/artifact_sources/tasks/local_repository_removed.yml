@@ -1,9 +1,11 @@
 ---
-# From the upstreams pip, uv, and the container runtimes resolve as they would without swallow, so a
-# run removes what a run with the Local Repository wrote for them, and only that (Docker's entry is
-# docker.yml's).
+# A channel that does not fetch from the Local Repository resolves as it would without swallow, so
+# the run removes what an earlier run wrote for it there, and only that (Docker's entry is
+# docker.yml's): pip and uv while the run has no Python index, k0s's containerd and Podman while it
+# has no registry.
 
-- name: Stop pointing pip, uv, and the container runtimes at the Local Repository
+- name: Stop pointing pip and uv at the Local Repository
+  when: artifact_sources_python_index | length == 0
   become: true
   block:
     - name: Read uv's system configuration
@@ -41,13 +43,15 @@
           (artifact_sources_pip_conf_file.content | b64decode)
           is search('(?m)^# Managed by Swallow \((artifact_sources|local_repo_client)\)')
 
-    - name: Stop resolving k0s's images and Podman's registry through the Local Repository
-      # containerd reads the hosts files at every pull, so a running k0s pulls from the upstreams
-      # at once; it forgets the drop-in when it restarts.
-      ansible.builtin.file:
-        path: "{{ artifact_sources_root }}{{ item }}"
-        state: absent
-      loop:
-        - "{{ artifact_sources_containerd_dropin }}"
-        - "{{ artifact_sources_containerd_hosts }}"
-        - "{{ artifact_sources_podman_registries }}"
+- name: Stop resolving k0s's images and Podman's registry through the Local Repository
+  # containerd reads the hosts files at every pull, so a running k0s pulls from the upstreams at
+  # once; it forgets the drop-in when it restarts.
+  become: true
+  ansible.builtin.file:
+    path: "{{ artifact_sources_root }}{{ item }}"
+    state: absent
+  loop:
+    - "{{ artifact_sources_containerd_dropin }}"
+    - "{{ artifact_sources_containerd_hosts }}"
+    - "{{ artifact_sources_podman_registries }}"
+  when: artifact_sources_registry | length == 0

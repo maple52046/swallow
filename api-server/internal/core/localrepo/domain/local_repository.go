@@ -43,17 +43,46 @@ type LocalRepository struct {
 	Status     Status
 }
 
-// Spec is the user's part of a Site's Local Repository: whether the Site's deployments fetch their
-// artifacts from it, and the Repository Sources added beyond what the modules declare (the OS
-// package archive, for example).
-//
-// ServeDeployments false, the zero value and the default of a record written before the field
-// existed, means deployments fetch every artifact from the upstream its module declares and the
-// controller converges nothing; true means they fetch from the Local Repository and are refused
-// while it is not ready, never falling back to the upstreams.
+// Spec is the user's part of a Site's Local Repository: how the Site's deployments use it (Mode),
+// and the Repository Sources added beyond what the modules declare (the OS package archive, for
+// example).
 type Spec struct {
-	ServeDeployments bool
-	Sources          []Source
+	Mode    Mode
+	Sources []Source
+}
+
+// Mode is how a Site's deployments use its Local Repository (glossary Local Repository Mode). The
+// values are wire and store values: renaming one is a model change.
+//
+//   - ModeUpstream: deployments fetch every artifact from the upstream its module declares and the
+//     controller converges nothing. It is the default; a record without a spec reads as it.
+//   - ModeCache: deployments fetch from the Local Repository what it serves and the rest from the
+//     declared upstreams, decided per artifact at acceptance, and never wait for its content.
+//   - ModeOffline: deployments fetch every artifact from the Local Repository and are refused while
+//     it does not serve everything, never falling back to the upstreams.
+type Mode string
+
+// The Local Repository Modes, each described on Mode.
+const (
+	ModeUpstream Mode = "upstream"
+	ModeCache    Mode = "cache"
+	ModeOffline  Mode = "offline"
+)
+
+// Valid reports whether m is one of the modes; the zero value is not.
+func (m Mode) Valid() bool {
+	switch m {
+	case ModeUpstream, ModeCache, ModeOffline:
+		return true
+	}
+	return false
+}
+
+// Converges reports whether the controller converges a Local Repository in mode m into its
+// provider: in cache and offline mode deployments fetch from it, so it must hold the effective
+// content; in upstream mode (or an unknown mode) the provider is left alone.
+func (m Mode) Converges() bool {
+	return m == ModeCache || m == ModeOffline
 }
 
 // Status is what the controller last observed of the Site's repository through IntegrationID, at
@@ -77,9 +106,10 @@ type Status struct {
 }
 
 // ConditionReady is the Local Repository's own condition type: true when deployments that fetch
-// from it are accepted, which needs the spec to serve deployments, the Integration enabled, every
-// effective source, file, and declared image ready, and the host addresses read. Its false reason
-// is the first thing in the way.
+// artifacts are accepted under the spec's mode. Upstream mode is never ready; cache mode needs the
+// Integration enabled, observed, not stopped, and the host addresses read; offline mode needs, beyond
+// that, every effective source serving and every file and declared image ready. Its false reason is
+// the first thing in the way.
 const ConditionReady convergence.ConditionType = "ready"
 
 // The Local Repository's condition reasons, beside the shared convergence reasons
@@ -88,7 +118,8 @@ const ConditionReady convergence.ConditionType = "ready"
 const (
 	// ReasonReady: ready is true.
 	ReasonReady = "ready"
-	// ReasonSyncing: a source, file, or declared image is pending or syncing.
+	// ReasonSyncing: a source, file, or declared image is pending or syncing (for ready in offline
+	// mode: a source not serving yet, or a file or image not ready yet).
 	ReasonSyncing = "syncing"
 	// ReasonSourceFailed, ReasonFileFailed, and ReasonImageFailed: the last fetch of a source, a
 	// file, or a declared image failed.
@@ -104,8 +135,8 @@ const (
 	ReasonContentOriginMissing = "content_origin_missing"
 	// ReasonIntegrationInvalid: the provider adapter refused the Integration's configuration.
 	ReasonIntegrationInvalid = "integration_invalid"
-	// ReasonNotServing: the spec does not serve deployments (Spec.ServeDeployments is false), so the
-	// Site's deployments fetch from the upstreams and the controller converges nothing.
+	// ReasonNotServing: the spec's mode is upstream, so the Site's deployments fetch from the
+	// upstreams and the controller converges nothing.
 	ReasonNotServing = "not_serving"
 	// ReasonIntegrationDisabled: the Integration is disabled, which pauses the Local Repository.
 	ReasonIntegrationDisabled = "integration_disabled"
@@ -168,8 +199,8 @@ type Store interface {
 	// generation is expectedGeneration (0 when no record or a record without a spec write exists);
 	// otherwise it returns ErrGenerationConflict and writes nothing. It returns the stored record.
 	PutSpec(ctx context.Context, siteID string, expectedGeneration int64, spec Spec) (*LocalRepository, error)
-	// SetStatus replaces the Site's status, creating a record at generation 0 with an empty spec when
-	// none exists.
+	// SetStatus replaces the Site's status, creating a record at generation 0 with an empty spec in
+	// ModeUpstream when none exists. A record read without a stored mode reads in ModeUpstream too.
 	SetStatus(ctx context.Context, siteID string, status Status) error
 	// Delete removes the Site's record; removing one that does not exist is not an error.
 	Delete(ctx context.Context, siteID string) error
@@ -192,10 +223,11 @@ var (
 	// ErrInvalidContentQuery means a content query is malformed; the wrapped message says what.
 	ErrInvalidContentQuery = errors.New("invalid local repository content query")
 	// ErrLocalRepositoryUnavailable refuses automation that fetches artifacts while the Site's Local
-	// Repository serves deployments (Spec.ServeDeployments) and is not ready: its Integration is
-	// disabled, its last pass was stopped, or a source, file, or declared image it must serve is not
-	// ready yet. A Site whose Local Repository does not serve deployments, or that has none, fetches
-	// from the upstreams and is never refused with it. The wrapped message names what to enable, fix,
-	// or wait for. It is a state conflict the user resolves outside the request (409).
+	// Repository is in cache or offline mode and is not ready: its Integration is disabled, its last
+	// pass was stopped, it was not observed yet, or (offline mode only) a source, file, or declared
+	// image it must serve is not ready yet. A Site in upstream mode, or one without a Local
+	// Repository, fetches from the upstreams and is never refused with it. The wrapped message names
+	// what to enable, fix, or wait for. It is a state conflict the user resolves outside the request
+	// (409).
 	ErrLocalRepositoryUnavailable = errors.New("the site's local repository is not ready")
 )

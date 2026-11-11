@@ -48,8 +48,9 @@ Three facts constrain where and how often it is built:
    changes. The compatibility table (each ROCm minor with its ROCProfiler-SDK version and whether it
    was verified on hardware or only built and checked) lives with the release tooling.
 5. **An asset is an ordinary file artifact.** The Slurm module declares each asset's URL and sha256 in
-   `artifacts.files`, and a host fetches it from the Site's choice: its Local Repository, or the
-   declared release URL while `serveDeployments` is `false`, with the same sha256 either way. A host
+   `artifacts.files`, and a host fetches it from where the Site's Local Repository mode sends it: its
+   Local Repository, or the declared release URL in `upstream` mode (and in `cache` mode until the
+   Local Repository holds it), with the same sha256 either way. A host
    that neither source can serve keeps its exporter without counters (reason `artifact_unavailable`,
    decision 063); the deployment does not fail.
 6. **Upload first, then declare.** The change that declares an asset is merged only after the asset
@@ -73,7 +74,7 @@ Three facts constrain where and how often it is built:
   exception ([decision 064](064-upstream-patches-are-the-exception.md) (upstream patches are the
   exception)), and nanobind's stable ABI needs CPython 3.12 or later anyway.
 - **Serve the asset only from the Local Repository.** Rejected by the user: production installations
-  start with `serveDeployments` `false`, so counters would be off on most Sites.
+  start in `upstream` mode, so counters would be off on most Sites.
 
 ## Consequences
 

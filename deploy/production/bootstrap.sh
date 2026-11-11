@@ -48,7 +48,7 @@ label_proxy_url="http://prom-label-proxy:8080"
 pulp_endpoint="http://pulp-web:8080"
 pulp_content_origin="http://${SWALLOW_ADDRESS:-}:${SWALLOW_PULP_PORT:-8080}"
 # The Site's OS package source is a user source of the Local Repository, not a module declaration;
-# apply writes it into a spec that has never been written, with serveDeployments false.
+# apply writes it into a spec that has never been written, in mode upstream.
 ubuntu_source='{"name":"ubuntu","format":"deb","url":"http://archive.ubuntu.com/ubuntu/",
   "suites":["noble","noble-updates","noble-security"],"components":["main","universe"],
   "architectures":["amd64"]}'
@@ -249,12 +249,12 @@ repository_integration_reads_pulp() {
 }
 
 # ensure_repository_spec writes the Site's first Local Repository spec only while it has never been
-# written (generation 0), so a user's later edits survive every rerun, turning serveDeployments on
-# or removing every source included. That spec does not serve deployments: the Site's deployments
-# fetch their artifacts from the upstreams their modules declare until a user turns it on. It holds
-# the default user source, the Ubuntu archive deployed Servers take their OS packages from once it
-# does. The write carries the generation it read: a concurrent change refuses it (409), and the
-# next apply reads again.
+# written (generation 0), so a user's later edits survive every rerun, switching the mode or
+# removing every source included. That spec is in mode upstream: the Site's deployments fetch their
+# artifacts from the upstreams their modules declare until a user chooses cache or offline. It holds
+# the default user source, the Ubuntu archive deployed Servers take their OS packages from once they
+# do. The write carries the generation it read: a concurrent change refuses it (409), and the next
+# apply reads again.
 ensure_repository_spec() {
   local site_id="$1" status body spec
   body="$(mktemp)"
@@ -267,8 +267,8 @@ ensure_repository_spec() {
     return 0
   fi
   api PUT "/sites/${site_id}/local-repository/spec" --data-binary "$(jq -nc \
-    --argjson source "${ubuntu_source}" '{generation:0,serveDeployments:false,sources:[$source]}')" >/dev/null
-  log "Local Repository: added the default source 'ubuntu' ($(jq -r '.url' <<<"${ubuntu_source}")); deployments fetch from the upstreams until it is turned on"
+    --argjson source "${ubuntu_source}" '{generation:0,mode:"upstream",sources:[$source]}')" >/dev/null
+  log "Local Repository: added the default source 'ubuntu' ($(jq -r '.url' <<<"${ubuntu_source}")); deployments fetch from the upstreams until its mode is cache or offline"
 }
 
 # ensure_automation writes defaults only for a Site with no configuration, so a user's

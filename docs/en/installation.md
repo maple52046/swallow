@@ -30,11 +30,13 @@ When the installer finishes:
   and collects the exporters swallow installs on the Site's Servers (see
   [Monitoring](guides/monitoring.md));
 - the Site's Local Repository (Pulp) runs on the same VM on **HTTP port 8080** and is the Site's
-  `repository` Integration, with the Ubuntu archive as its first source. It starts off: deployments
-  fetch their artifacts from the upstream sources swallow's modules declare. Once you turn it on
-  for the Site (see [Initial setup](guides/initial-setup.md#4-choose-where-deployments-fetch-from)),
-  every Server swallow deploys takes its OS packages, container images, Python packages, and files
-  from it instead of the Internet;
+  `repository` Integration, with the Ubuntu archive as its first source. The Site starts on
+  **Upstream sources**: deployments fetch their artifacts from the upstream sources swallow's modules
+  declare. Once you choose **Cache** or **Offline** for the Site (see
+  [Initial setup](guides/initial-setup.md#4-choose-where-deployments-fetch-from)), every Server
+  swallow deploys takes its OS packages, container images, Python packages, and files from it:
+  in cache mode what it already serves, the rest from the upstreams; in offline mode everything,
+  instead of the Internet;
 - the VM serves NTP on UDP 123 (MAAS's own time service), and every Server swallow deploys
   uses it (see [Time synchronization](guides/os-provisioning.md#time-synchronization));
 - the `swallow` CLI is installed at `/usr/local/bin/swallow`.

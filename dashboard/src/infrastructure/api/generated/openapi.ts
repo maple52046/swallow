@@ -3271,8 +3271,8 @@ export interface paths {
         };
         get?: never;
         /**
-         * Replace the Repository Sources a user adds to a Site's Local Repository.
-         * @description Requires role `admin`. `generation` is the spec generation the writer read (`0` before the first write); `sources` is the whole list and replaces the stored one. The worker converges the provider afterwards; the response is the stored spec with the last recorded state.
+         * Replace a Site's Local Repository spec, its mode and the Repository Sources a user adds.
+         * @description Requires role `admin`. `generation` is the spec generation the writer read (`0` before the first write); `mode` is required; `sources` is the whole list and replaces the stored one. The worker converges the provider afterwards; the response is the stored spec with the last recorded state.
          */
         put: operations["putLocalRepositorySpec"];
         post?: never;
@@ -5014,7 +5014,7 @@ export interface components {
                 declaredBy: components["schemas"]["LocalRepositoryDeclaredBy"];
                 requirement: string;
             }[];
-            /** @description The spec serves deployments and every source, file, and image is `ready` on the enabled Integration with the host addresses read. While the spec serves deployments, the ones that fetch artifacts are accepted exactly while it is true. */
+            /** @description Deployments that fetch artifacts are accepted under the spec's mode: never for `upstream`; for `cache` once the enabled Integration was observed, its last pass was not stopped, and the host addresses were read; for `offline` once, beyond that, every source is `serving` and every file and image is `ready`. */
             ready: boolean;
             siteId: string;
             /** @description The effective Repository Sources, ordered by name. */
@@ -5028,6 +5028,8 @@ export interface components {
                 lastSyncedAt: components["schemas"]["Timestamp"] | null;
                 message: string | null;
                 name: string;
+                /** @description Whether the provider serves content of the source's current definition, apart from `state`: true while a resync runs or after one failed, false before the first synchronization of the current definition. */
+                serving: boolean;
                 state: components["schemas"]["LocalRepositorySyncState"];
                 suites: string[];
                 url: string;
@@ -5038,8 +5040,7 @@ export interface components {
                  * @description The spec generation; `0` before the first write.
                  */
                 generation: number;
-                /** @description Whether the Site's deployments fetch their artifacts from this Local Repository; `false` (the default) fetches them from the upstreams the modules declare. */
-                serveDeployments: boolean;
+                mode: components["schemas"]["LocalRepositoryMode"];
                 sources: components["schemas"]["LocalRepositorySpecSource"][];
             };
         };
@@ -5066,6 +5067,11 @@ export interface components {
          * @enum {string}
          */
         LocalRepositoryFormat: "deb" | "rpm" | "oci" | "python" | "file";
+        /**
+         * @description How the Site's deployments use the Local Repository: `upstream` fetches every artifact from the upstreams the modules declare; `cache` fetches what the Local Repository serves from it and the rest from the upstreams, never waiting for it; `offline` fetches every artifact from it and is accepted only while it serves everything.
+         * @enum {string}
+         */
+        LocalRepositoryMode: "upstream" | "cache" | "offline";
         /** @description A Repository Source of the user's spec. */
         LocalRepositorySpecSource: {
             architectures: string[];
@@ -5081,8 +5087,7 @@ export interface components {
              * @description The spec generation the writer read; `0` before the first write.
              */
             generation: number;
-            /** @description Whether the Site's deployments fetch their artifacts from this Local Repository (`true`) or from the upstreams the modules declare (`false`). */
-            serveDeployments: boolean;
+            mode: components["schemas"]["LocalRepositoryMode"];
             sources: {
                 /** @description Optional for `deb` and `rpm`; not allowed for other formats. */
                 architectures?: string[];
@@ -14889,7 +14894,7 @@ export interface operations {
                     "application/json": components["schemas"]["LocalRepository"];
                 };
             };
-            /** @description `validation_error`: the body is not valid JSON, `generation` is missing or negative, a source is invalid or listed twice, or a source contradicts what a module declares. */
+            /** @description `validation_error`: the body is not valid JSON, `generation` is missing or negative, `mode` is missing or unknown, a source is invalid or listed twice, or a source contradicts what a module declares. */
             400: {
                 headers: {
                     [name: string]: unknown;

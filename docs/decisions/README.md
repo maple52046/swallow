@@ -143,7 +143,7 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 | [075](075-module-contract-v1.md) | 模組契約 v1：每個模組以 `module.json` 宣告自己並以一個 root Go package 提供 hook，composition root 為三個 process 組出同一個 registry，模組之間只經由 core 的 port 依賴 | — |
 | [076](076-change-plans.md) | Change Plan 是 convergence context 的獨立文件，每個資源最多一份未完成；破壞性的 spec 寫入與 plan 同一個 transaction，整份核准，由資源的 controller 重算後 apply 成 Workflow，24 小時到期 | — |
 | [077](077-task-diagnostics-and-wait-policy.md) | Task 失敗帶有兩層的 Task Diagnostic，存在 store、經 API 提供，遮蔽 secret 但保留原因，並以結構化 log 關聯；每個等待宣告觀察來源、Failure Class 分類與預算，等待中發佈觀察，permanent 立即失敗 | — |
-| [078](078-local-repository.md) | 每個 Site 以 `serveDeployments`（預設關閉）決定部署從它的 Local Repository 取得 artifact，或從模組宣告的上游取得並驗證：Local Repository 是 provider 類別（目前是 Pulp 3），與控制平面共置、每個 installation 都安裝並以 `repository` Integration 登錄；swallow 擁有它必須包含的內容（模組宣告與 Site 的來源），由 controller 收斂；Site 選了它而它沒有 ready 時拒絕部署，不退回上游 | — |
+| [078](078-local-repository.md) | 每個 Site 以模式 `mode` 決定部署怎麼使用它的 Local Repository：`upstream`（預設，從模組宣告的上游取得並驗證）、`cache`（有就從它取得，其餘從上游，不等同步）或 `offline`（只從它取得）。Local Repository 是 provider 類別（目前是 Pulp 3），與控制平面共置、每個 installation 都安裝並以 `repository` Integration 登錄；swallow 擁有它必須包含的內容（模組宣告與 Site 的來源），由 controller 收斂；`offline` 的 Site 在它沒有 ready 時拒絕部署，不退回上游 | — |
 | [079](079-release-built-host-artifacts.md) | 沒有上游發佈的主機 binary（第一個是 Omnistat 的 rocprof extension）由 swallow 的 release 工具建置：每個 ROCm minor 在 glibc 最低的 builder 建一次、只建 CPython 3.12，通過 glibc 與 import 的檢查才以獨立的 tag 發佈，再宣告成 file artifact；先上傳、後宣告，發佈 release 前確認每個宣告的檔案都取得到 | — |
 | [080](080-host-toolchains-probe-first.md) | 主機的工具鏈是需求：任何 CPython 3.12（OS 套件）與任何 uv（缺少時由 file artifact 提供）；元件先探測、不能用才安裝，安裝內容仍以 hash lock 固定；swallow 使用、不覆寫預先烘進 image 的版面；主機經 `artifact_sources` 寫的節點設定（`/etc/uv/uv.toml`）取得 Site 選擇的來源，其他 role 不設 index | — |
 

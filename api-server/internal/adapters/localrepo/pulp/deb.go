@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	localrepodomain "github.com/maple52046/swallow/internal/core/localrepo/domain"
 )
@@ -39,6 +38,11 @@ func debBasePath(name string) string {
 // repository's newest publication without the adapter moving it after each sync. A publication is
 // created explicitly only when the newest one is missing or was signed by another signing service
 // (a repository created before automatic publishing, or whose signing changed).
+//
+// The source is serving while the distribution serves the repository, no update of the remote is in
+// flight, the last successful sync ran with the remote as it is now, and the newest publication is
+// signed by the signing service: a resync in flight or one that failed leaves the previous
+// publication served, while a changed definition serves nothing new until it was synced.
 func (r *Repository) ensureDeb(ctx context.Context, source localrepodomain.Source) (localrepodomain.SourceStatus, error) {
 	if len(source.Suites) == 0 {
 		return localrepodomain.SourceStatus{}, rejected("ensure source", "A deb repository source needs at least one suite.")
@@ -80,7 +84,7 @@ func (r *Repository) ensureDeb(ctx context.Context, source localrepodomain.Sourc
 	if err != nil {
 		return localrepodomain.SourceStatus{}, err
 	}
-	_, distributionStep, err := r.ensure(ctx, objectSpec{
+	distribution, distributionStep, err := r.ensure(ctx, objectSpec{
 		collection:  debDistributions,
 		name:        source.Name,
 		want:        map[string]any{"base_path": debBasePath(source.Name), "repository": repo.href(), "publication": nil},
@@ -90,7 +94,7 @@ func (r *Repository) ensureDeb(ctx context.Context, source localrepodomain.Sourc
 		return localrepodomain.SourceStatus{}, err
 	}
 
-	syncStep, lastSynced, err := r.debSync(ctx, remote, repo, signing.href(), remoteStep.Changed)
+	syncStep, lastOK, err := r.debSync(ctx, remote, repo, signing.href(), remoteStep.Changed)
 	if err != nil {
 		return localrepodomain.SourceStatus{}, err
 	}
@@ -98,23 +102,32 @@ func (r *Repository) ensureDeb(ctx context.Context, source localrepodomain.Sourc
 	if err != nil {
 		return localrepodomain.SourceStatus{}, err
 	}
+	serving := distribution != nil && !distributionStep.Changed && !remoteStep.Changed && syncedWith(remote, lastOK)
+	if serving {
+		if serving, err = r.newestPublicationSignedBy(ctx, repo, signing.href()); err != nil {
+			return localrepodomain.SourceStatus{}, err
+		}
+	}
 
 	status := sourceStatus(source, worst(remoteStep, repoStep, distributionStep, syncStep))
-	status.LastSyncedAt = lastSynced
+	status.Serving = serving
+	if lastOK != nil {
+		status.LastSyncedAt = lastOK.FinishedAt
+	}
 	status.ContentCount = count
 	return status, nil
 }
 
 // debSync decides the sync and publication step of a deb source from Pulp's task records and
-// returns it with the time of the last successful sync. remoteChanged is set when this call (or an
-// update still in flight) changed the remote, which needs a sync even when the last one is recent;
-// signingHref is the signing service the newest publication must be signed by.
+// returns it with the last successful sync task, nil before one. remoteChanged is set when this call
+// (or an update still in flight) changed the remote, which needs a sync even when the last one is
+// recent; signingHref is the signing service the newest publication must be signed by.
 //
 // Any task still holding the repository (a sync, a publication, an update) makes the source
 // pending or syncing and starts nothing, so repeated calls never queue a second sync. A periodic
-// resync therefore reports syncing while the previous publication is still served; LastSyncedAt
-// tells a reader that content is available meanwhile.
-func (r *Repository) debSync(ctx context.Context, remote, repo object, signingHref string, remoteChanged bool) (step, *time.Time, error) {
+// resync therefore reports syncing while the previous publication is still served; the returned
+// task tells the caller that content is available meanwhile.
+func (r *Repository) debSync(ctx context.Context, remote, repo object, signingHref string, remoteChanged bool) (step, *task, error) {
 	repoHref := repo.href()
 	busy, err := r.api.latestTask(ctx, url.Values{"reserved_resources": {repoHref}, "state__in": {incompleteStates}})
 	if err != nil {
@@ -135,13 +148,9 @@ func (r *Repository) debSync(ctx context.Context, remote, repo object, signingHr
 			return step{}, nil, err
 		}
 	}
-	var lastSynced *time.Time
-	if lastOK != nil {
-		lastSynced = lastOK.FinishedAt
-	}
 
 	if busy != nil {
-		return step{State: busy.syncState()}, lastSynced, nil
+		return step{State: busy.syncState()}, lastOK, nil
 	}
 
 	now := r.now()
@@ -150,7 +159,7 @@ func (r *Repository) debSync(ctx context.Context, remote, repo object, signingHr
 	case lastSync == nil:
 		needSync = true
 	case lastSync.failedRecently(now):
-		return step{State: localrepodomain.SyncFailed, Message: lastSync.reason()}, lastSynced, nil
+		return step{State: localrepodomain.SyncFailed, Message: lastSync.reason()}, lastOK, nil
 	case lastSync.State != taskCompleted:
 		// Failed long enough ago, canceled, or skipped: try again.
 		needSync = true
@@ -170,7 +179,7 @@ func (r *Repository) debSync(ctx context.Context, remote, repo object, signingHr
 			map[string]any{"remote": remote.href(), "mirror": true}, "", nil); err != nil {
 			return step{}, nil, err
 		}
-		return step{State: localrepodomain.SyncPending}, lastSynced, nil
+		return step{State: localrepodomain.SyncPending}, lastOK, nil
 	}
 
 	published, err := r.ensurePublished(ctx, publicationSpec{
@@ -180,13 +189,32 @@ func (r *Repository) debSync(ctx context.Context, remote, repo object, signingHr
 			return publication.str("signing_service") == signingHref
 		},
 	}, repo)
-	return published, lastSynced, err
+	return published, lastOK, err
 }
 
 // remoteUpdatedAfter reports whether the remote was last updated after the sync started.
 func remoteUpdatedAfter(remote object, sync *task) bool {
 	updated := remote.timestamp("pulp_last_updated")
 	return updated != nil && sync.StartedAt != nil && updated.After(*sync.StartedAt)
+}
+
+// syncedWith reports whether the successful sync lastOK (nil before one) ran with the remote as Pulp
+// reports it now, so what it synchronized is the source's current definition. A sync with no start
+// time proves nothing.
+func syncedWith(remote object, lastOK *task) bool {
+	return lastOK != nil && lastOK.StartedAt != nil && !remoteUpdatedAfter(remote, lastOK)
+}
+
+// newestPublicationSignedBy reports whether the newest publication of repo, the one its distribution
+// serves, exists and is signed by signingHref, the key hosts verify the source with.
+func (r *Repository) newestPublicationSignedBy(ctx context.Context, repo object, signingHref string) (bool, error) {
+	newest, err := r.api.list(ctx, debPublications, url.Values{
+		"repository": {repo.href()}, "ordering": {"-pulp_created"}, "limit": {"1"}, "fields": {"pulp_href,signing_service"},
+	})
+	if err != nil {
+		return false, err
+	}
+	return len(newest.Results) > 0 && newest.Results[0].str("signing_service") == signingHref, nil
 }
 
 // signingService returns Pulp's deb signing service with fields, or nil when it is not registered.

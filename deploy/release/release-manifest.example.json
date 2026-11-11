@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "commit": "COMMIT_SHA",
   "platforms": ["linux-amd64", "ubuntu-24.04-amd64"],
-  "schemaVersions": {"mongo": 14, "playbookManifest": 1},
+  "schemaVersions": {"mongo": 15, "playbookManifest": 1},
   "images": {
     "api": "ghcr.io/maple52046/swallow@sha256:REPLACE",
     "dashboard": "ghcr.io/maple52046/swallow@sha256:REPLACE",
@@ -29,8 +29,8 @@
     "thirdPartyMediaManifest": "offline-media-manifest.json"
   },
   "upgrade": {
-    "from": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
-    "to": 14,
+    "from": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+    "to": 15,
     "downgradeSupported": false
   }
 }

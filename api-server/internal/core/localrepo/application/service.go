@@ -22,14 +22,14 @@ const MaxContentPageSize = 100
 // dots of a registry host.
 var sourceNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?$`)
 
-// PutSpecInput is a user's replacement spec: the generation the writer read, whether the Site's
-// deployments fetch from the Local Repository, and the full list of the Site's own Repository
-// Sources, still unvalidated. The delivery requires ServeDeployments on the wire, so a writer never
-// turns serving off by leaving it out.
+// PutSpecInput is a user's replacement spec: the generation the writer read, how the Site's
+// deployments use the Local Repository, and the full list of the Site's own Repository Sources,
+// still unvalidated. Mode has no default: an empty one is refused, so a writer never switches a
+// Site's mode by leaving it out.
 type PutSpecInput struct {
-	Generation       int64
-	ServeDeployments bool
-	Sources          []localrepodomain.Source
+	Generation int64
+	Mode       localrepodomain.Mode
+	Sources    []localrepodomain.Source
 }
 
 // Service is the Local Repository use cases the API serves (contract local-repository.md): read a
@@ -103,10 +103,15 @@ func (s *Service) Browse(ctx context.Context, siteID string, query localrepodoma
 }
 
 // PutSpec validates input and stores it as the Site's spec when input.Generation is the stored
-// generation, returning the Site's Local Repository. An invalid source, or one that contradicts
-// what a module declares, is ErrInvalidSpec; a stale generation is ErrGenerationConflict. The
-// provider is not called; the controller converges the new spec while it serves deployments.
+// generation, returning the Site's Local Repository. A missing or unknown mode, an invalid source,
+// or one that contradicts what a module declares, is ErrInvalidSpec; a stale generation is
+// ErrGenerationConflict. The provider is not called; the controller converges the new spec while
+// its mode is cache or offline.
 func (s *Service) PutSpec(ctx context.Context, siteID string, input PutSpecInput) (*View, error) {
+	if !input.Mode.Valid() {
+		return nil, fmt.Errorf("%w: mode must be one of %s, %s, or %s", localrepodomain.ErrInvalidSpec,
+			localrepodomain.ModeUpstream, localrepodomain.ModeCache, localrepodomain.ModeOffline)
+	}
 	sources, err := normalizeSources(input.Sources)
 	if err != nil {
 		return nil, err
@@ -127,7 +132,7 @@ func (s *Service) PutSpec(ctx context.Context, siteID string, input PutSpecInput
 	if err != nil {
 		return nil, err
 	}
-	record, err := s.records.PutSpec(ctx, siteID, input.Generation, localrepodomain.Spec{ServeDeployments: input.ServeDeployments, Sources: sources})
+	record, err := s.records.PutSpec(ctx, siteID, input.Generation, localrepodomain.Spec{Mode: input.Mode, Sources: sources})
 	if err != nil {
 		return nil, err
 	}

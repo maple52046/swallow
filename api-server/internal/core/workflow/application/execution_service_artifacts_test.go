@@ -68,13 +68,14 @@ func newArtifactTestExecutionService(resolver ArtifactVars) *ExecutionService {
 		nil, nil, nil, artifactTestUnlocked{}, nil, resolver)
 }
 
-// A playbook the catalog marks gets the resolver's vars, from the Local Repository or from the
-// upstreams alike, as trusted vars no caller can override; an unmarked playbook never asks the
-// resolver.
+// A playbook the catalog marks gets the resolver's vars, from the Local Repository, the upstreams,
+// or a cache mode mix alike, as trusted vars no caller can override; an unmarked playbook never asks
+// the resolver.
 func TestPrepareAnsibleStepInjectsTheArtifactVars(t *testing.T) {
 	for source, value := range map[string]map[string]any{
-		"local_repository": {"source": "local_repository", "registry": "10.0.0.5:8080"},
-		"upstream":         {"source": "upstream", "registry": "", "files": map[string]any{"tools/tool-1": "https://files.example/tool-1"}},
+		"local_repository": {"source": "local_repository", "apt": "local_repository", "registry": "10.0.0.5:8080"},
+		"upstream":         {"source": "upstream", "apt": "upstream", "registry": "", "files": map[string]any{"tools/tool-1": "https://files.example/tool-1"}},
+		"cache":            {"source": "cache", "apt": "upstream", "registry": "10.0.0.5:8080", "files": map[string]any{"tools/tool-1": "https://files.example/tool-1"}},
 	} {
 		t.Run(source, func(t *testing.T) {
 			resolver := &fakeArtifactVars{vars: map[string]any{"swallow_artifacts": value}}

@@ -42,12 +42,12 @@ export class ApiLocalRepository implements LocalRepositoryPort {
   }
 
   async replaceSpec(siteId: string, spec: LocalRepositorySpecWrite): Promise<LocalRepository> {
-    // The write replaces the whole spec and `serveDeployments` is required, so it is always sent.
+    // The write replaces the whole spec and `mode` is required, so it is always sent.
     // The API refuses suites and components for every format but `deb`, and architectures for every
     // format but `deb` and `rpm`; the read shape has empty arrays there, so empty lists are left out.
     const body: JsonRequestBody<operations['putLocalRepositorySpec']> = {
       generation: spec.generation,
-      serveDeployments: spec.serveDeployments,
+      mode: spec.mode,
       sources: spec.sources.map((source) => ({
         name: source.name,
         format: source.format,

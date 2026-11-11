@@ -335,8 +335,8 @@ credential:
   apiKey: "REDACTED-MAAS-API-KEY"
 ```
 
-A `repository` Integration is the Site's Local Repository, which deployments fetch every artifact
-from once the Site turns it on; a Site has at most one. `endpoint` is where swallow calls the provider's API,
+A `repository` Integration is the Site's Local Repository, which deployments fetch artifacts from
+once the Site chooses its cache or offline mode; a Site has at most one. `endpoint` is where swallow calls the provider's API,
 `settings.contentOrigin` (required) is where the Site's Servers read content, and the credential is
 the provider's admin password:
 

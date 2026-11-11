@@ -89,7 +89,11 @@ import (
 // v14 points every Platform Grafana Monitoring Link that still opens the Grafana root at the
 // landing dashboard of the bundles that Grafana carries (/d/<uid>/<slug>), the page a deploy from
 // this release on records, so earlier Platforms need no new deploy for it.
-const CurrentSchemaVersion = 14
+//
+// v15 replaces each Local Repository spec's boolean serveDeployments with its mode (true becomes
+// offline, false upstream) and records each observed source's serving, so every Site keeps fetching
+// where it did.
+const CurrentSchemaVersion = 15
 
 // OldestUpgradableSchemaVersion is the oldest schema Migrate upgrades from; an older database
 // has no supported upgrade path. A release's manifest lists every schema from this one up to
@@ -250,6 +254,11 @@ func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) e
 				return fmt.Errorf("migrate schema v13 to v14: %w", err)
 			}
 			state.Version = 14
+		case 14:
+			if err := migrateV14ToV15(ctx, db); err != nil {
+				return fmt.Errorf("migrate schema v14 to v15: %w", err)
+			}
+			state.Version = 15
 		default:
 			return fmt.Errorf("database schema version %d has no supported upgrade path", state.Version)
 		}

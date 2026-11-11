@@ -13,7 +13,7 @@ Third-party media 與 swallow core bundle 分開 version。
 | Ansible | 位於 execution environment 或 native offline venv，不是 service |
 | Prometheus | 每個 Site 一套，隨 production installation 為它的 Site 部署（Compose service `prometheus`，digest 固定的 image），並註冊為該 Site 的 metrics Integration；它從 swallow 發現該 Site 的 exporter |
 | prom-label-proxy | 每個 Site Prometheus 前面一個（Compose service `prom-label-proxy`，digest 固定的 image，只在 internal network），即 metrics Integration 的 `labelProxyUrl`；它把每個查詢限制在一個 Platform 的 `platform_id` |
-| Pulp 3 | Site 的 Local Repository，每個 Site 一套，隨 production installation 部署（Compose services `pulp-init`、`pulp-api`、`pulp-content`、`pulp-worker` 與 `pulp-web`；digest 固定的 `pulp-minimal` 與 `pulp-web` image），使用共用的 PostgreSQL，並註冊為該 Site 的 `repository` Integration。Site 打開它之後，部署出去的 Server 從 `pulp-web` 的 port 取得每個套件、檔案、container image 與 Python 套件。以未修改的形式只經 HTTP API 使用；release 只以 digest 參照它 GPLv2-or-later 的 image，從不附帶 |
+| Pulp 3 | Site 的 Local Repository，每個 Site 一套，隨 production installation 部署（Compose services `pulp-init`、`pulp-api`、`pulp-content`、`pulp-worker` 與 `pulp-web`；digest 固定的 `pulp-minimal` 與 `pulp-web` image），使用共用的 PostgreSQL，並註冊為該 Site 的 `repository` Integration。Site 選擇它的 cache 或 offline 模式之後，部署出去的 Server 從 `pulp-web` 的 port 取得套件、檔案、container image 與 Python 套件（cache 模式是它已經提供的部分，offline 模式是全部）。以未修改的形式只經 HTTP API 使用；release 只以 digest 參照它 GPLv2-or-later 的 image，從不附帶 |
 
 Installation 會從 GHCR 拉 swallow 自己的映像、從 Docker Hub 拉官方 MongoDB、PostgreSQL、
 Temporal 與 Prometheus 映像以及 Pulp 專案的 `pulp-minimal` 與 `pulp-web` 映像、從 Quay 拉 prom-label-proxy

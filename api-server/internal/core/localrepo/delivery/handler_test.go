@@ -96,7 +96,7 @@ func newHandlerApp(t *testing.T, browseErr error) *fiber.App {
 	records.Put(localrepodomain.LocalRepository{SiteID: "site-1", Status: localrepodomain.Status{
 		IntegrationID: "repo-1", ObservedAt: &now,
 		Sources: []localrepodomain.ObservedSource{{Source: source, Status: localrepodomain.SourceStatus{
-			Name: source.Name, Format: source.Format, State: localrepodomain.SyncReady, LastSyncedAt: &now, ContentCount: 12,
+			Name: source.Name, Format: source.Format, State: localrepodomain.SyncSyncing, Serving: true, LastSyncedAt: &now, ContentCount: 12,
 		}}},
 		Files: []localrepodomain.ObservedFile{{File: handlerModules[0].Files[0], Status: localrepodomain.FileStatus{
 			Path: "k0s/k0s-v1", State: localrepodomain.SyncFailed, Message: "checksum mismatch",
@@ -153,16 +153,19 @@ func TestGetLocalRepository(t *testing.T) {
 	if body["ready"] != false || body["integrationId"] != "repo-1" || body["contentOrigin"] != "http://10.0.0.5:8080" {
 		t.Errorf("GET = %v; want not ready, repo-1, the content origin", body)
 	}
-	if spec, _ := body["spec"].(map[string]any); spec["serveDeployments"] != false || spec["generation"] != float64(0) {
-		t.Errorf("GET spec = %v; want generation 0 not serving deployments before the first write", body["spec"])
+	if spec, _ := body["spec"].(map[string]any); spec["mode"] != "upstream" || spec["generation"] != float64(0) {
+		t.Errorf("GET spec = %v; want generation 0 in upstream mode before the first write", body["spec"])
 	}
 	sources, _ := body["sources"].([]any)
 	if len(sources) != 3 {
 		t.Fatalf("sources = %v; want docker-ce, pypi, quay.io", sources)
 	}
 	docker, _ := sources[0].(map[string]any)
-	if docker["name"] != "docker-ce" || docker["state"] != "ready" || docker["contentCount"] != float64(12) {
-		t.Errorf("docker-ce = %v, want ready with 12 items", docker)
+	if docker["name"] != "docker-ce" || docker["state"] != "syncing" || docker["serving"] != true || docker["contentCount"] != float64(12) {
+		t.Errorf("docker-ce = %v, want a resync running while it serves 12 items", docker)
+	}
+	if pypi, _ := sources[1].(map[string]any); pypi["serving"] != false {
+		t.Errorf("pypi = %v, want it not serving before it was observed", pypi)
 	}
 	files, _ := body["files"].([]any)
 	if file, _ := files[0].(map[string]any); file["state"] != "failed" || file["message"] != "checksum mismatch" {
@@ -195,27 +198,30 @@ func TestGetLocalRepository(t *testing.T) {
 }
 
 // PUT stores the spec at the generation read and refuses a stale generation, a missing generation
-// or serveDeployments, and an invalid source.
+// or mode, an unknown mode, and an invalid source. A body that still carries only the retired
+// serveDeployments has no mode and is refused.
 func TestPutLocalRepositorySpec(t *testing.T) {
 	app := newHandlerApp(t, nil)
 	ubuntu := `{"name": "ubuntu", "format": "deb", "url": "http://archive.example/ubuntu/", "suites": ["noble"], "components": ["main"]}`
 	resp, body := doRequest(t, app, http.MethodPut, "/api/v1/sites/site-1/local-repository/spec",
-		`{"generation": 0, "serveDeployments": true, "sources": [`+ubuntu+`]}`)
+		`{"generation": 0, "mode": "cache", "sources": [`+ubuntu+`]}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("PUT status = %d, body %v", resp.StatusCode, body)
 	}
-	if spec, _ := body["spec"].(map[string]any); spec["generation"] != float64(1) || spec["serveDeployments"] != true {
-		t.Errorf("PUT spec = %v, want generation 1 serving deployments", body["spec"])
+	if spec, _ := body["spec"].(map[string]any); spec["generation"] != float64(1) || spec["mode"] != "cache" {
+		t.Errorf("PUT spec = %v, want generation 1 in cache mode", body["spec"])
 	}
 	for _, tc := range []struct {
 		name, body string
 		want       int
 	}{
-		{"stale generation", `{"generation": 0, "serveDeployments": true, "sources": []}`, http.StatusConflict},
-		{"no generation", `{"serveDeployments": true, "sources": []}`, http.StatusBadRequest},
-		{"no serveDeployments", `{"generation": 1, "sources": []}`, http.StatusBadRequest},
-		{"serveDeployments not a boolean", `{"generation": 1, "serveDeployments": "yes", "sources": []}`, http.StatusBadRequest},
-		{"invalid source", `{"generation": 1, "serveDeployments": false, "sources": [{"name": "x", "format": "deb", "url": "ftp://x"}]}`, http.StatusBadRequest},
+		{"stale generation", `{"generation": 0, "mode": "offline", "sources": []}`, http.StatusConflict},
+		{"no generation", `{"mode": "offline", "sources": []}`, http.StatusBadRequest},
+		{"no mode", `{"generation": 1, "sources": []}`, http.StatusBadRequest},
+		{"only the retired serveDeployments", `{"generation": 1, "serveDeployments": true, "sources": []}`, http.StatusBadRequest},
+		{"unknown mode", `{"generation": 1, "mode": "mirror", "sources": []}`, http.StatusBadRequest},
+		{"mode not a string", `{"generation": 1, "mode": true, "sources": []}`, http.StatusBadRequest},
+		{"invalid source", `{"generation": 1, "mode": "upstream", "sources": [{"name": "x", "format": "deb", "url": "ftp://x"}]}`, http.StatusBadRequest},
 		{"not JSON", `{`, http.StatusBadRequest},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -225,9 +231,9 @@ func TestPutLocalRepositorySpec(t *testing.T) {
 		})
 	}
 
-	resp, body = doRequest(t, app, http.MethodPut, "/api/v1/sites/site-1/local-repository/spec", `{"generation": 1, "serveDeployments": false, "sources": []}`)
-	if spec, _ := body["spec"].(map[string]any); resp.StatusCode != http.StatusOK || spec["generation"] != float64(2) || spec["serveDeployments"] != false {
-		t.Errorf("PUT turning serving off = %d %v, want generation 2 not serving deployments", resp.StatusCode, body)
+	resp, body = doRequest(t, app, http.MethodPut, "/api/v1/sites/site-1/local-repository/spec", `{"generation": 1, "mode": "upstream", "sources": []}`)
+	if spec, _ := body["spec"].(map[string]any); resp.StatusCode != http.StatusOK || spec["generation"] != float64(2) || spec["mode"] != "upstream" {
+		t.Errorf("PUT switching to upstream = %d %v, want generation 2 in upstream mode", resp.StatusCode, body)
 	}
 }
 

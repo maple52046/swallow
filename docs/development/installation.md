@@ -42,9 +42,9 @@ decision 040、
 - 監控的設計（exporter 的安裝、label 契約、多租戶）：見 [monitoring.md](monitoring.md)；installation 只部署
   installation Site 的 Prometheus 與它前面的 prom-label-proxy，並把它們登錄為該 Site 的 metrics Integration
   （§2.2、§2.5）。
-- [Local Repository](glossaries/terms/local-repository.md) 的設計（存什麼、怎麼收斂、Site 怎麼選擇部署是否使用它）：見
+- [Local Repository](glossaries/terms/local-repository.md) 的設計（存什麼、怎麼收斂、Site 以模式選擇部署怎麼使用它）：見
   [local-repository.md](local-repository.md)；installation 只部署 installation Site 的 Pulp，把它登錄為該 Site 的
-  `repository` Integration，並寫入 Site 的第一份 spec：預設的 `ubuntu` 來源，`serveDeployments` 為 `false`（§2.2、§2.5）。
+  `repository` Integration，並寫入 Site 的第一份 spec：預設的 `ubuntu` 來源，`mode` 為 `upstream`（§2.2、§2.5）。
 - 多主機拓樸、TLS、離線（air-gapped）安裝與 native（systemd）安裝：目前都不支援（§2.6、§4.5）。
 
 ---
@@ -122,8 +122,9 @@ decision 040、
     busybox `wget` 查詢 `/healthz`。不保存任何狀態，沒有 volume。
 - Pulp 是 installation Site 的 [Local Repository](glossaries/terms/local-repository.md)（[local-repository.md](local-repository.md)）：
   比照 Prometheus，每個 installation 都隨控制平面部署，由 bootstrap 登錄為該 Site 的 `repository` Integration（§2.5）。
-  Site 打開它（`serveDeployments`）之後，部署出去的 Server 從它取得 OS 套件、container image、Python 套件與檔案，不連
-  網際網路；打開之前，部署從模組宣告的上游取得（[local-repository.md](local-repository.md) §2.1）。
+  Site 的模式（`mode`）是 `offline` 時，部署出去的 Server 只從它取得 OS 套件、container image、Python 套件與檔案，
+  不連網際網路；`cache` 時它已經提供的從它取得，其餘從上游；`upstream`（預設）時部署從模組宣告的上游取得
+  （[local-repository.md](local-repository.md) §2.1）。
   - 用 `pulp-minimal` image，API、content app 與 worker 分開執行，資料庫在共用的 PostgreSQL（§2.3）；all-in-one
     image 一律啟動自己的 PostgreSQL，所以不用。`pulp-web` 把它們放在同一個位址之下。
   - 設定檔是 bundle 的 `pulp/settings.py`，從 `/run/secrets` 讀 secret `pulp-secret-key`（Django secret key）與
@@ -208,11 +209,11 @@ site-automation、local-repository、ssh-keys、provisioning）收斂 swallow �
    `http://<SWALLOW_ADDRESS>:<SWALLOW_PULP_PORT>`（§2.7），credential 為 secret `pulp-admin-password`（Pulp 的
    `admin`）。一個 Site 至多一個：已存在時保留它的 id、名稱與其他 settings，只在 endpoint 或 `contentOrigin`
    不同時以一次 `PATCH` 改指到這裡（`contentOrigin` 合併進目前的 settings），並每次替換 write-only credential。
-7. Site 的 Local Repository spec 從未寫入過（`generation` 為 `0`）時，才以 `generation` `0` 寫入 `serveDeployments`
-   `false` 與預設的 user 來源 `ubuntu`（`http://archive.ubuntu.com/ubuntu/`，suites `noble`、`noble-updates`、
+7. Site 的 Local Repository spec 從未寫入過（`generation` 為 `0`）時，才以 `generation` `0` 寫入 `mode`
+   `upstream` 與預設的 user 來源 `ubuntu`（`http://archive.ubuntu.com/ubuntu/`，suites `noble`、`noble-updates`、
    `noble-security`，components `main`、`universe`，`amd64`；[local-repository.md](local-repository.md) §2.1、§5.2）：
-   Site 先從上游取得 artifact，user 打開 `serveDeployments` 之後才使用 Local Repository。寫過就不動，user 之後的修改
-   （包括打開 `serveDeployments` 或刪光所有來源）每次重跑都保留；同時有其他第一次寫入時以 `409` 失敗，下一次重跑重新讀取。
+   Site 先從上游取得 artifact，user 把模式換成 `cache` 或 `offline` 之後才使用 Local Repository。寫過就不動，user 之後的
+   修改（包括切換模式或刪光所有來源）每次重跑都保留；同時有其他第一次寫入時以 `409` 失敗，下一次重跑重新讀取。
 8. Site 沒有 [Automation Configuration](glossaries/terms/automation-configuration.md) 時才寫入預設：
    啟用、`sshPort` 22、沒有 `playbookMappings`，`knownHosts` 為 `SWALLOW_SSH_KNOWN_HOSTS` 或一行註解
    （executor 每次執行時自行掃描 target 的 host key）；不寫 Site credential（automation 一律使用 Deployment
@@ -340,7 +341,7 @@ decision 040。每個 Site 選擇部署是否從 Local Repository 取得 artifac
 8. 共置 MAAS：`local-maas.sh install` 與 `ensure-image`（§2.4）。
 9. 時間：`local-ntp.sh install` 與 `upstream`（§6.1、§6.2）。
 10. `bootstrap.sh apply`（§2.5），其中包含 `repository` Integration 與 Site 的第一份 Local Repository spec（`ubuntu`
-    來源，`serveDeployments` 為 `false`）。
+    來源，`mode` 為 `upstream`）。
 11. Prometheus 的 exporter discovery：以 installation Site 的 id 渲染 `swallow-exporters` job，需要時重啟
     Prometheus，等它載入這個 job（§2.2）。
 12. `doctor`；通過才寫入 `state/installed`。
@@ -365,7 +366,7 @@ decision 040。每個 Site 選擇部署是否從 Local Repository 取得 artifac
   `mongo-keyfile` 與新的 mongo 設定讓 container 重建，healthcheck 在既有資料上執行 `rs.initiate`（資料保留）。
 - 建立或補齊 Pulp 的 role 與 database（§2.3）。Local Repository 之前的 installation 在這一步得到它的 database，由
   `up -d` 啟動 Pulp 的 service，並由之後的 `bootstrap.sh apply` 得到 `repository` Integration 與第一份 spec（`ubuntu`
-  來源，`serveDeployments` 為 `false`）；
+  來源，`mode` 為 `upstream`）；
   `prepare-secrets.sh` 已補上三個 Pulp secret。換了 Pulp image 時，`pulp-init` 在 `up -d` 時遷移它的 database，在
   備份之後。
 - `swallow-api migrate --backup-confirmed`（確認已有備份，允許破壞性的 schema 變更：v3 的 Platform rename、

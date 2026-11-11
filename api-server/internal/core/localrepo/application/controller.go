@@ -35,11 +35,12 @@ const ControllerName = "local-repository"
 // provider_unreachable and retried with backoff; an Integration without a credential or a content
 // origin, a credential the provider refuses, or a configuration the adapter refuses is
 // realized=false with that reason and requires_attention=true, and is tried again when the
-// Integration changes or at the next resync. A spec that does not serve deployments, and a disabled
+// Integration changes or at the next resync. Cache and offline mode converge alike; they differ only
+// in when deployments are accepted (View.Ready). A spec in upstream mode, and a disabled
 // Integration, pause the Local Repository: nothing is converged (nothing synced, fetched, or
 // removed, so what the provider holds stays), the items and realized keep their last observation,
 // and only ready=false is recorded, not_serving before integration_disabled; a spec write that
-// turns serving on wakes the controller like any other. A Site whose Integration is gone has its
+// switches the mode wakes the controller like any other. A Site whose Integration is gone has its
 // status cleared, and its record deleted once the Site is gone too.
 type Controller struct {
 	sites        sitedomain.SiteRepository
@@ -175,7 +176,7 @@ func (c *Controller) Reconcile(ctx context.Context, request convergence.Request)
 		c.log.Warn("declaration left out of the local repository", "site", siteID, "conflict", conflict.Message())
 	}
 
-	if !site.spec.ServeDeployments || !integration.Enabled {
+	if !site.spec.Mode.Converges() || !integration.Enabled {
 		return c.recordConditions(ctx, site, nil)
 	}
 	if strings.TrimSpace(integration.Setting(localrepodomain.SettingContentOrigin, "")) == "" {

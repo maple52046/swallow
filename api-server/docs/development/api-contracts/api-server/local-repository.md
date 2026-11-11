@@ -11,21 +11,22 @@ Active
 ## Consumer Components
 
 - `dashboard` (the Infrastructure area's Local repository page)
-- swallow installation tooling (writes the first spec — `serveDeployments` and the Site's OS
-  archive source — after registering the `repository` Integration)
+- swallow installation tooling (writes the first spec — `mode` and the Site's OS archive source —
+  after registering the `repository` Integration)
 
 ## Purpose
 
-Read and change a Site's Local Repository: when the Site chooses it (`spec.serveDeployments`), the
-one place the Site's Servers fetch every artifact a deployment installs, so deployments do not reach
-the Internet ([decision 078](../../../../../docs/decisions/078-local-repository.md) (local
-repository)); otherwise deployments fetch each artifact from the upstream its module declares.
+Read and change a Site's Local Repository: the Site's own source of the artifacts a deployment
+installs, which the Site's deployments use according to its mode (`spec.mode`): not at all
+(`upstream`), as a cache in front of the upstreams the modules declare (`cache`), or as their only
+source, so Servers do not reach the Internet (`offline`)
+([decision 078](../../../../../docs/decisions/078-local-repository.md) (local repository)).
 swallow owns what the repository must hold — the artifacts the compiled modules declare plus the
-Repository Sources a user adds (the spec) — and, while the spec serves deployments, the worker
+Repository Sources a user adds (the spec) — and, while the mode is `cache` or `offline`, the worker
 converges the Site's `repository` Integration to it and records what it observes. These routes read
 that record, browse the content live, replace the spec, and ask for an immediate convergence. They
-also define when a deployment is refused because the Site's Local Repository is not ready
-([Deployments](#deployments)).
+also define where a deployment fetches each artifact and when it is refused because the Site's
+Local Repository is not ready ([Deployments](#deployments)).
 
 A Site has a Local Repository exactly while it has a `repository` Integration
 ([sites-integrations.md](sites-integrations.md#repository-settings)); every route answers
@@ -34,6 +35,7 @@ A Site has a Local Repository exactly while it has a `repository` Integration
 ## Related Glossary Terms
 
 - [Local Repository](../../../../../docs/development/glossaries/terms/local-repository.md)
+- [Local Repository Mode](../../../../../docs/development/glossaries/terms/local-repository-mode.md)
 - [Repository Source](../../../../../docs/development/glossaries/terms/repository-source.md)
 - [Integration](../../../../../docs/development/glossaries/terms/integration.md)
 - [Desired State](../../../../../docs/development/glossaries/terms/desired-state.md),
@@ -74,11 +76,13 @@ called. The response holds:
 
 - `siteId`, `integrationId` (the Site's `repository` Integration), and `contentOrigin` (that
   Integration's `contentOrigin` setting, `null` when unset).
-- `spec`: the user's part, `{generation, serveDeployments, sources[]}`. `generation` is `0` before
-  the first write. `serveDeployments` is whether the Site's deployments fetch their artifacts from
-  this Local Repository; it is `false` until a write sets it, and while it is `false` they fetch them
-  from the upstreams the modules declare. Each source has `name`, `format`, `url`, `suites`,
-  `components`, and `architectures` (empty arrays when not set).
+- `spec`: the user's part, `{generation, mode, sources[]}`. `generation` is `0` before the first
+  write. `mode` is how the Site's deployments use this Local Repository: `upstream` (they fetch every
+  artifact from the upstreams the modules declare; the value until a write sets another), `cache`
+  (they fetch what it serves from it and the rest from the upstreams, never waiting for it), or
+  `offline` (they fetch every artifact from it and wait until it serves everything); see
+  [Deployments](#deployments). Each source has `name`, `format`, `url`, `suites`, `components`, and
+  `architectures` (empty arrays when not set).
 - `sources[]`: the effective Repository Sources, ordered by `name`: every source a module declares,
   every user source, and the pull-through sources swallow derives — one `oci` source per registry
   host a declared image names (`name` is the host, `url` is `https://<host>`) and the `python`
@@ -100,14 +104,22 @@ called. The response holds:
 - Per source, file, and image, the observed `state`: `pending` (not fetched yet, or not observed
   since its definition last changed; an image the worker has not observed under its reference),
   `syncing`, `ready`, or `failed`; `message` (the provider's reason, `null` when none); a source's
-  `lastSyncedAt` (its last successful sync, `null` before one) and `contentCount` (how many items it
-  serves, `0` when unknown); a file's `sizeBytes` (`0` until fetched) and an image's `sizeBytes`
-  (the total size of its config and layers, `0` until it is stored).
-- `ready`: the spec serves deployments, the Integration is enabled, the worker's last pass was not
-  stopped by the Integration or its provider (see [Conditions](#conditions)), every source, file,
-  and image is `ready`, and the addresses Servers read the repository at are known. While the spec
-  serves deployments, the ones that fetch artifacts are accepted exactly while it is `true`. It is
-  computed when the response is built, from the current spec and modules and the recorded state.
+  `serving`, `lastSyncedAt` (its last successful sync, `null` before one), and `contentCount` (how
+  many items it serves, `0` when unknown); a file's `sizeBytes` (`0` until fetched) and an image's
+  `sizeBytes` (the total size of its config and layers, `0` until it is stored).
+- A source's `serving` is whether the provider serves content of the source's current definition,
+  apart from its `state`: a deb source keeps serving its last synchronization while a resync of it
+  is `syncing` or after one `failed`, and serves nothing of a changed definition until it has been
+  synchronized; a pull-through source serves once it is `ready`. A source not observed since its
+  definition changed is `false`.
+- `ready`: deployments that fetch artifacts are accepted under the spec's `mode`. Always `false` for
+  `upstream`, whose deployments fetch from the upstreams. For `cache`: the Integration is enabled,
+  the worker has observed it and its last pass was not stopped by the Integration or its provider
+  (see [Conditions](#conditions)), and the addresses Servers read the repository at are known. For
+  `offline`: that, and every source is `serving` and every file and image is `ready`. While the
+  mode is `cache` or `offline`, the deployments that fetch artifacts are accepted exactly while it is
+  `true`. It is computed when the response is built, from the current spec and modules and the
+  recorded state.
 - `observedAt`: when the worker last completed a pass on the Integration, `null` before the first.
 - `observedGeneration`: the spec generation that pass converged; it equals `spec.generation` once
   the latest spec has been observed.
@@ -129,16 +141,16 @@ the spec generation it was judged for. The types:
 
 | Type | `true` means | Reasons |
 | --- | --- | --- |
-| `ready` | Deployments that fetch from the Local Repository are accepted. | `ready`; when `false`, the first thing in the way: `not_serving` (the spec does not serve deployments), `integration_disabled`, a `realized` reason that stopped the last pass (below), `not_observed`, `source_failed`, `file_failed`, `image_failed`, `syncing`, or `endpoints_unknown`. The message lists everything in the way; while the spec does not serve deployments only the settings are (`not_serving`, `integration_disabled`, a `realized` reason that stopped a pass), since nothing is converged. |
-| `realized` | The provider serves every effective source, file, and image. | `converged`; `syncing` (a source, file, or image is `pending` or `syncing`), `source_failed`, `file_failed`, `image_failed` (the provider's reason is in the message); or, when the pass stopped, `provider_unreachable` (retried with a growing delay), `credential_missing` (the Integration has no credential), `credential_rejected` (the provider refused it), `content_origin_missing` (the Integration has no `contentOrigin`), `integration_invalid` (the provider adapter refused the Integration's configuration; the message has its reason). |
+| `ready` | Deployments that fetch artifacts are accepted under the spec's `mode` (the response's `ready`). | `ready`; when `false`, the first thing in the way: `not_serving` (the mode is `upstream`), `integration_disabled`, a `realized` reason that stopped the last pass (below), `not_observed`, `source_failed` or `syncing` (an `offline` source that is not `serving`, by its state), `file_failed`, `image_failed`, `syncing` (an `offline` file or image not `ready` yet), or `endpoints_unknown`. The message lists everything in the way. While the mode is `upstream` only the settings are (`not_serving`, `integration_disabled`, a `realized` reason that stopped a pass), since nothing is converged; while it is `cache` the content is never in the way. |
+| `realized` | Every effective source, file, and image is `ready`. | `converged`; `syncing` (a source, file, or image is `pending` or `syncing`), `source_failed`, `file_failed`, `image_failed` (the provider's reason is in the message); or, when the pass stopped, `provider_unreachable` (retried with a growing delay), `credential_missing` (the Integration has no credential), `credential_rejected` (the provider refused it), `content_origin_missing` (the Integration has no `contentOrigin`), `integration_invalid` (the provider adapter refused the Integration's configuration; the message has its reason). |
 | `requires_attention` | A user must fix the Integration: `realized` is `credential_missing`, `credential_rejected`, `content_origin_missing`, or `integration_invalid` (the same reason and message). | `none` when `false`. |
 
 A pass that stops records only the conditions: the sources, files, and images keep their last
 observed state and `observedAt`, which is then older than the conditions' `lastTransitionTime`. A stopped
 pass is tried again when the Integration changes (for example a new credential or setting), at the
-next resync, or after a sync request. While the spec does not serve deployments the worker does not
-converge it (nothing is synced or fetched, and what the provider already holds stays) and records
-only `ready` `false` with `not_serving`; while the Integration is disabled it does the same with
+next resync, or after a sync request. While the mode is `upstream` the worker does not converge it
+(nothing is synced or fetched, and what the provider already holds stays) and records only `ready`
+`false` with `not_serving`; while the Integration is disabled it does the same with
 `integration_disabled`. In both cases `realized` keeps its last judgement.
 
 ## Browse The Content
@@ -153,12 +165,12 @@ has `name` and, where its format has them, `version`, `architecture`, `source`, 
 
 ## Replace The Spec
 
-`PUT /api/v1/sites/{siteId}/local-repository/spec` takes `{generation, serveDeployments, sources[]}`
-and replaces the whole spec. `generation` is the spec generation the writer read (`0` before the
-first write); when it is not the stored one the write is `409 conflict` and nothing changes.
-`serveDeployments` is required (see [Deployments](#deployments)); turning it on starts the worker's
-convergence, and deployments are accepted once the Local Repository is `ready`. `sources` is the
-whole list and replaces the stored one; the generation then increases by one. Each source:
+`PUT /api/v1/sites/{siteId}/local-repository/spec` takes `{generation, mode, sources[]}` and
+replaces the whole spec. `generation` is the spec generation the writer read (`0` before the first
+write); when it is not the stored one the write is `409 conflict` and nothing changes. `mode` is
+required and is `upstream`, `cache`, or `offline` (see [Deployments](#deployments)); switching to
+`cache` or `offline` starts the worker's convergence, and switching to `upstream` stops it. `sources`
+is the whole list and replaces the stored one; the generation then increases by one. Each source:
 
 - `name`: 1 to 63 lower-case letters, digits, `.`, `_`, or `-`, starting and ending with a letter or
   digit, unique in the list. It becomes part of the address Servers read the source at.
@@ -189,25 +201,40 @@ modules declare. When a Workflow that runs one is accepted — an OS deployment'
 deploy, a Managed Software install or uninstall, or `POST /api/v1/workflows` — swallow decides where
 the Site's artifacts come from, reading its store (the provider is not called):
 
-- **From the upstreams** when the Site has no `repository` Integration or its spec does not serve
-  deployments (`serveDeployments` `false`, the default). Each artifact comes from the upstream its
-  module declares: a file from its URL (verified against its sha256), an image from its registry, a
-  Python package from PyPI, and a declared deb source from its URL, verified with the signing key
-  the module declares; the host keeps its own OS package sources.
-- **From the Local Repository** when its spec serves deployments. It must be `ready`; otherwise the
+- **From the upstreams** when the Site has no `repository` Integration or its `mode` is `upstream`
+  (the default). Each artifact comes from the upstream its module declares: a file from its URL
+  (verified against its sha256), an image from its registry, a Python package from PyPI, and a
+  declared deb source from its URL, verified with the signing key the module declares; the host
+  keeps its own OS package sources.
+- **From the Local Repository** when the `mode` is `offline`. It must be `ready`; otherwise the
   request is refused with `409 conflict` before any Workflow is created. The message says what to
   do: enable the Integration, fix what stopped the worker's last pass (the `realized` message, for
   example a missing `contentOrigin`), or wait for (or fix) the sources, files, and images it names,
   for example
   `the site's local repository is not ready: source ubuntu is syncing; file k0s/v1.36.3+k0s.2/k0s-v1.36.3+k0s.2-amd64 failed: checksum mismatch; image registry.k8s.io/nfd/node-feature-discovery:v0.18.3 is syncing`.
-  swallow never falls back to the upstreams for such a Site.
+  A source that is `syncing` or `failed` while it is `serving` is not in the way. swallow never
+  falls back to the upstreams for such a Site.
+- **From the Local Repository where it serves, from the upstreams elsewhere** when the `mode` is
+  `cache`. It must be `ready` (the Integration enabled, observed, not stopped, its addresses known);
+  otherwise the request is refused the same way, but the content never refuses it. Each artifact is
+  decided at acceptance from the recorded state:
+  - apt as a whole: from the Local Repository when there is an effective deb source and every one
+    is `serving`, otherwise from the upstreams (the declared deb sources of the modules, next to the
+    host's own OS package sources);
+  - Python packages: from the Local Repository when the `python` source is `serving`, otherwise
+    from PyPI;
+  - each image: through the Local Repository when the `oci` source of its registry host is
+    `serving` (the provider pulls it through on the first pull), otherwise from its registry;
+  - each file: from the Local Repository when it is `ready`, otherwise from its URL; both are
+    verified against its sha256.
 
-Either way the playbook's Task receives the trusted variable `swallow_artifacts`, frozen at
+Every way the playbook's Task receives the trusted variable `swallow_artifacts`, frozen at
 acceptance, with the same keys:
 
 ```yaml
 swallow_artifacts:
-  source: local_repository        # or upstream
+  source: local_repository        # offline; upstream; or cache
+  apt: local_repository           # where apt fetches from: local_repository or upstream
   deb:                            # the apt sources the host adds, ordered by name
     - name: ubuntu
       uri: http://10.170.168.20:8080/pulp/content/deb/ubuntu/
@@ -226,11 +253,16 @@ swallow_artifacts:
     docker.io/grafana/grafana:12.4.12: 10.170.168.20:8080/docker.io/grafana/grafana:12.4.12
 ```
 
-From the Local Repository, `deb` lists every effective deb source at the provider's address and
-`deb_signing_key` is the Site's key (`""` when unsigned); from the upstreams, `deb` lists only the
-deb sources the modules declare, at their URLs with their signing keys, and `deb_signing_key`,
-`registry`, and `python_index` are `""` and `registry_mirrors` is `{}`. `files` and `images` always
-list every declared file and image. A kind nothing serves is empty. No caller can set or override
+`source` is the Site's mode at acceptance (`local_repository` for `offline`). `apt` is
+`local_repository` or `upstream`: always `local_repository` for `offline`, `upstream` for
+`upstream`, and the apt decision above for `cache`. When `apt` is `local_repository`, `deb` lists
+every effective deb source at the provider's address and `deb_signing_key` is the Site's key (`""`
+when unsigned); when it is `upstream`, `deb` lists only the deb sources the modules declare, at
+their URLs with their signing keys, and `deb_signing_key` is `""`. `registry` is the Local
+Repository's registry while any image or mirror goes through it, otherwise `""`; `registry_mirrors`
+lists the registry hosts that go through it (`{}` for `upstream`); `python_index` is `""` while
+Python packages come from PyPI. `files` and `images` always list every declared file and image, each
+at the address it is fetched from. A kind nothing serves is empty. No caller can set or override
 the variable.
 
 A Platform's Workflows started by the worker (a spec change the platform controller converges) are
@@ -240,7 +272,7 @@ refused the same way, and the Platform's `realized` Condition reports the messag
 
 | Code | HTTP Status | Description |
 | ---- | ----------: | ----------- |
-| `validation_error` | 400 | The spec body is not valid JSON, `generation` is missing or negative, `serveDeployments` is missing, or a source is invalid, listed twice, or contradicts a module's declaration; a content query has no or an unknown `format` or an out-of-range page; or the provider refused the content query (the message is its reason). |
+| `validation_error` | 400 | The spec body is not valid JSON, `generation` is missing or negative, `mode` is missing or not `upstream`, `cache`, or `offline`, or a source is invalid, listed twice, or contradicts a module's declaration; a content query has no or an unknown `format` or an out-of-range page; or the provider refused the content query (the message is its reason). |
 | `not_found` | 404 | The Site does not exist, or it has no `repository` Integration. |
 | `conflict` | 409 | A spec write named a `generation` other than the stored one. |
 | `provider_unavailable` | 503 | Browsing only: the provider could not be reached or refused the Integration's credential, or the Integration has no credential. |
@@ -263,6 +295,15 @@ refused the same way, and the Platform's `realized` Condition reports the messag
   The playbook flag `usesLocalRepository` became `fetchesArtifacts` and the trusted variable
   `swallow_local_repository` became `swallow_artifacts`, whose `files` is a map of declared paths to
   URLs and which gained `source` and `images`.
+- 2026-11-11 (breaking): the spec's `serveDeployments` was replaced by `mode` (`upstream`, `cache`,
+  or `offline`), required on every spec write; a stored `false` became `upstream` and `true`
+  `offline`. The new `cache` mode accepts deployments without waiting for the content and decides
+  per artifact where it is fetched from. `sources[]` items gained `serving`, and an `offline` source
+  that is `syncing` or `failed` while it is `serving` no longer keeps `ready` `false`, so the daily
+  resync of a deb source no longer refuses deployments. `swallow_artifacts` gained `apt`, and its
+  `source` gained the value `cache`. No compatibility alias is kept
+  ([decision 074](../../../../../docs/decisions/074-retire-schema-v2-and-deprecated-aliases.md)
+  (retire schema v2 and deprecated aliases)).
 
 ## Implementation Notes
 

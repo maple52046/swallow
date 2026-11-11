@@ -117,8 +117,8 @@ flowchart LR
 1. **安裝**：production 安裝會一起裝好 MAAS、Site `default` 與它的 provisioner Integration，以及 Site 的 Local Repository
    （`repository` Integration 與 `ubuntu` 來源，還沒用來部署）（[installation.md](installation.md)）。開發環境要自己註冊
    MAAS 與 Local Repository，並設定 Server 的 NTP 位址（[development-and-testing.md](development-and-testing.md) §1）。部署
-   需要的 artifact 從模組宣告的上游取得，Site 打開 Local Repository（`serveDeployments`）之後改從它取得
-   （[local-repository.md](local-repository.md) §2.1）。
+   需要的 artifact 從模組宣告的上游取得；Site 把 Local Repository 的模式（`mode`）換成 `cache` 之後，它已經提供的改從它
+   取得，換成 `offline` 之後全部從它取得（[local-repository.md](local-repository.md) §2.1）。
 2. **納管**：機器從 PXE（或在 DHCP 不由 MAAS 提供的網路上，從 Boot ISO）開機，MAAS enlist 後，reconcile 讓它以
    `new` 的 Server 出現；swallow 自動執行 `inspect-hardware`，完成後 Server 為 `ready`
    （[server-enrollment-and-boot-media.md](server-enrollment-and-boot-media.md)）。
@@ -188,7 +188,7 @@ collection 可能由多個 process 寫入，但每個欄位只有一個寫入者
 | platform | `platforms`、`platform_deployment_requirements` | Platform 的 spec、status 與功能狀態；Slurm 部署需求 | api（spec、按需同步）；worker（membership 的同步狀態、controller、投影）；ansible-executor（credential 與功能結果） |
 | software | `software_assignments`、`software_registry_credentials` | 哪台 Server 裝了什麼；registry 的封存密碼 | api（受理時的 `pending`、`uninstalling`）；worker（Node Exporter controller 與 platform controller 受理安裝時的 `pending`；reconcile 觀察到機器沒有 OS 時標 `absent`）；worker 與 ansible-executor（Task 的記錄與失敗標記、拿走 OS 的 Task 標 `absent`） |
 | sshkey | `ssh_keys`、`ssh_key_provider_syncs` | Deployment Key 與 Access Key；各 provisioner 的同步紀錄 | api（金鑰）；worker（同步） |
-| localrepo | `local_repositories` | 每個 Site 的 Local Repository：spec（user 來源與 `serveDeployments`），與每個來源、檔案、image 的同步狀態（artifact 本身在 provider，不存在 swallow） | api（spec）；worker（controller） |
+| localrepo | `local_repositories` | 每個 Site 的 Local Repository：spec（user 來源與 `mode`），與每個來源、檔案、image 的同步狀態（含來源是否提供中）（artifact 本身在 provider，不存在 swallow） | api（spec）；worker（controller） |
 | workflow | `workflows`、`workflow_events`、`workflow_secrets` | Workflow 的計畫與執行狀態、timeline、封存的 secret | api（受理、命令）；worker 與 ansible-executor（經 Workflow service 的狀態轉換） |
 | workflow | `resource_leases` | Workflow 擁有的資源（沒有 TTL） | worker |
 | workflow | `ansible_task_events`、`automation_configurations` | Ansible 的即時事件；Site automation 設定 | ansible-executor（事件與它們的 retention）；api（設定） |

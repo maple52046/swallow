@@ -161,6 +161,13 @@ func (r *Repository) Browse(ctx context.Context, query localrepodomain.ContentQu
 // hosts read, so it holds no path separator or space.
 var validName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
+// pullingThrough reports whether a pull-through source serves its current definition: its
+// distribution exists (nil while Pulp still creates it), and no change of it or of the remote whose
+// upstream it pulls from is in flight.
+func pullingThrough(distribution object, remoteStep, distributionStep step) bool {
+	return distribution != nil && !remoteStep.Changed && !distributionStep.Changed
+}
+
 // sourceStatus turns the combined step of a source into its status. Messages come from Pulp's task
 // errors, which may quote an upstream URL, so they are redacted.
 func sourceStatus(source localrepodomain.Source, s step) localrepodomain.SourceStatus {

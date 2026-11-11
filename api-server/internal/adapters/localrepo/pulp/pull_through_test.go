@@ -35,6 +35,9 @@ func TestEnsureOCISourceCreatesPullThroughCache(t *testing.T) {
 				t.Fatalf("EnsureSource(%s) error = %v", tc.source.Name, err)
 			}
 			wantState(t, "first EnsureSource", first.State, localrepodomain.SyncPending)
+			if first.Serving {
+				t.Errorf("first EnsureSource Serving = true, want false before the distribution exists")
+			}
 			remote := f.named(pullThroughRemotes, tc.source.Name)
 			if remote == nil || remote.str("url") != tc.upstream {
 				t.Fatalf("pull-through remote = %v, want url %s", remote, tc.upstream)
@@ -53,6 +56,9 @@ func TestEnsureOCISourceCreatesPullThroughCache(t *testing.T) {
 				t.Fatalf("second EnsureSource(%s) error = %v", tc.source.Name, err)
 			}
 			wantState(t, "second EnsureSource", second.State, localrepodomain.SyncReady)
+			if !second.Serving {
+				t.Errorf("second EnsureSource Serving = false, want true once the distribution pulls through")
+			}
 			if second.ContentCount != 1 {
 				t.Errorf("ContentCount = %d, want the one image pulled through", second.ContentCount)
 			}
@@ -90,6 +96,38 @@ func TestEnsureSourceDoesNotRepeatAQueuedCreate(t *testing.T) {
 	wantState(t, "created", status.State, localrepodomain.SyncReady)
 }
 
+func TestPullThroughSourceDoesNotServeAChangedUpstreamUntilItApplies(t *testing.T) {
+	f := newFakePulp(t)
+	repo := f.newRepository(t)
+	ctx := context.Background()
+	source := localrepodomain.Source{Name: "docker.io", Format: localrepodomain.FormatOCI, URL: "https://docker.io"}
+	for range 2 {
+		if _, err := repo.EnsureSource(ctx, source); err != nil {
+			t.Fatalf("EnsureSource(docker.io) error = %v", err)
+		}
+	}
+
+	// A user points the registry at an internal mirror; Pulp's worker has not applied it yet.
+	f.setHold(true)
+	mirrored := source
+	mirrored.URL = "https://mirror.example.internal"
+	status, err := repo.EnsureSource(ctx, mirrored)
+	if err != nil {
+		t.Fatalf("EnsureSource(mirrored docker.io) error = %v", err)
+	}
+	if status.Serving {
+		t.Errorf("Serving while the upstream change is queued = true, want false: it still pulls from the old upstream")
+	}
+
+	f.release()
+	if status, err = repo.EnsureSource(ctx, mirrored); err != nil {
+		t.Fatalf("EnsureSource(mirrored docker.io) after the update error = %v", err)
+	}
+	if !status.Serving {
+		t.Errorf("Serving after the upstream change applied = false, want true")
+	}
+}
+
 func TestEnsurePythonSourceCreatesPullThroughIndex(t *testing.T) {
 	f := newFakePulp(t)
 	repo := f.newRepository(t)
@@ -122,6 +160,9 @@ func TestEnsurePythonSourceCreatesPullThroughIndex(t *testing.T) {
 		t.Fatalf("second EnsureSource(pypi) error = %v", err)
 	}
 	wantState(t, "second EnsureSource", second.State, localrepodomain.SyncReady)
+	if first.Serving || !second.Serving {
+		t.Errorf("Serving = %t then %t, want false until the distribution exists, then true", first.Serving, second.Serving)
+	}
 	if second.ContentCount != 1 {
 		t.Errorf("ContentCount = %d, want the one package pulled through", second.ContentCount)
 	}

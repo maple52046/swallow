@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { HStack, Stack, Text } from '@chakra-ui/react'
 import { Link } from 'react-router-dom'
 import { findCondition } from '@/domain/convergence/types'
-import { isConverging, LocalRepositoryConditionTypes, type LocalRepository } from '@/domain/localRepository/types'
+import { isConverging, LocalRepositoryConditionTypes, modeConverges, unservedCount, type LocalRepository } from '@/domain/localRepository/types'
 import { SectionSurface } from '@/presentation/components/ConsolePrimitives'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { StatusBadge } from '@/presentation/components/StatusBadge'
@@ -10,7 +10,7 @@ import { Alert } from '@/presentation/components/ui/alert'
 import { DescriptionList } from '@/presentation/components/ui/description-list'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDateTime, formatRelative } from '@/shared/utils/time'
-import { attentionTab, notReadyText, realizedPresentation } from './localRepositoryPresentation'
+import { attentionTab, notReadyText, readyDeploymentsText, realizedPresentation } from './localRepositoryPresentation'
 import { useIntegration } from './useIntegrationSettings'
 import { LOCAL_REPOSITORY_POLL_MS } from './useLocalRepository'
 
@@ -31,21 +31,23 @@ function StatusValue({ status, label, children }: { status: string; label: strin
 
 /**
  * The status block at the top of the Local repository page, all of it read from the API. What it
- * says depends on whether the spec serves deployments (`spec.serveDeployments`).
+ * says depends on the spec's mode (`spec.mode`).
  *
- * While it does:
+ * In cache and offline mode the worker converges the repository:
  * - Deployments: the API's `ready` and, when false, the `ready` condition's message, which lists
- *   everything in the way; the dashboard never works out readiness itself (see `notReadyText`).
- * - Provider: the `realized` condition (whether the provider serves every source, file, and image) with its
+ *   everything in the way; the dashboard never works out readiness itself (see `notReadyText`). In
+ *   cache mode a ready repository also says how many sources and files it does not serve yet
+ *   (`unservedCount`), which deployments fetch from the upstream sources meanwhile.
+ * - Provider: the `realized` condition (whether every source, file, and image is ready) with its
  *   message, and the spec generation it was judged for when the latest spec is not judged yet.
  * - A `requires_attention` condition puts an alert first that links to the Integration tab where the
  *   reason is fixed.
  *
- * While it does not, the worker converges nothing and records only `ready` `false` (`not_serving`),
+ * In upstream mode the worker converges nothing and records only `ready` `false` (`not_serving`),
  * so nothing here reads as a failure: Deployments says they fetch from the upstream sources, and
  * Provider says the repository is not synchronized and keeps what it holds. `realized` and
- * `requires_attention` are judgements from the last pass made while it served deployments, so they
- * are not shown; the worker judges again once deployments use it.
+ * `requires_attention` are judgements from the last pass made in another mode, so they are not
+ * shown; the worker judges again once deployments use it.
  *
  * Either way:
  * - User sources: the user's spec generation against the one the worker last converged, so a saved
@@ -67,7 +69,7 @@ export function LocalRepositorySummary({ repository, refreshError }: { repositor
   const settingsHref = (tab: 'general' | 'connection' | 'credential') =>
     scopedHref(`/infrastructure/integrations/${encodeURIComponent(repository.integrationId)}/${tab}`, repository.siteId)
 
-  const serving = repository.spec.serveDeployments
+  const serving = modeConverges(repository.spec.mode)
   const readyCondition = findCondition(repository.conditions, LocalRepositoryConditionTypes.ready)
   const realized = findCondition(repository.conditions, LocalRepositoryConditionTypes.realized)
   const attention = findCondition(repository.conditions, LocalRepositoryConditionTypes.requiresAttention)
@@ -112,7 +114,7 @@ export function LocalRepositorySummary({ repository, refreshError }: { repositor
                 <StatusValue status={repository.ready ? 'ready' : 'warning'} label={repository.ready ? 'Ready' : 'Not ready'}>
                   <Text fontSize="sm" color="fg.muted">
                     {repository.ready
-                      ? 'Deployments that fetch from the Local Repository are accepted.'
+                      ? readyDeploymentsText(repository.spec.mode, unservedCount(repository))
                       : notReadyText(readyCondition, repository.conditions.length > 0)}
                   </Text>
                 </StatusValue>

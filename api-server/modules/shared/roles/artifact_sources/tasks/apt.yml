@@ -12,11 +12,11 @@
 
 - name: Point apt at the Local Repository
   ansible.builtin.include_tasks: apt_local_repository.yml
-  when: swallow_artifacts.source == 'local_repository'
+  when: artifact_sources_apt_from == 'local_repository'
 
 - name: Point apt at the declared upstreams
   ansible.builtin.include_tasks: apt_upstream.yml
-  when: swallow_artifacts.source == 'upstream'
+  when: artifact_sources_apt_from == 'upstream'
 
 - name: Converge the role's apt sources
   become: true
@@ -34,7 +34,7 @@
       loop:
         - "{{ artifact_sources_keyring }}"
         - "{{ artifact_sources_apt_conf }}"
-      when: swallow_artifacts.source == 'upstream'
+      when: artifact_sources_apt_from == 'upstream'
 
     - name: Find the upstream signing keys the role installed
       ansible.builtin.find:
@@ -48,7 +48,7 @@
         state: absent
       loop: "{{ artifact_sources_installed_keys.files | map(attribute='path') | sort }}"
       when: >-
-        swallow_artifacts.source == 'local_repository' or
+        artifact_sources_apt_from == 'local_repository' or
         (item | basename) not in (artifact_sources_deb | map(attribute='name')
                                   | map('regex_replace', '^', artifact_sources_upstream_keyring_prefix | basename)
                                   | map('regex_replace', '$', '.gpg'))

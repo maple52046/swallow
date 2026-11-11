@@ -23,7 +23,8 @@ const defaultPythonIndex = "https://pypi.org/"
 // distribution names both the repository and the remote, which makes it a pull-through index:
 // Pulp fetches a package from the upstream the first time a host asks for it and adds it to the
 // repository. The index is served at /pypi/<name>/simple/ and is ready once the distribution
-// exists; ContentCount is how many package files were pulled through so far.
+// exists; ContentCount is how many package files were pulled through so far. It is serving once the
+// distribution exists and neither it nor the remote is being changed.
 func (r *Repository) ensurePython(ctx context.Context, source localrepodomain.Source) (localrepodomain.SourceStatus, error) {
 	upstream := strings.TrimSpace(source.URL)
 	if upstream == "" {
@@ -52,7 +53,7 @@ func (r *Repository) ensurePython(ctx context.Context, source localrepodomain.So
 	if err != nil {
 		return localrepodomain.SourceStatus{}, err
 	}
-	_, distributionStep, err := r.ensure(ctx, objectSpec{
+	distribution, distributionStep, err := r.ensure(ctx, objectSpec{
 		collection:  pythonDistributions,
 		name:        source.Name,
 		want:        map[string]any{"base_path": source.Name, "repository": repo.href(), "remote": remote.href()},
@@ -66,6 +67,7 @@ func (r *Repository) ensurePython(ctx context.Context, source localrepodomain.So
 		return localrepodomain.SourceStatus{}, err
 	}
 	status := sourceStatus(source, worst(remoteStep, repoStep, distributionStep))
+	status.Serving = pullingThrough(distribution, remoteStep, distributionStep)
 	status.ContentCount = count
 	return status, nil
 }

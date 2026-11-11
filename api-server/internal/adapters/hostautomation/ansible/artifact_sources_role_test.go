@@ -248,11 +248,12 @@ func (k *keyServer) requested(path string) int {
 	return k.requests[path]
 }
 
-// testLocalRepository is swallow_artifacts with the Site's Local Repository serving every artifact,
-// as the api-server sends it.
+// testLocalRepository is swallow_artifacts with the Site's Local Repository serving every artifact
+// (offline mode), as the api-server sends it.
 func testLocalRepository() map[string]any {
 	return map[string]any{
 		"source": "local_repository",
+		"apt":    "local_repository",
 		"deb": []any{
 			map[string]any{
 				"name": "ubuntu", "uri": "http://10.0.0.20:8080/pulp/content/deb/ubuntu/",
@@ -286,6 +287,7 @@ func testLocalRepository() map[string]any {
 func testUpstreams(keys, fingerprint string) map[string]any {
 	return map[string]any{
 		"source": "upstream",
+		"apt":    "upstream",
 		"deb": []any{
 			map[string]any{
 				"name": "docker-ce", "uri": "https://download.docker.com/linux/ubuntu",
@@ -309,6 +311,19 @@ func testUpstreams(keys, fingerprint string) map[string]any {
 			"docker.io/grafana/grafana:12.4.12": "docker.io/grafana/grafana:12.4.12",
 		},
 	}
+}
+
+// testCache is swallow_artifacts in cache mode while the Local Repository serves part of what the
+// run needs: apt and Python packages come from the upstreams (the OS archive is still in its first
+// synchronization, the PyPI pull-through not created yet) and the helm file from its URL, while
+// docker.io's images go through the Local Repository's registry; keys serves the signing keys.
+func testCache(keys string) map[string]any {
+	artifacts := testUpstreams(keys, testSigningKeyFingerprint)
+	artifacts["source"] = "cache"
+	artifacts["registry"] = "10.0.0.20:8080"
+	artifacts["registry_mirrors"] = map[string]any{"docker.io": "http://10.0.0.20:8080/v2/docker.io"}
+	artifacts["images"] = map[string]any{"docker.io/grafana/grafana:12.4.12": "10.0.0.20:8080/docker.io/grafana/grafana:12.4.12"}
+	return artifacts
 }
 
 // artifactSourcesVars are the role's variables for a scratch host at root, pulling with every
@@ -384,8 +399,9 @@ func assertAbsent(t *testing.T, root string, paths ...string) {
 // source: every other apt source with an active line, the distribution's or the image's, is set
 // aside (recoverably), apt bypasses the host's proxy for it, k0s's containerd resolves each
 // mirrored registry through it and forgets one it no longer mirrors, and Docker gains the registry
-// (recorded as the role's) without losing its other settings. A second run changes nothing, and a
-// run without the trusted variable, or with a source it does not know, stops before touching the
+// (recorded as the role's) without losing its other settings. A second run changes nothing, nor
+// does a run accepted before the variable had apt (which follows source). A run without the trusted
+// variable, with a source it does not know, or in cache mode without apt stops before touching the
 // host.
 func TestArtifactSourcesPointsTheHostAtTheLocalRepository(t *testing.T) {
 	t.Parallel()
@@ -469,13 +485,23 @@ func TestArtifactSourcesPointsTheHostAtTheLocalRepository(t *testing.T) {
 	if out, changed, failed := run.run(vars()); failed != 0 || changed != 0 {
 		t.Errorf("second run changed %d and failed %d tasks, want a converged host unchanged:\n%s", changed, failed, out)
 	}
+	accepted := vars()
+	delete(accepted["swallow_artifacts"].(map[string]any), "apt")
+	if out, changed, failed := run.run(accepted); failed != 0 || changed != 0 {
+		t.Errorf("a run accepted before apt existed changed %d and failed %d tasks, want it to follow source:\n%s", changed, failed, out)
+	}
 
 	converged := snapshotScratch(t, root)
 	missing := vars()
 	delete(missing, "swallow_artifacts")
 	unknown := vars()
 	unknown["swallow_artifacts"].(map[string]any)["source"] = "mirror"
-	for name, vars := range map[string]map[string]any{"without swallow_artifacts": missing, "with an unknown source": unknown} {
+	cacheWithoutApt := vars()
+	cacheWithoutApt["swallow_artifacts"].(map[string]any)["source"] = "cache"
+	delete(cacheWithoutApt["swallow_artifacts"].(map[string]any), "apt")
+	for name, vars := range map[string]map[string]any{
+		"without swallow_artifacts": missing, "with an unknown source": unknown, "in cache mode without apt": cacheWithoutApt,
+	} {
 		if out, _, failed := run.run(vars); failed == 0 || !strings.Contains(out, "[artifact_sources_missing]") {
 			t.Errorf("a run %s = %d failed tasks, want [artifact_sources_missing]:\n%s", name, failed, out)
 		}
@@ -638,6 +664,96 @@ func TestArtifactSourcesSwitchesModesBothWays(t *testing.T) {
 	}
 	if out, changed, failed := run.run(local); failed != 0 || changed != 0 {
 		t.Errorf("second run back on the Local Repository changed %d and failed %d tasks, want nothing:\n%s", changed, failed, out)
+	}
+}
+
+// In cache mode a run points each channel its own way, here apt and Python packages at the upstreams
+// and docker.io's images at the Local Repository's registry: the host gets the upstream apt sources
+// next to its own, no Python index, and the registry for the mirrored host only. A second run
+// changes nothing. Switching between that and offline mode converges, in either direction, to the
+// host a fresh run of the new mode leaves, and switching to the upstreams removes every Local
+// Repository setting.
+func TestArtifactSourcesMixesChannelsInCacheMode(t *testing.T) {
+	t.Parallel()
+	requireDebianHost(t)
+	requireGPG(t)
+	run := newRoleRun(t, artifactSourcesRole, false)
+	keys := newKeyServer(t)
+	freshRun := func(artifacts map[string]any) map[string]string {
+		t.Helper()
+		root := filepath.Join(t.TempDir(), "root")
+		writeHost(t, root)
+		if out, _, failed := run.run(artifactSourcesVars(root, artifacts)); failed != 0 {
+			t.Fatalf("fresh run with source %v failed:\n%s", artifacts["source"], out)
+		}
+		return snapshotScratch(t, root)
+	}
+	freshLocal := freshRun(testLocalRepository())
+	freshCache := freshRun(testCache(keys.url))
+
+	sources := freshCache["etc/apt/sources.list.d/swallow-local-repository.sources"]
+	for _, name := range []string{"docker-ce", "grafana"} {
+		if !strings.Contains(sources, "Signed-By: /etc/apt/keyrings/swallow-upstream-"+name+".gpg\n") {
+			t.Errorf("cache mode apt sources =\n%s\nwant a %s stanza signed by its declared key", sources, name)
+		}
+	}
+	if strings.Contains(sources, "10.0.0.20") || freshCache["etc/apt/sources.list.d/ubuntu.sources"] != hostUbuntuSources {
+		t.Errorf("cache mode apt: sources =\n%s\nubuntu.sources = %q; want only upstream stanzas and the host's own sources kept",
+			sources, freshCache["etc/apt/sources.list.d/ubuntu.sources"])
+	}
+	for _, absent := range []string{
+		"etc/apt/keyrings/swallow-local-repository.asc", "etc/apt/apt.conf.d/90swallow-local-repository",
+		"etc/pip.conf", "etc/uv/uv.toml", "etc/k0s/containerd.d/certs.d/quay.io/hosts.toml",
+	} {
+		if _, ok := freshCache[absent]; ok {
+			t.Errorf("cache mode wrote %s, want it absent while that channel fetches from the upstreams", absent)
+		}
+	}
+	for _, present := range []string{
+		"etc/k0s/containerd.d/swallow-registry-mirrors.toml", "etc/k0s/containerd.d/certs.d/docker.io/hosts.toml",
+		"etc/containers/registries.conf.d/50-swallow-local-repository.conf", "var/lib/swallow/artifact-sources/docker-insecure-registry",
+	} {
+		if _, ok := freshCache[present]; !ok {
+			t.Errorf("cache mode did not write %s, want the registry configured for the mirrored host", present)
+		}
+	}
+	if !strings.Contains(freshCache["etc/docker/daemon.json"], "10.0.0.20:8080") {
+		t.Errorf("cache mode daemon.json = %s, want the Local Repository's registry among the insecure registries", freshCache["etc/docker/daemon.json"])
+	}
+
+	root := filepath.Join(t.TempDir(), "root")
+	writeHost(t, root)
+	for _, step := range []struct {
+		name      string
+		artifacts map[string]any
+		want      map[string]string
+	}{
+		{"cache mode", testCache(keys.url), freshCache},
+		{"offline after cache mode", testLocalRepository(), freshLocal},
+		{"cache mode after offline", testCache(keys.url), freshCache},
+	} {
+		if out, _, failed := run.run(artifactSourcesVars(root, step.artifacts)); failed != 0 {
+			t.Fatalf("%s run failed:\n%s", step.name, out)
+		}
+		if diff := diffSnapshots(snapshotScratch(t, root), step.want); len(diff) > 0 {
+			t.Errorf("%s: %v differ from a fresh run's host, want none", step.name, diff)
+		}
+		if out, changed, failed := run.run(artifactSourcesVars(root, step.artifacts)); failed != 0 || changed != 0 {
+			t.Errorf("second %s run changed %d and failed %d tasks, want nothing:\n%s", step.name, changed, failed, out)
+		}
+	}
+
+	if out, _, failed := run.run(artifactSourcesVars(root, testUpstreams(keys.url, testSigningKeyFingerprint))); failed != 0 {
+		t.Fatalf("run from the upstreams after cache mode failed:\n%s", out)
+	}
+	assertAbsent(t, root,
+		"etc/k0s/containerd.d/swallow-registry-mirrors.toml",
+		"etc/k0s/containerd.d/certs.d",
+		"etc/containers/registries.conf.d/50-swallow-local-repository.conf",
+		"var/lib/swallow/artifact-sources/docker-insecure-registry",
+	)
+	if got := readDockerDaemon(t, root)["insecure-registries"]; strings.Join(stringsOf(got), ",") != "10.0.0.5:5000" {
+		t.Errorf("insecure registries from the upstreams = %v, want only the user's", got)
 	}
 }
 

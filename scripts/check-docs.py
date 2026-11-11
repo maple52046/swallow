@@ -100,6 +100,9 @@ RETIRED_TERMS = {
     "local_repository_source_missing": (
         "roles fail with artifact_source_missing for either source (local-repository.md §8.2)"
     ),
+    "serveDeployments": (
+        "the Local Repository spec has a mode: upstream, cache, or offline (local-repository.md §2.1)"
+    ),
 }
 # Documents whose purpose is to record the retirement itself: a contract change note, the public
 # compatibility page, or the decision and spec section that state a mechanism is retired.
@@ -124,6 +127,9 @@ RETIRED_TERM_RECORDS = {
         "api-server/docs/development/api-contracts/api-server/local-repository.md",
         "swallow_local_repository",
     ),
+    ("api-server/docs/development/api-contracts/api-server/local-repository.md", "serveDeployments"),
+    ("docs/development/glossaries/terms/local-repository.md", "serveDeployments"),
+    ("docs/development/glossaries/terms/local-repository-mode.md", "serveDeployments"),
 }
 
 # Architecture-review tracking codes are defined only in uncommitted plan drafts, so a committed

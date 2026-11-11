@@ -1,12 +1,13 @@
 /**
- * A Site's Local Repository: when the Site chooses it (`spec.serveDeployments`), the one place its
- * Servers fetch every artifact a deployment installs; otherwise deployments fetch each artifact from
- * the upstream its module declares (decision 078; glossary terms local-repository.md and
- * repository-source.md; contract local-repository.md). swallow owns what it must hold — what the
- * compiled modules declare plus the user's Repository Sources (the spec) — and, while the spec serves
- * deployments, the worker converges the Site's `repository` Integration to it and records what it
- * observes. The dashboard reads that record, browses the content live, replaces the spec, and asks
- * for an immediate convergence; it never derives readiness itself.
+ * A Site's Local Repository: the Site's own source of the artifacts a deployment installs, which
+ * its deployments use according to the spec's Local Repository Mode (`spec.mode`): not at all, as a
+ * cache in front of the upstreams the modules declare, or as their only source (decision 078;
+ * glossary terms local-repository.md, local-repository-mode.md, and repository-source.md; contract
+ * local-repository.md). swallow owns what it must hold — what the compiled modules declare plus the
+ * user's Repository Sources (the spec) — and, while the mode is `cache` or `offline`, the worker
+ * converges the Site's `repository` Integration to it and records what it observes. The dashboard
+ * reads that record, browses the content live, replaces the spec, and asks for an immediate
+ * convergence; it never derives readiness itself.
  *
  * The types mirror the contract's wire shapes, so the adapter returns the parsed bodies as they are
  * and the generated OpenAPI types prove the match where it does.
@@ -45,19 +46,42 @@ export interface RepositorySourceSpec {
 }
 
 /**
+ * How a Site's deployments use its Local Repository (glossary local-repository-mode.md), a closed
+ * set:
+ * - `upstream`: every artifact comes from the upstream its module declares; the worker does not
+ *   converge the repository (nothing is synced or fetched, and what the provider holds stays). The
+ *   default until a write sets another.
+ * - `cache`: what the repository serves comes from it and the rest from the upstreams, decided per
+ *   artifact when a deployment is accepted; deployments never wait for it to synchronize.
+ * - `offline`: every artifact comes from the repository, and deployments are refused until it serves
+ *   everything they may fetch.
+ *
+ * The dashboard labels (Upstream sources, Cache, Offline) are UI labels; the value is what the API
+ * carries.
+ */
+export type LocalRepositoryMode = 'upstream' | 'cache' | 'offline'
+
+/**
+ * Whether the worker converges a Local Repository in `mode`: in cache and offline mode deployments
+ * fetch from it, so it keeps synchronizing. A value this build does not know reads as not converging,
+ * the least surprising reading (the page then promises no synchronization).
+ */
+export function modeConverges(mode: string): boolean {
+  return mode === 'cache' || mode === 'offline'
+}
+
+/**
  * The user's part of the Local Repository, which a write replaces as a whole. `generation` is `0`
  * before the first write and is the value a write must send back, so a write based on an older read
  * is refused instead of silently replacing someone else's change.
  *
- * `serveDeployments` is whether the Site's deployments fetch their artifacts from this Local
- * Repository (`true`) or from the upstreams the modules declare (`false`, the default until a write
- * sets it). While it is `false` the worker does not converge the repository: nothing is synced or
- * fetched, what the provider already holds stays, and the sources, files, and images keep their last
- * observed state. Every write sends it, so a write that only changes the sources sends it unchanged.
+ * `mode` is how the Site's deployments use this Local Repository (see {@link LocalRepositoryMode}).
+ * While it is `upstream` the sources, files, and images keep their last observed state. Every write
+ * sends it, so a write that only changes the sources sends it unchanged.
  */
 export interface LocalRepositorySpec {
   generation: number
-  serveDeployments: boolean
+  mode: LocalRepositoryMode
   sources: RepositorySourceSpec[]
 }
 
@@ -67,13 +91,17 @@ export interface LocalRepositorySpec {
  * module declares a Python requirement), merged by `name`.
  *
  * `declaredBy` lists who declared it, in order: `module:<id>` or `user` (see {@link parseDeclarer}).
- * `lastSyncedAt` is the last successful sync, `null` before one. `contentCount` is how many items it
- * serves, and `0` means unknown rather than empty.
+ * `serving` is whether the provider serves content of its current definition, apart from `state`:
+ * a source whose resync is `syncing`, or failed, still serves its last synchronization, and a
+ * changed definition serves nothing until it was synchronized. `lastSyncedAt` is the last successful
+ * sync, `null` before one. `contentCount` is how many items it serves, and `0` means unknown rather
+ * than empty.
  */
 export interface RepositorySource extends RepositorySourceSpec {
   declaredBy: string[]
   state: LocalRepositorySyncState
   message: string | null
+  serving: boolean
   lastSyncedAt: string | null
   contentCount: number
 }
@@ -114,25 +142,26 @@ export interface LocalRepositoryPythonRequirement {
 
 /**
  * A Site's Local Repository as swallow's store records it (`GET .../local-repository`; the provider
- * is not called). `ready` is the API's judgement — the spec serves deployments, the Integration is
- * enabled, the worker's last pass was not stopped by the Integration or its provider, every source,
- * file, and declared image is `ready`, and the host addresses are known. While the spec serves
- * deployments, the ones that fetch artifacts are accepted exactly while it is `true`; while it does
- * not, `ready` is always `false` and says nothing about deployments, which fetch from the upstreams.
- * `contentOrigin` is the Integration's setting (`null` when unset).
+ * is not called). `ready` is the API's judgement of whether deployments that fetch artifacts are
+ * accepted under the spec's mode: always `false` in `upstream` mode (it then says nothing about
+ * deployments, which fetch from the upstreams); in `cache` mode once the Integration is enabled, the
+ * worker observed it and its last pass was not stopped by the Integration or its provider, and the
+ * host addresses are known; in `offline` mode once, beyond that, every source is `serving` and every
+ * file and declared image is `ready`. `contentOrigin` is the Integration's setting (`null` when
+ * unset).
  *
  * `observedAt` is when the worker last completed a pass (`null` before the first) and
  * `observedGeneration` the spec generation that pass converged. `conditions` are the worker's
  * judgements, `[]` before it first looked at the Integration:
- * - `ready` (with, when `false`, a message listing everything in the way; `not_serving` while the
- *   spec does not serve deployments),
- * - `realized` (whether the provider serves every effective source, file, and image),
+ * - `ready` (with, when `false`, a message listing everything in the way; `not_serving` in upstream
+ *   mode),
+ * - `realized` (whether every effective source, file, and image is `ready`),
  * - `requires_attention` (a user must fix the Integration: its credential or content origin).
  *
  * A pass that stops records only conditions, so the sources, files, and images then keep an older
- * observation; so does a spec that does not serve deployments, for which the worker records only the
- * `ready` condition and `realized` keeps its last judgement. The Integration's credential and the
- * provider's identifiers never appear.
+ * observation; so does a spec in upstream mode, for which the worker records only the `ready`
+ * condition and `realized` keeps its last judgement. The Integration's credential and the provider's
+ * identifiers never appear.
  */
 export interface LocalRepository {
   siteId: string
@@ -180,7 +209,7 @@ export interface LocalRepositoryContentPage {
 
 /**
  * A spec write named a `generation` other than the stored one: someone changed the spec (the user's
- * sources or whether it serves deployments) since it was read, and nothing was written. The adapter
+ * sources or the mode) since it was read, and nothing was written. The adapter
  * raises it for the contract's `409 conflict` so a screen can re-read and tell the user, rather than
  * inspect transport codes or overwrite the other change.
  *
@@ -216,16 +245,28 @@ export function hasSyncInProgress(repository: Pick<LocalRepository, 'sources' | 
 }
 
 /**
+ * How many of the effective sources and declared files the provider does not serve yet: sources
+ * that are not `serving` and files that are not `ready`. In cache mode these are what an accepted
+ * deployment fetches from the upstreams instead (images go through their registry's pull-through
+ * once it serves, fetched in advance or not, so they are not counted). It reads only the API's
+ * fields; whether deployments are accepted stays the API's `ready`.
+ */
+export function unservedCount(repository: Pick<LocalRepository, 'sources' | 'files'>): number {
+  return repository.sources.filter((source) => !source.serving).length
+    + repository.files.filter((file) => file.state !== 'ready').length
+}
+
+/**
  * Whether the worker is expected to change what the Local Repository reads without anyone acting,
  * which is when a view should keep re-reading it: a source, file, or image is still being fetched
  * (the worker re-converges it with a growing delay), or a saved spec generation has not been
  * converged yet. A spec the worker cannot converge — its pass stopped for a user to fix the
  * Integration (`requires_attention`), or the Integration is disabled — waits for a person, not for
- * time. So does a spec that does not serve deployments: the worker converges nothing then, so a
- * `pending` or `syncing` item keeps that last observation and the observed generation stays behind.
+ * time. So does a spec in upstream mode: the worker converges nothing then, so a `pending` or
+ * `syncing` item keeps that last observation and the observed generation stays behind.
  */
 export function isConverging(repository: Pick<LocalRepository, 'sources' | 'files' | 'images' | 'spec' | 'observedGeneration' | 'conditions'>): boolean {
-  if (!repository.spec.serveDeployments) return false
+  if (!modeConverges(repository.spec.mode)) return false
   if (hasSyncInProgress(repository)) return true
   if (repository.observedGeneration >= repository.spec.generation) return false
   const attention = findCondition(repository.conditions, LocalRepositoryConditionTypes.requiresAttention)

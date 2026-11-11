@@ -5,7 +5,9 @@ import { useApp } from '@/di/AppProvider'
 import {
   isUserDeclared,
   LocalRepositorySpecConflictError,
+  modeConverges,
   type LocalRepository,
+  type LocalRepositoryMode,
   type RepositorySourceSpec,
 } from '@/domain/localRepository/types'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
@@ -33,21 +35,20 @@ interface UserSourcesDialogProps {
 }
 
 /**
- * The working copy of the user's sources: the spec generation, list, and `serveDeployments` it was
- * based on, and the list as edited. Saving replaces the whole spec, so it sends the edited `sources`
- * with that `generation` and that `serveDeployments` unchanged; this dialog never changes where
- * deployments fetch from.
+ * The working copy of the user's sources: the spec generation, list, and `mode` it was based on,
+ * and the list as edited. Saving replaces the whole spec, so it sends the edited `sources` with that
+ * `generation` and that `mode` unchanged; this dialog never changes where deployments fetch from.
  */
 interface SpecDraft {
   generation: number
-  serveDeployments: boolean
+  mode: LocalRepositoryMode
   base: readonly RepositorySourceSpec[]
   sources: readonly RepositorySourceSpec[]
 }
 
 function draftOf(repository: LocalRepository): SpecDraft {
-  const { generation, serveDeployments, sources } = repository.spec
-  return { generation, serveDeployments, base: sources, sources }
+  const { generation, mode, sources } = repository.spec
+  return { generation, mode, base: sources, sources }
 }
 
 const ADD_FIELDS: ReadonlyArray<{ field: keyof DebSourceDraft; label: string; placeholder: string; help?: string; required: boolean }> = [
@@ -62,7 +63,7 @@ const ADD_FIELDS: ReadonlyArray<{ field: keyof DebSourceDraft; label: string; pl
  * Manage user sources: where the dashboard changes the user's Repository Sources of a Site's Local
  * Repository spec. A user removes any of their sources and adds Debian/Ubuntu (`deb`) sources —
  * name, URL, suites, components, and optional architectures — to a working copy, then saves the
- * whole list in one `PUT .../spec` with the generation and the `serveDeployments` it was based on:
+ * whole list in one `PUT .../spec` with the generation and the `mode` it was based on:
  * the write replaces the whole spec, and where deployments fetch from is changed only by
  * `ArtifactSourceSection`. Sources only modules declare (including the derived pull-through sources)
  * are listed read-only with a lock, because they change with the module, not here.
@@ -129,7 +130,7 @@ export function UserSourcesDialog({ siteId, repository, onClose, onSaved, onConf
     try {
       const saved = await localRepository.replaceSpec(siteId, {
         generation: draft.generation,
-        serveDeployments: draft.serveDeployments,
+        mode: draft.mode,
         sources: draft.sources,
       })
       onSaved(saved)
@@ -153,7 +154,7 @@ export function UserSourcesDialog({ siteId, repository, onClose, onSaved, onConf
       closeOnInteractOutside={!saving}
       title="Manage user sources"
       description={`Add or remove the sources you asked this Site's Local Repository to mirror. Changes apply when you save; ${
-        draft.serveDeployments
+        modeConverges(draft.mode)
           ? 'new sources read Pending until the worker syncs them.'
           : "the worker syncs new sources once this Site's deployments use the local repository."
       }`}

@@ -65,9 +65,9 @@ sudo SWALLOW_ADDRESS=<address> ./swallowctl install --release-manifest ../releas
    `http://pulp-web:8080`, with the setting `contentOrigin` `http://<SWALLOW_ADDRESS>:<SWALLOW_PULP_PORT>`
    and the Pulp admin password as its credential), the Local Repository's first spec while its spec
    has never been written: the default source `ubuntu` (the Ubuntu archive, `noble`,
-   `noble-updates`, and `noble-security`) with `serveDeployments` `false`, so the Site deploys from
-   the upstreams until you turn the Local Repository on, and later changes (turning it on, removing
-   every source) are kept,
+   `noble-updates`, and `noble-security`) in mode `upstream`, so the Site deploys from the upstreams
+   until you choose another mode for its Local Repository, and later changes (switching the mode,
+   removing every source) are kept,
    Site automation defaults (enabled, Deployment Key, no playbook mappings) when the Site has
    none; then waits for the Integration sync and the `ubuntu/noble` catalog entry;
 8. renders the Prometheus exporter discovery for the Site: the `swallow-exporters` job, from
@@ -106,10 +106,12 @@ The Local Repository is the Site's own source of everything a deployment install
 verified against their declared sha256. The Site starts without using it: deployments fetch each
 artifact from the upstream swallow's modules declare (files verified by their sha256, vendor
 package archives by their declared signing keys), and Servers keep their own OS package sources.
-Choosing **This local repository** as the Site's **Artifact source for deployments** on the
-Dashboard's Local repository page (`serveDeployments` in the API) makes deployed Servers fetch only
-from it, at `http://<SWALLOW_ADDRESS>:<SWALLOW_PULP_PORT>`, once it is ready; deployments are
-refused until then. Pulp fetches from the upstreams once and keeps what it
+The Site's **Artifact source for deployments** on the Dashboard's Local repository page (`mode` in
+the API) changes that: **Cache** makes deployed Servers fetch what the Local Repository already
+serves from it, at `http://<SWALLOW_ADDRESS>:<SWALLOW_PULP_PORT>`, and the rest from the upstreams,
+without waiting for it to synchronize; **Offline** makes them fetch only from it, and deployments
+are refused until it serves everything (Pulp itself still needs the Internet to fetch packages the
+first time they are asked for). Pulp fetches from the upstreams once and keeps what it
 fetched in the volume `pulp-data`, so the disk must have room for that cache. The Dashboard's Local
 repository page shows its content and sync state. Pulp's own REST API on the same port needs the
 Pulp admin password (`secrets/pulp-admin-password`).
@@ -229,8 +231,8 @@ applies a changed `.env` (that is `upgrade`), and it never cancels or retries Wo
   key and its record on the Integration, the metrics Integration and the Prometheus exporter
   discovery, the repository Integration and the Local Repository's first spec, and reruns
   `doctor`. An installation from before the Local Repository gets Pulp's database, services, and
-  Integration here; its Site's spec does not serve deployments, so they keep fetching from the
-  upstreams until you turn the Local Repository on. A new Pulp image migrates its database when the
+  Integration here; its Site's spec is in mode `upstream`, so deployments keep fetching from the
+  upstreams until you choose cache or offline. A new Pulp image migrates its database when the
   stack starts, after the backup.
   `install.sh` refuses a downgrade before it extracts anything.
 - `sudo ./swallowctl ntp upstream [show | set SERVER... | default]` shows, sets, or resets the

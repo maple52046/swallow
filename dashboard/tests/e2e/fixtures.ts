@@ -788,8 +788,8 @@ export interface FixtureOptions {
   localRepositorySettleAfterReads?: number
   /**
    * Makes the first spec write answer 409 the way a concurrent write by another admin would: the
-   * stored generation moves on and gains that admin's `ports` source (its `serveDeployments` is kept),
-   * and nothing of this write lands.
+   * stored generation moves on and gains that admin's `ports` source (its mode is kept), and nothing
+   * of this write lands.
    */
   localRepositorySpecConflict?: boolean
   /** Makes every content read fail with this API error, as when Pulp cannot be reached. */
@@ -799,8 +799,8 @@ export interface FixtureOptions {
 }
 
 /**
- * site-a's Local Repository in the local-repository.md read shape. Every scenario but `not-serving`
- * starts with a spec that serves deployments (`serveDeployments: true`):
+ * site-a's Local Repository in the local-repository.md read shape. The first four scenarios start in
+ * `offline` mode:
  * - `ready`: every source, file, and image is ready and deployments are accepted;
  * - `syncing`: the grafana archive syncs, the docker.io cache, the k0s binary, and the docker.io
  *   images wait, and the kube-proxy image is being fetched;
@@ -808,16 +808,20 @@ export interface FixtureOptions {
  *   provider's reasons;
  * - `attention`: Pulp refused the Integration's credential, so the last pass stopped and the items
  *   keep their last observation;
- * - `not-serving`: the spec does not serve deployments, so they fetch from the upstreams and the
- *   worker converges nothing. The items keep the last observation from when it did: the docker-ce
- *   archive failed, the grafana archive was syncing, and the docker.io cache, the k0s binary, and the
- *   images had not been fetched.
+ * - `upstream`: the mode is `upstream`, so deployments fetch from the upstreams and the worker
+ *   converges nothing. The items keep the last observation from when it did: the docker-ce archive
+ *   failed, the grafana archive was syncing, and the docker.io cache, the k0s binary, and the images
+ *   had not been fetched;
+ * - `cache`: the mode is `cache` while the items sync as in `syncing`, except that the docker-ce
+ *   archive is resyncing while it still serves its last sync; deployments are accepted.
  *
- * A spec write stores `serveDeployments` as sent. While it is `false` the API's `ready` is false, the
- * `ready` condition reads `not_serving`, and the mock worker converges nothing; once a write turns it
- * on, the worker converges the spec as for any write, and the scenario's items stay as they are.
+ * A spec write stores `mode` as sent. In `upstream` mode the API's `ready` is false, the `ready`
+ * condition reads `not_serving`, and the mock worker converges nothing; once a write switches to
+ * another mode, the worker converges the spec as for any write, and the scenario's items stay as
+ * they are. In `cache` mode `ready` is true unless the Integration needs attention, whatever the
+ * items' states; in `offline` mode it follows the scenario.
  */
-export type LocalRepositoryScenario = 'ready' | 'syncing' | 'failed' | 'attention' | 'not-serving'
+export type LocalRepositoryScenario = 'ready' | 'syncing' | 'failed' | 'attention' | 'upstream' | 'cache'
 
 /** One effective Repository Source as the fixture stores it. */
 interface RepositorySourceFixture {
@@ -830,6 +834,7 @@ interface RepositorySourceFixture {
   declaredBy: string[]
   state: string
   message: string | null
+  serving: boolean
   lastSyncedAt: string | null
   contentCount: number
 }
@@ -854,27 +859,33 @@ const ubuntuSourceSpec: RepositorySourceSpecFixture = {
 
 /** The sources the compiled modules declare, and the pull-through caches derived from their images and requirements. */
 function moduleRepositorySources(scenario: LocalRepositoryScenario): RepositorySourceFixture[] {
-  // The not-serving scenario keeps a mix of last observations: a failure and items not fetched yet.
-  const syncing = scenario === 'syncing' || scenario === 'not-serving'
-  const failed = scenario === 'failed' || scenario === 'not-serving'
-  const ready = (contentCount: number) => ({ state: 'ready', message: null, lastSyncedAt: repositorySyncedAt, contentCount })
+  // The upstream scenario keeps a mix of last observations: a failure and items not fetched yet.
+  const syncing = scenario === 'syncing' || scenario === 'upstream' || scenario === 'cache'
+  const failed = scenario === 'failed' || scenario === 'upstream'
+  const ready = (contentCount: number) => ({ state: 'ready', message: null, serving: true, lastSyncedAt: repositorySyncedAt, contentCount })
   const none = { suites: [] as string[], components: [] as string[], architectures: [] as string[] }
+  const dockerCe = () => {
+    if (failed) {
+      return { state: 'failed', message: 'sync failed: 404 Not Found fetching https://download.docker.com/linux/ubuntu/dists/noble/Release', serving: false, lastSyncedAt: '2026-08-20T01:00:00Z', contentCount: 312 }
+    }
+    // The daily resync runs while the previous sync is still served.
+    if (scenario === 'cache') return { state: 'syncing', message: 'Downloading package indexes', serving: true, lastSyncedAt: repositorySyncedAt, contentCount: 312 }
+    return ready(312)
+  }
   return [
     {
       name: 'docker-ce', format: 'deb', url: 'https://download.docker.com/linux/ubuntu', suites: ['noble'], components: ['stable'], architectures: ['amd64'],
       declaredBy: ['module:docker-ce'],
-      ...(failed
-        ? { state: 'failed', message: 'sync failed: 404 Not Found fetching https://download.docker.com/linux/ubuntu/dists/noble/Release', lastSyncedAt: '2026-08-20T01:00:00Z', contentCount: 312 }
-        : ready(312)),
+      ...dockerCe(),
     },
     {
       name: 'docker.io', format: 'oci', url: 'https://docker.io', ...none, declaredBy: ['module:grafana', 'module:amd'],
-      ...(syncing ? { state: 'pending', message: null, lastSyncedAt: null, contentCount: 0 } : ready(9)),
+      ...(syncing ? { state: 'pending', message: null, serving: false, lastSyncedAt: null, contentCount: 0 } : ready(9)),
     },
     {
       name: 'grafana', format: 'deb', url: 'https://apt.grafana.com', suites: ['stable'], components: ['main'], architectures: ['amd64'],
       declaredBy: ['module:grafana'],
-      ...(syncing ? { state: 'syncing', message: 'Downloading package indexes', lastSyncedAt: null, contentCount: 0 } : ready(1840)),
+      ...(syncing ? { state: 'syncing', message: 'Downloading package indexes', serving: false, lastSyncedAt: null, contentCount: 0 } : ready(1840)),
     },
     { name: 'pypi', format: 'python', url: 'https://pypi.org/', ...none, declaredBy: ['module:slurm'], ...ready(27) },
     { name: 'quay.io', format: 'oci', url: 'https://quay.io', ...none, declaredBy: ['module:kubernetes'], ...ready(6) },
@@ -890,7 +901,7 @@ function repositoryFiles(scenario: LocalRepositoryScenario) {
     'k0s/v1.36.3+k0s.2/k0s-v1.36.3+k0s.2-amd64', 'https://github.com/k0sproject/k0s/releases/download/v1.36.3+k0s.2/k0s-v1.36.3+k0s.2-amd64',
     'f8b278ba5a9938ced226381484a0f31b6bfa2938703949df235474e03c774acc', 'kubernetes', 248_512_512,
   )
-  if (scenario === 'syncing' || scenario === 'not-serving') Object.assign(k0s, { state: 'pending', sizeBytes: 0 })
+  if (scenario === 'syncing' || scenario === 'upstream' || scenario === 'cache') Object.assign(k0s, { state: 'pending', sizeBytes: 0 })
   if (scenario === 'failed') {
     Object.assign(k0s, { state: 'failed', sizeBytes: 0, message: 'checksum mismatch: the download has sha256 3b1c0d9a52e4, the declaration f8b278ba5a99' })
   }
@@ -919,7 +930,7 @@ function repositoryImages(scenario: LocalRepositoryScenario) {
   const grafana = image('docker.io/grafana/grafana:12.4.12', 'grafana', 186_413_056)
   const gpuOperator = image('docker.io/rocm/gpu-operator:v1.5.1', 'amd', 64_225_280)
   const kubeProxy = image('quay.io/k0sproject/kube-proxy:v1.36.3-1', 'kubernetes', 30_408_704)
-  if (scenario === 'syncing' || scenario === 'not-serving') {
+  if (scenario === 'syncing' || scenario === 'upstream' || scenario === 'cache') {
     // The docker.io cache is not ready yet, so its images wait; kube-proxy's layers are downloading.
     for (const waiting of [grafana, gpuOperator]) Object.assign(waiting, { state: 'pending', sizeBytes: 0 })
     Object.assign(kubeProxy, { state: 'syncing', sizeBytes: 0 })
@@ -963,9 +974,17 @@ function repositoryConditions(scenario: LocalRepositoryScenario, generation: num
         condition('requires_attention', 'true', 'credential_rejected', refused),
       ]
     }
-    case 'not-serving':
-      // What the worker judges of these items once the spec serves deployments; while it does not,
-      // the body replaces the `ready` condition with `not_serving`.
+    case 'cache':
+      // Cache mode is ready whatever the items' states; realized still says what is syncing.
+      return [
+        condition('ready', 'true', 'ready'),
+        condition('realized', 'false', 'syncing', 'source docker-ce is syncing; source docker.io is pending; source grafana is syncing; '
+          + 'file k0s/v1.36.3+k0s.2/k0s-v1.36.3+k0s.2-amd64 is pending'),
+        condition('requires_attention', 'false', 'none'),
+      ]
+    case 'upstream':
+      // What the worker judges of these items once the mode is offline; in upstream mode the body
+      // replaces the `ready` condition with `not_serving`.
       return [
         condition('ready', 'false', 'source_failed', 'source docker-ce failed: 404 Not Found; source docker.io is pending; source grafana is syncing; '
           + 'file k0s/v1.36.3+k0s.2/k0s-v1.36.3+k0s.2-amd64 is pending; image quay.io/k0sproject/kube-proxy:v1.36.3-1 is syncing'),
@@ -1829,8 +1848,11 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     })
   }
   const localRepositorySpec = {
-    generation: 1, serveDeployments: localRepositoryScenario !== 'not-serving', sources: [structuredClone(ubuntuSourceSpec)],
+    generation: 1,
+    mode: localRepositoryScenario === 'upstream' || localRepositoryScenario === 'cache' ? localRepositoryScenario : 'offline',
+    sources: [structuredClone(ubuntuSourceSpec)],
   }
+  const localRepositoryConverges = () => localRepositorySpec.mode !== 'upstream'
   let localRepositoryObservedGeneration = 1
   let localRepositoryReads = 0
   let localRepositoryConflictPending = Boolean(options.localRepositorySpecConflict)
@@ -1846,8 +1868,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       ...structuredClone(source),
       declaredBy: ['user'],
       ...(syncedUserSources.has(source.name)
-        ? { state: 'ready', message: null, lastSyncedAt: repositorySyncedAt, contentCount: source.name === 'ubuntu' ? 64_012 : 1_204 }
-        : { state: 'pending', message: null, lastSyncedAt: null, contentCount: 0 }),
+        ? { state: 'ready', message: null, serving: true, lastSyncedAt: repositorySyncedAt, contentCount: source.name === 'ubuntu' ? 64_012 : 1_204 }
+        : { state: 'pending', message: null, serving: false, lastSyncedAt: null, contentCount: 0 }),
     }))
     const pendingUserSources = userSources.filter((source) => source.state === 'pending').map((source) => source.name)
     const servedConditions = scenario === 'ready' && pendingUserSources.length > 0
@@ -1855,21 +1877,27 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         ? condition
         : { ...condition, status: 'false', reason: 'syncing', message: pendingUserSources.map((name) => `source ${name} is pending`).join('; ') })
       : repositoryConditions(scenario, localRepositoryObservedGeneration)
-    // A spec that does not serve deployments is judged at once, for its own generation, and only
-    // for `ready`; `realized` and `requires_attention` keep the last judgement. Once a write turns
-    // it on, that `not_serving` judgement stays until the worker converges the new generation.
-    if (!localRepositorySpec.serveDeployments) notServingJudgedGeneration = localRepositorySpec.generation
+    // A spec in upstream mode is judged at once, for its own generation, and only for `ready`;
+    // `realized` and `requires_attention` keep the last judgement. Once a write switches to another
+    // mode, that `not_serving` judgement stays until the worker converges the new generation.
+    if (!localRepositoryConverges()) notServingJudgedGeneration = localRepositorySpec.generation
     else if (localRepositoryObservedGeneration >= localRepositorySpec.generation) notServingJudgedGeneration = null
     const judgedNotServing = notServingJudgedGeneration
+    // Cache mode does not wait for the content: it is ready unless the Integration needs attention.
+    const cacheReady = localRepositorySpec.mode === 'cache' && scenario !== 'attention'
+    const judgedConditions = cacheReady
+      ? servedConditions.map((condition) => condition.type === 'ready' ? { ...condition, status: 'true', reason: 'ready', message: '' } : condition)
+      : servedConditions
     const conditions = judgedNotServing === null
-      ? servedConditions
-      : servedConditions.map((condition) => condition.type === 'ready'
-        ? { ...condition, status: 'false', reason: 'not_serving', message: 'the spec does not serve deployments', observedGeneration: judgedNotServing }
+      ? judgedConditions
+      : judgedConditions.map((condition) => condition.type === 'ready'
+        ? { ...condition, status: 'false', reason: 'not_serving', message: 'its mode is upstream, so deployments fetch their artifacts from the upstreams', observedGeneration: judgedNotServing }
         : condition)
+    const offlineReady = localRepositorySpec.mode === 'offline' && scenario === 'ready' && pendingUserSources.length === 0
     return {
       siteId: 'site-a',
       integrationId: 'repo-a',
-      ready: localRepositorySpec.serveDeployments && scenario === 'ready' && pendingUserSources.length === 0,
+      ready: offlineReady || cacheReady,
       contentOrigin: (integration?.settings as Record<string, string> | undefined)?.contentOrigin ?? null,
       spec: structuredClone(localRepositorySpec),
       sources: [...moduleRepositorySources(scenario), ...userSources].sort((left, right) => left.name.localeCompare(right.name)),
@@ -2819,8 +2847,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         localRepositoryReads += 1
         const settleAfter = options.localRepositorySettleAfterReads
         if (localRepositoryScenario === 'syncing' && settleAfter !== undefined && localRepositoryReads > settleAfter) localRepositoryScenario = 'ready'
-        // The worker converges nothing while the spec does not serve deployments.
-        if (readsUntilSpecConverges > 0 && localRepositorySpec.serveDeployments) {
+        // The worker converges nothing while the spec is in upstream mode.
+        if (readsUntilSpecConverges > 0 && localRepositoryConverges()) {
           readsUntilSpecConverges -= 1
           if (readsUntilSpecConverges === 0) {
             for (const source of localRepositorySpec.sources) syncedUserSources.add(source.name)
@@ -2850,7 +2878,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         })
       }
       if (sub === '/spec' && method === 'PUT') {
-        const body = (request.postDataJSON() ?? {}) as { generation?: unknown; serveDeployments?: unknown; sources?: unknown }
+        const body = (request.postDataJSON() ?? {}) as { generation?: unknown; mode?: unknown; sources?: unknown }
         options.onLocalRepositoryRequest?.(method, path, body as Record<string, unknown>)
         if (localRepositoryConflictPending) {
           localRepositoryConflictPending = false
@@ -2866,14 +2894,14 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           name: String(source.name ?? ''), format: String(source.format ?? ''), url: String(source.url ?? ''),
           suites: words(source.suites), components: words(source.components), architectures: words(source.architectures),
         }))
-        if (typeof body.serveDeployments !== 'boolean') {
-          return json(route, { error: { code: 'validation_error', message: 'serveDeployments is required' } }, 400)
+        if (body.mode !== 'upstream' && body.mode !== 'cache' && body.mode !== 'offline') {
+          return json(route, { error: { code: 'validation_error', message: 'mode must be one of upstream, cache, or offline' } }, 400)
         }
         const invalid = sources.find((source) => !source.name || (source.format === 'deb' && (source.suites.length === 0 || source.components.length === 0)))
         if (!Array.isArray(body.sources) || invalid || new Set(sources.map((source) => source.name)).size !== sources.length) {
           return json(route, { error: { code: 'validation_error', message: `invalid local repository spec${invalid ? `: source ${invalid.name} needs suites and components` : ''}` } }, 400)
         }
-        localRepositorySpec.serveDeployments = body.serveDeployments
+        localRepositorySpec.mode = body.mode
         localRepositorySpec.sources = sources
         localRepositorySpec.generation += 1
         readsUntilSpecConverges = 2

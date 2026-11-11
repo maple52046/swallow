@@ -42,7 +42,7 @@ func localRepositoryTestDatabase(t *testing.T) *mongo.Database {
 func TestLocalRepositorySpecWritesAreConditionalOnTheGeneration(t *testing.T) {
 	ctx := context.Background()
 	repo := NewMongoLocalRepositoryRepo(localRepositoryTestDatabase(t))
-	ubuntu := localrepodomain.Spec{Sources: []localrepodomain.Source{{
+	ubuntu := localrepodomain.Spec{Mode: localrepodomain.ModeUpstream, Sources: []localrepodomain.Source{{
 		Name: "ubuntu", Format: localrepodomain.FormatDeb, URL: "http://archive.example/ubuntu/",
 		Suites: []string{"noble"}, Components: []string{"main"}, Architectures: []string{"amd64"},
 	}}}
@@ -63,21 +63,21 @@ func TestLocalRepositorySpecWritesAreConditionalOnTheGeneration(t *testing.T) {
 	if err := repo.SetStatus(ctx, "site-a", localrepodomain.Status{IntegrationID: "repo-1", ObservedGeneration: 1}); err != nil {
 		t.Fatalf("SetStatus: %v", err)
 	}
-	replaced, err := repo.PutSpec(ctx, "site-a", 1, localrepodomain.Spec{ServeDeployments: true})
-	if err != nil || replaced.Generation != 2 || !replaced.Spec.ServeDeployments || len(replaced.Spec.Sources) != 0 || replaced.Status.IntegrationID != "repo-1" {
-		t.Fatalf("second PutSpec = %+v, %v; want generation 2 serving deployments, no sources, the status kept", replaced, err)
+	replaced, err := repo.PutSpec(ctx, "site-a", 1, localrepodomain.Spec{Mode: localrepodomain.ModeCache})
+	if err != nil || replaced.Generation != 2 || replaced.Spec.Mode != localrepodomain.ModeCache || len(replaced.Spec.Sources) != 0 || replaced.Status.IntegrationID != "repo-1" {
+		t.Fatalf("second PutSpec = %+v, %v; want generation 2 in cache mode, no sources, the status kept", replaced, err)
 	}
-	if stored, err := repo.Get(ctx, "site-a"); err != nil || !stored.Spec.ServeDeployments {
-		t.Fatalf("Get after serving = %+v, %v; want the spec serving deployments", stored, err)
+	if stored, err := repo.Get(ctx, "site-a"); err != nil || stored.Spec.Mode != localrepodomain.ModeCache {
+		t.Fatalf("Get after the cache write = %+v, %v; want the spec in cache mode", stored, err)
 	}
-	if off, err := repo.PutSpec(ctx, "site-a", 2, ubuntu); err != nil || off.Spec.ServeDeployments || !reflect.DeepEqual(off.Spec, ubuntu) {
-		t.Fatalf("PutSpec turning serving off = %+v, %v; want the spec not serving", off, err)
+	if off, err := repo.PutSpec(ctx, "site-a", 2, ubuntu); err != nil || !reflect.DeepEqual(off.Spec, ubuntu) {
+		t.Fatalf("PutSpec back to upstream = %+v, %v; want the spec in upstream mode", off, err)
 	}
 }
 
-// A record written before the spec had serveDeployments reads as not serving deployments, the
+// A record without a mode (one the controller created before any spec write) reads as upstream, the
 // default, with its sources intact.
-func TestLocalRepositorySpecWithoutServeDeploymentsReadsAsNotServing(t *testing.T) {
+func TestLocalRepositorySpecWithoutModeReadsAsUpstream(t *testing.T) {
 	ctx := context.Background()
 	repo := NewMongoLocalRepositoryRepo(localRepositoryTestDatabase(t))
 	if _, err := repo.col.InsertOne(ctx, bson.M{
@@ -91,16 +91,16 @@ func TestLocalRepositorySpecWithoutServeDeploymentsReadsAsNotServing(t *testing.
 	}
 	stored, err := repo.Get(ctx, "site-d")
 	if err != nil {
-		t.Fatalf("Get of a record without serveDeployments: %v", err)
+		t.Fatalf("Get of a record without a mode: %v", err)
 	}
-	if stored.Spec.ServeDeployments || stored.Generation != 3 || len(stored.Spec.Sources) != 1 || stored.Spec.Sources[0].Name != "ubuntu" {
-		t.Errorf("Get = generation %d spec %+v; want generation 3, not serving, the ubuntu source", stored.Generation, stored.Spec)
+	if stored.Spec.Mode != localrepodomain.ModeUpstream || stored.Generation != 3 || len(stored.Spec.Sources) != 1 || stored.Spec.Sources[0].Name != "ubuntu" {
+		t.Errorf("Get = generation %d spec %+v; want generation 3, upstream, the ubuntu source", stored.Generation, stored.Spec)
 	}
 	if err := repo.SetStatus(ctx, "site-e", localrepodomain.Status{IntegrationID: "repo-2"}); err != nil {
 		t.Fatalf("SetStatus of a new Site: %v", err)
 	}
-	if created, err := repo.Get(ctx, "site-e"); err != nil || created.Spec.ServeDeployments {
-		t.Errorf("record a status write created = %+v, %v; want it not serving deployments", created, err)
+	if created, err := repo.Get(ctx, "site-e"); err != nil || created.Spec.Mode != localrepodomain.ModeUpstream {
+		t.Errorf("record a status write created = %+v, %v; want it in upstream mode", created, err)
 	}
 }
 
@@ -118,7 +118,7 @@ func TestLocalRepositoryStatusRoundTrips(t *testing.T) {
 	status := localrepodomain.Status{
 		IntegrationID: "repo-1", ObservedGeneration: 0,
 		Sources: []localrepodomain.ObservedSource{{Source: source, Status: localrepodomain.SourceStatus{
-			Name: source.Name, Format: source.Format, State: localrepodomain.SyncReady, LastSyncedAt: &now, ContentCount: 12,
+			Name: source.Name, Format: source.Format, State: localrepodomain.SyncSyncing, Serving: true, LastSyncedAt: &now, ContentCount: 12,
 		}}},
 		Files: []localrepodomain.ObservedFile{{File: file, Status: localrepodomain.FileStatus{
 			Path: file.Path, State: localrepodomain.SyncFailed, Message: "checksum mismatch",

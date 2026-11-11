@@ -221,16 +221,15 @@ SELinux、哪些 role 依 OS 分支）見 platform-deployment §2.3。
 7. **結果與 secret 走契約**：需要回傳結果時只寫 `swallow_result_path` 的 `result.json`；secret 只經 sealed secret
    ref 傳入，不得寫入 log 或 history（處理 secret 的 task 加 `no_log: true`）。
 8. **只取宣告的 artifact，從 `swallow_artifacts` 取得**：主機要的套件、檔案、image 與 Python 套件都是模組宣告的固定
-   版本，從 trusted var `swallow_artifacts` 指出的位址取得：Site 使用 Local Repository 時是它，否則是宣告的上游。role 不寫
-   網際網路的 URL，兩種來源用同一份 role。trusted var 的形狀與受理時的拒絕見 [local-repository.md](local-repository.md)
-   §8.1，`artifact_sources` 在兩種來源下怎麼設定主機見同一份的 §8.2。
+   版本，從 trusted var `swallow_artifacts` 指出的位址取得：依 Site 的 Local Repository 模式，是 Local Repository、宣告的
+   上游，或（`cache` 模式）逐項是其中之一。role 不寫網際網路的 URL，各種來源用同一份 role。trusted var 的形狀與受理時的
+   拒絕見 [local-repository.md](local-repository.md) §8.1，`artifact_sources` 怎麼設定主機見同一份的 §8.2。
    - 會安裝套件、下載檔案或拉 image 的 playbook，在 manifest 的 entry 標 `"fetchesArtifacts": true`：swallow 才會注入
-     這個 var；Site 使用 Local Repository 而它沒有 ready 時，在受理時就拒絕。別名的 entry 也要標。
+     這個 var；Site 的 Local Repository 是 `cache` 或 `offline` 而它沒有 ready 時，在受理時就拒絕。別名的 entry 也要標。
    - 這類 playbook 在取得 hold（§5）之後的下一個 play 以 `hosts: all` 執行共用 role `artifact_sources`，之前不得有任何套件、
-     下載或拉 image 的 task。它依 `swallow_artifacts.source` 設定主機的 apt、pip、uv 與 container runtime：從 Local Repository
-     取得時把它們指向 Local Repository（主機其他的 apt sources，包括 image 帶的，改名為 `.disabled-by-swallow`，可以還原）；
-     從上游取得時以宣告的金鑰（確認 fingerprint，主機需要 gpg）加入宣告的 deb 來源，保留主機的 OS 來源，並移除前一種
-     模式寫過的設定。playbook 以變數指出它的 run 用哪些 container runtime 拉 image：`artifact_sources_containerd`（k0s 的
+     下載或拉 image 的 task。它讓主機的 apt、pip、uv 與 container runtime 各自依 var 的資料指向一邊：指向 Local Repository
+     時（主機其他的 apt sources，包括 image 帶的，改名為 `.disabled-by-swallow`，可以還原）；指向上游時以宣告的金鑰（確認
+     fingerprint，主機需要 gpg）加入宣告的 deb 來源，保留主機的 OS 來源，並移除指向 Local Repository 時寫過的設定。playbook 以變數指出它的 run 用哪些 container runtime 拉 image：`artifact_sources_containerd`（k0s 的
      containerd 經 mirror 解析 image，必須在 k0s 啟動之前）、`artifact_sources_docker`（`daemon.json` 的
      `insecure-registries`）、`artifact_sources_podman`。`artifact_sources_root` 是給內容測試的路徑前綴，playbook 不設。
    - role 下載的檔案在 defaults 寫成 `path` 與 `sha256`，以 `{{ swallow_artifacts.files['<宣告的 path>'] }}` 下載、以
@@ -319,8 +318,9 @@ bash。
 執行、不 become，回傳輸出與 recap 的 changed、failed；role 的其他 task 檔需要 root 或 systemd 時，
 `newRoleTasksRun(t, role, tasksFrom, gatherFacts)` 以 `include_role` 加 `tasks_from` 只跑其中一個 task 檔（仍載入 role 的
 defaults）；`writeScratch`、`readScratch` 讀寫暫存目錄的檔案。同一個檔案的
-`testLocalRepository()` 是 api-server 在 Local Repository 模式交出的 `swallow_artifacts`，`testUpstreams(keys, fingerprint)`
-是上游模式的（docker-ce 與 grafana 的 deb 來源，金鑰在 `keys`）。
+`testLocalRepository()` 是 api-server 在 `offline` 模式交出的 `swallow_artifacts`，`testUpstreams(keys, fingerprint)`
+是 `upstream` 模式的（docker-ce 與 grafana 的 deb 來源，金鑰在 `keys`），`testCache(keys)` 是 `cache` 模式只提供了一部分
+時的（apt 與 Python 從上游，docker.io 的 image 經 Local Repository）。
 
 **新內容要加的測試**：為 playbook 依賴的契約寫一個 `<topic>_playbook_test.go`，斷言它引用了必要的 trusted var、play
 的順序，以及禁止的操作（例如不得 reboot 記憶體根目錄的主機）；範例是 `k0s_topology_playbook_test.go`。以
@@ -330,7 +330,7 @@ AMD 模組的 chart 路徑，搬移該 role 時要一併修改。
 role 的行為要實際執行才看得出來時（改寫主機設定、冪等、下載與驗證），以 `newRoleRun` 在 localhost 執行它，並把 role 的路徑
 變數指到暫存目錄（`artifact_sources` 是 `artifact_sources_root`）。範例：
 
-- `artifact_sources_role_test.go`，兩種模式都實際執行，只在 Debian 系列的主機執行（上游模式另外需要 gpg）：
+- `artifact_sources_role_test.go`，各種模式都實際執行，只在 Debian 系列的主機執行（上游的 apt 另外需要 gpg）：
   - `TestArtifactSourcesPointsTheHostAtTheLocalRepository`：從 Local Repository 取得時改寫 apt、pip、containerd 與
     Docker 的設定（Docker 保留 `daemon.json` 的其他設定），第二次執行沒有變更；沒有 `swallow_artifacts` 或 `source`
     不認得時在碰主機之前就停下。
@@ -338,6 +338,8 @@ role 的行為要實際執行才看得出來時（改寫主機設定、冪等、
     URI 留給主機的檔案，第二次執行沒有變更；金鑰不是宣告的那一把或 gpg 讀不了時，在 apt 信任它之前停下。
   - `TestArtifactSourcesSwitchesModesBothWays`：切到上游時移除為 Local Repository 寫的設定，切回時主機與第一次執行
     後完全相同，兩種模式都冪等。
+  - `TestArtifactSourcesMixesChannelsInCacheMode`：`cache` 模式讓每個管道各自指向一邊，與 `offline` 互相切換時收斂到
+    新模式從頭執行的結果，切到上游時移除 Local Repository 的設定。
 - `k0s_binary_role_test.go`：`k0s_binary` 從 httptest server 扮演的來源下載，只把回報固定版本的 binary 當成已安裝，
   所以會取代上次中斷留下的檔案，來源沒有的版本在下載前就失敗。
 - `victoriametrics_role_test.go`：以 `newRoleTasksRun` 只跑 `victoriametrics` 的 `release` 與 `preflight`（`service` 需要

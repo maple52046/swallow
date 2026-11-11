@@ -1,4 +1,4 @@
-{% if swallow_artifacts.source == 'local_repository' %}
+{% if artifact_sources_apt_from == 'local_repository' %}
 # Managed by Swallow (artifact_sources): the Site's Local Repository. The host's other sources are
 # renamed with the {{ artifact_sources_disabled_suffix }} suffix.
 {% else %}
@@ -11,6 +11,6 @@ Types: deb
 URIs: {{ source.uri }}
 Suites: {{ source.suites | join(' ') }}
 Components: {{ source.components | join(' ') }}
-Signed-By: {{ artifact_sources_keyring if swallow_artifacts.source == 'local_repository'
+Signed-By: {{ artifact_sources_keyring if artifact_sources_apt_from == 'local_repository'
               else artifact_sources_upstream_keyring_prefix ~ source.name ~ '.gpg' }}
 {% endfor %}

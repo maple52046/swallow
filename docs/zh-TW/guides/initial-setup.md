@@ -6,7 +6,7 @@
 所需的 automation policy。
 
 [Production installation](../installation.md) 已經為 Site `default`、共置的 MAAS、它的
-Prometheus 與它的 local repository（保持關閉，步驟 4 打開它）完成步驟 1 到 5。本指南可用來檢查該結果、新增其他
+Prometheus 與它的 local repository（部署還不使用它，步驟 4 選擇怎麼使用）完成步驟 1 到 5。本指南可用來檢查該結果、新增其他
 Site，或設定 development stack。
 
 ## 1. 建立 Site
@@ -77,16 +77,21 @@ exporter，使 scraped series 帶有穩定的 `server_id`、`site`、`platform_i
 
 - **上游來源**（預設）：每台 Server 從模組宣告的來源取得每個 artifact。檔案以宣告的 checksum 驗證，套件庫
   以宣告的簽章金鑰驗證，Server 保留自己的 OS 套件來源。
-- **Site 的 local repository**：和 swallow 執行在一起的套件庫（Pulp，在同一個 installation 中）每個 artifact
-  只從上游取得一次，再提供給該 Site 的每台 Server，Server 之後只從它取得。OS 套件索引以 Site 自己的金鑰簽章，
-  檔案以宣告的 checksum 驗證。
+- **Cache**：Site 的 local repository，也就是和 swallow 執行在一起的套件庫（Pulp，在同一個 installation 中），
+  每個 artifact 只從上游取得一次，再提供給該 Site 的每台 Server。Server 從它取得它已經提供的部分，其餘從上游
+  來源取得，所以部署不必等它同步，Server 也仍要連得到上游。
+- **Offline**：Server 只從 local repository 取得每個 artifact，不連網際網路。它提供部署可能取得的每一項之後，
+  部署才會被接受。local repository 本身在套件第一次被要求時仍向上游取得，所以填入內容的期間 swallow 的主機要能
+  連網際網路。
+
+兩種使用 local repository 的模式中，OS 套件索引都以 Site 自己的金鑰簽章，檔案以宣告的 checksum 驗證。
 
 Production installation 會把 local repository 註冊為 Site 的 `repository` / `pulp` Integration，把 Ubuntu
-archive 加為 Site 的 `ubuntu` 來源，並保持關閉。一個 Site 至多一個。要使用它，在
-**Infrastructure → Local repository** 把 **Artifact source for deployments** 選為 **This local repository**
-（API 的 `serveDeployments`）：local repository 開始取得內容，ready 之後部署才會被接受；在那之前部署會被拒絕，
-訊息會指出要等待或修正什麼。改回 **Upstream sources** 之後，之後的部署再從上游來源取得，local repository 已有的
-內容會保留。已佈署的 Server 在下一次有部署在它上面執行時，跟著 Site 的選擇改變。
+archive 加為 Site 的 `ubuntu` 來源，並讓 Site 維持 **Upstream sources**。一個 Site 至多一個。要使用它，在
+**Infrastructure → Local repository** 把 **Artifact source for deployments** 選為 **Cache** 或 **Offline**
+（API 的 `mode`）：local repository 開始取得內容。cache 模式下部署立即被接受；offline 模式下 ready 之後部署才會
+被接受，在那之前部署會被拒絕，訊息會指出要等待或修正什麼。改回 **Upstream sources** 之後，之後的部署再從上游來源
+取得，local repository 已有的內容會保留。已佈署的 Server 在下一次有部署在它上面執行時，跟著 Site 的選擇改變。
 
 除了 `ubuntu` 來源，local repository 的其他內容由 swallow 自己的模組宣告，例如 Docker CE 的套件庫、k0s
 binary，以及 Platform 執行的 container image，所以只有 swallow 沒有宣告的東西才需要自己加來源。Development

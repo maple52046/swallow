@@ -118,15 +118,19 @@ its own copy of the packages, images, and files its deployments install, and
 where those deployments fetch them from. Choose a Site first; an installation
 with one Site opens it directly.
 
-- **Artifact source for deployments** chooses where the Site's deployments fetch
-  their artifacts: **Upstream sources** (each artifact from the upstream source
-  its module declares; Servers keep their own OS package sources) or **This
-  local repository** (every artifact from this repository; deployments are
-  accepted once it is ready). Until someone changes it, deployments use the
-  upstream sources. Choosing the other option asks you to confirm first;
+- **Artifact source for deployments** chooses how the Site's deployments use
+  this repository: **Upstream sources** (each artifact from the upstream source
+  its module declares; Servers keep their own OS package sources), **Cache**
+  (what this repository already serves comes from it and the rest from the
+  upstream sources; deployments never wait for it to synchronize), or
+  **Offline** (every artifact from this repository only; deployments are
+  accepted once it serves everything). Until someone changes it, deployments use
+  the upstream sources. Choosing another option asks you to confirm first;
   deployments already accepted keep the source they were accepted with, and you
   can switch back at any time. If someone else changed the repository after the
-  page read it, nothing is saved and the page shows the current choice.
+  page read it, nothing is saved and the page shows the current choice. A source
+  whose resync runs reads **Still serving its last sync**, because Servers keep
+  getting its previous synchronization meanwhile.
 - While deployments use this repository, the status block says whether
   deployments that fetch from it are accepted and, when they are not, what is in
   the way, in the API's words. When swallow cannot use the Integration's

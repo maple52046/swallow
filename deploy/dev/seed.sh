@@ -16,8 +16,9 @@
 #   - (optional) the in-compose Pulp as the Site's repository integration, with PULP_ORIGIN as its
 #     contentOrigin setting, and the Local Repository's default `ubuntu` source, the way
 #     bootstrap.sh registers a production installation's Local Repository (decision 078), except
-#     that the spec serves deployments: the dev Site fetches its artifacts from the Local
-#     Repository by default, where a production Site starts from the upstreams.
+#     that the spec is in mode cache: the dev Site fetches what the Local Repository serves from it
+#     and the rest from the upstreams, so it deploys before the first synchronization completes,
+#     where a production Site starts in mode upstream.
 #
 # Everything site- or environment-specific (MAAS URL/key, become password, known_hosts) comes from
 # the environment or a .env file, so nothing secret is committed. Values left unset skip
@@ -122,9 +123,9 @@ fi
 # --- repository integration -> in-compose Pulp (optional) ---
 # A Site has at most one repository integration: an existing one keeps its id, name, and other
 # settings, and only its endpoint and contentOrigin are repointed when they differ. Its write-only
-# credential is replaced on every run. The first spec, the default `ubuntu` source with
-# serveDeployments true, is written only while the Local Repository spec has never been written
-# (generation 0), so later edits survive a rerun, turning serveDeployments off included.
+# credential is replaced on every run. The first spec, the default `ubuntu` source in mode cache,
+# is written only while the Local Repository spec has never been written (generation 0), so later
+# edits survive a rerun, a switch of the mode included.
 if [[ -n "${pulp_origin}" ]]; then
   repository="$(curl "${curl_flags[@]}" "${auth[@]}" "${base_url}/integrations?siteId=${site_id}&kind=repository" |
     jq -c 'first((.items? // .)[]) // empty')"
@@ -156,11 +157,11 @@ if [[ -n "${pulp_origin}" ]]; then
     jq -r '.spec.generation // 0')"
   if [[ "${generation}" == 0 ]]; then
     curl "${curl_flags[@]}" "${auth[@]}" -X PUT "${base_url}/sites/${site_id}/local-repository/spec" \
-      -H 'Content-Type: application/json' --data-binary "$(jq -nc '{generation: 0, serveDeployments: true, sources: [{
+      -H 'Content-Type: application/json' --data-binary "$(jq -nc '{generation: 0, mode: "cache", sources: [{
         name: "ubuntu", format: "deb", url: "http://archive.ubuntu.com/ubuntu/",
         suites: ["noble", "noble-updates", "noble-security"], components: ["main", "universe"],
         architectures: ["amd64"]}]}')" >/dev/null
-    printf "Local Repository: added the default source 'ubuntu'; deployments fetch from it once it is ready\n"
+    printf "Local Repository: added the default source 'ubuntu' in cache mode; deployments fetch what it serves from it and the rest from the upstreams\n"
   fi
 else
   printf 'skipping the Local Repository: set PULP_ORIGIN to the address Servers reach this host'"'"'s Pulp at\n'

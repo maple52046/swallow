@@ -1,12 +1,16 @@
 ---
 # Point a host's apt, pip, uv, and container runtimes at where its run's artifacts come from, which
-# arrives only as the trusted variable swallow_artifacts. Its source is the Site's choice:
-#   local_repository  the Site's Local Repository serves every artifact: its deb sources under the
-#                     Site's signing key, its registry and per-upstream mirrors, its Python index
-#   upstream          each artifact comes from the upstream its module declares: the declared deb
-#                     sources, each verified with its own declared signing key, next to the host's
-#                     own apt sources
-# A run in either mode removes what the other wrote, so a host follows its Site's current choice.
+# arrives only as the trusted variable swallow_artifacts. Its source is the Site's mode when the run
+# was accepted: local_repository (offline: every artifact from the Local Repository), upstream, or
+# cache (each artifact from wherever swallow decided). The role does not branch on it; each channel
+# follows its own data:
+#   apt             swallow_artifacts.apt (from source when absent, as runs accepted before it was
+#                   added carry it): local_repository is the Local Repository's deb sources under the
+#                   Site's signing key in place of the host's own; upstream is the declared deb
+#                   sources, each verified with its own declared signing key, next to the host's own
+#   pip and uv      the Local Repository's Python index while python_index is set
+#   runtimes        the Local Repository's registry and per-upstream mirrors while registry is set
+# A channel pointed one way removes what the other way wrote, so a host follows its latest run.
 # Every playbook manifest.json marks fetchesArtifacts runs this role before it installs or
 # downloads anything. The caller says which container runtimes its run pulls images with; with the
 # Local Repository the role points them at its registry:

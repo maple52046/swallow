@@ -70,11 +70,15 @@ func (s *Store) PutSpec(_ context.Context, siteID string, expectedGeneration int
 	return &record, nil
 }
 
-// SetStatus implements localrepodomain.Store and counts the write in StatusWrites.
+// SetStatus implements localrepodomain.Store and counts the write in StatusWrites; a record it
+// creates has an empty spec in upstream mode, as the store contract says.
 func (s *Store) SetStatus(_ context.Context, siteID string, status localrepodomain.Status) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	record := s.records[siteID]
+	record, ok := s.records[siteID]
+	if !ok {
+		record.Spec.Mode = localrepodomain.ModeUpstream
+	}
 	record.SiteID, record.Status = siteID, status
 	s.records[siteID] = record
 	s.StatusWrites++

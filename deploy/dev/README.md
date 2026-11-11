@@ -197,11 +197,15 @@ With `PULP_ORIGIN` set, `seed.sh` registers Pulp as the Site's `repository` Inte
 kind `pulp`, endpoint `http://pulp-web:8080`, setting `contentOrigin` equal to `PULP_ORIGIN`, and
 the Pulp admin password, `PULP_ADMIN_PASSWORD`, default `admin`, as its credential) and writes a
 Local Repository spec that has never been written: the Site's `ubuntu` source (the Ubuntu archive),
-as a production installation does, with `serveDeployments` `true`, where a production installation
-writes `false`; see [local-repository.md](../../docs/development/local-repository.md) §2.1, §4.1,
-and §5.2. The first sync of the Ubuntu archive takes a while; the Local Repository page under
-Infrastructure shows its progress. To deploy from the upstreams instead, choose **Upstream sources**
-as the **Artifact source for deployments** on that page; a rerun of `seed.sh` keeps your choice. Without `PULP_ORIGIN` the Site has no
+as a production installation does, with `mode` `cache`, where a production installation writes
+`upstream`; see [local-repository.md](../../docs/development/local-repository.md) §2.1, §4.1, and
+§5.2. In cache mode deployments are accepted at once: what the Local Repository already serves
+comes from it and the rest from the upstreams, so the first sync of the Ubuntu archive, which takes
+a while, holds nothing back. The Local Repository page under Infrastructure shows its progress and
+the **Artifact source for deployments** setting, where **Upstream sources** deploys from the
+upstreams only and **Offline** only from the Local Repository; a rerun of `seed.sh` keeps your
+choice. A dev database from before the mode existed reads `offline` after `swallow-api migrate`
+(it served deployments); switch it to **Cache** on that page. Without `PULP_ORIGIN` the Site has no
 `repository` Integration and deploys from the upstreams.
 
 ## Node Exporter controller

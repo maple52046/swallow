@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Stack, Text } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
-import { LocalRepositorySpecConflictError, type LocalRepository } from '@/domain/localRepository/types'
+import { LocalRepositorySpecConflictError, type LocalRepository, type LocalRepositoryMode } from '@/domain/localRepository/types'
 import { ChoiceCardGroup, type ChoiceCardOption } from '@/presentation/components/ChoiceCardGroup'
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
 import { SectionSurface } from '@/presentation/components/ConsolePrimitives'
@@ -10,24 +10,27 @@ import { failureOf, type DisplayedFailure } from '@/presentation/components/fail
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { Alert } from '@/presentation/components/ui/alert'
 
-/** The two values of the setting as the radio group carries them; the spec holds a boolean. */
-type ArtifactSource = 'upstream' | 'local-repository'
-
-// The product describes what each choice does and nothing else: no comparison between them.
-const ARTIFACT_SOURCE_OPTIONS: ReadonlyArray<ChoiceCardOption<ArtifactSource>> = [
+// The product describes what each choice does and nothing else: no comparison between them. The
+// labels are UI labels of the glossary's mode values (local-repository-mode.md).
+const MODE_OPTIONS: ReadonlyArray<ChoiceCardOption<LocalRepositoryMode>> = [
   {
     value: 'upstream',
     label: 'Upstream sources',
-    description: 'Each artifact comes from the upstream source its module declares. Servers keep their own OS package sources.',
+    description: 'Each artifact comes from the upstream source its module declares. Servers keep their own OS package sources, and this repository is not synchronized.',
   },
   {
-    value: 'local-repository',
-    label: 'This local repository',
-    description: "Every artifact comes from this Site's local repository. Deployments are accepted once it is ready.",
+    value: 'cache',
+    label: 'Cache',
+    description: 'What this repository already serves comes from it; the rest comes from the upstream sources. Deployments never wait for it to synchronize, so Servers must reach the upstreams.',
+  },
+  {
+    value: 'offline',
+    label: 'Offline',
+    description: 'Every artifact comes from this repository only, so Servers never reach the Internet. Deployments are accepted once it serves everything; the repository itself still fetches packages from the upstreams the first time they are asked for.',
   },
 ]
 
-/** The confirmation of a switch to one choice — what it does — and the toast once it is saved. */
+/** The confirmation of a switch to one mode — what it does — and the toast once it is saved. */
 interface SwitchText {
   title: string
   confirmLabel: string
@@ -36,7 +39,7 @@ interface SwitchText {
   savedText: string
 }
 
-const SWITCH_TEXT: Record<ArtifactSource, SwitchText> = {
+const SWITCH_TEXT: Record<LocalRepositoryMode, SwitchText> = {
   upstream: {
     title: 'Fetch deployment artifacts from the upstream sources?',
     confirmLabel: 'Use the upstream sources',
@@ -45,13 +48,21 @@ const SWITCH_TEXT: Record<ArtifactSource, SwitchText> = {
     savedTitle: 'Deployments use the upstream sources',
     savedText: 'Deployments accepted from now on fetch each artifact from the upstream source its module declares.',
   },
-  'local-repository': {
-    title: 'Fetch deployment artifacts from this local repository?',
-    confirmLabel: 'Use this local repository',
+  cache: {
+    title: 'Use this local repository as a cache?',
+    confirmLabel: 'Use it as a cache',
+    consequence: 'Deployments accepted after this change fetch from this local repository what it already serves, '
+      + 'and the rest from the upstream source its module declares. Swallow keeps synchronizing it, and deployments do not wait for it.',
+    savedTitle: 'Deployments use the local repository as a cache',
+    savedText: 'Deployments accepted from now on fetch what it serves from it and the rest from the upstream sources.',
+  },
+  offline: {
+    title: 'Fetch every deployment artifact from this local repository?',
+    confirmLabel: 'Use only this local repository',
     consequence: 'Deployments accepted after this change fetch every artifact from this local repository. '
-      + 'Swallow starts synchronizing it now, and deployments are refused until it is ready.',
-    savedTitle: 'Deployments use the local repository',
-    savedText: 'Swallow synchronizes it now; deployments are accepted once it is ready.',
+      + 'Swallow synchronizes it, and deployments are refused until it serves everything they may fetch.',
+    savedTitle: 'Deployments use only the local repository',
+    savedText: 'Deployments are accepted once it serves everything they may fetch.',
   },
 }
 
@@ -75,20 +86,20 @@ interface ArtifactSourceSectionProps {
 }
 
 /**
- * The Local repository page's setting for where the Site's deployments fetch their artifacts: the
- * upstream sources the modules declare, or this Local Repository (`spec.serveDeployments`; contract
- * local-repository.md, Replace The Spec and Deployments). The wording only says what each choice
- * does.
+ * The Local repository page's setting for how the Site's deployments use this Local Repository, its
+ * mode (`spec.mode`; glossary local-repository-mode.md; contract local-repository.md, Replace The
+ * Spec and Deployments): the upstream sources the modules declare, this repository as a cache, or
+ * this repository only (offline). The wording only says what each mode does.
  *
- * - The cards show the stored value. Picking the other one selects it and opens a confirmation that
+ * - The cards show the stored value. Picking another one selects it and opens a confirmation that
  *   states what the switch does; only confirming writes, and cancelling (or a refused write) selects
  *   the stored value again. The picked card stays selected while the dialog is open so the native
  *   radio state, which a click has already changed, and the cards never disagree. The confirm
  *   button uses the primary colour: the change is consequential, not destructive, and it can be
- *   switched back.
- * - The write replaces the whole spec: the new `serveDeployments` with the user's sources and the
- *   generation of the read the choice was made on, unchanged. A saved switch hands the stored
- *   repository to the page (`onSaved`) and says in a toast what deployments do from now on.
+ *   switched back. A stored mode this build does not know selects no card.
+ * - The write replaces the whole spec: the new `mode` with the user's sources and the generation of
+ *   the read the choice was made on, unchanged. A saved switch hands the stored repository to the
+ *   page (`onSaved`) and says in a toast what deployments do from now on.
  * - A `409` (someone changed the spec since it was read) writes nothing: the dialog closes, the page
  *   reads the repository again, and a warning says the choice shown is the current one. The cards
  *   stay disabled until that newer generation arrives, so the next pick is made on it. Any other
@@ -97,7 +108,7 @@ interface ArtifactSourceSectionProps {
 export function ArtifactSourceSection({ siteId, repository, onSaved, onConflict }: ArtifactSourceSectionProps) {
   const { localRepository } = useApp()
   const { showToast } = useToast()
-  const [pending, setPending] = useState<ArtifactSource | null>(null)
+  const [pending, setPending] = useState<LocalRepositoryMode | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<DisplayedFailure | null>(null)
   const [conflict, setConflict] = useState<SpecConflict | null>(null)
@@ -108,10 +119,10 @@ export function ArtifactSourceSection({ siteId, repository, onSaved, onConflict 
     setConflict({ ...conflict, state: 'rebased' })
   }
 
-  const current: ArtifactSource = repository.spec.serveDeployments ? 'local-repository' : 'upstream'
+  const current = repository.spec.mode
   const text = pending ? SWITCH_TEXT[pending] : null
 
-  const pick = (choice: ArtifactSource) => {
+  const pick = (choice: LocalRepositoryMode) => {
     if (choice === current) return
     setError(null)
     setConflict(null)
@@ -128,7 +139,7 @@ export function ArtifactSourceSection({ siteId, repository, onSaved, onConflict 
     setSaving(true)
     setError(null)
     try {
-      const saved = await localRepository.replaceSpec(siteId, { generation, serveDeployments: pending === 'local-repository', sources })
+      const saved = await localRepository.replaceSpec(siteId, { generation, mode: pending, sources })
       setPending(null)
       onSaved(saved)
       showToast({ tone: 'success', title: SWITCH_TEXT[pending].savedTitle, description: SWITCH_TEXT[pending].savedText })
@@ -165,10 +176,11 @@ export function ArtifactSourceSection({ siteId, repository, onSaved, onConflict 
           // unchecked; a new generation remounts them from the stored value instead.
           key={repository.spec.generation}
           label="Artifact source for deployments"
-          options={ARTIFACT_SOURCE_OPTIONS}
+          options={MODE_OPTIONS}
           value={pending ?? current}
           onChange={pick}
           disabled={saving || conflict?.state === 'waiting'}
+          columns={3}
         />
       </Stack>
       <ConfirmDialog

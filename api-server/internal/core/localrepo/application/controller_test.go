@@ -87,7 +87,7 @@ func (f controllerFixture) record(t *testing.T, siteID string) *localrepodomain.
 // run again soon, and once everything is settled it does not.
 func TestControllerEnsuresTheEffectiveSpecAndRetriesWhileSyncing(t *testing.T) {
 	f := newControllerFixture(repositoryIntegrationOf("site-1"))
-	f.records.Put(localrepodomain.LocalRepository{SiteID: "site-1", Generation: 2, Spec: localrepodomain.Spec{ServeDeployments: true, Sources: []localrepodomain.Source{
+	f.records.Put(localrepodomain.LocalRepository{SiteID: "site-1", Generation: 2, Spec: localrepodomain.Spec{Mode: localrepodomain.ModeOffline, Sources: []localrepodomain.Source{
 		debSource("ubuntu", "http://archive.example/ubuntu/", []string{"noble"}, []string{"main"}),
 	}}})
 	f.repository.sourceState["ubuntu"] = localrepodomain.SyncSyncing
@@ -305,7 +305,7 @@ func TestControllerRemovesRetiredSources(t *testing.T) {
 	observed := func(name string, format localrepodomain.Format) localrepodomain.ObservedSource {
 		return localrepodomain.ObservedSource{Source: localrepodomain.Source{Name: name, Format: format, URL: "https://x.example"}}
 	}
-	serving := localrepodomain.Spec{ServeDeployments: true}
+	serving := localrepodomain.Spec{Mode: localrepodomain.ModeOffline}
 	f.records.Put(localrepodomain.LocalRepository{SiteID: "site-1", Spec: serving, Status: localrepodomain.Status{
 		IntegrationID: "repo-site-1",
 		Sources:       []localrepodomain.ObservedSource{observed("docker-ce", localrepodomain.FormatDeb), observed("old", localrepodomain.FormatDeb), observed("quay.io", localrepodomain.FormatPython)},
@@ -365,11 +365,12 @@ func TestControllerForgetsAndPauses(t *testing.T) {
 	wantCondition(t, paused.record(t, "site-1"), localrepodomain.ConditionReady, convergence.ConditionFalse, localrepodomain.ReasonIntegrationDisabled, "is disabled")
 }
 
-// A spec that does not serve deployments, written or not, pauses the Local Repository like a
-// disabled Integration: the provider is not called (nothing synced, fetched, or removed), the items
-// and realized keep their last observation, and only ready=false not_serving is recorded, ahead of
-// integration_disabled. The spec write that turns serving on wakes the controller, which converges.
-func TestControllerDoesNotConvergeASpecThatDoesNotServe(t *testing.T) {
+// A spec in upstream mode, written or not, pauses the Local Repository like a disabled Integration:
+// the provider is not called (nothing synced, fetched, or removed), the items and realized keep
+// their last observation, and only ready=false not_serving is recorded, ahead of
+// integration_disabled. The spec write that switches to another mode wakes the controller, which
+// converges.
+func TestControllerDoesNotConvergeASpecInUpstreamMode(t *testing.T) {
 	f := newControllerFixture(repositoryIntegrationOf("site-1"))
 	if err := f.reconcile(t, "site-1"); err != nil {
 		t.Fatalf("Reconcile before any spec write: %v", err)
@@ -377,7 +378,7 @@ func TestControllerDoesNotConvergeASpecThatDoesNotServe(t *testing.T) {
 	if len(f.repository.ensured) > 0 {
 		t.Errorf("ensured %v before any spec write, want nothing: a spec serves only once a user says so", f.repository.ensured)
 	}
-	wantCondition(t, f.record(t, "site-1"), localrepodomain.ConditionReady, convergence.ConditionFalse, localrepodomain.ReasonNotServing, "does not serve deployments")
+	wantCondition(t, f.record(t, "site-1"), localrepodomain.ConditionReady, convergence.ConditionFalse, localrepodomain.ReasonNotServing, "its mode is upstream")
 
 	served := servingRecord("site-1")
 	if _, err := f.records.PutSpec(context.Background(), "site-1", 0, served.Spec); err != nil {
@@ -392,8 +393,8 @@ func TestControllerDoesNotConvergeASpecThatDoesNotServe(t *testing.T) {
 	f.now = f.now.Add(time.Minute)
 	f.repository.ensured = nil
 	writes := f.records.StatusWrites
-	if _, err := f.records.PutSpec(context.Background(), "site-1", observed.Generation, localrepodomain.Spec{Sources: served.Spec.Sources}); err != nil {
-		t.Fatalf("PutSpec turning serving off: %v", err)
+	if _, err := f.records.PutSpec(context.Background(), "site-1", observed.Generation, localrepodomain.Spec{Mode: localrepodomain.ModeUpstream, Sources: served.Spec.Sources}); err != nil {
+		t.Fatalf("PutSpec switching to upstream: %v", err)
 	}
 	keys, err := f.controller.KeysForChange(context.Background(), store.Change{Collection: localrepodomain.Collection, Key: "site-1", Operation: store.ChangeUpdate})
 	if err != nil || !slices.Equal(keys, []string{"site-1"}) {
@@ -401,33 +402,70 @@ func TestControllerDoesNotConvergeASpecThatDoesNotServe(t *testing.T) {
 	}
 	for range 2 {
 		if err := f.reconcile(t, "site-1"); err != nil {
-			t.Fatalf("Reconcile of a spec that does not serve: %v", err)
+			t.Fatalf("Reconcile of a spec in upstream mode: %v", err)
 		}
 	}
 	paused := f.record(t, "site-1")
 	if len(f.repository.ensured) > 0 || len(f.repository.removed) > 0 || f.records.StatusWrites != writes+1 {
-		t.Errorf("not serving: ensured %v, removed %v, %d status writes; want nothing called and one write",
+		t.Errorf("upstream: ensured %v, removed %v, %d status writes; want nothing called and one write",
 			f.repository.ensured, f.repository.removed, f.records.StatusWrites-writes)
 	}
 	if !reflect.DeepEqual(paused.Status.Sources, observed.Status.Sources) || !paused.Status.ObservedAt.Equal(*observed.Status.ObservedAt) {
-		t.Errorf("status items changed while not serving: %+v", paused.Status)
+		t.Errorf("status items changed in upstream mode: %+v", paused.Status)
 	}
-	wantCondition(t, paused, localrepodomain.ConditionReady, convergence.ConditionFalse, localrepodomain.ReasonNotServing, "does not serve deployments")
+	wantCondition(t, paused, localrepodomain.ConditionReady, convergence.ConditionFalse, localrepodomain.ReasonNotServing, "its mode is upstream")
 	if realized := condition(t, paused, convergence.ConditionRealized); realized.Status != convergence.ConditionTrue || realized.Reason != convergence.ReasonConverged {
 		t.Errorf("realized = %+v, want its last judgement kept", realized)
 	}
 
 	f.integrations.byID["repo-site-1"].Enabled = false
 	if err := f.reconcile(t, "site-1"); err != nil {
-		t.Fatalf("Reconcile of a disabled Integration that does not serve: %v", err)
+		t.Fatalf("Reconcile of a disabled Integration in upstream mode: %v", err)
 	}
 	wantCondition(t, f.record(t, "site-1"), localrepodomain.ConditionReady, convergence.ConditionFalse, localrepodomain.ReasonNotServing, "is disabled")
 }
 
-// servingRecord is siteID's record at generation 1 with a spec that serves deployments and no
-// source of the user's.
+// Cache mode converges like offline mode, but its readiness does not wait for the content: while the
+// OS archive's first sync runs it is ready (realized says what is still syncing), and offline mode
+// is not. An offline source that resyncs while it serves keeps offline mode ready.
+func TestControllerJudgesReadinessByTheMode(t *testing.T) {
+	f := newControllerFixture(repositoryIntegrationOf("site-1"))
+	spec := localrepodomain.Spec{Mode: localrepodomain.ModeCache, Sources: []localrepodomain.Source{
+		debSource("ubuntu", "http://archive.example/ubuntu/", []string{"noble"}, []string{"main"}),
+	}}
+	f.records.Put(localrepodomain.LocalRepository{SiteID: "site-1", Generation: 1, Spec: spec})
+	f.repository.sourceState["ubuntu"] = localrepodomain.SyncSyncing
+
+	if err := f.reconcile(t, "site-1"); !errors.Is(err, errStillSyncing) {
+		t.Fatalf("Reconcile in cache mode while ubuntu syncs = %v, want errStillSyncing", err)
+	}
+	if !slices.Contains(f.repository.ensured, "source ubuntu") {
+		t.Errorf("ensured %v in cache mode, want the effective spec converged", f.repository.ensured)
+	}
+	cache := f.record(t, "site-1")
+	wantCondition(t, cache, localrepodomain.ConditionReady, convergence.ConditionTrue, localrepodomain.ReasonReady, "")
+	wantCondition(t, cache, convergence.ConditionRealized, convergence.ConditionFalse, localrepodomain.ReasonSyncing, "source ubuntu is syncing")
+
+	spec.Mode = localrepodomain.ModeOffline
+	if _, err := f.records.PutSpec(context.Background(), "site-1", 1, spec); err != nil {
+		t.Fatalf("PutSpec switching to offline: %v", err)
+	}
+	if err := f.reconcile(t, "site-1"); !errors.Is(err, errStillSyncing) {
+		t.Fatalf("Reconcile in offline mode while ubuntu syncs = %v, want errStillSyncing", err)
+	}
+	wantCondition(t, f.record(t, "site-1"), localrepodomain.ConditionReady, convergence.ConditionFalse, localrepodomain.ReasonSyncing, "source ubuntu is syncing")
+
+	f.repository.sourceServing["ubuntu"] = true
+	if err := f.reconcile(t, "site-1"); !errors.Is(err, errStillSyncing) {
+		t.Fatalf("Reconcile in offline mode while ubuntu resyncs = %v, want errStillSyncing", err)
+	}
+	wantCondition(t, f.record(t, "site-1"), localrepodomain.ConditionReady, convergence.ConditionTrue, localrepodomain.ReasonReady, "")
+}
+
+// servingRecord is siteID's record at generation 1 with a spec in offline mode and no source of the
+// user's.
 func servingRecord(siteID string) localrepodomain.LocalRepository {
-	return localrepodomain.LocalRepository{SiteID: siteID, Generation: 1, Spec: localrepodomain.Spec{ServeDeployments: true}}
+	return localrepodomain.LocalRepository{SiteID: siteID, Generation: 1, Spec: localrepodomain.Spec{Mode: localrepodomain.ModeOffline}}
 }
 
 // The controller's own status writes do not wake it; a spec write, a request for it, and a change of

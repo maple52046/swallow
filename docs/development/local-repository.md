@@ -1,12 +1,12 @@
 # Local Repository 設計與規範
 
 本文件是 Site 的 [Local Repository](glossaries/terms/local-repository.md) 的現行規格：部署需要的 artifact（OS 套件、
-container image、Python 套件與檔案）從哪裡取得、Site 怎麼選擇從 Local Repository 或從模組宣告的上游取得、swallow 擁有
+container image、Python 套件與檔案）從哪裡取得、Site 怎麼以模式選擇不用它、把它當成快取，或只從它取得、swallow 擁有
 什麼、provider（目前是 Pulp 3）實現什麼。決策與否決過的方案見 [decision 078](../decisions/078-local-repository.md)（local
 repository）。
 
-> **讀者**：修改 Local Repository 本身的開發者與 agent：它的 provider interface 與 Pulp adapter、controller、Site 的選擇
-> `serveDeployments`、受理時的檢查、trusted var `swallow_artifacts` 與共用 role `artifact_sources`，或新增一種格式。只在
+> **讀者**：修改 Local Repository 本身的開發者與 agent：它的 provider interface 與 Pulp adapter、controller、Site 的模式
+> `mode`、受理時的檢查、trusted var `swallow_artifacts` 與共用 role `artifact_sources`，或新增一種格式。只在
 > 模組中宣告 `artifacts`，或撰寫取得 artifact 的 role 時，讀 [module-authoring.md](module-authoring.md)；
 > 只透過 API 讀寫時讀契約
 > [local-repository.md](../../api-server/docs/development/api-contracts/api-server/local-repository.md)。Pulp 的
@@ -29,22 +29,23 @@ Docker Hub、Quay 與 `registry.k8s.io` 的 image、PyPI 的 Python 套件。結
 
 ## 2. 設計
 
-**部署需要的每個 artifact 都由模組宣告，Site 選擇從哪裡取得**：Site 的 Local Repository，或模組宣告的上游（§2.1）。
-兩種來源取得的是同一份宣告：版本、檔案的 sha256 與 deb 來源的簽章金鑰都相同，差別只在位址。
+**部署需要的每個 artifact 都由模組宣告，Site 以模式選擇從哪裡取得**：模組宣告的上游、把 Site 的 Local Repository 當成
+快取，或只從 Local Repository 取得（§2.1）。各種來源取得的是同一份宣告：版本、檔案的 sha256 與 deb 來源的簽章金鑰都
+相同，差別只在位址。
 
 Local Repository 是一個 provider 類別：core 定義它的 port，Pulp 3 是目前的 adapter，以 Site 的 `repository` Integration
 登錄，與控制平面共置，每個 installation 都安裝。swallow 擁有「它必須包含什麼」，provider 擁有 artifact 本身；Site 使用
 它時，worker 的 controller 把前者收斂到 provider，Server 上的 apt、pip、uv 與 container runtime（containerd、Docker、Podman）
-都指向它，不再連到上游。
+指向它：`offline` 模式全部指向它，`cache` 模式只把它已經提供的部分指向它。
 
 ```mermaid
 flowchart LR
   decl["module.json artifacts"] --> ctrl
-  spec["Site spec: sources, serveDeployments"] --> ctrl
+  spec["Site spec: sources, mode"] --> ctrl
   ctrl["worker: local-repository controller"] -->|"Local Repository port"| pulp["Pulp 3 next to the control plane"]
   pulp -->|"sync once or pull through"| up["Upstreams: Ubuntu archive, vendor archives, registries, PyPI, file URLs"]
-  hosts["Servers: apt, pip, container runtimes"] -->|"serveDeployments true: contentOrigin"| pulp
-  hosts -.->|"serveDeployments false: declared upstreams"| up
+  hosts["Servers: apt, pip, container runtimes"] -->|"offline, or cache for what it serves: contentOrigin"| pulp
+  hosts -.->|"upstream, or cache for the rest: declared upstreams"| up
   api["api"] -->|"browse content"| pulp
 ```
 
@@ -52,24 +53,30 @@ Site 使用 Local Repository 時，每個 artifact 在一個 Site 只跨過網�
 Server 都從同一個 LAN 位址讀取；內容在站點上固定、經過驗證，之後也能改成匯入而不是同步，讓沒有網際網路的 Site 部署
 （§9.1）。
 
-### 2.1 Site 的選擇：`serveDeployments`
+### 2.1 Site 的模式：`mode`
 
-Site 的 Local Repository spec 有 `serveDeployments`，預設 `false`：
+Site 的 Local Repository spec 有 `mode`（[Local Repository Mode](glossaries/terms/local-repository-mode.md)），預設
+`upstream`：
 
-| | 部署從哪裡取得 | controller（§7.1） | 受理（§8.1） |
+| `mode` | 部署從哪裡取得 | controller（§7.1） | 受理（§8.1） |
 | --- | --- | --- | --- |
-| `serveDeployments` `false`，或 Site 沒有 `repository` Integration | 每個 artifact 從模組宣告的上游：檔案從它的 URL（以 sha256 驗證）、image 從它的 registry、Python 套件從 PyPI、模組宣告的 deb 來源從它的 URL（以模組宣告的 `signingKey` 驗證）；主機保留自己的 OS 套件來源 | 不收斂；`ready` 為 `false`，reason `not_serving` | 不看 Local Repository |
-| `serveDeployments` `true` | 每個 artifact 從 Local Repository | 收斂 | Local Repository `ready` 才受理，否則 `409` |
+| `upstream`，或 Site 沒有 `repository` Integration | 每個 artifact 從模組宣告的上游：檔案從它的 URL（以 sha256 驗證）、image 從它的 registry、Python 套件從 PyPI、模組宣告的 deb 來源從它的 URL（以模組宣告的 `signingKey` 驗證）；主機保留自己的 OS 套件來源 | 不收斂；`ready` 為 `false`，reason `not_serving` | 不看 Local Repository |
+| `cache` | Local Repository 已經提供的從它取得，其餘從模組宣告的上游，在受理時逐項決定（§8.1） | 收斂 | Local Repository 能使用（Integration 啟用、上一輪沒有被擋下、已觀察過、位址已讀到）就受理，不等內容同步；否則 `409` |
+| `offline` | 每個 artifact 從 Local Repository | 收斂 | Local Repository 提供每一項（§7.2 的 `ready`）才受理，否則 `409` |
 
-- **不是 fallback**：`serveDeployments` 是 `true` 而 Local Repository 還沒 `ready` 時，部署照樣被拒絕，swallow 不改從上游
-  取得（[architecture-spec.md](architecture-spec.md) 的原則 8：沒有能力時不建立同形狀的替代品）。`repository`
-  Integration 停用是暫停（§7.1），不切換來源：`serveDeployments` 仍是 `true` 的 Site 在 Integration 停用期間不能部署。
-- **預設**：installation 登錄 Integration 時寫入 `serveDeployments` `false`，user 為 Site 打開它（§4.1）。開發環境
-  （`deploy/dev/seed.sh`）寫入 `true`。
-- **切換**：寫入 spec，不經 Change Plan：它決定之後的部署從哪裡取得，不改變已部署主機上的軟體。打開時 controller 開始
-  收斂，Local Repository `ready` 之後部署才被受理；關閉時 controller 停止收斂，Pulp 裡已有的內容保留，再打開時從這些
-  內容繼續收斂。已受理的 Workflow 沿用受理時的來源；已部署的主機在下一支取得 artifact 的 playbook 在它上面執行時，與
-  Site 目前的選擇一致（§8.2）。
+- **`offline` 不是 fallback**：Local Repository 還沒 `ready` 時，部署照樣被拒絕，swallow 不改從上游取得
+  （[architecture-spec.md](architecture-spec.md) 的原則 8：沒有能力時不建立同形狀的替代品）。`repository` Integration
+  停用是暫停（§7.1），不切換來源：`cache` 或 `offline` 的 Site 在 Integration 停用期間不能部署。
+- **`cache` 是 user 明確的選擇**：它不是 Local Repository 沒準備好時的替代品，而是 user 選擇「有就從它取得、還沒有就從
+  上游」；每次執行的 `swallow_artifacts` 記下每一項從哪裡取得（§8.1）。Server 因此必須連得到上游。
+- **`offline` 還不是 air-gap**：Server 只連 Local Repository，但 deb 套件以 `on_demand` 取得、Python 套件經 pull-through，
+  Local Repository 本身仍在第一次被要求時連上游，所以控制平面要能連網際網路。完全離線的 Site 等從磁碟匯入（§9.1）。
+- **預設**：installation 登錄 Integration 時寫入 `upstream`，user 為 Site 換成其他模式（§4.1）。開發環境
+  （`deploy/dev/seed.sh`）寫入 `cache`。
+- **切換**：寫入 spec，不經 Change Plan：它決定之後的部署從哪裡取得，不改變已部署主機上的軟體。換成 `cache` 或
+  `offline` 時 controller 開始收斂；換成 `upstream` 時 controller 停止收斂，Pulp 裡已有的內容保留，再換回來時從這些內容
+  繼續收斂。已受理的 Workflow 沿用受理時的來源；已部署的主機在下一支取得 artifact 的 playbook 在它上面執行時，與 Site
+  目前的模式一致（§8.2）。
 
 ## 3. 所有權
 
@@ -78,10 +85,10 @@ Site 的 Local Repository spec 有 `serveDeployments`，預設 `false`：
 | 事實 | 類別 | 寫入者 | 儲存 |
 | --- | --- | --- | --- |
 | 模組宣告的 artifact（`module.json` 的 `artifacts`） | desired，由 release 編入的模組決定 | 模組作者，隨 release 改變 | 不存；每次由模組 registry 讀取 |
-| Site 的 user 來源（`spec.sources`）、`spec.serveDeployments` 與 `generation` | desired | API（admin） | `local_repositories` |
+| Site 的 user 來源（`spec.sources`）、`spec.mode` 與 `generation` | desired | API（admin） | `local_repositories` |
 | 有效內容：兩者的合併（§5.3），與每一項的 `declaredBy` | derived | — | 不存，每次重算 |
-| 每個來源、檔案與宣告的 image 的同步狀態（`state`、`message`、`lastSyncedAt`、`contentCount`、`sizeBytes`）與 `observedAt` | observed | Local Repository controller 讀回 provider | `local_repositories` |
-| `ready` | derived | — | 由 spec 與同步狀態推導 |
+| 每個來源、檔案與宣告的 image 的同步狀態（`state`、`message`、來源的 `serving`、`lastSyncedAt`、`contentCount`、`sizeBytes`）與 `observedAt` | observed | Local Repository controller 讀回 provider | `local_repositories` |
+| `ready` | derived | — | 由 spec 的模式與同步狀態推導（§7.2） |
 | 一次部署的 artifact 來源（trusted var `swallow_artifacts`） | derived | Workflow 的受理 | 受理時凍結在 Task 的 trusted vars（§8.1） |
 | artifact 本身、套件索引與 metadata | provider | provider | 不存；瀏覽時即時讀取（§7.3） |
 | endpoint、`contentOrigin`、admin credential | Integration 的設定 | API | `integrations`（credential 封存，只寫不讀） |
@@ -100,9 +107,9 @@ swallow 不保存 artifact：它擁有的是「Site 必須有什麼」與「從�
   連到 provider，Server 則從 LAN 連到它。
 - **credential**：Pulp admin 的密碼（Basic auth，帳號 `admin`），封存、只寫不讀。
 - production 由 `deploy/production/bootstrap.sh` 經已發佈的 API 登錄這個 Integration，並在 spec 從未寫入過時寫入 Site 的
-  `ubuntu` 來源（§5.2）與 `serveDeployments` `false`；testing stack 的 `deploy/testing/seed.sh` 相同。開發環境由
-  `deploy/dev/seed.sh` 以同樣的方式登錄（設了 `PULP_ORIGIN` 時），但寫入 `serveDeployments` `true`，讓開發站預設使用
-  Local Repository。
+  `ubuntu` 來源（§5.2）與 `mode` `upstream`；testing stack 的 `deploy/testing/seed.sh` 相同。開發環境由
+  `deploy/dev/seed.sh` 以同樣的方式登錄（設了 `PULP_ORIGIN` 時），但寫入 `mode` `cache`，讓開發站預設把 Local
+  Repository 當成快取，不必等第一次同步完成就能部署。
 
 ### 4.2 port 與 adapter
 
@@ -169,15 +176,16 @@ registry 建立失敗。source 的合併規則見 §5.3。
 ### 5.2 Site 的來源
 
 - user 的來源存在 Site 的 Local Repository spec（`spec.sources`，帶 `generation`），形狀與模組宣告的 source 相同，但沒有
-  `signingKey`：它們只經 Local Repository 提供，Site 從上游取得時主機不加入它們。寫入整份取代 spec（`serveDeployments`
+  `signingKey`：它們只經 Local Repository 提供，Site 從上游取得時主機不加入它們。寫入整份取代 spec（`mode`
   必填）；帶的 `generation` 與目前的不同時回 `409`（[desired-state-model.md](desired-state-model.md) §11.1）；與模組宣告
   矛盾的來源（同名但格式或 URL 不同）拒絕寫入。
 - user 也可以加其他格式的來源，例如以 registry host 為名的 `oci` 來源，把那個 registry 的上游換成內部 mirror（§5.3）。
 - OS 的套件來源是 Site 的來源，不是模組宣告：它屬於 Site 部署的 OS，不屬於任何模組，要換成內部 mirror 或加上 suite
   時只改 Site 的 spec。Ubuntu archive 是 `ubuntu`：`http://archive.ubuntu.com/ubuntu/`，suites `noble`、
   `noble-updates`、`noble-security`，components `main`、`universe`，`amd64`。production 的 `bootstrap.sh`、testing 與
-  開發環境的 `seed.sh` 只在 spec 從未寫入過（`generation` 為 `0`）時寫入它與 `serveDeployments`（§4.1），user 之後刪掉
-  它也不會被加回。Site 從上游取得時，OS 套件來自主機自己的 OS 套件來源，不經這個來源。
+  開發環境的 `seed.sh` 只在 spec 從未寫入過（`generation` 為 `0`）時寫入它與 `mode`（§4.1），user 之後刪掉
+  它也不會被加回。主機的 apt 從上游取得時（`upstream` 模式，或 `cache` 模式還沒提供每個 deb 來源時），OS 套件來自主機
+  自己的 OS 套件來源，不經這個來源。
 - spec 的寫入直接收斂，不經 Change Plan：它決定之後的部署能取得什麼、從哪裡取得，不改變已部署主機上的軟體。從 spec
   移除的來源，controller 也從 provider 移除它建立的物件（§7.1）。
 
@@ -214,7 +222,7 @@ deb 內容以 Site 的簽章驗證，檔案以 sha256 驗證；oci 與 python �
 ### 7.1 controller
 
 - worker 的 `local-repository` controller，key 是 Site，遵守 [desired-state-model.md](desired-state-model.md) §7。
-  觸發來源：spec 的寫入（change feed，包括打開或關閉 `serveDeployments`）、`repository` Integration 的登錄、變更與
+  觸發來源：spec 的寫入（change feed，包括切換 `mode`）、`repository` Integration 的登錄、變更與
   刪除、定期 resync（desired-state-model §7.6），以及 user 要求的立即收斂（`POST .../sync`，寫入 convergence request，
   喚醒每個 Site）。
 - 每一輪：重算有效內容；先從 provider 移除 swallow 之前建立、但已不在有效內容中（或改了格式）的來源；再經 port 在
@@ -227,8 +235,8 @@ deb 內容以 Site 的簽章驗證，檔案以 sha256 驗證；oci 與 python �
 - provider 無法連線或拒絕 credential 時，這一輪停止，依 desired-state-model §7.5 退避，status 保留上一次的觀察（只是
   變舊）。單一來源、檔案或 image 失敗（provider 拒絕它、上游取不到、sha256 不符、registry 沒有這個 image）時，只有那一項
   為 `failed` 並帶 `message`，其他項目照常收斂；之後的每一輪都再 ensure 它，adapter 對最近失敗的項目隔一段間隔才重新抓取。
-- spec 不 serve deployments（`serveDeployments` 為 `false`）時不收斂：不呼叫 provider，不同步、不抓取、也不移除，provider
-  已有的內容保留；只把 `ready` condition 記為 `false`、reason `not_serving`，`realized` 保留上一次的判斷，來源、檔案與 image
+- `mode` 是 `cache` 或 `offline` 時收斂，兩者的收斂相同，差別只在受理（§8.1）。`mode` 是 `upstream` 時不收斂：不呼叫
+  provider，不同步、不抓取、也不移除，provider 已有的內容保留；只把 `ready` condition 記為 `false`、reason `not_serving`，`realized` 保留上一次的判斷，來源、檔案與 image
   保留上一次的觀察。
 - `repository` Integration 停用時同樣暫停，reason 是 `integration_disabled`。Integration 被刪除時清空 status、保留 spec，
   讓之後登錄的 Integration 從同一份 spec 開始；Site 刪除後連紀錄一起刪除。
@@ -239,22 +247,31 @@ deb 內容以 Site 的簽章驗證，檔案以 sha256 驗證；oci 與 python �
   [Repository Source](glossaries/terms/repository-source.md)）。image 只有在 provider 儲存了它的 config 與每一層之後才是
   `ready`，`sizeBytes` 是它們的總大小。
 - 定義變了、還沒以新定義觀察過的項目讀成 `pending`；status 裡沒有的 image（還沒觀察過，或 reference 改了）也是。
-- `ready`：spec serve deployments，Site 的 `repository` Integration 已啟用，controller 最近一輪沒有因 Integration 或
-  provider 而停止（連不上、credential 缺少或被拒、沒有 `contentOrigin`、設定被 adapter 拒絕），有效內容的每個來源、檔案
-  與宣告的 image 都是 `ready`，而且已讀到 Server 讀取內容的位址。不是 `ready` 時，API 列出要打開、啟用、修正或等待什麼。
-  Site 使用 Local Repository 時，部署的受理只看它（§8.1），所以 image 還沒抓完時部署被拒絕，而不是在部署時才由 provider
-  從網際網路抓取。
+- 來源另有 `serving`（glossary 的 served）：provider 正在提供這個來源**目前定義**的內容，與 `state` 分開，由 adapter
+  讀回。deb 來源在最後一次成功的同步是以目前的 remote 定義執行、而且 repository 有 publication 時為 `true`；每天的重新同步
+  （`resyncInterval`）執行中（`syncing`）或失敗（`failed`）時仍是 `true`，因為 distribution 照樣提供上一次同步的
+  publication；定義改了之後，到以新定義同步完成之前是 `false`。oci 與 python 的 pull-through 來源在 provider 能經它
+  pull（`state` 為 `ready`）時為 `true`。定義變了、還沒以新定義觀察過的來源讀成 `false`。
+- `ready`：部署在 Site 的模式下會被受理。
+  - `upstream`：永遠是 `false`（reason `not_serving`），部署從上游取得，不看它。
+  - `cache`：Site 的 `repository` Integration 已啟用，controller 已觀察過、最近一輪沒有因 Integration 或 provider 而
+    停止（連不上、credential 缺少或被拒、沒有 `contentOrigin`、設定被 adapter 拒絕），而且已讀到 Server 讀取內容的位址。
+    內容的同步狀態不在其中。
+  - `offline`：除了 `cache` 的條件，有效內容的每個來源都在提供中（`serving`），每個檔案與宣告的 image 都是 `ready`。
+    所以 image 還沒抓完時部署被拒絕，而不是在部署時才由 provider 從網際網路抓取；而來源每天重新同步時不拒絕部署。
+
+  不是 `ready` 時，API 列出要換模式、啟用、修正或等待什麼。
 - controller 把判斷寫成三個 condition（desired-state-model §4.2）：`ready`、`realized`（provider 是否提供每一項有效內容）
   與 `requires_attention`（user 必須修正 Integration 時為 `true`）。reason 的完整清單以契約的 Conditions 一節為準。
 
 ### 7.3 API 與 dashboard
 
 - API（admin）：讀取摘要與同步狀態、依格式分頁瀏覽內容（標出宣告的模組）、寫入 spec（user 的來源與
-  `serveDeployments`）、要求立即收斂。路由與欄位以契約
+  `mode`）、要求立即收斂。路由與欄位以契約
   [local-repository.md](../../api-server/docs/development/api-contracts/api-server/local-repository.md) 為準。
 - 瀏覽內容時由 api 經 port 即時讀取 provider，不存在 swallow。
-- dashboard：Infrastructure 底下的 Local repository 頁，可打開或關閉 Site 的 `serveDeployments`，顯示來源、檔案與宣告的
-  image 的同步狀態，並可依格式瀏覽內容。CLI 目前沒有指令。
+- dashboard：Infrastructure 底下的 Local repository 頁，可切換 Site 的 `mode`（Upstream sources、Cache、Offline），顯示
+  來源、檔案與宣告的 image 的同步狀態（包括同步中仍提供上一次同步的來源），並可依格式瀏覽內容。CLI 目前沒有指令。
 
 ## 8. 部署從哪裡取得
 
@@ -264,26 +281,40 @@ deb 內容以 Site 的簽章驗證，檔案以 sha256 驗證；oci 與 python �
   受理會執行這類 playbook 的 Workflow 時（OS 部署的 Task、Platform 的部署、Managed Software 的 install 或 uninstall，
   以及 `POST /api/v1/workflows`），swallow 讀 store 決定 Site 的 artifact 從哪裡取得（不呼叫 provider，所以 provider 暫時
   沒有回應不會讓受理卡住）：
-  - Site 沒有 `repository` Integration，或 spec 的 `serveDeployments` 是 `false`：從上游取得，不看 Local Repository。
-  - `serveDeployments` 是 `true`：從 Local Repository 取得。它不是 `ready` 時以 `ErrLocalRepositoryUnavailable` 拒絕
-    （`409`），在建立任何 Workflow 之前；訊息指出要啟用 `repository` Integration、修正 controller 上一輪停止的原因（例如
-    缺少 `contentOrigin`），或要等待（或修正）哪個來源、檔案或 image。swallow 不退回上游（§2.1）。worker 啟動的 Platform
-    Workflow（platform controller 收斂 spec 的變更）同樣被拒絕，由 Platform 的 `realized` Condition 回報訊息。
+  - Site 沒有 `repository` Integration，或 `mode` 是 `upstream`：從上游取得，不看 Local Repository。
+  - `offline`：從 Local Repository 取得。它不是 `ready`（§7.2）時以 `ErrLocalRepositoryUnavailable` 拒絕（`409`），在
+    建立任何 Workflow 之前；訊息指出要啟用 `repository` Integration、修正 controller 上一輪停止的原因（例如缺少
+    `contentOrigin`），或要等待（或修正）哪個來源、檔案或 image。swallow 不退回上游（§2.1）。
+  - `cache`：Local Repository 不是 `ready`（Integration 停用、上一輪被擋下、還沒觀察過或位址還沒讀到）時同樣以
+    `ErrLocalRepositoryUnavailable` 拒絕；內容的同步狀態不拒絕。受理時依 status 逐項決定：
+    - apt 整組決定：有效內容至少有一個 deb 來源，而且每個都在提供中（`serving`）時從 Local Repository，否則整組從上游
+      （主機保留自己的 OS 套件來源，只加模組宣告的 deb 來源）。沒有任何 deb 來源時從上游，否則主機的 apt 來源會全部被
+      停用而沒有替代。不逐來源混用，因為 user 的來源沒有 `signingKey`，不能從上游驗證；而且只有
+      Site 的 OS 套件庫在提供中時，才能停用主機自己的來源。
+    - Python：`python` 來源（`pypi`）在提供中時用 Local Repository 的 index，否則 `""`。
+    - image：所屬 registry host 的 `oci` 來源在提供中時經 Local Repository（pull-through 在第一次 pull 時取得），否則用原本
+      的 reference；`registry_mirrors` 只列提供中的 host。宣告 image 的預先抓取照舊，但不影響這個決定。
+    - 檔案：`ready` 的從 Local Repository，其餘從宣告的 URL。兩種都以宣告的 sha256 驗證。
+
+  worker 啟動的 Platform Workflow（platform controller 收斂 spec 的變更）同樣被拒絕，由 Platform 的 `realized`
+  Condition 回報訊息。
 - 受理時 `ExecutionService.PrepareAnsibleStep` 注入 trusted var `swallow_artifacts`，之後不再改變（`swallow_` 前綴的變數
-  client 不能偽造，見 [software-deployment.md](software-deployment.md) §4.2）。兩種來源的 key 相同：
+  client 不能偽造，見 [software-deployment.md](software-deployment.md) §4.2）。各模式的 key 相同：
 
-  | key | 從 Local Repository（`source: local_repository`） | 從上游（`source: upstream`） |
-  | --- | --- | --- |
-  | `source` | `local_repository` | `upstream` |
-  | `deb` | 有效內容中每個 deb 來源（模組與 Site 的），依 `name` 排序：`name`、`uri`（`<contentOrigin>/pulp/content/deb/<name>/`）、`suites`、`components`；`signing_key_url` 與 `signing_key_fingerprint` 是 `""` | 只有模組宣告的 deb 來源：`uri` 是宣告的 URL，`signing_key_url` 與 `signing_key_fingerprint` 是宣告的 `signingKey` |
-  | `deb_signing_key` | Site 的 deb 簽章公鑰（ASCII armor；沒有簽章時 `""`） | `""` |
-  | `registry` | registry 的 host:port，也就是 `contentOrigin` 去掉 scheme | `""` |
-  | `registry_mirrors` | 每個 registry host 的 mirror URL（`<contentOrigin>/v2/<host>`） | `{}` |
-  | `python_index` | `<contentOrigin>/pypi/pypi/simple/` | `""`（pip 用它自己的預設 index） |
-  | `files` | 宣告的 path → `<contentOrigin>/pulp/content/files/<path>` | 宣告的 path → 宣告的 URL |
-  | `images` | 宣告的 reference → `<registry>/<reference>` | 宣告的 reference → 它自己 |
+  | key | `offline`（`source: local_repository`） | `upstream`（`source: upstream`） | `cache`（`source: cache`） |
+  | --- | --- | --- | --- |
+  | `source` | `local_repository` | `upstream` | `cache` |
+  | `apt` | `local_repository` | `upstream` | apt 整組的決定，`local_repository` 或 `upstream` |
+  | `deb` | 有效內容中每個 deb 來源（模組與 Site 的），依 `name` 排序：`name`、`uri`（`<contentOrigin>/pulp/content/deb/<name>/`）、`suites`、`components`；`signing_key_url` 與 `signing_key_fingerprint` 是 `""` | 只有模組宣告的 deb 來源：`uri` 是宣告的 URL，`signing_key_url` 與 `signing_key_fingerprint` 是宣告的 `signingKey` | 依 `apt`，同左邊兩欄之一 |
+  | `deb_signing_key` | Site 的 deb 簽章公鑰（ASCII armor；沒有簽章時 `""`） | `""` | `apt` 是 `local_repository` 時同 `offline`，否則 `""` |
+  | `registry` | registry 的 host:port，也就是 `contentOrigin` 去掉 scheme | `""` | 有任何 image 或 mirror 經 Local Repository 時同 `offline`，否則 `""` |
+  | `registry_mirrors` | 每個 registry host 的 mirror URL（`<contentOrigin>/v2/<host>`） | `{}` | 只列提供中的 host |
+  | `python_index` | `<contentOrigin>/pypi/pypi/simple/` | `""`（pip 用它自己的預設 index） | `pypi` 提供中時同 `offline`，否則 `""` |
+  | `files` | 宣告的 path → `<contentOrigin>/pulp/content/files/<path>` | 宣告的 path → 宣告的 URL | 逐項，同左邊兩欄之一 |
+  | `images` | 宣告的 reference → `<registry>/<reference>` | 宣告的 reference → 它自己 | 逐項，同左邊兩欄之一 |
 
-  `files` 與 `images` 永遠列出每個宣告的檔案與 image；沒有內容的 key 是空的。形狀與範例以契約的 Deployments 一節為準。
+  `files` 與 `images` 永遠列出每個宣告的檔案與 image；沒有內容的 key 是空的。`apt` 是後來加的：之前受理、已凍結的值
+  沒有它，role 由 `source` 推導。形狀與範例以契約的 Deployments 一節為準。
 - `deb` 只列有效內容（Local Repository）或模組宣告（上游）中的 deb 來源，主機永遠不會被 swallow 指向它不管理的來源。
 
 ### 8.2 `artifact_sources`
@@ -292,15 +323,24 @@ deb 內容以 Site 的簽章驗證，檔案以 sha256 驗證；oci 與 python �
 （[decision 073](../decisions/073-hold-os-package-maintenance-during-automation.md)（hold os package maintenance during
 automation））之後，在安裝或下載任何東西之前，先跑共用 role `artifact_sources`
 （`api-server/modules/shared/roles/artifact_sources/`）。沒有 `swallow_artifacts`，或它的 `source` 不是
-`local_repository` 或 `upstream` 時，它以 `[artifact_sources_missing]` 失敗。呼叫者以 `artifact_sources_containerd`、
+`local_repository`、`upstream` 或 `cache`，或 apt 的來源（`apt`，沒有時由 `source` 推導）不是 `local_repository` 或
+`upstream` 時，它以 `[artifact_sources_missing]` 失敗。呼叫者以 `artifact_sources_containerd`、
 `artifact_sources_docker`、`artifact_sources_podman` 指定它的 run 用哪些 container runtime 拉 image；
 `artifact_sources_root` 是加在每個寫入路徑前面的前綴，只給內容測試把 role 指到暫存目錄（主機上是空的）。
 
-主機上的路徑在兩種模式相同，也和改名前的 role 相同，所以舊 role 收斂過的主機由它接手：
+role 不看整體的 `source`，每個管道看自己的資料，所以 `cache` 模式的混合結果不需要第三套行為：
+
+| 管道 | 指向 Local Repository（下面的 `local_repository`） | 指向上游（下面的 `upstream`） |
+| --- | --- | --- |
+| apt | `apt` 是 `local_repository` | `apt` 是 `upstream` |
+| pip 與 uv | `python_index` 不是空的 | `python_index` 是空的 |
+| containerd、Docker、Podman | `registry` 不是空的（只設定呼叫者指定的 runtime） | `registry` 是空的 |
+
+主機上的路徑在兩種方向相同，也和改名前的 role 相同，所以舊 role 收斂過的主機由它接手：
 
 | 路徑 | 內容 |
 | --- | --- |
-| `/etc/apt/sources.list.d/swallow-local-repository.sources` | role 加的 apt 來源（deb822），兩種模式都寫在這裡，每個 stanza 有自己的 Signed-By |
+| `/etc/apt/sources.list.d/swallow-local-repository.sources` | role 加的 apt 來源（deb822），兩種方向都寫在這裡，每個 stanza 有自己的 Signed-By |
 | `/etc/apt/keyrings/swallow-local-repository.asc` | Site 的 deb 簽章公鑰（只在 `local_repository`） |
 | `/etc/apt/keyrings/swallow-upstream-<name>.gpg` | 每個上游 deb 來源驗證過的金鑰，binary（只在 `upstream`） |
 | `/etc/apt/apt.conf.d/90swallow-local-repository` | `Acquire::http::Proxy::<repo host> "DIRECT";`（只在 `local_repository`） |
@@ -344,15 +384,16 @@ automation））之後，在安裝或下載任何東西之前，先跑共用 rol
     stanza。fingerprint 不符時以 `[artifact_signing_key_mismatch]` 失敗；主機沒有 gpg，或 URL 提供的不是 OpenPGP
     公鑰時以 `[artifact_signing_key_unverifiable]` 失敗。兩者都在 apt 讀到任何以它簽章的東西之前停下，所以主機需要 gpg。
   - 移除 Site 的金鑰、DIRECT 設定與這次不再加的來源的金鑰，再刷新套件索引。主機的 OS 套件來源照舊使用。
-- 移除 `local_repository` 模式為 pip、uv 與 container runtime 寫的設定：帶 swallow 標記的 `/etc/pip.conf` 與
-  `/etc/uv/uv.toml`（沒有標記的是 user 的，保留）、containerd 的 drop-in 與整個 `certs.d` 目錄、紀錄中的 Docker registry（保留 `daemon.json` 的其他 key
-  與 user 的項目，再 reload Docker）與 Podman 的 drop-in。這些清除不看 `artifact_sources_containerd`、`_docker`、
-  `_podman`：來源是整個 Site 的選擇，主機上任何指向 Local Repository 的設定都要移除。
+- pip 與 uv：移除帶 swallow 標記的 `/etc/pip.conf` 與 `/etc/uv/uv.toml`（沒有標記的是 user 的，保留）。
+- container runtime：移除 containerd 的 drop-in 與整個 `certs.d` 目錄、紀錄中的 Docker registry（保留 `daemon.json` 的
+  其他 key 與 user 的項目，再 reload Docker）與 Podman 的 drop-in。這些清除不看 `artifact_sources_containerd`、`_docker`、
+  `_podman`：主機上任何指向 Local Repository registry 的設定都要移除。
 
-兩種模式都是 ensure：Site 切換來源之後，主機在下一支這類 playbook 在它上面執行時與新的來源一致，再次執行沒有變更（套件
-索引每次都刷新）。沒有再執行這類 playbook 的主機保留上一次的設定。
+兩種方向都是 ensure：Site 切換模式之後（或 `cache` 模式的 Local Repository 提供了更多內容之後），主機在下一支這類
+playbook 在它上面執行時與那次受理的來源一致，再次執行沒有變更（套件索引每次都刷新）。沒有再執行這類 playbook 的主機
+保留上一次的設定。
 
-role 取得 artifact 的方式在兩種模式相同：檔案以 `{{ swallow_artifacts.files['<path>'] }}` 下載、以宣告的 sha256 驗證；
+role 取得 artifact 的方式在各模式相同：檔案以 `{{ swallow_artifacts.files['<path>'] }}` 下載、以宣告的 sha256 驗證；
 Docker 與 Podman 上的 image 寫成 `{{ swallow_artifacts.images['<reference>'] }}`；k0s 上的 image 寫原本的 reference
 （從 Local Repository 取得時，containerd 經 mirror 解析）；模組宣告的 deb 來源以名稱確認它在 `swallow_artifacts.deb`
 裡（`docker_ce` 與 `grafana` 沒有時以 `[artifact_source_missing]` 失敗）；pip 與 uv 不由 role 指定 index，讀這個 role 寫的
@@ -377,14 +418,16 @@ Docker 與 Podman 上的 image 寫成 `{{ swallow_artifacts.images['<reference>'
 
 - `artifact_sources_role_test.go` 在 localhost 實際執行 role：從 Local Repository 取得
   （`TestArtifactSourcesPointsTheHostAtTheLocalRepository`）、從上游取得（`TestArtifactSourcesAddsTheDeclaredUpstreams`，
-  以 httptest 提供金鑰），以及兩個方向的切換（`TestArtifactSourcesSwitchesModesBothWays`）。
+  以 httptest 提供金鑰）、兩個方向的切換（`TestArtifactSourcesSwitchesModesBothWays`），以及 `cache` 模式的混合結果與
+  它和兩種純方向之間的切換（`TestArtifactSourcesMixesChannelsInCacheMode`）。
 - `playbook_catalog_artifacts_test.go`：manifest catalog 回報哪些 playbook 取得 artifact，並拒絕 schema 沒有的 key
   （包括退役的舊旗標），讓取得 artifact 的 playbook 不會在沒有 trusted var 的情況下執行。
 - `internal/core/workflow/application/execution_service_artifacts_test.go`：`PrepareAnsibleStep` 注入
-  `swallow_artifacts`，以及 Site 使用 Local Repository 而它沒有 ready 時受理被拒絕。
+  `swallow_artifacts`，以及 Site 的 Local Repository 是 `cache` 或 `offline` 而它沒有 ready 時受理被拒絕。
+- `internal/core/localrepo/application/resolver_test.go`：各模式的 `swallow_artifacts`，包括 `cache` 模式的逐項決定。
 
-模組 registry 另外要求每個模組宣告的 deb 來源都帶 `signingKey`（§5.1），所以從上游取得的來源都經過驗證；Site 使用
-Local Repository 而它沒有 ready 時，部署在受理時就被拒絕，不會跑到一半才因為下載失敗而停下（§8.1）。
+模組 registry 另外要求每個模組宣告的 deb 來源都帶 `signingKey`（§5.1），所以從上游取得的來源都經過驗證；`offline` 的
+Local Repository 沒有 ready 時，部署在受理時就被拒絕，不會跑到一半才因為下載失敗而停下（§8.1）。
 
 ## 9. 之後的格式與能力
 
@@ -399,12 +442,13 @@ Local Repository 而它沒有 ready 時，部署在受理時就被拒絕，不�
 
 **目標**：只有區域網路、完全不能連網際網路的 Site 也能讓 swallow 整體在區域網路內運作。installation 本身的離線媒體已由
 `deploy/third-party/offline-media-manifest.json` 描述；Local Repository 的內容改為從磁碟上的 bundle 匯入，而不是向上游
-同步。這樣的 Site 連不到上游，所以部署只能從 Local Repository 取得（`serveDeployments` 為 `true`，§2.1）。
+同步。這樣的 Site 連不到上游，所以部署只能從 Local Repository 取得（`mode` 為 `offline`，§2.1）；`offline` 模式已經
+存在，匯入補上的是它目前還需要網際網路的部分（Local Repository 本身向上游取得 deb 與 Python 套件）。
 
-**模式**：
+**取得內容的方式**：
 
 - Local Repository 取得內容的方式多一種「從匯入取得」，與現在的「向上游同步或 pull-through」（§6）並列；它決定 provider
-  的內容從哪裡來，不改變部署從哪裡取得。
+  的內容從哪裡來，不改變部署從哪裡取得（那是 `mode`）。
 - 這個模式下 controller 不連上游，只觀察 bundle 是否已提供宣告的內容（模組的 `artifacts` 與 Site 的來源，§5.3）。
 - `ready` 的語意不變：宣告的內容都到齊才 `ready`，部署的受理照舊只看它（§8.1）。缺的項目回報為需要匯入，而不是
   `syncing`；需要新的狀態值時，依 glossary 的流程加入 [Repository Source](glossaries/terms/repository-source.md) 的

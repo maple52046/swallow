@@ -98,12 +98,14 @@ ISO 的 card。**Build Boot ISO** 會從所選 Integration endpoint 建議 MAAS 
 自己保存的一份 deployment 所安裝的 package、image 與 file，以及這些 deployment 從哪裡取得它們。
 請先選擇 Site；只有一個 Site 的安裝會直接開啟它。
 
-- **Artifact source for deployments** 選擇 Site 的 deployment 從哪裡取得 artifact：**Upstream
-  sources**（每個 artifact 從其模組宣告的上游來源取得；Server 保留自己的 OS package 來源），或
-  **This local repository**（每個 artifact 都從這個 repository 取得；repository ready 之後才接受
-  deployment）。在有人變更之前，deployment 使用上游來源。選擇另一個選項時會先請你確認；已接受的
-  deployment 維持接受時的來源，之後也可以隨時切換回來。若在頁面讀取之後有其他人改了 repository，
-  什麼都不會儲存，頁面會顯示目前的選擇。
+- **Artifact source for deployments** 選擇 Site 的 deployment 怎麼使用這個 repository：**Upstream
+  sources**（每個 artifact 從其模組宣告的上游來源取得；Server 保留自己的 OS package 來源）、
+  **Cache**（這個 repository 已經提供的從它取得，其餘從上游來源；deployment 不必等它同步），或
+  **Offline**（每個 artifact 都只從這個 repository 取得；它提供每一項之後才接受 deployment）。在有人
+  變更之前，deployment 使用上游來源。選擇另一個選項時會先請你確認；已接受的 deployment 維持接受時的
+  來源，之後也可以隨時切換回來。若在頁面讀取之後有其他人改了 repository，什麼都不會儲存，頁面會顯示
+  目前的選擇。正在重新同步的來源會顯示 **Still serving its last sync**，因為這段期間 Server 仍取得它
+  上一次的同步內容。
 - deployment 使用這個 repository 時，狀態區塊說明從 repository 取得內容的 deployment 是否會被
   接受；不接受時，以 API 的說法列出卡住的原因。swallow 無法使用 Integration 的 credential 或
   content origin 時，會出現一則 alert，連到 Integration settings 中修正它的分頁。deployment 使用

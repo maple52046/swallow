@@ -765,3 +765,63 @@ func TestMigrateV13ToV14_PointsPlatformGrafanaAtItsLandingDashboard(t *testing.T
 		t.Errorf("schema version = %d, want %d", got, CurrentSchemaVersion)
 	}
 }
+
+// Each Local Repository keeps fetching where it did: serveDeployments true becomes offline, false or
+// none upstream, and an observed source serves exactly when it was ready. A record that already has
+// a mode keeps it.
+func TestMigrateV14ToV15_TurnsServeDeploymentsIntoTheMode(t *testing.T) {
+	db := testDatabase(t)
+	ctx := ctxFor(t)
+	if _, err := db.Collection("local_repositories").InsertMany(ctx, []any{
+		bson.M{"_id": "serving", "generation": 3, "spec": bson.M{"serveDeployments": true, "sources": []any{}},
+			"status": bson.M{"sources": []any{
+				bson.M{"source": bson.M{"name": "ubuntu"}, "state": "ready"},
+				bson.M{"source": bson.M{"name": "docker-ce"}, "state": "syncing"},
+			}}},
+		bson.M{"_id": "not-serving", "generation": 1, "spec": bson.M{"serveDeployments": false, "sources": []any{}}},
+		bson.M{"_id": "observed-only", "generation": 0, "spec": bson.M{"sources": []any{}}, "status": bson.M{"integrationId": "repo"}},
+		bson.M{"_id": "already", "generation": 2, "spec": bson.M{"mode": "cache", "sources": []any{}}},
+	}); err != nil {
+		t.Fatalf("seed local repositories: %v", err)
+	}
+	if _, err := db.Collection("schema_metadata").InsertOne(ctx, bson.M{
+		"_id": "database", "version": 14, "updatedAt": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed schema marker: %v", err)
+	}
+
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	type record struct {
+		Spec struct {
+			Mode             string `bson:"mode"`
+			ServeDeployments *bool  `bson:"serveDeployments"`
+		} `bson:"spec"`
+		Status struct {
+			Sources []struct {
+				Serving *bool `bson:"serving"`
+			} `bson:"sources"`
+		} `bson:"status"`
+	}
+	read := func(id string) record {
+		var doc record
+		if err := db.Collection("local_repositories").FindOne(ctx, bson.M{"_id": id}).Decode(&doc); err != nil {
+			t.Fatalf("read %s: %v", id, err)
+		}
+		return doc
+	}
+	for id, mode := range map[string]string{"serving": "offline", "not-serving": "upstream", "observed-only": "upstream", "already": "cache"} {
+		doc := read(id)
+		if doc.Spec.Mode != mode || doc.Spec.ServeDeployments != nil {
+			t.Errorf("%s spec = mode %q, serveDeployments %v; want mode %q and no serveDeployments", id, doc.Spec.Mode, doc.Spec.ServeDeployments, mode)
+		}
+	}
+	sources := read("serving").Status.Sources
+	if len(sources) != 2 || sources[0].Serving == nil || !*sources[0].Serving || sources[1].Serving == nil || *sources[1].Serving {
+		t.Errorf("serving after migration = %+v, want the ready source serving and the syncing one not", sources)
+	}
+	if got := schemaVersion(t, ctx, db); got != CurrentSchemaVersion {
+		t.Errorf("schema version = %d, want %d", got, CurrentSchemaVersion)
+	}
+}

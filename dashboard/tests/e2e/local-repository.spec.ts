@@ -36,7 +36,7 @@ test('the Local repository tab shows the scoped Site\'s readiness, sources, file
 
   await expect(page).toHaveURL('/infrastructure/local-repository?site=site-a')
   await expect(page.getByRole('tab', { name: 'Local repository' })).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByText('Deployments that fetch from the Local Repository are accepted.')).toBeVisible()
+  await expect(page.getByText('Deployments are accepted and fetch every artifact from the local repository.')).toBeVisible()
   await expect(page.getByText('http://10.170.168.20:8080', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Copy content origin' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Pulp Taipei' })).toHaveAttribute('href', '/infrastructure/integrations/repo-a/general?site=site-a')
@@ -89,7 +89,7 @@ test('a syncing repository says why deployments wait and settles in place', asyn
   await expect(sources.getByRole('row', { name: /^grafana/ })).toContainText('Ready', { timeout: 10_000 })
   await expect(kubeProxy).toContainText('Ready')
   await expect(kubeProxy).toContainText('29 MiB')
-  await expect(page.getByText('Deployments that fetch from the Local Repository are accepted.')).toBeVisible()
+  await expect(page.getByText('Deployments are accepted and fetch every artifact from the local repository.')).toBeVisible()
   await expect(page.getByText('Updating every 5 s while it converges')).toHaveCount(0)
 })
 
@@ -257,7 +257,7 @@ test('Manage user sources adds a deb source and saves the whole list with its ge
   await expect(page.getByText('User sources saved')).toBeVisible()
   expect(writes).toEqual([{
     generation: 1,
-    serveDeployments: true,
+    mode: 'offline',
     sources: [
       ubuntuSource,
       { name: 'ubuntu-ports', format: 'deb', url: 'http://ports.ubuntu.com/ubuntu-ports', suites: ['noble', 'noble-updates'], components: ['main'], architectures: ['arm64'] },
@@ -304,7 +304,7 @@ test('switching deployments to the upstream sources asks first and writes the wh
 
   const setting = page.getByRole('radiogroup', { name: 'Artifact source for deployments' })
   const upstream = setting.getByRole('radio', { name: /^Upstream sources/ })
-  const local = setting.getByRole('radio', { name: /^This local repository/ })
+  const local = setting.getByRole('radio', { name: /^Offline/ })
   await expect(local).toBeChecked()
 
   // Cancelling leaves the stored choice and writes nothing.
@@ -320,7 +320,7 @@ test('switching deployments to the upstream sources asks first and writes the wh
   await setting.getByText('Upstream sources', { exact: true }).click()
   await confirm.getByRole('button', { name: 'Use the upstream sources' }).click()
   await expect(page.getByText('Deployments use the upstream sources', { exact: true })).toBeVisible()
-  expect(writes).toEqual([{ generation: 1, serveDeployments: false, sources: [ubuntuSource] }])
+  expect(writes).toEqual([{ generation: 1, mode: 'upstream', sources: [ubuntuSource] }])
 
   // The page now reads as a Site that fetches from the upstreams, not as a failed repository.
   await expect(upstream).toBeChecked()
@@ -332,7 +332,7 @@ test('switching deployments to the upstream sources asks first and writes the wh
 })
 
 test('a Site that fetches from the upstream sources reads the last observation without alarms', async ({ page }) => {
-  await installApiFixtures(page, { localRepository: 'not-serving' })
+  await installApiFixtures(page, { localRepository: 'upstream' })
   await page.goto('/infrastructure/local-repository?site=site-a')
 
   await expect(page.getByRole('radio', { name: /^Upstream sources/ })).toBeChecked()
@@ -362,21 +362,21 @@ test('a Site that fetches from the upstream sources reads the last observation w
   await expect(page.locator('.sw-local-repository .sw-progress-spinner')).toHaveCount(0)
 })
 
-test('switching deployments to the local repository starts its synchronization', async ({ page }) => {
-  await installApiFixtures(page, { localRepository: 'not-serving' })
+test('switching deployments to only the local repository starts its synchronization', async ({ page }) => {
+  await installApiFixtures(page, { localRepository: 'upstream' })
   const writes = recordSpecWrites(page)
   await page.goto('/infrastructure/local-repository?site=site-a')
 
   const setting = page.getByRole('radiogroup', { name: 'Artifact source for deployments' })
-  await setting.getByText('This local repository', { exact: true }).click()
-  const confirm = page.getByRole('alertdialog', { name: 'Fetch deployment artifacts from this local repository?' })
-  await expect(confirm).toContainText('Swallow starts synchronizing it now, and deployments are refused until it is ready.')
+  await setting.getByText('Offline', { exact: true }).click()
+  const confirm = page.getByRole('alertdialog', { name: 'Fetch every deployment artifact from this local repository?' })
+  await expect(confirm).toContainText('Swallow synchronizes it, and deployments are refused until it serves everything they may fetch.')
   await expect(confirm).toContainText('Deployments already accepted keep the source they were accepted with.')
-  await confirm.getByRole('button', { name: 'Use this local repository' }).click()
+  await confirm.getByRole('button', { name: 'Use only this local repository' }).click()
 
-  await expect(page.getByText('Deployments use the local repository', { exact: true })).toBeVisible()
-  expect(writes).toEqual([{ generation: 1, serveDeployments: true, sources: [ubuntuSource] }])
-  await expect(setting.getByRole('radio', { name: /^This local repository/ })).toBeChecked()
+  await expect(page.getByText('Deployments use only the local repository', { exact: true })).toBeVisible()
+  expect(writes).toEqual([{ generation: 1, mode: 'offline', sources: [ubuntuSource] }])
+  await expect(setting.getByRole('radio', { name: /^Offline/ })).toBeChecked()
   // Readiness reads as today again: not ready yet, the polling cue, and the items in progress.
   await expect(page.getByText('Not ready', { exact: true })).toBeVisible()
   await expect(page.getByText('Updating every 5 s while it converges')).toBeVisible()
@@ -386,7 +386,7 @@ test('switching deployments to the local repository starts its synchronization',
   await expect(sources.getByRole('row', { name: /^docker-ce/ })).toContainText('Failed')
   // Until the worker judges the new generation, its earlier `not_serving` judgement reads as waiting.
   await expect(page.getByText('The worker has not checked the repository since deployments started using it; it synchronizes it shortly.')).toBeVisible()
-  await expect(page.getByText('the spec does not serve deployments')).toHaveCount(0)
+  await expect(page.getByText(/its mode is upstream/)).toHaveCount(0)
   // Then the API's own explanation of what is in the way.
   await expect(page.getByText(/source docker-ce failed: 404 Not Found; source docker\.io is pending/)).toBeVisible({ timeout: 10_000 })
 })
@@ -402,13 +402,13 @@ test('the setting refuses to overwrite a spec someone else changed and shows the
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
   await expect(page.getByText("This Site's Local Repository changed since the page read it")).toBeVisible()
   await expect(page.getByText('Nothing was saved. The choice below is the current one; change it again if you still want to.')).toBeVisible()
-  await expect(setting.getByRole('radio', { name: /^This local repository/ })).toBeChecked()
+  await expect(setting.getByRole('radio', { name: /^Offline/ })).toBeChecked()
 
   // The next attempt is made on the newer generation, with the other admin's sources kept.
   await setting.getByText('Upstream sources', { exact: true }).click()
   await page.getByRole('alertdialog').getByRole('button', { name: 'Use the upstream sources' }).click()
   await expect(page.getByText('Deployments use the upstream sources', { exact: true })).toBeVisible()
-  expect(writes.map((body) => [body.generation, body.serveDeployments])).toEqual([[1, false], [2, false]])
+  expect(writes.map((body) => [body.generation, body.mode])).toEqual([[1, 'upstream'], [2, 'upstream']])
   expect(writes[1].sources).toEqual([
     ubuntuSource,
     { name: 'ports', format: 'deb', url: 'http://ports.ubuntu.com/ubuntu-ports', suites: ['noble'], components: ['main'], architectures: ['arm64'] },
@@ -416,7 +416,7 @@ test('the setting refuses to overwrite a spec someone else changed and shows the
 })
 
 test('Manage user sources keeps where deployments fetch artifacts', async ({ page }) => {
-  await installApiFixtures(page, { localRepository: 'not-serving' })
+  await installApiFixtures(page, { localRepository: 'upstream' })
   const writes = recordSpecWrites(page)
   await page.goto('/infrastructure/local-repository?site=site-a')
   await page.getByRole('button', { name: 'Manage user sources' }).click()
@@ -426,6 +426,44 @@ test('Manage user sources keeps where deployments fetch artifacts', async ({ pag
   await dialog.getByRole('button', { name: 'Save sources' }).click()
   await expect(page.getByText('User sources saved')).toBeVisible()
   await expect(page.getByText("The worker syncs new sources once this Site's deployments use the local repository.")).toBeVisible()
-  expect(writes).toEqual([{ generation: 1, serveDeployments: false, sources: [] }])
+  expect(writes).toEqual([{ generation: 1, mode: 'upstream', sources: [] }])
   await expect(page.getByRole('radio', { name: /^Upstream sources/ })).toBeChecked()
+})
+
+test('switching deployments to the cache accepts them at once while the repository still synchronizes', async ({ page }) => {
+  await installApiFixtures(page, { localRepository: 'upstream' })
+  const writes = recordSpecWrites(page)
+  await page.goto('/infrastructure/local-repository?site=site-a')
+
+  const setting = page.getByRole('radiogroup', { name: 'Artifact source for deployments' })
+  await setting.getByText('Cache', { exact: true }).click()
+  const confirm = page.getByRole('alertdialog', { name: 'Use this local repository as a cache?' })
+  await expect(confirm).toContainText('fetch from this local repository what it already serves, and the rest from the upstream source its module declares.')
+  await confirm.getByRole('button', { name: 'Use it as a cache' }).click()
+
+  await expect(page.getByText('Deployments use the local repository as a cache', { exact: true })).toBeVisible()
+  expect(writes).toEqual([{ generation: 1, mode: 'cache', sources: [ubuntuSource] }])
+  await expect(setting.getByRole('radio', { name: /^Cache/ })).toBeChecked()
+  // The repository converges again, but deployments do not wait for it.
+  await expect(page.getByText('Ready', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('Not ready', { exact: true })).toHaveCount(0)
+  // The failed docker-ce archive, the pending docker.io cache, the syncing grafana archive, and the
+  // pending k0s binary are not served yet.
+  await expect(page.getByText(/^Deployments are accepted\. 4 sources or files are not served yet/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Sync now' })).toBeVisible()
+  await expect(page.getByText('Updating every 5 s while it converges')).toBeVisible()
+})
+
+test('in cache mode a source whose resync runs reads as still serving its last sync', async ({ page }) => {
+  await installApiFixtures(page, { localRepository: 'cache' })
+  await page.goto('/infrastructure/local-repository?site=site-a')
+
+  await expect(page.getByRole('radio', { name: /^Cache/ })).toBeChecked()
+  await expect(page.getByText(/^Deployments are accepted\. 3 sources or files are not served yet/)).toBeVisible()
+  const sources = page.getByRole('table', { name: 'Repository sources' })
+  const dockerCe = sources.getByRole('row', { name: /^docker-ce/ })
+  await expect(dockerCe).toContainText('Syncing')
+  await expect(dockerCe).toContainText('Still serving its last sync')
+  // A first sync serves nothing yet, so it says nothing of the kind.
+  await expect(sources.getByRole('row', { name: /^grafana/ })).not.toContainText('Still serving its last sync')
 })

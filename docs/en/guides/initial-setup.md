@@ -6,8 +6,8 @@ Initial setup establishes the Site boundary, external Integrations, and the
 automation policy required before swallow can manage Servers.
 
 The [production installation](../installation.md) already performs steps 1 to 5 for the
-Site `default` with its co-located MAAS, its Prometheus, and its local repository, which it leaves off
-(step 4 turns it on). Use this guide to review that result, to add more
+Site `default` with its co-located MAAS, its Prometheus, and its local repository, which deployments
+do not use yet (step 4 chooses how they use it). Use this guide to review that result, to add more
 Sites, or to set up a development stack.
 
 ## 1. Create the Site
@@ -89,21 +89,31 @@ Site chooses where they come from:
   source its module declares. Files are checked against their declared checksums
   and package archives against their declared signing keys, and the Server keeps
   its own OS package sources.
-- **The Site's local repository**: a repository next to swallow (Pulp, in the
-  same installation) fetches each artifact from its upstream once and serves it
-  to every Server of the Site, which then fetches only from it. OS package
-  indexes are signed with the Site's own key and files are checked against their
-  declared checksums.
+- **Cache**: the Site's local repository, a repository next to swallow (Pulp, in
+  the same installation), fetches each artifact from its upstream once and serves
+  it to every Server of the Site. Servers fetch what it already serves from it and
+  the rest from the upstream sources, so deployments never wait for it to
+  synchronize, and Servers must still reach the upstreams.
+- **Offline**: Servers fetch every artifact only from the local repository, so
+  they never reach the Internet. Deployments are accepted once it serves
+  everything they may fetch. The local repository itself still fetches packages
+  from the upstreams the first time they are asked for, so swallow's host needs
+  Internet access while it fills.
+
+In both local repository modes OS package indexes are signed with the Site's own
+key and files are checked against their declared checksums.
 
 The production installation registers the local repository as the Site's
 `repository` / `pulp` Integration, adds the Ubuntu archive as the Site's `ubuntu`
-source, and leaves it off. A Site has at most one. To use it, choose **This local
-repository** as the **Artifact source for deployments** under **Infrastructure →
-Local repository** (`serveDeployments` in the API): the local repository starts
-fetching its content, and deployments are accepted once it is ready. Until then they are refused, and the message names what to wait for or
-fix. Choosing **Upstream sources** again makes later deployments fetch from the
-upstream sources; what the local repository already holds is kept. A deployed Server follows the
-Site's choice the next time a deployment runs on it.
+source, and leaves the Site on **Upstream sources**. A Site has at most one. To
+use it, choose **Cache** or **Offline** as the **Artifact source for
+deployments** under **Infrastructure → Local repository** (`mode` in the API):
+the local repository starts fetching its content. In cache mode deployments are
+accepted at once; in offline mode they are accepted once it is ready, and until
+then they are refused with a message that names what to wait for or fix.
+Choosing **Upstream sources** again makes later deployments fetch from the
+upstream sources; what the local repository already holds is kept. A deployed
+Server follows the Site's choice the next time a deployment runs on it.
 
 Everything the local repository holds besides the `ubuntu` source is declared by
 swallow's own modules, for example the Docker CE package archive, the k0s binary,

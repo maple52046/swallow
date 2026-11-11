@@ -324,7 +324,7 @@ credential:
   apiKey: "REDACTED-MAAS-API-KEY"
 ```
 
-`repository` Integration 是 Site 的 Local Repository，Site 打開它之後部署的所有 artifact 都從它取得；
+`repository` Integration 是 Site 的 Local Repository，Site 選擇它的 cache 或 offline 模式之後，部署從它取得 artifact；
 一個 Site 至多一個。`endpoint` 是 swallow 呼叫 provider API 的位址，`settings.contentOrigin`（必填）是
 Site 的 Server 讀取內容的位址，credential 是 provider 的 admin 密碼：
 

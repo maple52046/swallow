@@ -61,7 +61,9 @@ func upstreamRegistryURL(source localrepodomain.Source) (string, error) {
 // registry host hosts mirror (the distribution's registry path, so images read as
 // <registry>/<host>/<path>), and the download timeouts of the remotes Pulp created beneath it. It is
 // ready once the distribution exists and no update of those remotes is in flight; ContentCount is
-// how many images were pulled through it so far.
+// how many images were pulled through it so far. It is serving once the distribution exists and
+// neither it nor the pull-through remote is being changed: the timeouts of the image remotes do not
+// keep a pull from working.
 func (r *Repository) ensureOCI(ctx context.Context, source localrepodomain.Source) (localrepodomain.SourceStatus, error) {
 	upstream, err := upstreamRegistryURL(source)
 	if err != nil {
@@ -91,6 +93,7 @@ func (r *Repository) ensureOCI(ctx context.Context, source localrepodomain.Sourc
 		return localrepodomain.SourceStatus{}, err
 	}
 	status := sourceStatus(source, worst(remoteStep, imageRemotesStep, distributionStep))
+	status.Serving = pullingThrough(distribution, remoteStep, distributionStep)
 	if distribution != nil {
 		status.ContentCount = len(distribution.list("distributions"))
 	}

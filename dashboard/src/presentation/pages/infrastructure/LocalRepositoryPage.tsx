@@ -3,7 +3,7 @@ import { Button } from '@chakra-ui/react'
 import { DatabaseZap, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
-import type { LocalRepository } from '@/domain/localRepository/types'
+import { modeConverges, type LocalRepository } from '@/domain/localRepository/types'
 import { DataToolbar } from '@/presentation/components/ConsolePrimitives'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -27,7 +27,8 @@ import { UserSourcesSection } from './UserSourcesSection'
 /**
  * Infrastructure → Local repository (`/infrastructure/local-repository`): one Site's Local
  * Repository, its own copy of every artifact a deployment installs, and the setting that decides
- * whether its deployments fetch from it or from the upstreams the modules declare (decision 078).
+ * how its deployments use it, its mode: not at all, as a cache, or as their only source (decision
+ * 078).
  *
  * A Local Repository belongs to one Site, so the page needs one: the global Site scope when set,
  * or the only Site of an installation that has one. With several Sites and none scoped it asks for
@@ -85,11 +86,11 @@ export function LocalRepositoryPage() {
  *   setting, see `ArtifactSourceSection`), the effective sources and their observed state, the
  *   user's sources, the declared files and images with their observed state, the declared Python
  *   packages, and the content browser. It re-reads while anything syncs (see `useLocalRepository`).
- *   While the spec does not serve deployments the worker converges nothing, so the observed states
- *   read as the last observation (`synchronizing`), and nothing polls.
+ *   In upstream mode the worker converges nothing, so the observed states read as the last
+ *   observation (`synchronizing`), and nothing polls.
  * - "Sync now" asks the worker to converge now (`POST .../sync`); the request returns at once and
- *   the page keeps re-reading until the worker records its next observation. It is offered only
- *   while the spec serves deployments, since otherwise the worker does not converge the repository.
+ *   the page keeps re-reading until the worker records its next observation. It is offered only in
+ *   cache and offline mode, since in upstream mode the worker does not converge the repository.
  * - The setting and "Manage user sources" each write the whole spec with the generation they read;
  *   a stale generation re-reads the repository and each says nothing was saved (see
  *   `ArtifactSourceSection` and `UserSourcesDialog`).
@@ -127,7 +128,7 @@ function LocalRepositoryWorkspace({ siteId }: { siteId: string }) {
     showToast({
       tone: 'success',
       title: 'User sources saved',
-      description: saved.spec.serveDeployments
+      description: modeConverges(saved.spec.mode)
         ? 'New sources read Pending until the worker syncs them.'
         : "The worker syncs new sources once this Site's deployments use the local repository.",
     })
@@ -141,7 +142,7 @@ function LocalRepositoryWorkspace({ siteId }: { siteId: string }) {
     <div className="console-page sw-local-repository">
       <InfrastructureHeader
         actions={
-          state.status === 'ready' && state.repository.spec.serveDeployments ? (
+          state.status === 'ready' && modeConverges(state.repository.spec.mode) ? (
             <Button colorPalette="brand" onClick={() => void requestSync()} loading={requestingSync} disabled={requestingSync}>
               <RefreshCw size={16} aria-hidden />
               Sync now
@@ -163,10 +164,10 @@ function LocalRepositoryWorkspace({ siteId }: { siteId: string }) {
         <>
           <LocalRepositorySummary repository={state.repository} refreshError={state.refreshError} />
           <ArtifactSourceSection siteId={siteId} repository={state.repository} onSaved={replace} onConflict={reload} />
-          <RepositorySourcesSection sources={state.repository.sources} synchronizing={state.repository.spec.serveDeployments} />
+          <RepositorySourcesSection sources={state.repository.sources} synchronizing={modeConverges(state.repository.spec.mode)} />
           <UserSourcesSection spec={state.repository.spec} onManage={() => setManaging(true)} />
-          <RepositoryFilesSection files={state.repository.files} synchronizing={state.repository.spec.serveDeployments} />
-          <RepositoryImagesSection images={state.repository.images} synchronizing={state.repository.spec.serveDeployments} />
+          <RepositoryFilesSection files={state.repository.files} synchronizing={modeConverges(state.repository.spec.mode)} />
+          <RepositoryImagesSection images={state.repository.images} synchronizing={modeConverges(state.repository.spec.mode)} />
           <RepositoryDeclarationsSection python={state.repository.python} />
           <LocalRepositoryContentBrowser siteId={siteId} sources={state.repository.sources} />
           {managing && (

@@ -65,19 +65,22 @@ func TestServicePutSpec(t *testing.T) {
 		Name: " ubuntu ", Format: localrepodomain.FormatDeb, URL: " http://archive.example/ubuntu/ ",
 		Suites: []string{"noble", " noble-updates "}, Components: []string{"main"}, Architectures: []string{"amd64"},
 	}
+	upstream := localrepodomain.ModeUpstream
 	for _, tc := range []struct {
 		name    string
 		input   PutSpecInput
 		wantErr error
 	}{
-		{"bad name", PutSpecInput{Sources: []localrepodomain.Source{{Name: "Ubuntu!", Format: "deb", URL: "http://x.example"}}}, localrepodomain.ErrInvalidSpec},
-		{"unknown format", PutSpecInput{Sources: []localrepodomain.Source{{Name: "x", Format: "zip", URL: "http://x.example"}}}, localrepodomain.ErrInvalidSpec},
-		{"credentials in URL", PutSpecInput{Sources: []localrepodomain.Source{{Name: "x", Format: "oci", URL: "https://user:pw@x.example"}}}, localrepodomain.ErrInvalidSpec},
-		{"deb without suites", PutSpecInput{Sources: []localrepodomain.Source{{Name: "x", Format: "deb", URL: "http://x.example", Components: []string{"main"}}}}, localrepodomain.ErrInvalidSpec},
-		{"suites on oci", PutSpecInput{Sources: []localrepodomain.Source{{Name: "x", Format: "oci", URL: "https://x.example", Suites: []string{"a"}}}}, localrepodomain.ErrInvalidSpec},
-		{"listed twice", PutSpecInput{Sources: []localrepodomain.Source{ubuntu, ubuntu}}, localrepodomain.ErrInvalidSpec},
-		{"contradicts a module", PutSpecInput{Sources: []localrepodomain.Source{debSource("docker-ce", "https://mirror.example/", []string{"noble"}, []string{"stable"})}}, localrepodomain.ErrInvalidSpec},
-		{"stale generation", PutSpecInput{Generation: 4, Sources: []localrepodomain.Source{ubuntu}}, localrepodomain.ErrGenerationConflict},
+		{"no mode", PutSpecInput{Sources: []localrepodomain.Source{ubuntu}}, localrepodomain.ErrInvalidSpec},
+		{"unknown mode", PutSpecInput{Mode: "mirror", Sources: []localrepodomain.Source{ubuntu}}, localrepodomain.ErrInvalidSpec},
+		{"bad name", PutSpecInput{Mode: upstream, Sources: []localrepodomain.Source{{Name: "Ubuntu!", Format: "deb", URL: "http://x.example"}}}, localrepodomain.ErrInvalidSpec},
+		{"unknown format", PutSpecInput{Mode: upstream, Sources: []localrepodomain.Source{{Name: "x", Format: "zip", URL: "http://x.example"}}}, localrepodomain.ErrInvalidSpec},
+		{"credentials in URL", PutSpecInput{Mode: upstream, Sources: []localrepodomain.Source{{Name: "x", Format: "oci", URL: "https://user:pw@x.example"}}}, localrepodomain.ErrInvalidSpec},
+		{"deb without suites", PutSpecInput{Mode: upstream, Sources: []localrepodomain.Source{{Name: "x", Format: "deb", URL: "http://x.example", Components: []string{"main"}}}}, localrepodomain.ErrInvalidSpec},
+		{"suites on oci", PutSpecInput{Mode: upstream, Sources: []localrepodomain.Source{{Name: "x", Format: "oci", URL: "https://x.example", Suites: []string{"a"}}}}, localrepodomain.ErrInvalidSpec},
+		{"listed twice", PutSpecInput{Mode: upstream, Sources: []localrepodomain.Source{ubuntu, ubuntu}}, localrepodomain.ErrInvalidSpec},
+		{"contradicts a module", PutSpecInput{Mode: upstream, Sources: []localrepodomain.Source{debSource("docker-ce", "https://mirror.example/", []string{"noble"}, []string{"stable"})}}, localrepodomain.ErrInvalidSpec},
+		{"stale generation", PutSpecInput{Generation: 4, Mode: upstream, Sources: []localrepodomain.Source{ubuntu}}, localrepodomain.ErrGenerationConflict},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newServiceFixture()
@@ -88,31 +91,31 @@ func TestServicePutSpec(t *testing.T) {
 	}
 
 	f := newServiceFixture()
-	if _, err := f.service.PutSpec(ctx, "site-2", PutSpecInput{Sources: []localrepodomain.Source{ubuntu}}); !errors.Is(err, localrepodomain.ErrNoRepositoryIntegration) {
+	if _, err := f.service.PutSpec(ctx, "site-2", PutSpecInput{Mode: upstream, Sources: []localrepodomain.Source{ubuntu}}); !errors.Is(err, localrepodomain.ErrNoRepositoryIntegration) {
 		t.Errorf("PutSpec(site-2) = %v, want ErrNoRepositoryIntegration", err)
 	}
-	view, err := f.service.PutSpec(ctx, "site-1", PutSpecInput{Generation: 0, ServeDeployments: true, Sources: []localrepodomain.Source{ubuntu}})
+	view, err := f.service.PutSpec(ctx, "site-1", PutSpecInput{Generation: 0, Mode: localrepodomain.ModeOffline, Sources: []localrepodomain.Source{ubuntu}})
 	if err != nil {
 		t.Fatalf("PutSpec: %v", err)
 	}
 	want := debSource("ubuntu", "http://archive.example/ubuntu/", []string{"noble", "noble-updates"}, []string{"main"})
 	want.Architectures = []string{"amd64"}
-	if view.Generation != 1 || !view.Spec.ServeDeployments || !reflect.DeepEqual(view.Spec.Sources, []localrepodomain.Source{want}) || len(view.Sources) != 3 {
-		t.Errorf("PutSpec = generation %d spec %+v, %d sources; want generation 1 serving deployments, the trimmed source, three effective sources",
+	if view.Generation != 1 || view.Spec.Mode != localrepodomain.ModeOffline || !reflect.DeepEqual(view.Spec.Sources, []localrepodomain.Source{want}) || len(view.Sources) != 3 {
+		t.Errorf("PutSpec = generation %d spec %+v, %d sources; want generation 1 in offline mode, the trimmed source, three effective sources",
 			view.Generation, view.Spec, len(view.Sources))
 	}
-	// Until the controller observes the new spec, the first thing in the way is that; turning
-	// serving off makes not serving the first.
+	// Until the controller observes the new spec, the first thing in the way is that; switching to
+	// upstream makes not_serving the first.
 	if view.Ready || view.NotReady[0].Reason != localrepodomain.ReasonNotObserved {
-		t.Errorf("PutSpec serving: ready %v, causes %+v; want not ready, not_observed first", view.Ready, view.NotReady)
+		t.Errorf("PutSpec offline: ready %v, causes %+v; want not ready, not_observed first", view.Ready, view.NotReady)
 	}
-	view, err = f.service.PutSpec(ctx, "site-1", PutSpecInput{Generation: 1, Sources: []localrepodomain.Source{ubuntu}})
-	if err != nil || view.Spec.ServeDeployments || view.Ready || view.NotReady[0].Reason != localrepodomain.ReasonNotServing {
-		t.Errorf("PutSpec turning serving off = %+v, %v; want not serving, not_serving first", view, err)
+	view, err = f.service.PutSpec(ctx, "site-1", PutSpecInput{Generation: 1, Mode: localrepodomain.ModeUpstream, Sources: []localrepodomain.Source{ubuntu}})
+	if err != nil || view.Spec.Mode != localrepodomain.ModeUpstream || view.Ready || view.NotReady[0].Reason != localrepodomain.ReasonNotServing {
+		t.Errorf("PutSpec switching to upstream = %+v, %v; want upstream, not_serving first", view, err)
 	}
-	// Nothing converges while not serving, so the unobserved spec and its pending items are no cause.
+	// Nothing converges in upstream mode, so the unobserved spec and its pending items are no cause.
 	if len(view.NotReady) != 1 {
-		t.Errorf("PutSpec turning serving off: causes %+v, want only not_serving", view.NotReady)
+		t.Errorf("PutSpec switching to upstream: causes %+v, want only not_serving", view.NotReady)
 	}
 }
 

@@ -37,6 +37,9 @@ func TestEnsureDebSourceCreatesObjectsAndSyncsOnce(t *testing.T) {
 		t.Fatalf("EnsureSource(ubuntu) error = %v", err)
 	}
 	wantState(t, "first EnsureSource", first.State, localrepodomain.SyncPending)
+	if first.Serving {
+		t.Errorf("first EnsureSource Serving = true, want false before the first sync")
+	}
 
 	remote := f.named(debRemotes, "ubuntu")
 	if remote == nil || remote.str("url") != "http://archive.ubuntu.com/ubuntu/" || remote.str("policy") != "on_demand" ||
@@ -58,8 +61,8 @@ func TestEnsureDebSourceCreatesObjectsAndSyncsOnce(t *testing.T) {
 		t.Fatalf("second EnsureSource(ubuntu) error = %v", err)
 	}
 	wantState(t, "second EnsureSource", second.State, localrepodomain.SyncReady)
-	if second.ContentCount != 2 || second.LastSyncedAt == nil || !second.LastSyncedAt.Equal(f.clock()) {
-		t.Errorf("second EnsureSource = %+v, want 2 packages synced at %s", second, f.clock())
+	if second.ContentCount != 2 || second.LastSyncedAt == nil || !second.LastSyncedAt.Equal(f.clock()) || !second.Serving {
+		t.Errorf("second EnsureSource = %+v, want 2 packages synced at %s and served", second, f.clock())
 	}
 	distribution := f.named(debDistributions, "ubuntu")
 	if distribution == nil || distribution.str("base_path") != "deb/ubuntu" || distribution.str("repository") != repository.href() {
@@ -93,6 +96,9 @@ func TestEnsureDebSourceReportsInFlightSyncWithoutStartingAnother(t *testing.T) 
 	if status.LastSyncedAt == nil {
 		t.Errorf("resync LastSyncedAt = nil, want the previous successful sync")
 	}
+	if !status.Serving {
+		t.Errorf("resync Serving = false, want true: the previous publication is still served")
+	}
 
 	status, err = repo.EnsureSource(ctx, ubuntuSource())
 	if err != nil {
@@ -105,6 +111,9 @@ func TestEnsureDebSourceReportsInFlightSyncWithoutStartingAnother(t *testing.T) 
 		t.Fatalf("EnsureSource(ubuntu) while running error = %v", err)
 	}
 	wantState(t, "running sync", status.State, localrepodomain.SyncSyncing)
+	if !status.Serving {
+		t.Errorf("running resync Serving = false, want true")
+	}
 
 	repository := f.named(debRepositories, "ubuntu")
 	if got := len(f.requestsTo("POST", repository.href()+"sync/")); got != 2 {
@@ -127,8 +136,8 @@ func TestEnsureDebSourceReportsFailedSyncAndRetriesLater(t *testing.T) {
 		t.Fatalf("EnsureSource(ubuntu) after the failure error = %v", err)
 	}
 	wantState(t, "failed sync", status.State, localrepodomain.SyncFailed)
-	if !strings.Contains(status.Message, "Cannot connect to host archive.ubuntu.com") || status.LastSyncedAt != nil {
-		t.Errorf("failed sync status = %+v, want Pulp's reason and no successful sync", status)
+	if !strings.Contains(status.Message, "Cannot connect to host archive.ubuntu.com") || status.LastSyncedAt != nil || status.Serving {
+		t.Errorf("failed sync status = %+v, want Pulp's reason, no successful sync, and nothing served", status)
 	}
 
 	repository := f.named(debRepositories, "ubuntu")
@@ -141,6 +150,34 @@ func TestEnsureDebSourceReportsFailedSyncAndRetriesLater(t *testing.T) {
 	wantState(t, "retried sync", status.State, localrepodomain.SyncPending)
 	if got := len(f.requestsTo("POST", repository.href()+"sync/")); got != 2 {
 		t.Errorf("sync requests = %d, want the failed one and a retry", got)
+	}
+}
+
+func TestEnsureDebSourceKeepsServingThroughAFailedResync(t *testing.T) {
+	f := newFakePulp(t)
+	f.seedSigningService()
+	repo := f.newRepository(t)
+	ctx := context.Background()
+	for range 2 {
+		if _, err := repo.EnsureSource(ctx, ubuntuSource()); err != nil {
+			t.Fatalf("EnsureSource(ubuntu) error = %v", err)
+		}
+	}
+
+	f.advance(resyncInterval + time.Minute)
+	f.setSyncError("ubuntu", "Cannot connect to host archive.ubuntu.com:80")
+	for range 2 {
+		if _, err := repo.EnsureSource(ctx, ubuntuSource()); err != nil {
+			t.Fatalf("EnsureSource(ubuntu) during the resync error = %v", err)
+		}
+	}
+	status, err := repo.EnsureSource(ctx, ubuntuSource())
+	if err != nil {
+		t.Fatalf("EnsureSource(ubuntu) after the failed resync error = %v", err)
+	}
+	wantState(t, "failed resync", status.State, localrepodomain.SyncFailed)
+	if !status.Serving || status.LastSyncedAt == nil {
+		t.Errorf("failed resync status = %+v, want the first sync still served", status)
 	}
 }
 
@@ -163,6 +200,9 @@ func TestEnsureDebSourceUpdatesChangedRemoteAndResyncs(t *testing.T) {
 		t.Fatalf("EnsureSource(changed ubuntu) error = %v", err)
 	}
 	wantState(t, "changed source", status.State, localrepodomain.SyncPending)
+	if status.Serving {
+		t.Errorf("changed source Serving = true, want false until it is synced with the new components")
+	}
 	remote := f.named(debRemotes, "ubuntu")
 	patches := f.requestsTo("PATCH", remote.href())
 	if len(patches) != 1 || patches[0].body["components"] != "main universe restricted" || len(patches[0].body) != 1 {
@@ -174,6 +214,12 @@ func TestEnsureDebSourceUpdatesChangedRemoteAndResyncs(t *testing.T) {
 	repository := f.named(debRepositories, "ubuntu")
 	if got := len(f.requestsTo("POST", repository.href()+"sync/")); got != 2 {
 		t.Errorf("sync requests = %d, want a resync after the remote changed", got)
+	}
+	if status, err = repo.EnsureSource(ctx, changed); err != nil {
+		t.Fatalf("EnsureSource(changed ubuntu) after the resync error = %v", err)
+	}
+	if !status.Serving {
+		t.Errorf("changed source Serving after its resync = false, want true")
 	}
 
 	// The same suites in another order are not a change.
@@ -241,6 +287,9 @@ func TestEnsureDebSourceAdoptsRepositoryPublishedByHand(t *testing.T) {
 		t.Fatalf("EnsureSource(docker-ce) error = %v", err)
 	}
 	wantState(t, "adopted source", status.State, localrepodomain.SyncPending)
+	if status.Serving {
+		t.Errorf("adopted source Serving = true, want false while its newest publication is unsigned")
+	}
 
 	if got := f.object(repoHref); got.str("signing_service") != signing || got["autopublish"] != true {
 		t.Errorf("repository after adoption = %v, want it signed and published automatically", got)
@@ -259,6 +308,9 @@ func TestEnsureDebSourceAdoptsRepositoryPublishedByHand(t *testing.T) {
 		t.Fatalf("second EnsureSource(docker-ce) error = %v", err)
 	}
 	wantState(t, "published source", status.State, localrepodomain.SyncReady)
+	if !status.Serving {
+		t.Errorf("published source Serving = false, want true once a signed publication is served")
+	}
 }
 
 func TestEnsureDebSourceRefusesWhatItCannotServe(t *testing.T) {

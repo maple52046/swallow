@@ -1998,7 +1998,7 @@ test.describe('OS deployment flow visual review', () => {
 /** One Local repository capture: the fixture scenario, the route, and the text that marks it rendered. */
 interface LocalRepositoryVisualCase {
   name: string
-  scenario: 'ready' | 'syncing' | 'failed' | 'not-serving'
+  scenario: 'ready' | 'syncing' | 'failed' | 'upstream' | 'cache'
   path: string
   rendered: string | RegExp
 }
@@ -2012,7 +2012,10 @@ const localRepositoryVisualCases: readonly LocalRepositoryVisualCase[] = [
   { name: 'local-repository-failed', scenario: 'failed', path: '/infrastructure/local-repository?site=site-a', rendered: /checksum mismatch/ },
   // Deployments fetch from the upstreams: the setting, a summary that is not a failure, and the
   // items' last observation without alarming badges or spinners.
-  { name: 'local-repository-not-serving', scenario: 'not-serving', path: '/infrastructure/local-repository?site=site-a', rendered: 'Not synchronizing' },
+  { name: 'local-repository-upstream', scenario: 'upstream', path: '/infrastructure/local-repository?site=site-a', rendered: 'Not synchronizing' },
+  // Cache mode: deployments accepted while items still sync, with the count of what is not served
+  // yet and a resyncing source that still serves its last sync.
+  { name: 'local-repository-cache', scenario: 'cache', path: '/infrastructure/local-repository?site=site-a', rendered: /3 sources or files are not served yet/ },
   // site-b has no repository Integration: the explanation and the way to register one.
   { name: 'local-repository-empty', scenario: 'ready', path: '/infrastructure/local-repository?site=site-b', rendered: 'This Site has no Local Repository' },
   // The content browser's last page, reached through the URL-owned page.
@@ -2022,9 +2025,9 @@ const localRepositoryVisualCases: readonly LocalRepositoryVisualCase[] = [
 /**
  * Captures Infrastructure → Local repository (decision 078) in each state a reviewer must read: a
  * ready repository with its content, a syncing one, a failed source and file with the provider's
- * reasons, a Site whose deployments fetch from the upstream sources, a Site without one, the content
- * browser's second page (also cropped to the browser at its real scale), the confirmation of a
- * switch of the artifact source, and the Manage user sources dialog with a draft source and a field
+ * reasons, a Site whose deployments fetch from the upstream sources, one that uses it as a cache, a
+ * Site without one, the content browser's second page (also cropped to the browser at its real
+ * scale), the confirmation of a switch of the mode, and the Manage user sources dialog with a draft source and a field
  * error. The syncing page polls every 5 s, so each capture waits for its own content rather than for
  * an idle network. Select them with `--grep local-repository`.
  */
@@ -2075,13 +2078,13 @@ test.describe('Local repository visual review', () => {
 
   test('local-repository-artifact-source-dialog', async ({ page }, testInfo) => {
     const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
-    await installApiFixtures(page, { localRepository: 'not-serving' })
+    await installApiFixtures(page, { localRepository: 'upstream' })
     await setAppearance(page, appearance)
     await page.goto('/infrastructure/local-repository?site=site-a')
-    await page.getByRole('radiogroup', { name: 'Artifact source for deployments' }).getByText('This local repository', { exact: true }).click()
-    const dialog = page.getByRole('alertdialog', { name: 'Fetch deployment artifacts from this local repository?' })
+    await page.getByRole('radiogroup', { name: 'Artifact source for deployments' }).getByText('Cache', { exact: true }).click()
+    const dialog = page.getByRole('alertdialog', { name: 'Use this local repository as a cache?' })
     await prepareCapture(page, appearance, async () => {
-      await expect(dialog.getByRole('button', { name: 'Use this local repository' })).toBeVisible()
+      await expect(dialog.getByRole('button', { name: 'Use it as a cache' })).toBeVisible()
     })
     await capture(page, testInfo, 'local-repository-artifact-source-dialog', false)
   })

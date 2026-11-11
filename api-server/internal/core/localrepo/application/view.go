@@ -12,11 +12,12 @@ import (
 )
 
 // SourceView is one effective Repository Source with what the controller last observed of it. An
-// item not observed since its definition last changed is pending with no message.
+// item not observed since its definition last changed is pending with no message and not serving.
 type SourceView struct {
 	EffectiveSource
 	State        localrepodomain.SyncState
 	Message      string
+	Serving      bool
 	LastSyncedAt *time.Time
 	ContentCount int
 }
@@ -40,14 +41,17 @@ type ImageView struct {
 
 // View is a Site's Local Repository as the API and the deployment resolver read it: the user's spec,
 // the effective spec joined with the recorded status, the controller's conditions, and whether the
-// repository is ready. It is built from the store alone and never calls the provider.
+// repository is ready. It is built from the store alone and never calls the provider. Spec.Mode is
+// never empty: a Site without a spec write reads in upstream mode.
 //
-// Ready means the spec serves deployments, the Site's repository Integration is enabled, the
-// controller's last pass on it was not stopped by the Integration or its provider, every effective
-// source, file, and declared image is ready, and its addresses were read; otherwise NotReady lists
+// Ready means deployments that fetch artifacts are accepted under the spec's mode. A spec in
+// upstream mode is never ready. In cache mode the Site's repository Integration is enabled, the
+// controller has observed it and its last pass was not stopped by the Integration or its provider,
+// and its addresses were read; the content is never in the way. In offline mode, beyond that, every
+// effective source is serving and every file and declared image is ready. Otherwise NotReady lists
 // the causes in that order, each with a condition reason and a sentence telling a user what to
-// change, fix, enable, or wait for. Deployments are refused for a view that is not Ready only while
-// its spec serves deployments; otherwise they fetch from the upstreams.
+// change, fix, enable, or wait for. Deployments are refused for a view that is not Ready only in
+// cache and offline mode; in upstream mode they fetch from the upstreams.
 type View struct {
 	SiteID             string
 	Integration        *sitedomain.Integration
@@ -93,13 +97,17 @@ func buildView(siteID string, integration *sitedomain.Integration, record *local
 			status = record.Status
 		}
 	}
+	if view.Spec.Mode == "" {
+		view.Spec.Mode = localrepodomain.ModeUpstream
+	}
+	converges := view.Spec.Mode.Converges()
 	view.Endpoints, view.ObservedAt = status.Endpoints, status.ObservedAt
 	view.ObservedGeneration, view.Conditions = status.ObservedGeneration, status.Conditions
 	cause := func(reason, message string) {
 		view.NotReady = append(view.NotReady, NotReadyCause{Reason: reason, Message: message})
 	}
-	if !view.Spec.ServeDeployments {
-		cause(localrepodomain.ReasonNotServing, "its spec does not serve deployments, which fetch their artifacts from the upstreams")
+	if !converges {
+		cause(localrepodomain.ReasonNotServing, "its mode is upstream, so deployments fetch their artifacts from the upstreams; switch it to cache or offline to use it")
 	}
 	if !integration.Enabled {
 		cause(localrepodomain.ReasonIntegrationDisabled, fmt.Sprintf("its repository integration %s is disabled; enable it", integration.Name))
@@ -111,20 +119,26 @@ func buildView(siteID string, integration *sitedomain.Integration, record *local
 		blocked = true
 	}
 	observed := status.ObservedAt != nil
-	// A spec that does not serve deployments is not converged, so what the worker has or has not
-	// fetched is no reason of its own; only the settings in the way are.
-	judged := observed && view.Spec.ServeDeployments
-	if !observed && !blocked && view.Spec.ServeDeployments {
+	// A spec in upstream mode is not converged, so what the worker has or has not fetched is no
+	// reason of its own; only the settings in the way are. Cache mode never waits for the content,
+	// so only offline mode judges the items.
+	judged := observed && converges
+	contentJudged := judged && view.Spec.Mode == localrepodomain.ModeOffline
+	if !observed && !blocked && converges {
 		cause(localrepodomain.ReasonNotObserved, "it has not been observed yet; wait for the worker to converge it")
 	}
 	for _, source := range effective.Sources {
 		item := SourceView{EffectiveSource: source, State: localrepodomain.SyncPending}
 		if found, ok := observedSource(status, source.Source); ok {
-			item.State, item.Message = found.State, found.Message
+			item.State, item.Message, item.Serving = found.State, found.Message, found.Serving
 			item.LastSyncedAt, item.ContentCount = found.LastSyncedAt, found.ContentCount
 		}
-		if item.State != localrepodomain.SyncReady && judged {
-			cause(itemReason(item.State, localrepodomain.ReasonSourceFailed), notReady("source "+source.Name, item.State, item.Message))
+		if !item.Serving && contentJudged {
+			message := notReady("source "+source.Name, item.State, item.Message)
+			if item.State == localrepodomain.SyncReady {
+				message = "source " + source.Name + " is not served yet"
+			}
+			cause(itemReason(item.State, localrepodomain.ReasonSourceFailed), message)
 		}
 		view.Sources = append(view.Sources, item)
 	}
@@ -133,7 +147,7 @@ func buildView(siteID string, integration *sitedomain.Integration, record *local
 		if found, ok := observedFile(status, file.File); ok {
 			item.State, item.Message, item.SizeBytes = found.State, found.Message, found.SizeBytes
 		}
-		if item.State != localrepodomain.SyncReady && judged {
+		if item.State != localrepodomain.SyncReady && contentJudged {
 			cause(itemReason(item.State, localrepodomain.ReasonFileFailed), notReady("file "+file.Path, item.State, item.Message))
 		}
 		view.Files = append(view.Files, item)
@@ -143,7 +157,7 @@ func buildView(siteID string, integration *sitedomain.Integration, record *local
 		if found, ok := observedImage(status, image.Reference); ok {
 			item.State, item.Message, item.SizeBytes = found.State, found.Message, found.SizeBytes
 		}
-		if item.State != localrepodomain.SyncReady && judged {
+		if item.State != localrepodomain.SyncReady && contentJudged {
 			cause(itemReason(item.State, localrepodomain.ReasonImageFailed), notReady("image "+image.Reference, item.State, item.Message))
 		}
 		view.Images = append(view.Images, item)

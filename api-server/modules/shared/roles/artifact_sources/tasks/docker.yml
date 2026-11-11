@@ -1,8 +1,8 @@
 ---
 # Docker Engine pulls from the Local Repository's registry, which serves plain HTTP, by its address
-# (<registry>/docker.io/<image>), so with the Local Repository that registry is one of Docker's
-# insecure registries, and from the upstreams it is not. The role changes only the entry it added
-# and recorded: every other key and entry in daemon.json stays as the user or the image wrote it.
+# (<registry>/docker.io/<image>), so while the run has that registry it is one of Docker's insecure
+# registries, and otherwise it is not. The role changes only the entry it added and recorded: every
+# other key and entry in daemon.json stays as the user or the image wrote it.
 
 - name: Converge Docker's insecure registries
   become: true
@@ -27,8 +27,7 @@
         artifact_sources_recorded_registry: >-
           {{ (artifact_sources_registry_record.content | b64decode | trim)
              if artifact_sources_registry_record.content is defined else '' }}
-        artifact_sources_wanted_registry: >-
-          {{ swallow_artifacts.registry if swallow_artifacts.source == 'local_repository' else '' }}
+        artifact_sources_wanted_registry: "{{ artifact_sources_registry }}"
 
     - name: Work out Docker's insecure registries
       # An entry that was already there when the role wanted it is the user's, so it is not recorded.

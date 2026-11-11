@@ -3,9 +3,8 @@
 tags:
   - name: local-repository
     description: >-
-      Read a Site's Local Repository (where its deployments fetch their artifacts from when its spec
-      serves deployments), browse its content, replace its spec, and ask for an immediate
-      convergence.
+      Read a Site's Local Repository (which its deployments use according to its mode), browse its
+      content, replace its spec, and ask for an immediate convergence.
 paths:
   /api/v1/sites/{siteId}/local-repository:
     parameters:
@@ -111,11 +110,12 @@ paths:
     put:
       tags: [local-repository]
       operationId: putLocalRepositorySpec
-      summary: Replace the Repository Sources a user adds to a Site's Local Repository.
+      summary: Replace a Site's Local Repository spec, its mode and the Repository Sources a user adds.
       description: >-
         Requires role `admin`. `generation` is the spec generation the writer read (`0` before the
-        first write); `sources` is the whole list and replaces the stored one. The worker converges
-        the provider afterwards; the response is the stored spec with the last recorded state.
+        first write); `mode` is required; `sources` is the whole list and replaces the stored one.
+        The worker converges the provider afterwards; the response is the stored spec with the last
+        recorded state.
       requestBody:
         required: true
         content:
@@ -131,8 +131,9 @@ paths:
                 $ref: '#/components/schemas/LocalRepository'
         '400':
           description: >-
-            `validation_error`: the body is not valid JSON, `generation` is missing or negative, a
-            source is invalid or listed twice, or a source contradicts what a module declares.
+            `validation_error`: the body is not valid JSON, `generation` is missing or negative,
+            `mode` is missing or unknown, a source is invalid or listed twice, or a source
+            contradicts what a module declares.
           content:
             application/json:
               schema:
@@ -202,6 +203,14 @@ components:
       description: >-
         The kind of content: OS packages (`deb`, `rpm`), container images (`oci`), Python packages
         (`python`), or single files (`file`).
+    LocalRepositoryMode:
+      type: string
+      enum: [upstream, cache, offline]
+      description: >-
+        How the Site's deployments use the Local Repository: `upstream` fetches every artifact from
+        the upstreams the modules declare; `cache` fetches what the Local Repository serves from it
+        and the rest from the upstreams, never waiting for it; `offline` fetches every artifact from
+        it and is accepted only while it serves everything.
     LocalRepositorySyncState:
       type: string
       enum: [pending, syncing, ready, failed]
@@ -238,18 +247,15 @@ components:
             type: string
     LocalRepositorySpecWrite:
       type: object
-      required: [generation, serveDeployments, sources]
+      required: [generation, mode, sources]
       properties:
         generation:
           type: integer
           format: int64
           minimum: 0
           description: The spec generation the writer read; `0` before the first write.
-        serveDeployments:
-          type: boolean
-          description: >-
-            Whether the Site's deployments fetch their artifacts from this Local Repository (`true`)
-            or from the upstreams the modules declare (`false`).
+        mode:
+          $ref: '#/components/schemas/LocalRepositoryMode'
         sources:
           type: array
           items:
@@ -293,26 +299,24 @@ components:
         ready:
           type: boolean
           description: >-
-            The spec serves deployments and every source, file, and image is `ready` on the enabled
-            Integration with the host addresses read. While the spec serves deployments, the ones
-            that fetch artifacts are accepted exactly while it is true.
+            Deployments that fetch artifacts are accepted under the spec's mode: never for
+            `upstream`; for `cache` once the enabled Integration was observed, its last pass was not
+            stopped, and the host addresses were read; for `offline` once, beyond that, every source
+            is `serving` and every file and image is `ready`.
         contentOrigin:
           type: string
           nullable: true
           description: The Integration's `contentOrigin` setting, where hosts read content; null when unset.
         spec:
           type: object
-          required: [generation, serveDeployments, sources]
+          required: [generation, mode, sources]
           properties:
             generation:
               type: integer
               format: int64
               description: The spec generation; `0` before the first write.
-            serveDeployments:
-              type: boolean
-              description: >-
-                Whether the Site's deployments fetch their artifacts from this Local Repository;
-                `false` (the default) fetches them from the upstreams the modules declare.
+            mode:
+              $ref: '#/components/schemas/LocalRepositoryMode'
             sources:
               type: array
               items:
@@ -322,7 +326,7 @@ components:
           description: The effective Repository Sources, ordered by name.
           items:
             type: object
-            required: [name, format, url, suites, components, architectures, declaredBy, state, message, lastSyncedAt, contentCount]
+            required: [name, format, url, suites, components, architectures, declaredBy, state, message, serving, lastSyncedAt, contentCount]
             properties:
               name:
                 type: string
@@ -349,6 +353,12 @@ components:
               message:
                 type: string
                 nullable: true
+              serving:
+                type: boolean
+                description: >-
+                  Whether the provider serves content of the source's current definition, apart from
+                  `state`: true while a resync runs or after one failed, false before the first
+                  synchronization of the current definition.
               lastSyncedAt:
                 nullable: true
                 allOf:

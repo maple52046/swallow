@@ -1,18 +1,25 @@
 ---
-# Point this host at where its run's artifacts come from (defaults/main.yml). Idempotent in both
-# modes: a converged host reruns with no changes, although the package index is refreshed on every
-# run.
+# Point this host at where its run's artifacts come from (defaults/main.yml). Idempotent whichever
+# way each channel points: a converged host reruns with no changes, although the package index is
+# refreshed on every run.
 
 - name: Refuse a run without its artifact sources
   ansible.builtin.fail:
     msg: >-
       [artifact_sources_missing] This playbook installs and downloads only what swallow declares,
       from the sources the run carries, but the run has no swallow_artifacts with a source of
-      local_repository or upstream. Start the Workflow again so swallow hands the run its Site's
-      artifact sources.
+      local_repository, upstream, or cache and an apt source of local_repository or upstream. Start
+      the Workflow again so swallow hands the run its Site's artifact sources.
   when: >-
     swallow_artifacts is not defined or swallow_artifacts is not mapping or
-    (swallow_artifacts.source | default('')) not in ['local_repository', 'upstream']
+    (swallow_artifacts.source | default('')) not in ['local_repository', 'upstream', 'cache'] or
+    (swallow_artifacts.apt | default(swallow_artifacts.source | default(''))) not in ['local_repository', 'upstream']
+
+- name: Read where each channel of the run fetches from
+  ansible.builtin.set_fact:
+    artifact_sources_apt_from: "{{ swallow_artifacts.apt | default(swallow_artifacts.source) }}"
+    artifact_sources_python_index: "{{ swallow_artifacts.python_index | default('') }}"
+    artifact_sources_registry: "{{ swallow_artifacts.registry | default('') }}"
 
 - name: Read the host's operating system
   ansible.builtin.setup:
@@ -29,10 +36,10 @@
     src: pip.conf.j2
     dest: "{{ artifact_sources_root }}{{ artifact_sources_pip_conf }}"
     mode: "0644"
-  when: swallow_artifacts.source == 'local_repository'
+  when: artifact_sources_python_index | length > 0
 
 - name: Point uv at the Local Repository's Python index
-  when: swallow_artifacts.source == 'local_repository'
+  when: artifact_sources_python_index | length > 0
   become: true
   block:
     - name: Ensure uv's system configuration directory exists
@@ -50,20 +57,19 @@
 - name: Pull k0s's images through the Local Repository
   ansible.builtin.include_tasks: containerd.yml
   when:
-    - swallow_artifacts.source == 'local_repository'
+    - artifact_sources_registry | length > 0
     - artifact_sources_containerd | bool
 
 - name: Converge Docker's insecure registries
-  # From the upstreams every host drops the Local Repository's registry, whichever runtime the run
-  # pulls with.
+  # Without the Local Repository's registry every host drops it, whichever runtime the run pulls with.
   ansible.builtin.include_tasks: docker.yml
   when: >-
-    (swallow_artifacts.source == 'local_repository' and artifact_sources_docker | bool) or
-    swallow_artifacts.source == 'upstream'
+    (artifact_sources_registry | length > 0 and artifact_sources_docker | bool) or
+    artifact_sources_registry | length == 0
 
 - name: Let Podman pull from the Local Repository's registry
   when:
-    - swallow_artifacts.source == 'local_repository'
+    - artifact_sources_registry | length > 0
     - artifact_sources_podman | bool
   become: true
   block:
@@ -79,6 +85,6 @@
         dest: "{{ artifact_sources_root }}{{ artifact_sources_podman_registries }}"
         mode: "0644"
 
-- name: Stop pointing pip, uv, and the container runtimes at the Local Repository
+- name: Stop pointing pip, uv, or the container runtimes at the Local Repository
   ansible.builtin.include_tasks: local_repository_removed.yml
-  when: swallow_artifacts.source == 'upstream'
+  when: artifact_sources_python_index | length == 0 or artifact_sources_registry | length == 0

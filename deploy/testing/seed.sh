@@ -83,14 +83,14 @@ curl "${curl_flags[@]}" "${auth[@]}" "${base_url}/integrations?siteId=${site_id}
 
 # The Local Repository's first spec, written only while its spec has never been written
 # (generation 0), as bootstrap.sh does, so later edits survive a rerun: the default source, the
-# Ubuntu archive, with serveDeployments false, so the Site's deployments fetch from the upstreams
-# their modules declare until a user turns it on. A concurrent first write refuses this one (409),
+# Ubuntu archive, in mode upstream, so the Site's deployments fetch from the upstreams their modules
+# declare until a user chooses cache or offline. A concurrent first write refuses this one (409),
 # and the next run reads again.
 spec="$(curl "${curl_flags[@]}" "${auth[@]}" "${base_url}/sites/${site_id}/local-repository" |
   jq -c '.spec // {}')"
 if jq -e '(.generation // 0) == 0' <<<"${spec}" >/dev/null; then
   curl "${curl_flags[@]}" "${auth[@]}" -X PUT "${base_url}/sites/${site_id}/local-repository/spec" \
-    -H 'Content-Type: application/json' --data-binary "$(jq -nc '{generation: 0, serveDeployments: false, sources: [{
+    -H 'Content-Type: application/json' --data-binary "$(jq -nc '{generation: 0, mode: "upstream", sources: [{
       name: "ubuntu", format: "deb", url: "http://archive.ubuntu.com/ubuntu/",
       suites: ["noble", "noble-updates", "noble-security"], components: ["main", "universe"],
       architectures: ["amd64"]}]}')" >/dev/null

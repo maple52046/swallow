@@ -51,9 +51,9 @@ type sourceItem struct {
 }
 
 type specItem struct {
-	Generation       int64        `json:"generation"`
-	ServeDeployments bool         `json:"serveDeployments"`
-	Sources          []sourceItem `json:"sources"`
+	Generation int64        `json:"generation"`
+	Mode       string       `json:"mode"`
+	Sources    []sourceItem `json:"sources"`
 }
 
 type effectiveSourceItem struct {
@@ -61,6 +61,7 @@ type effectiveSourceItem struct {
 	DeclaredBy   []string `json:"declaredBy"`
 	State        string   `json:"state"`
 	Message      *string  `json:"message"`
+	Serving      bool     `json:"serving"`
 	LastSyncedAt *string  `json:"lastSyncedAt"`
 	ContentCount int      `json:"contentCount"`
 }
@@ -125,13 +126,14 @@ type sourceRequest struct {
 	Architectures []string `json:"architectures"`
 }
 
-// putSpecRequest is the LocalRepositorySpecWrite schema. generation and serveDeployments are
-// pointers so a missing one is told apart from 0 and false: both are required, so an older writer
-// that leaves serveDeployments out cannot switch a Site's deployments to the upstreams.
+// putSpecRequest is the LocalRepositorySpecWrite schema. generation is a pointer so a missing one is
+// told apart from 0. mode is required, and a missing one (an older writer that still sends
+// serveDeployments, which is ignored) is refused rather than defaulted, so no writer switches a
+// Site's mode by leaving it out.
 type putSpecRequest struct {
-	Generation       *int64          `json:"generation"`
-	ServeDeployments *bool           `json:"serveDeployments"`
-	Sources          []sourceRequest `json:"sources"`
+	Generation *int64          `json:"generation"`
+	Mode       string          `json:"mode"`
+	Sources    []sourceRequest `json:"sources"`
 }
 
 // Get serves GET /sites/{siteId}/local-repository with the stored spec and status; it never calls
@@ -169,9 +171,9 @@ func (h *Handler) Browse(c *fiber.Ctx) error {
 	return c.JSON(pagination.NewResult(items, result.Total, page))
 }
 
-// PutSpec serves PUT /sites/{siteId}/local-repository/spec: it replaces the user's spec (whether it
-// serves deployments, and the sources) when the body's generation is the stored one and answers
-// with the Local Repository.
+// PutSpec serves PUT /sites/{siteId}/local-repository/spec: it replaces the user's spec (its mode
+// and the sources) when the body's generation is the stored one and answers with the Local
+// Repository. A missing or unknown mode is a validation error (the use case's ErrInvalidSpec).
 func (h *Handler) PutSpec(c *fiber.Ctx) error {
 	var req putSpecRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -180,8 +182,8 @@ func (h *Handler) PutSpec(c *fiber.Ctx) error {
 	if req.Generation == nil {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "generation is required."))
 	}
-	if req.ServeDeployments == nil {
-		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "serveDeployments is required."))
+	if req.Mode == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "mode is required."))
 	}
 	sources := make([]localrepodomain.Source, 0, len(req.Sources))
 	for _, source := range req.Sources {
@@ -191,7 +193,7 @@ func (h *Handler) PutSpec(c *fiber.Ctx) error {
 		})
 	}
 	view, err := h.service.PutSpec(c.Context(), c.Params("siteId"), application.PutSpecInput{
-		Generation: *req.Generation, ServeDeployments: *req.ServeDeployments, Sources: sources,
+		Generation: *req.Generation, Mode: localrepodomain.Mode(req.Mode), Sources: sources,
 	})
 	if err != nil {
 		return respondError(c, err)
@@ -238,7 +240,7 @@ func toResponse(view *application.View) localRepositoryResponse {
 		IntegrationID:      view.Integration.ID,
 		Ready:              view.Ready,
 		ContentOrigin:      wire.String(view.Integration.Setting(localrepodomain.SettingContentOrigin, "")),
-		Spec:               specItem{Generation: view.Generation, ServeDeployments: view.Spec.ServeDeployments, Sources: []sourceItem{}},
+		Spec:               specItem{Generation: view.Generation, Mode: string(view.Spec.Mode), Sources: []sourceItem{}},
 		Sources:            []effectiveSourceItem{},
 		Files:              []fileItem{},
 		Images:             []imageItem{},
@@ -253,7 +255,7 @@ func toResponse(view *application.View) localRepositoryResponse {
 	for _, source := range view.Sources {
 		response.Sources = append(response.Sources, effectiveSourceItem{
 			sourceItem: toSourceItem(source.Source), DeclaredBy: nonNil(source.DeclaredBy),
-			State: string(source.State), Message: wire.String(source.Message),
+			State: string(source.State), Message: wire.String(source.Message), Serving: source.Serving,
 			LastSyncedAt: wire.OptionalTime(source.LastSyncedAt), ContentCount: source.ContentCount,
 		})
 	}

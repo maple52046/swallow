@@ -35,6 +35,7 @@ type observedSourceDoc struct {
 	Source       sourceDoc  `bson:"source"`
 	State        string     `bson:"state"`
 	Message      string     `bson:"message,omitempty"`
+	Serving      bool       `bson:"serving"`
 	LastSyncedAt *time.Time `bson:"lastSyncedAt,omitempty"`
 	ContentCount int        `bson:"contentCount"`
 }
@@ -92,12 +93,11 @@ type statusDoc struct {
 	Conditions         []convergencestore.ConditionDoc `bson:"conditions,omitempty"`
 }
 
-// specDoc is the user's spec. A record written before serveDeployments existed has no such field
-// and decodes as false, the default, so those Sites fetch from the upstreams until a user turns
-// serving on.
+// specDoc is the user's spec. Schema v15 replaced the boolean serveDeployments with mode; a record
+// the controller created before any spec write has no mode and reads as upstream, the default.
 type specDoc struct {
-	ServeDeployments bool        `bson:"serveDeployments"`
-	Sources          []sourceDoc `bson:"sources"`
+	Mode    string      `bson:"mode,omitempty"`
+	Sources []sourceDoc `bson:"sources"`
 }
 
 // localRepositoryDoc is one Site's record, keyed by the Site id.
@@ -197,7 +197,7 @@ func (r *MongoLocalRepositoryRepo) Delete(ctx context.Context, siteID string) er
 }
 
 func toSpecDoc(spec localrepodomain.Spec) specDoc {
-	doc := specDoc{ServeDeployments: spec.ServeDeployments, Sources: make([]sourceDoc, 0, len(spec.Sources))}
+	doc := specDoc{Mode: string(spec.Mode), Sources: make([]sourceDoc, 0, len(spec.Sources))}
 	for _, source := range spec.Sources {
 		doc.Sources = append(doc.Sources, toSourceDoc(source))
 	}
@@ -228,7 +228,7 @@ func toStatusDoc(status localrepodomain.Status) statusDoc {
 	for _, observed := range status.Sources {
 		doc.Sources = append(doc.Sources, observedSourceDoc{
 			Source: toSourceDoc(observed.Source), State: string(observed.Status.State), Message: observed.Status.Message,
-			LastSyncedAt: utc(observed.Status.LastSyncedAt), ContentCount: observed.Status.ContentCount,
+			Serving: observed.Status.Serving, LastSyncedAt: utc(observed.Status.LastSyncedAt), ContentCount: observed.Status.ContentCount,
 		})
 	}
 	for _, observed := range status.Files {
@@ -263,7 +263,10 @@ func toStatusDoc(status localrepodomain.Status) statusDoc {
 
 func toLocalRepository(doc *localRepositoryDoc) *localrepodomain.LocalRepository {
 	record := &localrepodomain.LocalRepository{SiteID: doc.SiteID, Generation: doc.Generation}
-	record.Spec.ServeDeployments = doc.Spec.ServeDeployments
+	record.Spec.Mode = localrepodomain.Mode(doc.Spec.Mode)
+	if record.Spec.Mode == "" {
+		record.Spec.Mode = localrepodomain.ModeUpstream
+	}
 	for _, source := range doc.Spec.Sources {
 		record.Spec.Sources = append(record.Spec.Sources, fromSourceDoc(source))
 	}
@@ -278,7 +281,7 @@ func toLocalRepository(doc *localRepositoryDoc) *localrepodomain.LocalRepository
 		source := fromSourceDoc(observed.Source)
 		record.Status.Sources = append(record.Status.Sources, localrepodomain.ObservedSource{Source: source, Status: localrepodomain.SourceStatus{
 			Name: source.Name, Format: source.Format, State: localrepodomain.SyncState(observed.State), Message: observed.Message,
-			LastSyncedAt: observed.LastSyncedAt, ContentCount: observed.ContentCount,
+			Serving: observed.Serving, LastSyncedAt: observed.LastSyncedAt, ContentCount: observed.ContentCount,
 		}})
 	}
 	for _, observed := range status.Files {

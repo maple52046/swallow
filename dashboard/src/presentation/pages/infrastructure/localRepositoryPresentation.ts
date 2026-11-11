@@ -32,8 +32,8 @@ const SYNC_STATES: Record<LocalRepositorySyncState, ItemSyncPresentation> = {
   failed: { badgeStatus: 'failed', label: 'Failed', inProgress: false, messageTone: 'error' },
 }
 
-// While the spec does not serve deployments the worker fetches nothing, so the recorded states are
-// only the last observation: a `pending` or `syncing` item is not being fetched, and a `failed` one
+// While the spec is in upstream mode the worker fetches nothing, so the recorded states are only the
+// last observation: a `pending` or `syncing` item is not being fetched, and a `failed` one
 // is not retried. They read as neutral facts rather than as work in progress or as a fault; the
 // progress message of a fetch that no longer runs is left out, and a failure's reason stays muted.
 const UNSYNCHRONIZED_STATES: Record<LocalRepositorySyncState, ItemSyncPresentation> = {
@@ -45,8 +45,8 @@ const UNSYNCHRONIZED_STATES: Record<LocalRepositorySyncState, ItemSyncPresentati
 
 /**
  * The presentation of a Repository Source's, file's, or declared image's observed state.
- * `synchronizing` is whether the worker converges the repository, which is while its spec serves
- * deployments; when it does not, the state is shown as the last observation (see
+ * `synchronizing` is whether the worker converges the repository, which is while its mode is cache
+ * or offline; when it does not, the state is shown as the last observation (see
  * `UNSYNCHRONIZED_STATES`). A value a newer API adds reads as a neutral badge with its raw text
  * rather than as a failure.
  */
@@ -57,11 +57,25 @@ export function syncStatePresentation(state: string, synchronizing: boolean): It
 }
 
 /**
- * The `ready` condition's message for a repository whose spec serves deployments but that is not
- * ready (local-repository.md, Conditions). `not_serving` can only be a judgement from before the
- * spec started serving deployments — the worker has not looked at the new generation yet — so it
- * reads as waiting for the worker rather than as the stale message. Without a message, the text
- * says what a missing judgement means; `judged` is whether the worker has recorded any condition.
+ * The Deployments line of a repository the API reports `ready`, in cache or offline mode. Offline
+ * deployments fetch everything from it. Cache deployments fetch what it serves from it; `unserved`
+ * is how many sources and files it does not serve yet (`unservedCount`), which they fetch from the
+ * upstream sources meanwhile, so the line says how much of the cache is still missing without
+ * judging readiness itself.
+ */
+export function readyDeploymentsText(mode: string, unserved: number): string {
+  if (mode !== 'cache') return 'Deployments are accepted and fetch every artifact from the local repository.'
+  if (unserved === 0) return 'Deployments are accepted and fetch what the local repository serves from it; it serves every source and file.'
+  const missing = unserved === 1 ? '1 source or file is' : `${unserved} sources or files are`
+  return `Deployments are accepted. ${missing} not served yet; deployments fetch what they need of those from the upstream sources meanwhile.`
+}
+
+/**
+ * The `ready` condition's message for a repository in cache or offline mode that is not ready
+ * (local-repository.md, Conditions). `not_serving` can only be a judgement from before the mode
+ * left upstream — the worker has not looked at the new generation yet — so it reads as waiting for
+ * the worker rather than as the stale message. Without a message, the text says what a missing
+ * judgement means; `judged` is whether the worker has recorded any condition.
  */
 export function notReadyText(ready: Condition | undefined, judged: boolean): string {
   if (ready?.status === 'false' && ready.reason === 'not_serving') {
@@ -72,8 +86,8 @@ export function notReadyText(ready: Condition | undefined, judged: boolean): str
 }
 
 /**
- * The badge of the controller's `realized` condition (local-repository.md, Conditions): whether the
- * provider serves every effective source, file, and image, and if not, the reason's family. Reasons
+ * The badge of the controller's `realized` condition (local-repository.md, Conditions): whether
+ * every effective source, file, and image is ready, and if not, the reason's family. Reasons
  * this build does not know read by status alone; `undefined` is a repository the worker has not
  * judged.
  */

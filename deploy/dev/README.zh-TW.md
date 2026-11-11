@@ -177,11 +177,13 @@ echo PULP_ORIGIN=http://10.170.168.20:8080 >> .env && docker compose up -d && ba
 設了 `PULP_ORIGIN` 時，`seed.sh` 會把 Pulp 登錄為 Site 的 `repository` Integration（provider kind `pulp`、endpoint
 `http://pulp-web:8080`、setting `contentOrigin` 等於 `PULP_ORIGIN`，credential 是 Pulp 的 admin 密碼
 `PULP_ADMIN_PASSWORD`，預設 `admin`），並在從未寫入過的 Local Repository spec 寫入：比照 production installation 的
-Site `ubuntu` 來源（Ubuntu archive），以及 `serveDeployments` `true`（production installation 寫入 `false`）；見
-[local-repository.md](../../docs/development/local-repository.md) §2.1、§4.1 與 §5.2。Ubuntu archive 的第一次同步要
-一段時間，進度在 Infrastructure 的 Local Repository 頁面。要改從上游部署，在該頁把 **Artifact source for
-deployments** 選為 **Upstream sources**；重跑
-`seed.sh` 會保留你的選擇。沒有設 `PULP_ORIGIN` 時，Site 沒有 `repository` Integration，從上游部署。
+Site `ubuntu` 來源（Ubuntu archive），以及 `mode` `cache`（production installation 寫入 `upstream`）；見
+[local-repository.md](../../docs/development/local-repository.md) §2.1、§4.1 與 §5.2。cache 模式下部署立即被受理：
+Local Repository 已經提供的從它取得，其餘從上游，所以要花一段時間的 Ubuntu archive 第一次同步不會擋住部署。
+Infrastructure 的 Local Repository 頁面顯示同步進度與 **Artifact source for deployments** 設定：**Upstream sources**
+只從上游部署，**Offline** 只從 Local Repository；重跑 `seed.sh` 會保留你的選擇。模式出現之前的開發資料庫在
+`swallow-api migrate` 之後讀成 `offline`（它原本使用 Local Repository），在該頁切換成 **Cache**。沒有設 `PULP_ORIGIN`
+時，Site 沒有 `repository` Integration，從上游部署。
 
 ## Node Exporter controller
 

@@ -1,8 +1,8 @@
-# 078. Each Site chooses whether its deployments fetch from its Local Repository, a provider swallow converges
+# 078. Each Site chooses how its deployments use its Local Repository, a provider swallow converges
 
 - Status: Accepted
 - Date: 2026-11-06
-- 現行規格：[local-repository.md](../development/local-repository.md)；glossary [Local Repository](../development/glossaries/terms/local-repository.md)、[Repository Source](../development/glossaries/terms/repository-source.md)
+- 現行規格：[local-repository.md](../development/local-repository.md)；glossary [Local Repository](../development/glossaries/terms/local-repository.md)、[Local Repository Mode](../development/glossaries/terms/local-repository-mode.md)、[Repository Source](../development/glossaries/terms/repository-source.md)
 
 ## Context
 
@@ -31,21 +31,40 @@ The first form of this decision made every deployment fetch from the Local Repos
 2026-11-06 the user decided that the installation still installs it and registers it on every Site,
 but each Site chooses whether its deployments use it, and that the choice starts off.
 
+On 2026-11-11 the development Site, which used its Local Repository, was refused a RAM deployment of
+Ubuntu while the Ubuntu archive synchronized for the first time, and every Site that used it was
+refused deployments during the daily resync of each deb source, although the provider still served
+the previous synchronization. The user wants to use the Local Repository either as the only source
+of a Site that must not reach the Internet, or like a proxy cache that never holds deployments
+back, and decided that the choice is one of three modes.
+
 ## Decision
 
-1. **Each Site chooses where its deployments fetch their artifacts.** Roles contain no Internet URL:
-   everything a module's playbooks fetch is declared in its `module.json` — files with their sha256,
-   deb sources with the signing key that verifies them, container images, and pinned Python
-   requirements. The Site's Local Repository spec has `serveDeployments`, `false` by default:
-   - While it is `false`, or while the Site has no `repository` Integration, every artifact comes
-     from the upstream its module declares (files verified by their sha256, deb sources by their
-     declared keys), and each host keeps its own OS package sources.
-   - While it is `true`, every artifact comes from the Local Repository, and a deployment whose
-     playbooks fetch artifacts is refused at acceptance while the Local Repository is not ready.
+1. **Each Site chooses, with a mode, where its deployments fetch their artifacts.** Roles contain no
+   Internet URL: everything a module's playbooks fetch is declared in its `module.json` — files with
+   their sha256, deb sources with the signing key that verifies them, container images, and pinned
+   Python requirements. The Site's Local Repository spec has `mode`, `upstream` by default:
+   - `upstream`, or a Site without a `repository` Integration: every artifact comes from the
+     upstream its module declares (files verified by their sha256, deb sources by their declared
+     keys), and each host keeps its own OS package sources.
+   - `offline`: every artifact comes from the Local Repository, and a deployment whose playbooks
+     fetch artifacts is refused at acceptance while the Local Repository does not serve everything.
+     A source counts as served while a resync of it runs or after one failed, because the provider
+     keeps serving its last synchronization.
+   - `cache`: what the Local Repository already serves comes from it and the rest from the declared
+     upstreams, decided per artifact at acceptance (the OS package sources as one: all through the
+     Local Repository once it has deb sources and serves every one, otherwise all from the
+     upstreams). A
+     deployment never waits for content; it is refused only while the Local Repository itself
+     cannot be used (its Integration disabled, the controller's last pass stopped by the
+     Integration or its provider, or its addresses not read yet).
 
-   The choice is not a fallback: swallow never sends a Site that chose the Local Repository to the
-   upstreams because the Local Repository is not ready, and disabling its Integration pauses it
-   without changing the Site's choice.
+   No mode is a silent fallback: swallow never sends an `offline` Site to the upstreams because the
+   Local Repository is not ready, a `cache` Site reaches the upstreams because the user chose that
+   mode and each run records where each of its artifacts comes from, and disabling the Integration
+   pauses the Local Repository without changing the Site's mode. `offline` does not yet make a Site
+   air-gapped: the provider still fetches a deb or Python package from its upstream on the first
+   request until content can be imported from disk.
 2. **The Local Repository is a provider category.** The core defines its port (`Repository`, in
    `internal/core/localrepo/domain`) in neutral vocabulary; its formats are `deb`, `rpm`, `oci`,
    `python`, and `file`. Pulp 3 is its adapter (`internal/adapters/localrepo/pulp`); the names
@@ -58,19 +77,20 @@ but each Site chooses whether its deployments use it, and that the choice starts
    at `http://<SWALLOW_ADDRESS>:<port>`. In production its database lives in the shared PostgreSQL
    ([decision 040](040-single-vm-production-installation.md) (single VM production installation)).
    The installation registers the Integration and writes the Site's first spec: the Site's Ubuntu
-   source, with `serveDeployments` `false`. A user turns it on for the Site.
+   source, with `mode` `upstream`. A user chooses another mode for the Site; the development
+   installation writes `cache`.
 4. **swallow owns what the Local Repository must contain; the provider owns the artifacts.** The
    content it must hold is the union of the module declarations (`module.json` `artifacts`: package
    sources, files, images, and Python requirements) and the Site's user Repository Sources, a spec
    with a `generation` written through the API. The Ubuntu archive `ubuntu` is a Site source, not a
    module declaration, because it belongs to the OS the Site deploys rather than to any module. While
-   the spec serves deployments, a controller in the worker converges that content into the provider
-   through the port and records each source's, file's, and image's observed state, as the
-   Provisioner HTTP Proxy controller does
+   the mode is `cache` or `offline`, a controller in the worker converges that content into the
+   provider through the port and records each source's, file's, and image's observed state, and
+   whether each source is served, as the Provisioner HTTP Proxy controller does
    ([decision 071](071-provisioner-realized-desired-state.md) (provisioner realized desired state)).
-   While it does not, the controller leaves the provider alone (nothing is synchronized or fetched,
-   and what it already holds stays) and records the Local Repository as not ready because it does not
-   serve deployments. swallow stores no artifact itself.
+   While it is `upstream`, the controller leaves the provider alone (nothing is synchronized or
+   fetched, and what it already holds stays) and records the Local Repository as not ready because
+   it does not serve deployments. swallow stores no artifact itself.
 5. **Each format uses the provider mechanism that fetches it once and keeps it at the Site.**
    - `oci`: a pull-through cache per registry host that a declared image names (`docker.io`,
      `quay.io`, and so on); the declared images are fetched in advance.
@@ -86,14 +106,15 @@ but each Site chooses whether its deployments use it, and that the choice starts
      import and export) come later.
 6. **Hosts are pointed at the chosen source by one shared role.** A playbook flagged
    `fetchesArtifacts` in the release manifest receives the trusted variable `swallow_artifacts`,
-   frozen at acceptance: which source the Site chose and, for every declared file and image, where
-   to fetch it. The shared role `artifact_sources` configures the host for that source. From the
-   Local Repository it points apt (verified by the Site's key, with the host's other apt sources
-   disabled), pip, and the container runtimes (containerd, Docker, Podman) at it. From the upstreams
-   it adds each declared deb source with its declared key, verified against the declared
-   fingerprint, keeps the host's OS sources, and removes what it wrote for the Local Repository, so a
-   host converges to the Site's current choice the next time such a playbook runs on it. Content
-   tests fail a role that contains an Internet URL.
+   frozen at acceptance: the Site's mode, where apt, pip, and the container runtimes fetch from, and,
+   for every declared file and image, where to fetch it. The shared role `artifact_sources`
+   configures each of them on its own. Toward the Local Repository it points apt (verified by the
+   Site's key, with the host's other apt sources disabled), pip, and the container runtimes
+   (containerd, Docker, Podman) at it. Toward the upstreams it adds each declared deb source with its
+   declared key, verified against the declared fingerprint, keeps the host's OS sources, and removes
+   what it wrote for the Local Repository, so a host converges to what its latest run was accepted
+   with the next time such a playbook runs on it. Content tests fail a role that contains an
+   Internet URL.
 7. **Pulp is used unmodified, as a separate service, over HTTP.** pulpcore and its deb, container,
    python, file, and rpm plugins are licensed GPLv2-or-later. swallow neither modifies nor links
    them and talks to them only through their HTTP API, so commercial use is allowed. A release that
@@ -119,7 +140,15 @@ but each Site chooses whether its deployments use it, and that the choice starts
   Replaced by the Site's choice, by the user's decision of 2026-11-06.
 - **Fetch from the upstreams while a chosen Local Repository is not ready.** Rejected: a Site that
   chose the Local Repository would reach the Internet without saying so, which is a same-shaped
-  substitute for a missing capability; the deployment is refused and names what to wait for or fix.
+  substitute for a missing capability; an `offline` deployment is refused and names what to wait for
+  or fix. `cache` mode is not this alternative: the user chooses it knowing that what the Local
+  Repository does not hold yet comes from the upstreams, and each run records it.
+- **Keep the boolean and only relax readiness** (accept once every source has synchronized once,
+  without waiting for images). Rejected: the first synchronization of the Ubuntu archive would still
+  hold every deployment back, which is what the user wanted to avoid.
+- **Mix the OS package sources per source in `cache` mode.** Rejected: a user source has no signing
+  key to verify from its upstream, and the host's own OS sources can be disabled only once the
+  Site's OS archive is served, so apt goes to one side as a whole.
 
 ## Consequences
 
@@ -127,10 +156,11 @@ but each Site chooses whether its deployments use it, and that the choice starts
   deployment time no longer grows with the number of Servers times the outbound bandwidth, and
   content stays the same between deployments. A Site without Internet access can later import
   content instead of synchronizing it.
-- A Site that uses it cannot deploy until it is ready, and the first request for an artifact waits
-  for the provider to fetch it. A Site that does not use it deploys from the upstreams: its Servers
-  need to reach them, and the artifacts are still pinned and verified, files by their sha256 and deb
-  sources by their declared keys.
+- An `offline` Site cannot deploy until its Local Repository is ready, and the first request for an
+  artifact waits for the provider to fetch it. A `cache` Site deploys at once, and its Servers reach
+  the upstreams for what the Local Repository does not hold yet. An `upstream` Site deploys from the
+  upstreams: its Servers need to reach them, and the artifacts are still pinned and verified, files
+  by their sha256 and deb sources by their declared keys, whichever mode fetches them.
 - Modules must declare every artifact their playbooks fetch, and the signing key of every deb
   source they declare; installing another version is a `module.json` change. The module contract
   ([decision 075](075-module-contract-v1.md) (module contract v1)) gains `artifacts`.
@@ -139,10 +169,12 @@ but each Site chooses whether its deployments use it, and that the choice starts
 - Hosts configured for the Local Repository use only it: the distribution's package sources are
   disabled there, and apt reaches the repository directly rather than through the provisioner's
   proxy. They return to their own sources when a playbook that fetches artifacts runs on them after
-  the Site turned the Local Repository off.
+  the Site switched to `upstream`, or while a `cache` Site's Local Repository does not serve every
+  deb source.
 - `oci` and `python` content is served over plain HTTP like the rest of the installation; `deb`
   content is verified by the Site's signature and files by their sha256.
 
 ## Revision history
 
 - 2026-11-06: each Site chooses with `serveDeployments` (off by default; the installation registers the Integration with it off) whether its deployments fetch from the Local Repository or from the upstreams their modules declare, with module-declared deb sources verified by their declared signing keys; the manifest flag, trusted variable, and shared role became `fetchesArtifacts`, `swallow_artifacts`, and `artifact_sources`.
+- 2026-11-11: the Site's choice became a mode, `upstream`, `cache`, or `offline` (the former `false` and `true`), so a Site can use its Local Repository as a cache that never holds deployments back; a source counts as served while a resync of it runs, and `artifact_sources` configures apt, pip, and the container runtimes each on its own.

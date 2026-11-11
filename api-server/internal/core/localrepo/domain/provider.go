@@ -79,11 +79,18 @@ func (s SyncState) Settled() bool {
 // SourceStatus is the provider's report on one Repository Source. LastSyncedAt is when its content
 // last synced successfully, nil before the first success; ContentCount is how many items (packages,
 // images, files) it serves, 0 when unknown.
+//
+// Serving is whether hosts can fetch content of the source's current definition from the provider,
+// apart from State: a synchronized source keeps serving its last synchronization while a resync runs
+// or after one failed, and serves nothing of a changed definition until it was synchronized with it;
+// a pull-through source serves once the provider can pull through it. The deployment resolver
+// decides from it, so an adapter reports it only when it can prove it.
 type SourceStatus struct {
 	Name         string
 	Format       Format
 	State        SyncState
 	Message      string
+	Serving      bool
 	LastSyncedAt *time.Time
 	ContentCount int
 }

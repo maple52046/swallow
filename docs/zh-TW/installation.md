@@ -28,9 +28,10 @@ Installer 完成時：
 - Site `default` 的 Prometheus 在同一台 VM 上執行，已是該 Site 的 metrics Integration，並收集
   swallow 安裝在該 Site 的 Server 上的 exporter（見 [Monitoring](guides/monitoring.md)）；
 - Site 的 Local Repository（Pulp）在同一台 VM 的 **HTTP port 8080** 上執行，已是該 Site 的 `repository`
-  Integration，第一個來源是 Ubuntu archive。它一開始是關閉的：部署從 swallow 的模組宣告的上游來源取得 artifact。
-  為 Site 打開它之後（見[初始設定](guides/initial-setup.md#4-選擇部署從哪裡取得)），swallow 佈署的每台 Server 都從它
-  取得 OS 套件、container image、Python 套件與檔案，而不是從網際網路；
+  Integration，第一個來源是 Ubuntu archive。Site 一開始是 **Upstream sources**：部署從 swallow 的模組宣告的上游
+  來源取得 artifact。為 Site 選擇 **Cache** 或 **Offline** 之後（見[初始設定](guides/initial-setup.md#4-選擇部署從哪裡取得)），
+  swallow 佈署的每台 Server 都從它取得 OS 套件、container image、Python 套件與檔案：cache 模式下是它已經提供的部分，
+  其餘從上游；offline 模式下全部從它取得，而不是從網際網路；
 - VM 在 UDP 123 提供 NTP（MAAS 自己的時間服務），swallow 佈署的每台 Server 都使用它
   （見[時間同步](guides/os-provisioning.md#時間同步)）；
 - `swallow` CLI 已安裝在 `/usr/local/bin/swallow`。

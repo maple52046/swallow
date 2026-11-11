@@ -25,13 +25,31 @@ function LastSynced({ at }: { at: string | null }) {
 }
 
 /**
+ * Whether a source's row says it still serves its last synchronization: the API reports it
+ * `serving` while its state is not `ready` (a resync running, or one that failed), so hosts are not
+ * left without it. Only while the worker converges, since otherwise the state is an old observation.
+ */
+function servesLastSync(source: RepositorySource, synchronizing: boolean): boolean {
+  return synchronizing && source.serving && source.state !== 'ready'
+}
+
+/**
+ * The note under a source's state in the desktop table while it serves its last synchronization
+ * (see `servesLastSync`); a mobile card shows the same fact as a labelled field.
+ */
+function ServingNote() {
+  return <Text fontSize="xs" color="fg.muted">Still serving its last sync</Text>
+}
+
+/**
  * The effective Repository Sources of a Site's Local Repository (observed state): every source a
  * module declares, the user's sources, and the pull-through caches swallow derives, in the API's
  * order (by name). Each row shows who declared it — a module by its id, the user's spec as "User" —
- * and the worker's last observation: the state with the provider's message as text, the last
- * successful sync, and how many items it serves (`—` when unknown). `synchronizing` is whether the
- * worker converges the repository (its spec serves deployments); when it does not, the states read as
- * the last observation rather than as work in progress or failures. Read-only: the user's own
+ * and the worker's last observation: the state with the provider's message as text (and, while a
+ * resync runs or failed, that the source still serves its last sync), the last successful sync, and
+ * how many items it serves (`—` when unknown). `synchronizing` is whether the worker converges the
+ * repository (its mode is cache or offline); when it does not, the states read as the last
+ * observation rather than as work in progress or failures. Read-only: the user's own
  * sources are edited through the User sources section, and a module's change with the module.
  * Desktop rows and mobile cards show the same facts.
  */
@@ -78,6 +96,7 @@ export function RepositorySourcesSection({ sources, synchronizing }: { sources: 
                       <Table.Cell>{declarersText(source.declaredBy)}</Table.Cell>
                       <Table.Cell maxW="20rem">
                         <RepositorySyncStatus state={source.state} message={source.message} synchronizing={synchronizing} />
+                        {servesLastSync(source, synchronizing) && <ServingNote />}
                       </Table.Cell>
                       <Table.Cell><LastSynced at={source.lastSyncedAt} /></Table.Cell>
                       <Table.Cell textAlign="end">{formatContentCount(source.contentCount)}</Table.Cell>
@@ -100,6 +119,7 @@ export function RepositorySourcesSection({ sources, synchronizing }: { sources: 
                   <ResourceCardField label="Declared by">{declarersText(source.declaredBy)}</ResourceCardField>
                   <ResourceCardField label="Last synced"><LastSynced at={source.lastSyncedAt} /></ResourceCardField>
                   <ResourceCardField label="Items">{formatContentCount(source.contentCount)}</ResourceCardField>
+                  {servesLastSync(source, synchronizing) && <ResourceCardField label="Serving">Its last sync, while this one runs</ResourceCardField>}
                   {(source.suites.length > 0 || source.components.length > 0) && (
                     <ResourceCardField label="Suites and components"><SourceScope source={source} /></ResourceCardField>
                   )}
