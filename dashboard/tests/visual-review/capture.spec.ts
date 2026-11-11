@@ -26,6 +26,7 @@ const visualCases = [
   { name: 'software-catalog', path: '/software?site=site-a', heading: 'Software', authenticated: true, representative: false },
   { name: 'software-docker-detail', path: '/software/docker-ce?site=site-a', heading: 'Docker CE', authenticated: true, representative: false },
   { name: 'software-nfs-detail', path: '/software/nfs?site=site-a', heading: 'NFS', authenticated: true, representative: false },
+  { name: 'software-libvirt-detail', path: '/software/libvirt?site=site-a', heading: 'libvirt (QEMU/KVM)', authenticated: true, representative: false },
   { name: 'monitoring', path: '/monitoring?site=site-a', heading: 'Monitoring', authenticated: true, representative: false },
   { name: 'monitoring-without-alerts', path: '/monitoring?site=site-a', heading: 'Monitoring', authenticated: true, representative: false },
   { name: 'monitoring-pool-charts', path: '/monitoring?site=site-a&chartScope=pool&chartScopeId=pool-research', heading: 'Monitoring', authenticated: true, representative: false },

@@ -16,7 +16,7 @@ Monitoring 與 Activity；OS Images 與 Infrastructure。用頁面頂端的按�
 | Overview | Site-scoped fleet health、attention items、integration、Platform 與 recent Workflow |
 | Servers | Inventory、Add servers（納管引導）、可分享的 filter view、bulk action、tag、lock，以及包含 Boot Media 的 Server detail |
 | Platforms | Kubernetes／Slurm deployment、lifecycle、settings 與 runtime view |
-| Software | 分類呈現 catalog（Docker CE、Podman、NFS、Prometheus、Grafana、AMD Device Metrics Exporter、Node Exporter、VictoriaMetrics）、各 software deployment 與多 Server 安裝 |
+| Software | 分類呈現 catalog（Docker CE、Podman、libvirt (QEMU/KVM)、NFS、Prometheus、Grafana、AMD Device Metrics Exporter、Node Exporter、VictoriaMetrics，以及這個版本中沒有專屬卡片、列在 Other software 的 software）、各 software deployment 與多 Server 安裝 |
 | Monitoring | Fleet health、勾選 Server／Pool／Zone／Platform 的用量圖表、current metrics、選用的 Grafana link，以及（開發中的）alert 與 silence |
 | Activity | 兩個分頁。**Workflows**：durable execution、Job、Task、event、log、cancel、rerun 與 retry。**Change Plans**：Platform 破壞性變更的計畫，包括等待核准或拒絕的 plan、已核准 plan 的紀錄，以及安全開關 |
 | OS Images | 佈署 Server 所用的 OS image：catalog、upload、deploy mode 驗證與 deployment template（分頁 **OS images** 與 **Templates**） |

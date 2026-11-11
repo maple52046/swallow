@@ -19,7 +19,7 @@ On a phone, the menu button opens the same sidebar as a drawer.
 | Overview | Site-scoped fleet health, attention items, integrations, Platforms, and recent Workflows |
 | Servers | Inventory, Add servers (enrollment guidance), shareable filter views, bulk actions, tags, locks, and Server details including Boot Media |
 | Platforms | Kubernetes/Slurm deployment, lifecycle, settings, and runtime views |
-| Software | Grouped catalog (Docker CE, Podman, NFS, Prometheus, Grafana, AMD Device Metrics Exporter, Node Exporter, VictoriaMetrics), per-software deployments, and multi-Server installation |
+| Software | Grouped catalog (Docker CE, Podman, libvirt (QEMU/KVM), NFS, Prometheus, Grafana, AMD Device Metrics Exporter, Node Exporter, VictoriaMetrics, and any software of this release without its own card under Other software), per-software deployments, and multi-Server installation |
 | Monitoring | Fleet health, usage charts for selected Servers, Pools, Zones, and Platforms, current metrics, optional Grafana links, and (in development) alerts and silences |
 | Activity | Two tabs. **Workflows**: durable execution state, Jobs, Tasks, events, logs, cancel, rerun, and retry. **Change Plans**: plans for destructive Platform changes, the ones waiting for approval or rejection, the record of approved ones, and the safety switch |
 | OS Images | The OS images Servers are deployed with: the catalog, upload, deploy-mode verification, and deployment templates (tabs **OS images** and **Templates**) |

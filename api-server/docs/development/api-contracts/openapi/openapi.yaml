@@ -15225,6 +15225,8 @@ components:
         - uninstall-node-exporter
         - configure-victoriametrics
         - uninstall-victoriametrics
+        - configure-libvirt
+        - uninstall-libvirt
         - configure-ntp
         - custom
       type: string

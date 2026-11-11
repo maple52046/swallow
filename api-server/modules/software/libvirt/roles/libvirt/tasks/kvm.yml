@@ -1,0 +1,75 @@
+---
+# Make /dev/kvm exist. A disk-deployed Ubuntu already has the KVM module and loads it at boot from the
+# CPU's modalias; the image of a RAM deployment ships a trimmed module set without kvm, kvm_amd,
+# kvm_intel, or vfio-pci, so the running kernel's modules package is installed first. On a RAM
+# deployment the package lives in memory and is gone after a reboot, like everything else.
+
+- name: Look for the KVM module of the running kernel
+  ansible.builtin.command:
+    argv: [modinfo, -n, "{{ libvirt_kvm_module }}"]
+  register: libvirt_kvm_modinfo
+  changed_when: false
+  # modinfo exits non-zero when the kernel has no such module, which the next task fixes.
+  failed_when: false
+
+- name: Install the running kernel's modules package
+  ansible.builtin.apt:
+    name: "linux-modules-{{ ansible_facts['kernel'] }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    install_recommends: false
+    lock_timeout: 300
+  when: libvirt_kvm_modinfo.rc != 0
+  register: libvirt_kernel_modules
+  until: libvirt_kernel_modules is succeeded
+  retries: 5
+  delay: 10
+  # A kernel whose modules package left the archive is reported by the next task with a clear reason.
+  ignore_errors: true
+
+- name: Report a kernel whose modules package is not available
+  ansible.builtin.fail:
+    msg: >-
+      [libvirt_kvm_modules_unavailable] The running kernel {{ ansible_facts['kernel'] }} has no KVM
+      module, and its modules package linux-modules-{{ ansible_facts['kernel'] }} could not be
+      installed from this host's package sources: {{ libvirt_kernel_modules.msg | default('') }}
+  when: libvirt_kernel_modules is failed
+
+- name: Index the modules the package installed
+  ansible.builtin.command:
+    argv: [depmod, -a, "{{ ansible_facts['kernel'] }}"]
+  when: libvirt_kernel_modules is changed
+
+- name: Read whether the KVM module is loaded
+  ansible.builtin.stat:
+    path: "/sys/module/{{ libvirt_kvm_module }}"
+  register: libvirt_kvm_loaded
+
+- name: Load the KVM module
+  ansible.builtin.command:
+    argv: [modprobe, "{{ libvirt_kvm_module }}"]
+  when: not libvirt_kvm_loaded.stat.exists
+  register: libvirt_kvm_modprobe
+  # A refused load (virtualization disabled in the BIOS) is reported with the kernel's words below.
+  failed_when: false
+
+- name: Read /dev/kvm
+  ansible.builtin.stat:
+    path: /dev/kvm
+  register: libvirt_dev_kvm
+
+- name: Read the kernel's KVM messages
+  ansible.builtin.shell: dmesg | grep -iE 'kvm|svm|vmx' | tail -n 5
+  when: not libvirt_dev_kvm.stat.exists
+  register: libvirt_kvm_dmesg
+  changed_when: false
+  failed_when: false
+
+- name: Refuse a host where KVM does not come up
+  ansible.builtin.fail:
+    msg: >-
+      [libvirt_kvm_unavailable] /dev/kvm does not exist after loading {{ libvirt_kvm_module }}
+      ({{ libvirt_kvm_modprobe.stderr | default('') | trim }}). Hardware virtualization may be
+      disabled in the BIOS. Kernel messages: {{ libvirt_kvm_dmesg.stdout_lines | default([]) | join(' | ') }}
+  when: not libvirt_dev_kvm.stat.exists

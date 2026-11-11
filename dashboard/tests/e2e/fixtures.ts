@@ -2660,6 +2660,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         { kind: 'device-metrics-exporter', label: 'AMD Device Metrics Exporter', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: true, refusedForClaimedServers: true, requiresAmdComputeGpu: true, installMethods: [], containerRuntimes: [], specFields: [] },
         { kind: 'node-exporter', label: 'Node Exporter', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: [], containerRuntimes: [], specFields: [] },
         { kind: 'victoriametrics', label: 'VictoriaMetrics', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: [], containerRuntimes: [], specFields: ['listen', 'retention'] },
+        { kind: 'libvirt', label: 'libvirt (QEMU/KVM)', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: [], containerRuntimes: [], specFields: [] },
         ...(options.extraSoftwareCatalog ?? []),
       ] })
     }
@@ -2671,7 +2672,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         { kind: 'accelerator', id: 'amd', version: '0.1.0', spec: null },
         { kind: 'platform', id: 'kubernetes', version: '0.1.0', spec: null },
         { kind: 'platform', id: 'slurm', version: '0.1.0', spec: null },
-        ...['device-metrics-exporter', 'docker-ce', 'grafana'].map((id) => ({ kind: 'software', id, version: '0.1.0', spec: null })),
+        ...['device-metrics-exporter', 'docker-ce', 'grafana', 'libvirt'].map((id) => ({ kind: 'software', id, version: '0.1.0', spec: null })),
         { kind: 'software', id: 'nfs', version: '0.1.0', spec: nfsSpecSchema },
         ...['node-exporter', 'podman', 'prometheus'].map((id) => ({ kind: 'software', id, version: '0.1.0', spec: null })),
         { kind: 'software', id: 'victoriametrics', version: '0.1.0', spec: victoriaMetricsSpecSchema },

@@ -1,0 +1,47 @@
+---
+# Remove the packages swallow installed, but only from a host without virtual machines: removing QEMU
+# and libvirt under defined domains would strand them. The packages are removed, not purged, so disk
+# images under /var/lib/libvirt and libvirt's configuration (pool and network definitions) stay; dpkg
+# drops only the directories the packages own that are empty. The group memberships and the kernel's
+# modules package stay too.
+
+- name: Read whether libvirt's client is installed
+  ansible.builtin.stat:
+    path: /usr/bin/virsh
+  register: libvirt_virsh
+
+- name: List the virtual machines libvirt defines
+  ansible.builtin.command:
+    argv: [virsh, -c, "qemu:///system", list, --all, --name]
+  environment:
+    LC_ALL: C
+  when: libvirt_virsh.stat.exists
+  register: libvirt_domains
+  changed_when: false
+  failed_when: false
+
+# A host whose daemon cannot answer may still define virtual machines, so it is not uninstalled.
+- name: Refuse a host whose virtual machines cannot be listed
+  ansible.builtin.fail:
+    msg: >-
+      [libvirt_domains_unknown] libvirt could not list this host's virtual machines, so swallow does
+      not remove it: {{ libvirt_domains.stderr | default('') | trim }}
+  when: libvirt_virsh.stat.exists and libvirt_domains.rc != 0
+
+- name: Refuse a host that still defines virtual machines
+  ansible.builtin.fail:
+    msg: >-
+      [libvirt_domains_present] This host still defines virtual machines
+      ({{ libvirt_domains.stdout_lines | select | join(', ') }}); remove them before uninstalling libvirt.
+  when: libvirt_virsh.stat.exists and (libvirt_domains.stdout_lines | select | list | length > 0)
+
+- name: Remove QEMU, libvirt, and the UEFI firmware
+  ansible.builtin.apt:
+    name: "{{ libvirt_removed_packages }}"
+    state: absent
+    purge: false
+    lock_timeout: 300
+  register: libvirt_apt_removed
+  until: libvirt_apt_removed is succeeded
+  retries: 5
+  delay: 10

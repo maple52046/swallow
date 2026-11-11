@@ -99,7 +99,7 @@ canonical terms 是 Workflow 與 Task。
 ## Managed Software 與 Software Assignment
 
 **Managed Software** 是一個 host-level software，目前包含 Docker CE、Podman、NFS、
-Prometheus、Grafana、AMD Device Metrics Exporter、VictoriaMetrics 與 Node Exporter（swallow 會讓它自動化的
+Prometheus、Grafana、AMD Device Metrics Exporter、VictoriaMetrics、libvirt (QEMU/KVM) 與 Node Exporter（swallow 會讓它自動化的
 每台已佈署 Server 一直保有它）。
 **Software Assignment** 記錄一種 software 在一台 Server 的 desired／last-applied
 state。它不是 Server status axis，也不同於 multi-component Platform。

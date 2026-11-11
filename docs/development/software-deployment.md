@@ -81,6 +81,7 @@ image（`cloud-user`）的機器。所有候選帳號都登不進去時（例如
 | `device-metrics-exporter` | 無 role；只有 native 一種安裝路徑 | 無（版本固定 `1.5.3`，assignment spec 記錄 `version`） | GPU Inventory 須有 AMD compute GPU；拒絕 Kubernetes member 與帶 Platform Claim 的 Server（`refusedForClaimedServers`，install 與 uninstall 皆拒）；OS 限 Ubuntu 24.04（playbook 檢查） |
 | `node-exporter` | 無 role；只有 OS 套件一種安裝路徑 | 無（版本由 OS 套件決定） | 可與 Platform 共存；OS 限 Debian／Ubuntu 與 RHEL 家族（playbook 檢查） |
 | `victoriametrics` | 無 role；只有 native 一種安裝路徑 | `listen`（`loopback` 預設／`management`）、`retention`（整數加 `d`／`w`／`M`／`y`，預設 `1M`，至多 100 年）；版本固定 `1.155.0`，assignment spec 記錄 `version` | 可與 Platform 共存；只宣告 amd64 的 release；只在 Ubuntu 24.04 驗證過，RHEL 家族未驗證 |
+| `libvirt` | 無 role；只有 OS 套件一種安裝路徑 | 無（QEMU 與 libvirt 的版本由 OS 套件決定） | 可與 Platform 共存；OS 限 Ubuntu 24.04、CPU 限有 `vmx` 或 `svm` 的 x86_64（playbook 檢查）；有 virtual machine 時拒絕 uninstall（playbook 檢查） |
 
 catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴充新 kind（未來 PostgreSQL、LDAP client）
 就是新增一個 Software 模組，前提是仍只依賴本文件的契約：
@@ -295,6 +296,44 @@ Prometheus 相容的寫入與查詢 API。依 §0 的分界，長期運作在一
   uninstall 是 user 觸發的 Workflow，assignment 記錄最後一次套用的 spec；主機上被外部移除、停止或改寫不會被發現。
   遷移後由 desired 與 controller 取代，role 已是 ensure，不必改內容。
 
+**libvirt（QEMU/KVM）**：讓一台 Server 成為 KVM hypervisor，也就是 [Hypervisor](glossaries/terms/hypervisor.md) 角色
+（[decision 055](../decisions/055-libvirt-virtual-machine-enrollment.md)）需要的主機狀態：`/dev/kvm` 可用、system libvirt
+daemon 在執行，而且 Server 的 effective Server Default User 能以 `virsh -c qemu:///system` 使用它。裝好之後，這台 Server
+的 virtual machine 就能經 [server-enrollment-and-boot-media.md](server-enrollment-and-boot-media.md) §1.3 列出與 enroll。這個 kind 不建立
+virtual machine。
+
+- **安裝路徑**：只有 OS 套件。`qemu-system-x86`、`qemu-utils`、`libvirt-daemon-system`、`libvirt-clients`、`ovmf`，加上
+  libvirt 內建的預設 NAT network 需要的 `dnsmasq-base`，從 Site 選擇的來源以 apt 安裝，不裝 Recommends：Recommends 會
+  多帶約 170 個桌面與音訊套件，headless 的 hypervisor 用不到。virtual NIC 網路開機用的 ROM（`ipxe-qemu`）是
+  `qemu-system-x86` 的相依套件，不受影響。請求不接受任何 spec 欄位。
+- **檢查（在安裝任何套件之前）**：OS 不是 Ubuntu 24.04 時以 `libvirt_unsupported_os` 失敗；CPU 不是 x86_64 時以
+  `libvirt_unsupported_architecture` 失敗；`/proc/cpuinfo` 沒有 `vmx` 或 `svm`（BIOS 關閉了 VT-x／AMD-V，或主機本身是沒有
+  nested virtualization 的 VM）時以 `libvirt_kvm_unavailable` 失敗。Server projection 分辨不出 custom image 的發行版，也
+  看不到 CPU 是否支援虛擬化，所以由 playbook 在主機上檢查，比照 Device Metrics Exporter。
+- **KVM 模組**：執行中的 kernel 沒有 KVM 模組時，先安裝它的 `linux-modules-<kernel>` 套件（沒有相依套件），再載入
+  `kvm_amd` 或 `kvm_intel`，最後要求 `/dev/kvm` 存在，否則以 `libvirt_kvm_unavailable` 失敗並附上 kernel 的訊息；套件裝不
+  了時以 `libvirt_kvm_modules_unavailable` 失敗。disk 部署的 Ubuntu 本來就有 KVM 模組，開機時依 CPU 的 modalias 自動
+  載入，不受影響；MAAS 的 RAM 部署 image 只帶精簡的模組，沒有 `kvm`、`kvm_amd`、`kvm_intel` 與 `vfio-pci`，靠這一步補上
+  （2026-11-11 在 RAM 部署的 rich-gecko 驗證）。
+- **不干擾已在執行的 hypervisor**：`libvirtd` 以 `state: started` 確保在執行，已在執行時不重啟；不改 libvirt 的 network、
+  主機的網路設定、kernel 參數與既有的 virtual machine；`default` storage pool 已存在時不動，不存在時比照 `virt-install` 與
+  libvirt Boot Media（§1.3 的 adapter）定義為 `/var/lib/libvirt/images` 的 directory pool 並 autostart。所以在已經跑著
+  virtual machine 的主機上安裝也是安全的。
+- **帳號**：把 `ansible_user`（effective Server Default User，`root` 除外）加入 `libvirt` 與 `kvm` group，比照 Docker CE 的
+  `docker` group（§4.6）。最後以 `runuser` 用該帳號重新登入的群組執行 `virsh -c qemu:///system list --all`，失敗時以
+  `libvirt_access_denied` 失敗；Task output 回報 libvirt 與 QEMU 的版本，以及 IOMMU group 的數量（0 表示 IOMMU 沒開，
+  PCI passthrough 還不能用；不算失敗）。
+- **uninstall**：libvirt 還定義著任何 virtual machine 時以 `libvirt_domains_present` 失敗，列不出來時以
+  `libvirt_domains_unknown` 失敗，都在移除任何東西之前；否則移除上面的套件（`dnsmasq-base` 除外，NetworkManager 等也用
+  它），不 purge：`/var/lib/libvirt` 底下的 disk image 與 libvirt 的設定（pool 與 network 的定義）都保留，dpkg 只移除套件
+  擁有、而且是空的目錄（例如沒有 image 的 `/var/lib/libvirt/images`，重新安裝時由套件建回）；group membership 與 kernel
+  模組套件也保留。2026-11-11 在 rich-gecko 驗證：有 domain 時拒絕、刪除 domain 後 retry 成功、之後重新安裝回到可用狀態。
+- **RAM 部署**：可以安裝，但主機上的一切（套件、kernel 模組、libvirt 設定、domain 定義與 tmpfs 上的 disk image）在重開機
+  後都會消失，assignment 卻仍是 `installed`，swallow 不會發現。要撐過重開機的 virtual machine disk 應放在持久的 storage。
+- **仍是動作**：與其他尚未遷移的 kind 相同（[desired-state-model.md](desired-state-model.md) §1.1），install 與 uninstall
+  是 user 觸發的 Workflow，assignment 記錄最後一次套用的結果；主機上被外部移除或停止不會被發現。遷移後由 desired 與
+  controller 取代，role 已是 ensure，不必改內容。
+
 ## 3. Software Assignment（durable record）
 
 swallow-owned collection `software_assignments`，鍵 `(serverId, kind)`：
@@ -364,6 +403,7 @@ targets。software playbook 需要角色分組時，於 playbook 內以 `group_b
     `_compute_ids` 時，playbook 視為 `slurm`，相容 068 之前的 run）
   - VictoriaMetrics：`swallow_victoriametrics_version`（固定 `1.155.0`）、`swallow_victoriametrics_listen`
     （`loopback`／`management`）、`swallow_victoriametrics_retention`、`swallow_victoriametrics_port`（固定 `8428`，模組擁有）
+  - libvirt：沒有專屬的 trusted var；要加入 group 的帳號取自 inventory 的 `ansible_user`
 
 ### 4.3 record / failure 契約
 
@@ -559,7 +599,8 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
 | Node Exporter（catalog entry、組入 OS 部署） | `api-server/modules/software/node-exporter/module.go`；組入：`api-server/internal/app/node_exporter_planner.go` |
 | Node Exporter controller（政策、退避、取消自己停住的 install；與 kind 無關的 ensure controller）與它在 worker 的組裝、Site Prometheus 的讀取 | `api-server/internal/core/software/application/ensure_controller.go`；`api-server/internal/app/node_exporter_controller.go`、`api-server/internal/app/worker.go` |
 | VictoriaMetrics（kind、固定版本、port、retention 的規則） | `api-server/modules/software/victoriametrics/module.go`；spec schema 與 release 的宣告在同目錄的 `module.json` |
-| Playbooks 與 roles | `api-server/modules/software/<kind>/`：`playbooks/deploy-*.yml`、`playbooks/uninstall-*.yml`；roles `docker_ce`（Engine API listener：`tasks/api.yml`）、`podman`、`nfs_server`、`nfs_client`、`prometheus`、`grafana`、`node_exporter`、`victoriametrics`；共用的 `api-server/modules/shared/roles/device_metrics_exporter`（移除：`tasks/uninstall.yml`，`uninstall-slurm` 共用）、`amdgpu_loader`、`grafana_provisioning`（Grafana 的 datasource 與 dashboard bundles）與 `shared_data_dir`（Prometheus、Grafana、VictoriaMetrics 建立 data 目錄前讓 `/var/lib/swallow` 維持 root 擁有）；撰寫規則見[模組撰寫指南](module-authoring.md) |
+| libvirt（kind、沒有 spec） | `api-server/modules/software/libvirt/module.go`；role `libvirt` 的 `tasks/preflight.yml`（OS、架構、CPU）、`kvm.yml`（kernel 模組）、`install.yml`、`verify.yml`、`remove.yml`；內容測試 `internal/adapters/hostautomation/ansible/libvirt_playbook_test.go` |
+| Playbooks 與 roles | `api-server/modules/software/<kind>/`：`playbooks/deploy-*.yml`、`playbooks/uninstall-*.yml`；roles `docker_ce`（Engine API listener：`tasks/api.yml`）、`podman`、`nfs_server`、`nfs_client`、`prometheus`、`grafana`、`node_exporter`、`victoriametrics`、`libvirt`；共用的 `api-server/modules/shared/roles/device_metrics_exporter`（移除：`tasks/uninstall.yml`，`uninstall-slurm` 共用）、`amdgpu_loader`、`grafana_provisioning`（Grafana 的 datasource 與 dashboard bundles）與 `shared_data_dir`（Prometheus、Grafana、VictoriaMetrics 建立 data 目錄前讓 `/var/lib/swallow` 維持 root 擁有）；撰寫規則見[模組撰寫指南](module-authoring.md) |
 | Docker Host Explorer（view types、use case、Engine client、handler 與路由） | 全部在 docker-ce 模組：`api-server/modules/software/docker-ce/explorer/`（view types、`DockerExplorerUseCase`）、`explorerhttp/`（handler 與 `RegisterRoutes`）、`dockerengine/`（Engine client）；`EngineAPIPort`、`SpecEnableAPI` 與 `APIEnabled` 在 root package `api-server/modules/software/docker-ce/module.go` |
 | Registry Credential（registry 正規化與解析、service、sealed Mongo repo、handler） | `api-server/internal/core/software/domain/registry.go`、`application/registry_credentials.go`、`delivery/registry_credential_handler.go`、`api-server/internal/adapters/store/mongodb/software/mongo_registry_credential_repo.go` |
 | Device Metrics Exporter（pinned version、port、job attribution） | `api-server/internal/core/software/domain/device_metrics_exporter.go`；Slurm 組入：`api-server/internal/app/slurm_composition_adapter.go` |

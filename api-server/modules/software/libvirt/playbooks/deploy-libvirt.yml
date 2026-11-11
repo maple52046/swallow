@@ -1,0 +1,34 @@
+---
+# Install libvirt (QEMU/KVM) on already-provisioned Servers as Managed Software
+# (docs/development/software-deployment.md), so each becomes a Hypervisor swallow can reach
+# (decision 055). The packages come from the distribution's archive, directly or through the Site's
+# Local Repository (swallow_artifacts, role artifact_sources). The kind takes no spec. Idempotent: a
+# converged host reruns with no changes, and a host that already runs virtual machines keeps them,
+# its networks, and its running daemon.
+
+- name: Hold the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: package_maintenance_hold
+
+- name: Point every target at the run's artifact sources
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: artifact_sources
+
+- name: Install libvirt
+  hosts: all
+  gather_facts: true
+  roles:
+    - role: libvirt
+
+- name: Release the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Release the package maintenance hold
+      ansible.builtin.include_role:
+        name: package_maintenance_hold
+        tasks_from: release

@@ -25,6 +25,7 @@ func TestShippedManifestResolvesSoftwarePlaybooks(t *testing.T) {
 		"deploy-device-metrics-exporter", "uninstall-device-metrics-exporter",
 		"deploy-node-exporter", "uninstall-node-exporter",
 		"deploy-victoriametrics", "uninstall-victoriametrics",
+		"deploy-libvirt", "uninstall-libvirt",
 	} {
 		if _, err := catalog.Resolve(name); err != nil {
 			t.Errorf("shipped manifest must register %q: %v", name, err)

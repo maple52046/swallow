@@ -37,6 +37,7 @@ behavior semantics.
 - [Docker Host Explorer](../../../../../docs/development/glossaries/terms/docker-host-explorer.md)
 - [Device Metrics Exporter](../../../../../docs/development/glossaries/terms/device-metrics-exporter.md)
 - [Platform Claim](../../../../../docs/development/glossaries/terms/platform-claim.md)
+- [Hypervisor](../../../../../docs/development/glossaries/terms/hypervisor.md)
 
 ## Endpoints
 
@@ -91,6 +92,16 @@ object whose `items` array is small and bounded, so it is not paginated.
       "installMethods": ["container", "native"],
       "containerRuntimes": ["docker-ce", "podman"],
       "specFields": ["installMethod", "containerRuntime", "version", "prometheusUrl", "dashboards"]
+    },
+    {
+      "kind": "libvirt",
+      "label": "libvirt (QEMU/KVM)",
+      "roles": [],
+      "mutuallyExclusiveWith": [],
+      "refusedForKubernetesMembers": false,
+      "installMethods": [],
+      "containerRuntimes": [],
+      "specFields": []
     },
     {
       "kind": "nfs",
@@ -267,7 +278,8 @@ Servers, creating a durable Workflow and a `pending` assignment per Server.
   is described in [Docker CE spec](#docker-ce-spec), Prometheus and Grafana in
   [Prometheus and Grafana spec](#prometheus-and-grafana-spec), the Device Metrics Exporter
   in [Device Metrics Exporter](#device-metrics-exporter), the Node Exporter in
-  [Node Exporter](#node-exporter), and VictoriaMetrics in [VictoriaMetrics](#victoriametrics).
+  [Node Exporter](#node-exporter), VictoriaMetrics in [VictoriaMetrics](#victoriametrics), and
+  libvirt in [libvirt](#libvirt).
 - Every target Server must be present and in provisioning state `deployed`; the request checks
   this first and refuses it as `409 conflict`. A kind installed by its
   `container` method also needs one of the entry's `containerRuntimes` in state `installed` on
@@ -486,6 +498,45 @@ needed, and no deployment composes it. A `grafana` reads it through `prometheusU
   data.
 - Uninstall removes the service, the release, its data, and its system user.
 
+### libvirt
+
+`libvirt` makes each target a KVM hypervisor: it installs QEMU, libvirt, and the UEFI firmware from
+the OS distribution's packages, keeps the system libvirt daemon running, and adds the Server's
+effective Server Default User to the `libvirt` and `kvm` groups, so that account can run
+`virsh -c qemu:///system`. That is what a
+[Hypervisor](../../../../../docs/development/glossaries/terms/hypervisor.md) needs: once installed,
+the Server's [virtual machines](server-enrollment.md#virtual-machines-libvirt) can be listed and
+enrolled. It never creates virtual machines.
+
+```json
+{
+  "kind": "libvirt",
+  "assignments": [{ "serverId": "srv-abc" }]
+}
+```
+
+- The request takes no `spec` fields; any field is `400 validation_error`. The OS packages decide
+  the QEMU and libvirt versions.
+- The kind has no install rule of its own: a member of any Platform is accepted like any other
+  deployed Server, and a locked Server is refused by the lock check every install has.
+- The install leaves a host that already runs virtual machines as it was: it does not restart a
+  running libvirt daemon or change libvirt's networks, the host's network configuration, the kernel
+  command line, or an existing `default` storage pool. A host without a `default` storage pool gets
+  one at `/var/lib/libvirt/images`.
+- On a kernel without the KVM module (the image of a RAM deployment ships without it), the install
+  first installs the running kernel's modules package.
+- The install Task fails with `libvirt_unsupported_os` on anything but Ubuntu 24.04,
+  `libvirt_unsupported_architecture` on a CPU other than x86_64, `libvirt_kvm_unavailable` when the
+  CPU offers no hardware virtualization or `/dev/kvm` does not appear (virtualization disabled in the
+  BIOS, or a virtual machine host without nested virtualization), `libvirt_kvm_modules_unavailable`
+  when the running kernel's modules package cannot be installed, and `libvirt_access_denied` when the
+  Server Default User still cannot use the daemon. The Task output reports the libvirt and QEMU
+  versions and the number of IOMMU groups (zero means PCI passthrough is not possible yet).
+- Uninstall fails with `libvirt_domains_present` while libvirt still defines a virtual machine, and
+  with `libvirt_domains_unknown` when it cannot list them; otherwise it removes the packages without
+  purging them, so disk images under `/var/lib/libvirt`, libvirt's configuration (pool and network
+  definitions), and the group memberships stay.
+
 On success the response is `202 Accepted`:
 
 ```json
@@ -579,6 +630,9 @@ On success the response is `202 Accepted`:
 - 2026-11-08, behavior only (no wire change): uninstalling a native Grafana also removes the
   package's `grafana` user and group and its `/etc/grafana`, `/var/lib/grafana`, and
   `/var/log/grafana`, which the package's purge leaves.
+- 2026-11-11, additive: added the `libvirt` kind (see [libvirt](#libvirt)) and its Workflow kinds
+  `configure-libvirt` and `uninstall-libvirt`. Clients that read the kind set from the catalog need
+  no change.
 
 ## Composition Into Platform Deployments
 

@@ -1,4 +1,4 @@
-import { Activity, Box, Container, Database, FolderSync, Gauge, LayoutDashboard, Package, type LucideIcon } from 'lucide-react'
+import { Activity, Box, Container, Cpu, Database, FolderSync, Gauge, LayoutDashboard, Package, type LucideIcon } from 'lucide-react'
 import { hasAMDComputeGPU } from '@/domain/platform/gpuOperator'
 import type { Server } from '@/domain/server/types'
 import { serverDisplayName } from '@/domain/server/types'
@@ -14,7 +14,7 @@ import type {
  * Stable catalog section owned by Dashboard presentation, not by the software API. `other` holds
  * every kind the dashboard has no curated presentation for.
  */
-export type SoftwareCategory = 'container-runtimes' | 'storage-file-sharing' | 'observability' | 'other'
+export type SoftwareCategory = 'container-runtimes' | 'virtualization' | 'storage-file-sharing' | 'observability' | 'other'
 
 /**
  * Copy and visual identity for one Managed Software kind: curated for the kinds listed in
@@ -87,6 +87,14 @@ const PRESENTATION: Readonly<Partial<Record<SoftwareKind, SoftwareCatalogPresent
     capabilities: ['Container runtime', 'Daemonless operation', 'Version pinning'],
     hasSettings: false,
   },
+  libvirt: {
+    category: 'virtualization',
+    description: 'Turn a deployed Server into a KVM hypervisor: QEMU, libvirt, and UEFI firmware from the OS packages, usable by its default user and by swallow.',
+    icon: Cpu,
+    order: 10,
+    capabilities: ['KVM virtual machines', 'OS packages', 'Leaves existing virtual machines alone'],
+    hasSettings: false,
+  },
   nfs: {
     category: 'storage-file-sharing',
     description: 'Configure shared storage by assigning NFS server and client roles across deployed Servers.',
@@ -144,6 +152,11 @@ const CATEGORIES: ReadonlyArray<Omit<SoftwareCatalogGroup, 'entries'>> = [
     description: 'Host-level runtimes for building and running container workloads.',
   },
   {
+    key: 'virtualization',
+    label: 'Virtualization',
+    description: 'Hypervisors that run virtual machines on a Server.',
+  },
+  {
     key: 'storage-file-sharing',
     label: 'Storage & file sharing',
     description: 'Software that provides or consumes shared storage across Servers.',
@@ -165,6 +178,8 @@ export function softwareCategoryBadge(category: SoftwareCategory): string {
   switch (category) {
     case 'container-runtimes':
       return 'Container runtime'
+    case 'virtualization':
+      return 'Virtualization'
     case 'storage-file-sharing':
       return 'Storage & file sharing'
     case 'observability':

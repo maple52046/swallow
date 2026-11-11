@@ -22,6 +22,8 @@ deployed Servers. It is intentionally separate from Platform deployment.
   automates; see below.
 - **VictoriaMetrics:** installs one pinned single-node VictoriaMetrics natively, a
   metrics store that Prometheus-compatible clients write to and Grafana reads; see below.
+- **libvirt (QEMU/KVM):** turns a Server into a KVM hypervisor whose virtual machines
+  swallow can list and enroll; see below.
 
 The shipped automation manifest is the allowlist. If a software kind or variant
 does not appear in the active API contract and manifest, it is not supported.
@@ -135,6 +137,31 @@ VictoriaMetrics address, for example `http://127.0.0.1:8428` on the same Server.
 swallow's Site Prometheus does not collect it, and no Platform installs it.
 Reconfiguring it with another address or retention restarts it and keeps its data;
 uninstalling it removes the service, the release, and **all of its data**.
+
+## libvirt (QEMU/KVM)
+
+libvirt installs QEMU, libvirt, and UEFI firmware from the OS packages, keeps the
+libvirt daemon running, and adds the Server's default user — the account swallow logs
+in as — to the `libvirt` and `kvm` groups. The Server can then act as a hypervisor:
+its virtual machines can be listed and enrolled by name (see
+[Libvirt virtual machines](servers-and-infrastructure.md#libvirt-virtual-machines)). It
+does not create virtual machines, and it has no settings.
+
+- It needs Ubuntu 24.04 on an x86_64 CPU with hardware virtualization (Intel VT-x or
+  AMD-V) enabled in the BIOS. A Server that is itself a virtual machine also needs
+  nested virtualization from its own hypervisor. The installation stops with the
+  reason before installing anything when one of these is missing.
+- On a RAM deployment it also installs the kernel modules KVM needs, which the RAM
+  image leaves out. Everything it installs on a RAM-deployed Server is gone after a
+  reboot, while swallow still shows libvirt as installed; install it again then.
+- It is safe on a host that already runs virtual machines: it does not restart the
+  libvirt daemon or change libvirt's networks, the host's network configuration, or
+  existing virtual machines.
+- The installation's Workflow reports how many IOMMU groups the host has. Zero means
+  the IOMMU is off: enable it in the BIOS before passing PCI devices to virtual
+  machines.
+- Uninstalling is refused while the host still has virtual machines. It removes the
+  packages but keeps disk images under `/var/lib/libvirt`.
 
 ## The docker group
 

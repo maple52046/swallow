@@ -1,0 +1,38 @@
+---
+# Refuse a host that cannot be a KVM hypervisor, before anything changes on it. The Server projection
+# cannot tell a custom image's distribution or whether the CPU offers virtualization, so the host is
+# asked here.
+
+- name: Refuse an OS release libvirt is not verified on
+  ansible.builtin.fail:
+    msg: >-
+      [libvirt_unsupported_os] swallow installs libvirt on {{ libvirt_supported_os | join(', ') }};
+      this host reports {{ libvirt_os_distribution }} {{ libvirt_os_version }}.
+  when: (libvirt_os_distribution ~ '-' ~ libvirt_os_version) not in libvirt_supported_os
+
+- name: Refuse a CPU architecture other than x86_64
+  ansible.builtin.fail:
+    msg: >-
+      [libvirt_unsupported_architecture] swallow installs QEMU for x86_64 hosts; this host reports
+      {{ libvirt_architecture }}.
+  when: libvirt_architecture != 'x86_64'
+
+- name: Read the CPU's virtualization extension
+  ansible.builtin.command:
+    argv: [grep, -m1, -ow, -E, "vmx|svm", "{{ libvirt_cpuinfo_path }}"]
+  register: libvirt_cpu_extension
+  changed_when: false
+  # grep exits 1 when the CPU lists neither flag, which the next task reports.
+  failed_when: libvirt_cpu_extension.rc > 1
+
+- name: Refuse a CPU without hardware virtualization
+  ansible.builtin.fail:
+    msg: >-
+      [libvirt_kvm_unavailable] The CPU offers no hardware virtualization (neither vmx nor svm in
+      {{ libvirt_cpuinfo_path }}). Enable Intel VT-x or AMD-V (SVM) in the BIOS; on a host that is
+      itself a virtual machine, enable nested virtualization on its hypervisor.
+  when: libvirt_cpu_extension.rc != 0
+
+- name: Choose the KVM module for the CPU
+  ansible.builtin.set_fact:
+    libvirt_kvm_module: "{{ 'kvm_intel' if libvirt_cpu_extension.stdout | trim == 'vmx' else 'kvm_amd' }}"

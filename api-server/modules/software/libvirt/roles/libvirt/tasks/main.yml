@@ -1,0 +1,28 @@
+---
+# Install or remove libvirt (QEMU/KVM) (defaults/main.yml). Idempotent: a converged host reruns with
+# no changes. It never restarts a running libvirt daemon and never touches libvirt's networks, the
+# host's network configuration, the kernel command line, or existing virtual machines, so it is safe
+# on a host that already runs virtual machines.
+
+- name: Install libvirt
+  when: libvirt_state == 'present'
+  become: true
+  block:
+    - name: Refuse a host swallow does not install libvirt on
+      ansible.builtin.include_tasks: preflight.yml
+
+    - name: Make KVM available to the running kernel
+      ansible.builtin.include_tasks: kvm.yml
+
+    - name: Install and start libvirt
+      ansible.builtin.include_tasks: install.yml
+
+    - name: Check the Server's default user can use libvirt
+      ansible.builtin.include_tasks: verify.yml
+
+- name: Remove libvirt
+  when: libvirt_state == 'absent'
+  become: true
+  block:
+    - name: Remove the packages unless virtual machines remain
+      ansible.builtin.include_tasks: remove.yml

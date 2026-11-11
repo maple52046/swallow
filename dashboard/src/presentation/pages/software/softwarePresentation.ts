@@ -56,6 +56,8 @@ export function softwareKindLabel(kind: SoftwareKind, catalogLabel?: string): st
       return 'Node Exporter'
     case 'victoriametrics':
       return 'VictoriaMetrics'
+    case 'libvirt':
+      return 'libvirt (QEMU/KVM)'
     default:
       return kind
   }

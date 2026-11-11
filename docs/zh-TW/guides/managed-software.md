@@ -20,6 +20,8 @@ Managed Software 會在已 deployed 的 Server 安裝或移除一個 host-level 
   自動化的每台已佈署 Server 一直保有它；見下文。
 - **VictoriaMetrics：** 以 native 方式安裝一個 pinned 的 single-node VictoriaMetrics：
   一個讓 Prometheus 相容 client 寫入、讓 Grafana 讀取的 metrics store；見下文。
+- **libvirt (QEMU/KVM)：** 讓 Server 成為 KVM hypervisor，swallow 可以列出並 enroll 它上面的
+  virtual machine；見下文。
 
 Shipped automation manifest 是 allowlist。Software kind／variant 沒有出現在 active
 API contract 與 manifest 時，就不是 supported capability。
@@ -113,6 +115,26 @@ VictoriaMetrics 與 Prometheus 相容的寫入與查詢 API。它有兩個設定
 上的 `http://127.0.0.1:8428`。swallow 的 Site Prometheus 不收集它，也沒有 Platform 會安裝它。
 以其他位址或 retention 重新設定會重啟它並保留資料；解除安裝會移除 service、release 與**它的全部
 資料**。
+
+## libvirt (QEMU/KVM)
+
+libvirt 從 OS 套件安裝 QEMU、libvirt 與 UEFI firmware，讓 libvirt daemon 保持執行，並把 Server 的
+default user（swallow 登入用的帳號）加入 `libvirt` 與 `kvm` group。之後這台 Server 就能當 hypervisor：
+它上面的 virtual machine 可以依名稱列出並 enroll（見
+[libvirt virtual machine](servers-and-infrastructure.md#libvirt-virtual-machine)）。它不會建立 virtual
+machine，也沒有可設定的選項。
+
+- 需要 Ubuntu 24.04、x86_64 CPU，而且 BIOS 已開啟硬體虛擬化（Intel VT-x 或 AMD-V）。本身是 virtual
+  machine 的 Server 還需要它的 hypervisor 開啟 nested virtualization。缺少任何一項時，安裝會在安裝任何
+  東西之前停下並說明原因。
+- 在 RAM 部署的 Server 上，會另外安裝 KVM 需要、但 RAM image 沒有附的 kernel 模組。RAM 部署的 Server
+  重開機後，它安裝的一切都會消失，swallow 卻仍顯示 libvirt 已安裝；這時請重新安裝。
+- 在已經跑著 virtual machine 的主機上安裝也是安全的：不會重啟 libvirt daemon，也不會改動 libvirt 的
+  network、主機的網路設定或既有的 virtual machine。
+- 安裝的 Workflow 會回報主機有幾個 IOMMU group。0 表示 IOMMU 沒開：要把 PCI 裝置交給 virtual machine
+  之前，請先在 BIOS 開啟它。
+- 主機上還有 virtual machine 時會拒絕解除安裝。解除安裝會移除套件，但保留 `/var/lib/libvirt` 下的
+  disk image。
 
 ## docker group
 

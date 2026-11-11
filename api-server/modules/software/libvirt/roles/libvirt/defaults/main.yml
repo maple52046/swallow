@@ -1,0 +1,47 @@
+---
+# libvirt (QEMU/KVM) Managed Software. The kind takes no spec, so no trusted variable feeds these
+# defaults; they describe the one install path: the OS packages, the system libvirt daemon, and the
+# Server's default user in the libvirt and kvm groups (decision 055's Hypervisor).
+libvirt_state: present
+
+# What the preflight checks, read from facts. A content test sets them (and the cpuinfo path) to
+# exercise the refusals without the facts of the machine it runs on.
+libvirt_os_distribution: "{{ ansible_facts['distribution'] | default('') }}"
+libvirt_os_version: "{{ ansible_facts['distribution_version'] | default('') }}"
+libvirt_architecture: "{{ ansible_facts['architecture'] | default('') }}"
+libvirt_cpuinfo_path: /proc/cpuinfo
+
+# The OS releases swallow installs libvirt on, as "<distribution>-<version>". Only Ubuntu 24.04 is
+# verified; another release is refused before anything is installed.
+libvirt_supported_os:
+  - Ubuntu-24.04
+
+# Installed without Recommends: those pull about 170 desktop and audio packages (GTK, SDL, PulseAudio)
+# a headless hypervisor never uses. dnsmasq-base is the one recommended package kept, because
+# libvirt's packaged default NAT network cannot start without it. ipxe-qemu, which gives virtual NICs
+# their network-boot ROM, is a dependency of qemu-system-x86 and comes regardless.
+libvirt_packages:
+  - qemu-system-x86
+  - qemu-utils
+  - libvirt-daemon-system
+  - libvirt-clients
+  - ovmf
+  - dnsmasq-base
+# What uninstall removes: the packages above except dnsmasq-base, which other software (for example
+# NetworkManager) also uses.
+libvirt_removed_packages:
+  - qemu-system-x86
+  - qemu-utils
+  - libvirt-daemon-system
+  - libvirt-clients
+  - ovmf
+
+# libvirt_group_user joins the libvirt and kvm groups so swallow (and the user) can run virsh against
+# qemu:///system without sudo. It defaults to the connection user, which swallow's runner sets to the
+# Server's effective Server Default User, the account swallow's Hypervisor access logs in as. Empty or
+# root skips the grant.
+libvirt_group_user: "{{ ansible_user | default('') }}"
+
+# Where a missing `default` storage pool is defined, as virt-install and swallow's libvirt Boot Media
+# do (api-server/internal/adapters/hypervisor/libvirt).
+libvirt_pool_target: /var/lib/libvirt/images

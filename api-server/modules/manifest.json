@@ -105,6 +105,15 @@
       "path": "software/victoriametrics/playbooks/uninstall-victoriametrics.yml"
     },
     {
+      "name": "deploy-libvirt",
+      "path": "software/libvirt/playbooks/deploy-libvirt.yml",
+      "fetchesArtifacts": true
+    },
+    {
+      "name": "uninstall-libvirt",
+      "path": "software/libvirt/playbooks/uninstall-libvirt.yml"
+    },
+    {
       "name": "configure-omnistat",
       "path": "platform/slurm/playbooks/configure-omnistat.yml",
       "fetchesArtifacts": true

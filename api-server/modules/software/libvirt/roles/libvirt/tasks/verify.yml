@@ -1,0 +1,48 @@
+---
+# Prove the result the way swallow's Hypervisor access will use it: the Server's default user, in a
+# fresh login session (runuser reads its groups again, so the grant made by this run counts), runs
+# virsh against the system daemon. Then report what the host offers for virtual machines.
+
+- name: Run virsh against the system daemon as the Server's default user
+  ansible.builtin.command:
+    argv: [runuser, -u, "{{ libvirt_group_user }}", --, virsh, -c, "qemu:///system", list, --all]
+  environment:
+    LC_ALL: C
+  when:
+    - libvirt_group_user | length > 0
+    - libvirt_group_user != 'root'
+  register: libvirt_user_access
+  changed_when: false
+  failed_when: false
+
+- name: Refuse a result the Server's default user cannot use
+  ansible.builtin.fail:
+    msg: >-
+      [libvirt_access_denied] {{ libvirt_group_user }} cannot use the system libvirt daemon
+      (virsh -c qemu:///system): {{ libvirt_user_access.stderr | default('') | trim }}
+  when: libvirt_user_access is not skipped and libvirt_user_access.rc != 0
+
+- name: Read the libvirt and QEMU versions
+  ansible.builtin.command:
+    argv: [virsh, -c, "qemu:///system", version]
+  environment:
+    LC_ALL: C
+  register: libvirt_version
+  changed_when: false
+
+- name: Count the host's IOMMU groups
+  ansible.builtin.find:
+    paths: /sys/kernel/iommu_groups
+    file_type: directory
+    recurse: false
+  register: libvirt_iommu_groups
+
+# An IOMMU that is off does not fail the install: virtual machines run without it, only PCI
+# passthrough needs it. The count tells the user whether passthrough will be possible.
+- name: Report what the host offers for virtual machines
+  ansible.builtin.debug:
+    msg: >-
+      KVM module {{ libvirt_kvm_module }} is loaded and /dev/kvm exists.
+      {{ libvirt_version.stdout_lines | join('; ') }}.
+      IOMMU groups: {{ libvirt_iommu_groups.matched }}{{ '' if libvirt_iommu_groups.matched > 0 else
+      ' (the IOMMU is off: enable it in the BIOS before passing PCI devices to virtual machines)' }}.

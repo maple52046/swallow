@@ -118,7 +118,10 @@ provisioner。
 - **Hypervisor 是 Server 的角色，不是新紀錄或新 credential**：present、`deployed`、有 primary address 的
   Server。swallow 以 installation 的 [Deployment Key](glossaries/terms/deployment-key.md)、Site 的 SSH port
   登入，帳號為 user 指定的 `account`，否則為該 Server 的 effective Server Default User，執行
-  `virsh -c qemu:///system`。帳號必須能使用 system libvirt daemon（Ubuntu 的 `libvirt` group）。
+  `virsh -c qemu:///system`。帳號必須能使用 system libvirt daemon（Ubuntu 的 `libvirt` group）。還沒有 libvirt 的
+  Server 安裝 `libvirt` Managed Software 就能滿足這些前提（KVM、執行中的 daemon、effective Server Default User 在
+  `libvirt` group，[software-deployment.md](software-deployment.md) §2）；在 swallow 之外裝好 libvirt 的主機也可以，
+  Hypervisor 角色不要求 Software Assignment。
 - **durable Workflow**：kind `enroll-virtual-machines`（definition `virtual-machine-enrollment` v1），target 是
   Hypervisor Server（兩個 enrollment 不會同時改同一台 Hypervisor），每個 domain 一個獨立、無依賴的
   `enroll-virtual-machine` Task（`provisioner` Runner），在 Workflow parallelism 內平行執行，單一失敗可單獨

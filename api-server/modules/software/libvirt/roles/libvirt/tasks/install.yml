@@ -1,0 +1,79 @@
+---
+# Install the packages, keep the system libvirt daemon running, let the Server's default user use it,
+# and make sure the `default` storage pool exists. Nothing here restarts a running daemon or changes a
+# network, a pool that already exists, or a virtual machine.
+
+- name: Install QEMU, libvirt, and the UEFI firmware
+  ansible.builtin.apt:
+    name: "{{ libvirt_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    install_recommends: false
+    lock_timeout: 300
+  register: libvirt_apt
+  until: libvirt_apt is succeeded
+  retries: 5
+  delay: 10
+
+# state: started leaves a running daemon alone; only a stopped one is started.
+- name: Keep the system libvirt daemon enabled and running
+  ansible.builtin.systemd:
+    name: libvirtd
+    enabled: true
+    state: started
+
+# append keeps the account's other groups; the membership applies from its next login, which is what
+# swallow's Hypervisor access makes. Removal leaves the membership alone (the account is not swallow's
+# to edit beyond this grant).
+- name: Add the Server's default user to the libvirt and kvm groups
+  ansible.builtin.user:
+    name: "{{ libvirt_group_user }}"
+    groups: [libvirt, kvm]
+    append: true
+  when:
+    - libvirt_group_user | length > 0
+    - libvirt_group_user != 'root'
+
+- name: Read the default storage pool
+  ansible.builtin.command:
+    argv: [virsh, -c, "qemu:///system", pool-info, --pool, default]
+  environment:
+    LC_ALL: C
+  register: libvirt_default_pool
+  changed_when: false
+  # virsh exits non-zero when the pool is not defined, which the next tasks fix.
+  failed_when: false
+
+- name: Define the default storage pool where virt-install would
+  when: libvirt_default_pool.rc != 0
+  block:
+    - name: Define the default storage pool as a directory pool
+      ansible.builtin.command:
+        argv: [virsh, -c, "qemu:///system", pool-define-as, --name, default, --type, dir, --target, "{{ libvirt_pool_target }}"]
+
+    - name: Create the default storage pool's directory
+      ansible.builtin.command:
+        argv: [virsh, -c, "qemu:///system", pool-build, --pool, default]
+      register: libvirt_pool_build
+      # An existing directory is fine; a directory the pool cannot use fails the pool-start below.
+      failed_when: false
+
+    - name: Start the default storage pool with the daemon
+      ansible.builtin.command:
+        argv: [virsh, -c, "qemu:///system", pool-autostart, --pool, default]
+
+    - name: Read the defined storage pool
+      ansible.builtin.command:
+        argv: [virsh, -c, "qemu:///system", pool-info, --pool, default]
+      environment:
+        LC_ALL: C
+      register: libvirt_defined_pool
+      changed_when: false
+
+- name: Start the default storage pool when it is inactive
+  ansible.builtin.command:
+    argv: [virsh, -c, "qemu:///system", pool-start, --pool, default]
+  when: >-
+    (libvirt_defined_pool.stdout if libvirt_default_pool.rc != 0 else libvirt_default_pool.stdout)
+    is not search('^State:\s+running', multiline=True)

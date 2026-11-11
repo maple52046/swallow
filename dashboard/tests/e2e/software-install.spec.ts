@@ -511,6 +511,32 @@ test('a Software kind without dashboard presentation is listed and installs', as
   expect(installs[0].spec).toBeUndefined()
 })
 
+// libvirt turns a deployed Server into a KVM hypervisor (decision 055). It is offered under
+// Virtualization, takes no settings, and installs on any eligible Server, a Kubernetes member included.
+test('libvirt installs from Virtualization on a Server with nothing to configure', async ({ page }) => {
+  const installs: Array<Record<string, unknown>> = []
+  await installApiFixtures(page, { fleetSize: 5, onSoftwareInstallRequest: (body) => installs.push(body) })
+  await page.goto('/software?site=site-a')
+
+  await expect(page.getByRole('heading', { name: 'Virtualization', exact: true })).toBeVisible()
+  await page.getByRole('link', { name: 'Open libvirt (QEMU/KVM)' }).click()
+  await expect(page).toHaveURL('/software/libvirt?site=site-a')
+  await expect(page.getByText('Leaves existing virtual machines alone')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Install software', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Install software' })
+  await dialog.getByRole('textbox', { name: 'Search installation targets' }).fill('compute-node-005')
+  await dialog.getByText('Select all available results', { exact: true }).click()
+  await expect(dialog.getByRole('checkbox', { name: 'Select compute-node-005' })).toBeChecked()
+  await dialog.getByRole('button', { name: 'Next', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Install', exact: true }).click()
+
+  await expect(page).toHaveURL(/\/workflows\/op-docker-reapply\?site=site-a/)
+  expect(installs).toHaveLength(1)
+  expect(installs[0]).toMatchObject({ kind: 'libvirt' })
+  expect(installs[0].spec).toBeUndefined()
+})
+
 // AMD's Device Metrics Exporter is Managed Software (decision 068): it installs on an AMD GPU Server
 // no Platform claims, with nothing to configure, and is offered under Observability.
 test('the AMD Device Metrics Exporter installs on an AMD GPU Server with nothing to configure', async ({ page }) => {

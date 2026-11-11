@@ -1,0 +1,26 @@
+{
+  "contractVersion": 1,
+  "kind": "software",
+  "id": "libvirt",
+  "version": "0.1.0",
+  "playbooks": [
+    "deploy-libvirt",
+    "uninstall-libvirt"
+  ],
+  "workflowKinds": [
+    "configure-libvirt",
+    "uninstall-libvirt"
+  ],
+  "taskKinds": [],
+  "completions": [],
+  "hooks": [
+    {
+      "name": "software",
+      "reason": "Refuses every spec field, because the OS packages decide the QEMU and libvirt versions; the catalog entry travels with it."
+    }
+  ],
+  "capabilities": [
+    "host-automation"
+  ],
+  "routes": []
+}
