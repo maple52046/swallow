@@ -24,9 +24,13 @@ only what happens outside them.
 1. **Ask first.** Do not run anything against the development stack or the lab without the user's
    go-ahead for that drill.
 2. **Name the machines.** Say which Servers the drill will use before starting, and why.
-3. **Use only `lab-` machines.** Drills use virtual machines whose names start with `lab-`. Never
-   act on a machine whose name starts with `tainan-`, and never on the hypervisor `tainan-ci` that
-   hosts the lab VMs; they are shared physical machines.
+3. **Use only `lab-` machines and `rich-gecko`.** Drills use virtual machines whose names start with
+   `lab-`, and the physical Supermicro AS-4124GQ-TNMI `rich-gecko` (formerly `pvt250`; MAAS may
+   rename it, so identify it by that model), which the user set aside for hypervisor experiments.
+   Prefer a RAM deployment on `rich-gecko`: its disks hold the user's data, and the user must agree
+   before a drill erases them. Never act on a machine whose name starts with `tainan-`, and never
+   on the hypervisor `tainan-ci` that hosts the lab VMs; they are shared physical machines. With
+   the user's go-ahead, `tainan-ci`'s configuration may be read for reference, never changed.
 4. **Keep provider data.** Never delete Machines, images, or other data in MAAS; release or
    recover through swallow instead.
 
