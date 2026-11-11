@@ -211,9 +211,16 @@ development build 的實驗功能，CLI 與 API 則在每個 release 都提供�
   tab 開啟時，也能從 API 恢復進度。
 - **操作與佈署：** enabled Server 會提供 **Change ISO**（preflight 會先退出目前
   ISO）、**Re-apply**、**Disable**、**Re-detect Redfish** 與 **Check BMC**。
-  Disable 後仍保留選擇的 Boot ISO，供下次啟用。每次 OS deployment 都會先重新套用
+  Disable 後仍保留選擇的 Boot ISO，供下次啟用：Boot media 區塊的 Boot ISO 顯示 N/A，啟用時預先選好保留的那一個。每次 OS deployment 都會先重新套用
   該 Server 的 Boot ISO，並為該次 deployment 凍結這個選擇；BMC 失敗時會停在
-  Boot Media Task，修復後再 retry。
+  Boot Media Task，修復後再 retry。失敗 Task 的 diagnostic 會說明是 BMC 拒絕帳號、
+  拒絕請求還是沒有回應，以及 retry 前該修改什麼。
+- **閱讀 Redfish 那一行：** BMC 廠商與韌體旁會顯示 swallow 如何辨識這台 BMC：
+  **profile ami** 或 **profile supermicro** 代表 swallow 試過的 BMC 家族；其他 BMC
+  顯示 **unverified BMC (standard Redfish only)**，只使用標準 Redfish 做法。未驗證的
+  BMC 仍可能可以使用，由 preflight 判斷。BMC 拒絕 Boot Media 需要的請求（例如需要
+  授權的功能）時顯示為不支援 Boot Media，並附上 BMC 自己的訊息；BMC 拒絕帳號時顯示為
+  unreachable。
 - **納管與檢視：** 這類網路上的 machine 還不是 Server，因此第一次 enlist 開機需要
   手動掛載 ISO：在 BMC 以 virtual media 掛上 ISO URL 並開機一次。Server 出現後立即
   啟用 Boot Media。硬體檢視每次執行前都會套用 Boot Media，且在執行當下讀取設定，

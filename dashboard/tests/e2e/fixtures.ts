@@ -1432,7 +1432,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     apply: null,
     redfish: {
       support: 'supported', serviceRoot: 'https://192.0.2.20/redfish/v1', vendor: 'AMI', product: 'AMI Redfish Server',
-      redfishVersion: '1.15.1', firmwareVersion: '13.06.10', systemId: 'Self', virtualMedia: true,
+      redfishVersion: '1.15.1', firmwareVersion: '13.06.10', profile: 'ami', systemId: 'Self', virtualMedia: true,
       bootOverrideModes: ['Once', 'Continuous'], probedAt: now,
     },
   }

@@ -113,6 +113,7 @@ flowchart LR
   - [`module-authoring.md`](module-authoring.md) — 模組撰寫指南：模組的宣告（`module.json`、Go hook、路由）、dashboard 的模組畫面、`api-server/modules/` 的佈局、playbook 的登錄、role 的解析、每支 playbook 的規則與內容測試。
   - [`os-provisioning.md`](os-provisioning.md) — OS provisioning：OS Image、Deployment Template、部署網路意圖、provider recovery、Zone/Pool、Provisioner HTTP Proxy 與 Subnet DNS。
   - [`server-enrollment-and-boot-media.md`](server-enrollment-and-boot-media.md) — Server Enrollment、硬體檢視、Power Configuration、Boot Media 與 Boot ISO。
+  - [`bmc-profiles.md`](bmc-profiles.md) — Redfish adapter 的 BMC Profile：BMC 家族的辨識、共同 DMTF 行為與各家族處理的界線、新增 profile 的流程。
   - [`workflow-execution.md`](workflow-execution.md) — durable Workflow 的跨功能執行語意：啟動、資源所有權、Task 重試、rerun、取消、取代佔用的工作、即時事件與 Job label。
   - [`access-and-credentials.md`](access-and-credentials.md) — 憑證（Deployment Key、Access Key、Server Default User、Site automation credential）與認證概要。
   - [`installation.md`](installation.md) — 支援的安裝拓樸、`swallowctl` 生命週期保證、發佈產物與時間同步。

@@ -6153,6 +6153,8 @@ export interface components {
             firmwareVersion?: string;
             probedAt: components["schemas"]["Timestamp"];
             product?: string;
+            /** @description The BMC Profile the probe recognized (`default` or an adapter-owned value); for display only, never branched on. */
+            profile: string | null;
             reason?: string;
             redfishVersion?: string;
             serviceRoot?: string;

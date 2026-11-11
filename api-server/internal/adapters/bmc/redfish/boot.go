@@ -2,181 +2,78 @@ package redfish
 
 import (
 	"context"
-	"errors"
-	"net/http"
-	"regexp"
-	"sort"
-	"time"
+
+	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 )
 
-// Boot strategy, from what real BMCs do (decision 047; probe log of 2026-10-03 on an AMI MegaRAC
-// with an AMI Aptio BIOS):
+// Boot direction is built from strategies, each one way of making the host boot the virtual CD.
+// A BMC Profile lists the strategies it trusts in order, and the first that can direct the boot of
+// the discovered System is used (docs/development/bmc-profiles.md). This file holds the DMTF
+// strategies every profile may use:
 //
-//  1. Aptio fixed boot order. The BIOS sorts boot options by device group at every POST, using
-//     the BIOS attributes FBO201..FBO2nn ("UEFI Hard Disk", "UEFI CD/DVD", "UEFI USB Device", ...).
-//     The BMC's virtual CD is a USB CD-ROM, so it belongs to "UEFI USB Device"; with that group
-//     after "UEFI Hard Disk" the host boots its disk, and a Redfish BootOrder change is re-sorted
-//     away. Putting "UEFI USB Device" first is persistent (Continuous) and survives the
-//     provisioner's own power-on: MAAS's IPMI driver writes a one-time "force PXE" boot flag
-//     before every power-on, which overrides any one-time Redfish setting, and when that PXE
-//     attempt finds no PXE server the BIOS falls back to the group order — the virtual CD. With
-//     no ISO mounted the USB group is empty and the disk boots as before. The change is written
-//     to the BIOS settings object and takes effect at the next POST.
-//     The class target "Cd" must not be used here: it means the empty "UEFI CD/DVD" group (the
-//     host then hangs with no bootable CD), and AMI implements a Continuous "Cd" override by
-//     moving that group to the front, which undoes step 1.
-//  2. A BIOS that lists the virtual CD as a UEFI boot option but has no fixed boot order: move it
-//     to the front of BootOrder and set a one-time boot to it (UefiBootNext + BootNext). AMI
-//     refuses Continuous for a UefiTarget override, and BootNext is one-shot by definition, which
-//     is why the ensure Task re-applies before every OS Deployment.
-//  3. Otherwise the DMTF class target "Cd", Continuous when the System allows it.
+//   - uefiBootOrder: when the BIOS lists the virtual CD as a UEFI boot option, move it to the front
+//     of BootOrder and set a one-time boot to it (UefiBootNext + BootNext). BootNext is one-shot by
+//     definition, which is why the ensure Task re-applies before every OS Deployment, and the
+//     BootOrder change keeps a reboot the provisioner did not start on the ISO too.
+//   - classTarget: the DMTF class target of BootSourceOverrideTarget (for example "Cd"),
+//     Continuous when the System allows it.
 //
-// In every case swallow also sets the one-time boot of step 2 when it can, so a reboot that the
-// provisioner did not start (a user power cycle) boots the ISO too.
+// A vendor strategy (a BIOS fixed boot order, say) lives in its profile's file.
 
-// aptioUSBGroup is the Aptio fixed-boot-order value of the group holding BMC virtual media.
-const aptioUSBGroup = "UEFI USB Device"
-
-// aptioUEFIPriority matches the Aptio UEFI fixed-boot-order attributes (FBO201, FBO202, ...).
-var aptioUEFIPriority = regexp.MustCompile(`^FBO2\d\d$`)
-
-// aptioBootOrder is the Aptio UEFI fixed boot order of a System: the attribute names in priority
-// order and their current values with any pending (next-POST) values applied.
-type aptioBootOrder struct {
-	settingsPath string
-	names        []string
-	values       map[string]string
+// bootStrategy is one way of directing the host's boot at the virtual CD. Strategies are shared,
+// stateless values; prepare binds one to a single discovery.
+type bootStrategy interface {
+	// prepare reads whatever extra state the strategy needs and returns the direction it would
+	// apply to found, or nil when it cannot direct this System's boot. An error fails the
+	// discovery: a strategy returns one only when guessing on would be unsafe.
+	prepare(ctx context.Context, s *session, found *discovered) (bootDirection, error)
 }
 
-// first returns the highest-priority group.
-func (o *aptioBootOrder) first() string {
-	if o == nil || len(o.names) == 0 {
-		return ""
-	}
-	return o.values[o.names[0]]
+// bootDirection is a strategy bound to one discovery.
+type bootDirection interface {
+	// direct makes the next boots start from the virtual CD and returns the mode applied:
+	// "Continuous" for a persistent setting, "Once" for a one-time boot.
+	direct(ctx context.Context, c *Controller, s *session, found *discovered) (string, error)
+	// directsBoot reports whether found's next boot is already directed at the virtual CD.
+	directsBoot(found *discovered) bool
 }
 
-// withUSBFirst returns the attribute changes that move the USB group to the front, keeping the
-// relative order of the other groups. Each group appears once, so the values are a permutation.
-func (o *aptioBootOrder) withUSBFirst() map[string]any {
-	ordered := []string{aptioUSBGroup}
-	for _, name := range o.names {
-		if value := o.values[name]; value != aptioUSBGroup {
-			ordered = append(ordered, value)
-		}
-	}
-	changes := map[string]any{}
-	for i, name := range o.names {
-		if i < len(ordered) && o.values[name] != ordered[i] {
-			changes[name] = ordered[i]
-		}
-	}
-	return changes
-}
+// uefiBootOrder directs the boot through the virtual CD's UEFI boot option.
+type uefiBootOrder struct{}
 
-// readAptioBootOrder reads the System's fixed boot order, or nil when the BIOS has none (not
-// Aptio, no Bios resource, or no USB group to move). The pending settings object is read too,
-// because a change written before the next POST is already the effective intent.
-//
-// Only a missing Bios resource (404/405) means "no fixed boot order". Any other failure is
-// retried briefly and then returned: silently falling back would pick the Cd override, which hangs
-// an Aptio host, or report a ready BMC as not ready (observed on hv-01 while the host was off).
-func (s *session) readAptioBootOrder(ctx context.Context, system computerSystem) (*aptioBootOrder, error) {
-	if system.Bios == nil || system.Bios.ID == "" {
+func (uefiBootOrder) prepare(_ context.Context, _ *session, found *discovered) (bootDirection, error) {
+	if found.virtualCDOption() == nil {
 		return nil, nil
 	}
-	var current biosSettings
-	var err error
-	for attempt := 0; attempt < 3; attempt++ {
-		if err = s.get(ctx, system.Bios.ID, &current); err == nil {
-			break
-		}
-		var status *statusError
-		if errors.As(err, &status) && (status.Status == http.StatusNotFound || status.Status == http.StatusMethodNotAllowed) {
-			return nil, nil
-		}
-		if ctx.Err() != nil {
-			return nil, err
-		}
-		select {
-		case <-ctx.Done():
-			return nil, err
-		case <-time.After(s.pause):
-		}
-	}
-	if err != nil {
-		return nil, err
-	}
-	order := &aptioBootOrder{values: map[string]string{}}
-	hasUSB := false
-	for name, raw := range current.Attributes {
-		value, ok := raw.(string)
-		if !ok || !aptioUEFIPriority.MatchString(name) {
-			continue
-		}
-		order.names = append(order.names, name)
-		order.values[name] = value
-		hasUSB = hasUSB || value == aptioUSBGroup
-	}
-	if !hasUSB {
+	if !found.targetAllowed("UefiBootNext") && len(found.system.Boot.BootOrder) == 0 {
 		return nil, nil
 	}
-	sort.Strings(order.names)
-	order.settingsPath = system.Bios.ID + "/SD"
-	if current.Settings != nil && current.Settings.SettingsObject.ID != "" {
-		order.settingsPath = current.Settings.SettingsObject.ID
-	}
-	var pending biosSettings
-	if err := s.get(ctx, order.settingsPath, &pending); err == nil {
-		for name, raw := range pending.Attributes {
-			if value, ok := raw.(string); ok && aptioUEFIPriority.MatchString(name) {
-				order.values[name] = value
-			}
-		}
-	} else if ctx.Err() != nil {
-		return nil, ctx.Err()
-	}
-	return order, nil
+	return uefiBootOrder{}, nil
 }
 
-// virtualCDOption returns the BIOS boot option for the BMC virtual CD, or nil.
-func (d *discovered) virtualCDOption() *bootOption {
-	for i := range d.options {
-		if d.options[i].isVirtualCD() {
-			return &d.options[i]
+func (uefiBootOrder) direct(ctx context.Context, c *Controller, s *session, found *discovered) (string, error) {
+	ref := found.virtualCDOption().reference()
+	if order := found.system.Boot.BootOrder; len(order) > 0 && order[0] != ref {
+		if err := c.patchBoot(ctx, s, found.system, map[string]any{"BootOrder": moveToFront(order, ref)}); err != nil {
+			return "", err
+		}
+		if err := s.get(ctx, found.system.ODataID, &found.system); err != nil {
+			return "", classify(err)
 		}
 	}
-	return nil
+	if err := c.setOneTimeBoot(ctx, s, found); err != nil {
+		return "", err
+	}
+	return "Once", nil
 }
 
-// canTargetCD reports whether some strategy can make the host boot the virtual CD.
-func (d *discovered) canTargetCD() bool {
-	if d.system.Boot == nil {
+func (uefiBootOrder) directsBoot(found *discovered) bool {
+	b := found.system.Boot
+	option := found.virtualCDOption()
+	if b == nil || option == nil {
 		return false
-	}
-	if d.aptio != nil {
-		return true
-	}
-	if d.virtualCDOption() != nil && (d.targetAllowed("UefiBootNext") || len(d.system.Boot.BootOrder) > 0) {
-		return true
-	}
-	return d.targetAllowed("Cd")
-}
-
-// overrideTargetsCD reports whether the next boot is directed at the virtual CD.
-func (d *discovered) overrideTargetsCD() bool {
-	b := d.system.Boot
-	if b == nil {
-		return false
-	}
-	if d.aptio != nil {
-		return d.aptio.first() == aptioUSBGroup
 	}
 	active := b.BootSourceOverrideEnabled == "Once" || b.BootSourceOverrideEnabled == "Continuous"
-	option := d.virtualCDOption()
-	if option == nil {
-		return active && b.BootSourceOverrideTarget == "Cd"
-	}
 	ref := option.reference()
 	switch {
 	case active && b.BootSourceOverrideTarget == "UefiBootNext" && b.BootNext == ref:
@@ -189,41 +86,17 @@ func (d *discovered) overrideTargetsCD() bool {
 	return false
 }
 
-// setOverride directs the next boots at the virtual CD and returns the mode applied: "Continuous"
-// for a persistent setting, "Once" for a one-time boot.
-func (c *Controller) setOverride(ctx context.Context, s *session, found *discovered) (string, error) {
-	if found.aptio != nil {
-		if changes := found.aptio.withUSBFirst(); len(changes) > 0 {
-			// The settings object has no ETag before its first write; "*" is the only precondition
-			// AMI accepts there, and it still refuses a concurrent conflicting write.
-			header := http.Header{"If-Match": []string{"*"}}
-			if _, err := s.do(ctx, http.MethodPatch, found.aptio.settingsPath, map[string]any{"Attributes": changes}, header); err != nil {
-				return "", classify(err)
-			}
-			for name, value := range changes {
-				found.aptio.values[name] = value.(string)
-			}
-		}
-		if err := c.setOneTimeBoot(ctx, s, found); err != nil {
-			return "", err
-		}
-		return "Continuous", nil
+// classTarget directs the boot with a DMTF class target of BootSourceOverrideTarget.
+type classTarget struct{ target string }
+
+func (t classTarget) prepare(_ context.Context, _ *session, found *discovered) (bootDirection, error) {
+	if !found.targetAllowed(t.target) {
+		return nil, nil
 	}
-	if option := found.virtualCDOption(); option != nil {
-		ref := option.reference()
-		if order := found.system.Boot.BootOrder; len(order) > 0 && order[0] != ref {
-			if err := c.patchBoot(ctx, s, found.system, map[string]any{"BootOrder": moveToFront(order, ref)}); err != nil {
-				return "", err
-			}
-			if err := s.get(ctx, found.system.ODataID, &found.system); err != nil {
-				return "", classify(err)
-			}
-		}
-		if err := c.setOneTimeBoot(ctx, s, found); err != nil {
-			return "", err
-		}
-		return "Once", nil
-	}
+	return t, nil
+}
+
+func (t classTarget) direct(ctx context.Context, c *Controller, s *session, found *discovered) (string, error) {
 	mode := "Once"
 	for _, allowed := range overrideModes(found.system.Boot) {
 		if allowed == "Continuous" {
@@ -231,15 +104,75 @@ func (c *Controller) setOverride(ctx context.Context, s *session, found *discove
 		}
 	}
 	if err := c.patchBoot(ctx, s, found.system, map[string]any{
-		"BootSourceOverrideTarget": "Cd", "BootSourceOverrideEnabled": mode,
+		"BootSourceOverrideTarget": t.target, "BootSourceOverrideEnabled": mode,
 	}); err != nil {
 		return "", err
 	}
 	return mode, nil
 }
 
+func (t classTarget) directsBoot(found *discovered) bool {
+	b := found.system.Boot
+	if b == nil {
+		return false
+	}
+	active := b.BootSourceOverrideEnabled == "Once" || b.BootSourceOverrideEnabled == "Continuous"
+	return active && b.BootSourceOverrideTarget == t.target
+}
+
+// prepareDirection binds the first of the profile's strategies that can direct the System's boot;
+// found.direction stays nil when none can, or when the System has no Boot object at all.
+func (d *discovered) prepareDirection(ctx context.Context, s *session) error {
+	d.direction = nil
+	if d.system.Boot == nil {
+		return nil
+	}
+	for _, strategy := range d.profile.strategies {
+		direction, err := strategy.prepare(ctx, s, d)
+		if err != nil {
+			return err
+		}
+		if direction != nil {
+			d.direction = direction
+			return nil
+		}
+	}
+	return nil
+}
+
+// virtualCDOption returns the BIOS boot option of the BMC virtual CD as the profile recognizes it,
+// or nil.
+func (d *discovered) virtualCDOption() *bootOption {
+	for i := range d.options {
+		if d.profile.isVirtualCDOption(d.options[i]) {
+			return &d.options[i]
+		}
+	}
+	return nil
+}
+
+// canTargetCD reports whether some strategy of the profile can make the host boot the virtual CD.
+func (d *discovered) canTargetCD() bool {
+	return d.direction != nil
+}
+
+// overrideTargetsCD reports whether the next boot is directed at the virtual CD.
+func (d *discovered) overrideTargetsCD() bool {
+	return d.direction != nil && d.direction.directsBoot(d)
+}
+
+// setOverride directs the next boots at the virtual CD with the discovery's strategy and returns
+// the mode applied.
+func (c *Controller) setOverride(ctx context.Context, s *session, found *discovered) (string, error) {
+	if found.direction == nil {
+		return "", &controllerError{sentinel: serverdomain.ErrRedfishUnsupported, detail: found.profile.noDirection, operation: "direct the boot to the virtual CD", permanent: true}
+	}
+	return found.direction.direct(ctx, c, s, found)
+}
+
 // setOneTimeBoot points the next boot at the virtual CD's UEFI option when the BIOS lists one and
-// the System allows UefiBootNext; otherwise it does nothing.
+// the System allows UefiBootNext; otherwise it does nothing. Strategies call it so a reboot the
+// provisioner did not start (a user power cycle) boots the ISO too.
 func (c *Controller) setOneTimeBoot(ctx context.Context, s *session, found *discovered) error {
 	option := found.virtualCDOption()
 	if option == nil || !found.targetAllowed("UefiBootNext") {

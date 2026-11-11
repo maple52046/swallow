@@ -109,7 +109,10 @@ Add the spec of each area the task touches:
   network intent, Release / Recover / Rescue, Zones and Pools, the Provisioner HTTP Proxy, Subnet DNS):
   `docs/development/os-provisioning.md`.
 - Server Enrollment, hardware inspection, Power Configuration, Boot Media, Boot ISOs:
-  `docs/development/server-enrollment-and-boot-media.md`.
+ `docs/development/server-enrollment-and-boot-media.md`.
+- The Redfish adapter's BMC Profiles (recognizing a BMC family, what is common DMTF behavior and what
+ belongs to one family, adding or changing a profile for a new BMC): `docs/development/bmc-profiles.md`.
+ Boot Media behavior a user sees stays in the Server Enrollment spec above.
 - SSH keys (the Deployment Key, Access Keys), the automation login user, the Server Default User, Site
   automation credentials, authentication sessions, API keys: `docs/development/access-and-credentials.md`.
 - The installation topology, `swallowctl`, release artifacts, the control-plane NTP service and

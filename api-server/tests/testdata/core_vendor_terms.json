@@ -36,6 +36,7 @@
   "internal/core/server/application/virtual_machines.go": 7,
   "internal/core/server/delivery/boot_media_handler.go": 3,
   "internal/core/server/delivery/virtual_machine_handler.go": 2,
+  "internal/core/server/domain/bmcporttest/bmcporttest.go": 11,
   "internal/core/server/domain/boot_media.go": 52,
   "internal/core/server/domain/hypervisor.go": 11,
   "internal/core/server/domain/server.go": 5,

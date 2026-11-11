@@ -419,6 +419,36 @@ func TestBootMediaEnableFailureRecordsReasonWithoutEnabling(t *testing.T) {
 	}
 }
 
+// The BootMediaError keeps the endpoint and the request the controller named and its permanence;
+// a failure the controller did not locate names none.
+func TestBootMediaErrorKeepsTheEvidence(t *testing.T) {
+	server := physicalServer("srv-1")
+	uc := &BootMediaUseCase{}
+	err := uc.explain(server, &locatedError{
+		detailError: detailError{sentinel: serverdomain.ErrRedfishUnsupported, detail: "The BMC refused GET /redfish/v1/Systems/1/Bios with HTTP 403."},
+		endpoint:    "https://10.0.0.9/redfish/v1", operation: "GET /redfish/v1/Systems/1/Bios", permanent: true,
+	})
+	var bootErr *serverdomain.BootMediaError
+	if !errors.As(err, &bootErr) || bootErr.Endpoint != "https://10.0.0.9/redfish/v1" ||
+		bootErr.Operation != "GET /redfish/v1/Systems/1/Bios" || !bootErr.Permanent {
+		t.Errorf("explain = %+v, want the endpoint, the operation, and permanence", err)
+	}
+	err = uc.explain(server, serverdomain.ErrBMCCredentialUnavailable)
+	if !errors.As(err, &bootErr) || bootErr.Endpoint != "" || bootErr.Permanent {
+		t.Errorf("explain(credential unavailable) = %+v, want no endpoint", err)
+	}
+}
+
+// The published capability names the BMC Profile, and null when the probe named none.
+func TestRedfishCapabilityItemProfile(t *testing.T) {
+	if item := ToRedfishCapabilityItem(&serverdomain.RedfishCapability{Profile: "ami"}); item.Profile == nil || *item.Profile != "ami" {
+		t.Errorf("profile = %v, want ami", item.Profile)
+	}
+	if item := ToRedfishCapabilityItem(&serverdomain.RedfishCapability{}); item.Profile != nil {
+		t.Errorf("profile = %q, want null", *item.Profile)
+	}
+}
+
 // An unsupported or unreachable BMC fails before anything is applied.
 func TestBootMediaEnableRefusesUnsupportedBMC(t *testing.T) {
 	cases := []struct {
@@ -952,3 +982,16 @@ type detailError struct {
 func (e *detailError) Error() string  { return e.detail }
 func (e *detailError) Unwrap() error  { return e.sentinel }
 func (e *detailError) Detail() string { return e.detail }
+
+// locatedError adds the endpoint, the failed request, and its permanence, as the Redfish
+// controller does.
+type locatedError struct {
+	detailError
+	endpoint, operation string
+	permanent           bool
+}
+
+func (e *locatedError) Endpoint() string { return e.endpoint }
+
+func (e *locatedError) Operation() string { return e.operation }
+func (e *locatedError) Permanent() bool   { return e.permanent }

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -288,6 +289,51 @@ func TestEnsureBootMediaStep(t *testing.T) {
 	ensurer.err = &serverdomain.BootMediaError{Err: serverdomain.ErrBootMediaNotConfigured, Server: "hv-01"}
 	if result := executor.Execute(context.Background(), input); result.Error == nil || result.Error.Code != "boot_media_not_configured" || result.Error.Retryable {
 		t.Errorf("result = %+v, want a non-retryable boot_media_not_configured", result)
+	}
+}
+
+// A failed ensure carries a diagnostic that tells a rejected account from a refused request and
+// from an unreachable BMC, with the BMC endpoint and request, and never the credential.
+func TestEnsureBootMediaFailureDiagnostic(t *testing.T) {
+	const root = "https://10.0.0.9/redfish/v1"
+	cases := []struct {
+		name        string
+		err         error
+		class       workflowdomain.FailureClass
+		remediation string
+	}{
+		{"rejected account", &serverdomain.BootMediaError{Err: serverdomain.ErrBMCUnreachable, Server: "hv-01",
+			Detail: "The BMC rejected the account (HTTP 401).", Endpoint: root, Operation: "GET /redfish/v1/Systems", Permanent: true},
+			workflowdomain.FailurePermanent, "BMC account"},
+		{"refused request", &serverdomain.BootMediaError{Err: serverdomain.ErrRedfishUnsupported, Server: "hv-01",
+			Detail: "The BMC refused GET /redfish/v1/Systems/1/Bios with HTTP 403: Not licensed.", Endpoint: root,
+			Operation: "GET /redfish/v1/Systems/1/Bios", Permanent: true},
+			workflowdomain.FailurePermanent, "license"},
+		{"unreachable", &serverdomain.BootMediaError{Err: serverdomain.ErrBMCUnreachable, Server: "hv-01",
+			Detail: "Get https://admin:secret@10.0.0.9/redfish/v1: dial tcp 10.0.0.9:443: i/o timeout", Endpoint: root, Operation: "GET /redfish/v1"},
+			workflowdomain.FailureTransient, "answers"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			executor := platformWorkflowStepExecutor{bootMedia: &fakeEnsurer{err: tc.err}}
+			result := executor.Execute(context.Background(), ensureInput("http://frozen/x.iso"))
+			if result.Error == nil || result.Error.Code != "boot_media_ensure_failed" || !result.Error.Retryable {
+				t.Fatalf("error = %+v, want a retryable boot_media_ensure_failed", result.Error)
+			}
+			d := result.Error.Diagnostic
+			if d == nil {
+				t.Fatal("no diagnostic")
+			}
+			failure := tc.err.(*serverdomain.BootMediaError)
+			if d.FailureClass != tc.class || d.Target == nil || d.Target.ID != "srv" || d.Endpoint != root ||
+				d.Operation != failure.Operation || !strings.Contains(d.Remediation, tc.remediation) || d.Cause == "" {
+				t.Errorf("diagnostic = %+v, want class %s for Server srv at %s, operation %q, remediation about %q",
+					d, tc.class, root, failure.Operation, tc.remediation)
+			}
+			if strings.Contains(d.Cause+d.Endpoint+d.Remediation, "secret") {
+				t.Errorf("diagnostic = %+v leaks the credential", d)
+			}
+		})
 	}
 }
 

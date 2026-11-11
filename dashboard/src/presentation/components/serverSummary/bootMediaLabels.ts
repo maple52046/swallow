@@ -66,6 +66,19 @@ export function redfishSupportLabel(support: RedfishSupport | string): string {
 }
 
 /**
+ * User wording for the BMC Profile a Redfish probe recognized (glossary BMC Profile), for the
+ * capability's fact line. `default` reads as an unverified BMC, because swallow then uses only
+ * DMTF-standard behavior and has not been tried on that family; any other value is a verified
+ * family and is shown as the API names it, so a profile added later needs no dashboard change.
+ * `null` (not reached, or probed before profiles existed) gives no text.
+ */
+export function bmcProfileLabel(profile: string | null | undefined): string | undefined {
+  if (!profile) return undefined
+  if (profile === 'default') return 'unverified BMC (standard Redfish only)'
+  return `profile ${profile}`
+}
+
+/**
  * The shared StatusBadge status family for a probe result, so its colour follows the dashboard's
  * status palette; the badge text always comes from redfishSupportLabel.
  */

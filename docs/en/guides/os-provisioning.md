@@ -255,9 +255,20 @@ with a Boot ISO sets this up for you.
 - **Operate and deploy:** an enabled Server offers **Change ISO** (the preflight
   ejects the current ISO first), **Re-apply**, **Disable**, **Re-detect
   Redfish**, and **Check BMC**. Disabling keeps the chosen Boot ISO for next
-  time. Every OS deployment re-applies that Server's chosen ISO first and
+  time: the Boot media block shows the Boot ISO as N/A, and enabling preselects
+  the kept one. Every OS deployment re-applies that Server's chosen ISO first and
   freezes the choice for the deployment; a BMC failure stops at the Boot Media
-  Task until it is fixed and retried.
+  Task until it is fixed and retried. The failed Task's diagnostic says whether
+  the BMC rejected the account, refused the request, or did not answer, and what
+  to change before retrying.
+- **Read the Redfish line:** next to the BMC vendor and firmware, the block shows
+  how swallow recognized the BMC: **profile ami** or **profile supermicro** for a
+  BMC family swallow has been tried on, or **unverified BMC (standard Redfish
+  only)** for any other BMC, which gets only standard Redfish behavior. An
+  unverified BMC may still work; the preflight tells. A BMC that refuses a
+  request Boot Media needs (for example a feature it requires a license for)
+  shows as without Boot Media support, with the BMC's own message; a rejected
+  BMC account shows as unreachable.
 - **Enroll and inspect:** a machine on such a network is not a Server yet, so its
   first, enlisting boot needs the ISO mounted by hand: mount the ISO URL as
   virtual media in its BMC and boot it once. Enable Boot Media as soon as the

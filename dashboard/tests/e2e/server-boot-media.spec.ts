@@ -23,7 +23,7 @@ test('Boot Media is enabled with a Boot ISO through the preflight and reported w
   await expect(bootMedia).toContainText('Redfish Boot Media supported')
   await expect(bootMedia).toContainText('AMI · firmware 13.06.10')
   await expect(bootMedia).toContainText('Disabled')
-  await expect(bootMedia).toContainText('None chosen')
+  await expect(bootMedia.getByText('N/A', { exact: true })).toBeVisible()
 
   await bootMedia.getByRole('button', { name: 'Enable Boot Media' }).click()
   const dialog = page.getByRole('dialog', { name: 'Enable Boot Media' })
@@ -179,9 +179,13 @@ test('disabling still saves when the BMC cannot be reset, and says so', async ({
 
   await expect(page.getByText(/OS deployments no longer apply it, but the BMC was not reset/)).toBeVisible()
   await expect(bootMedia).toContainText('Disabled')
-  // The chosen Boot ISO is kept, so re-enabling offers it again.
-  await expect(bootMedia).toContainText('taipei-rack')
+  // Nothing is attached, so the Boot ISO reads N/A; the API keeps the choice for re-enabling.
+  await expect(bootMedia.getByText('N/A', { exact: true })).toBeVisible()
+  await expect(bootMedia).not.toContainText('taipei-rack')
   expect(writes).toEqual([{ enabled: true, isoId: 'iso-taipei' }, { enabled: false }])
+  await bootMedia.getByRole('button', { name: 'Enable Boot Media' }).click()
+  await expect(page.getByRole('dialog', { name: 'Enable Boot Media' }).getByRole('combobox', { name: 'Boot ISO', exact: true }))
+    .toContainText('taipei-rack')
 })
 
 test('the BMC is read live only on request, and Redfish can be re-detected', async ({ page }) => {

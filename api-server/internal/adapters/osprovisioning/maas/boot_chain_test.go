@@ -119,11 +119,12 @@ func TestRenderBootScriptStaticBranch(t *testing.T) {
 
 // The UEFI GRUB configuration opens with a boot mode menu that takes DHCP after ten seconds. Both
 // branches export what MAAS's configuration reads, load the partition maps MAAS's local-boot
-// search needs, and load the rack's per-MAC configuration over HTTP.
+// search needs and the video drivers that give the kernel a console, and load the rack's per-MAC
+// configuration over HTTP.
 func TestRenderGrubConfig(t *testing.T) {
 	config := renderGrubConfig("10.140.168.20", 8080)
 	for _, want := range []string{
-		"insmod efinet\n", "insmod http\n", "insmod eval\n",
+		"insmod all_video\n", "insmod efinet\n", "insmod http\n", "insmod eval\n",
 		"insmod part_gpt\n", "insmod part_msdos\n",
 		"insmod read\n", "insmod regexp\n", "insmod sleep\n",
 		"set maas_rack=10.140.168.20\n", "set maas_port=8080\n",

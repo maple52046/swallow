@@ -39,6 +39,7 @@ const visualCases = [
   { name: 'server-detail', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: true },
   { name: 'server-detail-vm-power', path: '/servers/srv-2/summary?site=site-a', heading: 'gpu-node-02', authenticated: true, representative: false },
   { name: 'server-detail-vm-boot-media', path: '/servers/srv-2/summary?site=site-a', heading: 'gpu-node-02', authenticated: true, representative: false },
+  { name: 'server-detail-boot-media-disabled', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'server-activity', path: '/servers/srv-1/activity?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'server-detail-releasing', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'server-detail-failed', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
@@ -193,6 +194,15 @@ test.describe('dashboard visual review', () => {
               },
             }
           : {}),
+        // Boot Media disabled after use: the setting still names the last Boot ISO, not attached.
+        ...(visualCase.name === 'server-detail-boot-media-disabled'
+          ? {
+              bootMediaSetting: {
+                enabled: false, isoId: 'iso-taipei', updatedAt: '2026-08-27T02:00:00Z', lastAppliedAt: '2026-08-27T01:00:00Z',
+                lastAppliedBy: 'preflight', bootOverride: 'Once', lastErrorAt: null,
+              },
+            }
+          : {}),
         // A Boot ISO built before the UEFI hand-off (decision 047), in use by a Server.
         ...(visualCase.name === 'boot-isos-needs-rebuild'
           ? {
@@ -312,6 +322,11 @@ test.describe('dashboard visual review', () => {
       // The full mobile page is too long to read at its own scale; the changed card is captured too.
       if (visualCase.name === 'server-detail-vm-boot-media') {
         await page.getByRole('region', { name: 'Power control' }).screenshot({
+          path: testInfo.outputPath(`${visualCase.name}-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
+        })
+      }
+      if (visualCase.name === 'server-detail-boot-media-disabled') {
+        await page.getByRole('region', { name: 'Boot media' }).screenshot({
           path: testInfo.outputPath(`${visualCase.name}-card-${testInfo.project.name}.png`), animations: 'disabled', caret: 'hide',
         })
       }

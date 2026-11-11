@@ -328,14 +328,18 @@ const bootISOGrubCards = 64
 // (or swallow_static); both it and net_default_server are exported into MAAS's configuration.
 // MAAS's local-boot configuration finds the installed bootloader by searching every disk's EFI
 // system partition; GRUB autoloads filesystem modules but never partition maps, so part_gpt and
-// part_msdos are loaded up front or no partition is visible to that search. If MAAS returns
+// part_msdos are loaded up front or no partition is visible to that search. Video drivers are
+// not autoloaded either: without all_video, GRUB's linux command finds no video mode, prints
+// "Booting in blind mode", and hands the kernel no framebuffer, so with MAAS's nomodeset nothing
+// after GRUB reaches the console although the machine boots on. If MAAS returns
 // without booting a machine that took a DHCP lease, GRUB exits to the firmware's next boot
 // device. Secure Boot must be off: the GRUB is built by swallow and unsigned.
 func renderGrubConfig(host string, port int) string {
 	return renderTemplate(grubConfigTemplate, host, port)
 }
 
-var grubConfigTemplate = template.Must(template.New("GRUB configuration").Parse(`insmod efinet
+var grubConfigTemplate = template.Must(template.New("GRUB configuration").Parse(`insmod all_video
+insmod efinet
 insmod http
 insmod eval
 insmod part_gpt

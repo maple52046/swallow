@@ -407,7 +407,10 @@ Read 回應的 `method` 由已儲存的 probe 推導：libvirt probe 找到 Hype
   支援的功能）的 Server，同時最多四台。也可按需 `POST /servers/{id}/redfish/probe`。
 - 是否 probe **不看 power driver**：以 IPMI 驅動的 BMC 也可能提供 Redfish。
 - Redfish 結果 `support`：`supported`（Redfish 有回應，且 host System 有 virtual CD 與可導向 CD 的 boot
-  override）、`unsupported`、`unreachable`（沒有 Redfish service 或拒絕 provisioner 的 BMC 帳號）、`no_bmc`。
+  override）、`unsupported`（缺少其中之一，或 BMC 以 HTTP 403 拒絕 Boot Media 需要的請求，例如需要授權的功能；
+  原因帶出 BMC 的訊息）、`unreachable`（沒有 Redfish service，或以 HTTP 401 拒絕 provisioner 的 BMC 帳號）、`no_bmc`。
+  結果另記 swallow 辨識出的 [BMC Profile](glossaries/terms/bmc-profile.md)（`profile`，只供顯示；
+  [bmc-profiles.md](bmc-profiles.md) §3）。
   libvirt VM 的 Redfish 結果記為 `no_bmc`，另做 libvirt probe（`supported`／`unsupported`（沒有此 domain）／
   `unreachable`／`no_hypervisor`）。
 - probe 無法連上 provisioner 時不寫入任何結果，以免留下錯誤的舊資料；BMC 或 Hypervisor 本身不可達則是一個
@@ -430,27 +433,29 @@ Read 回應的 `method` 由已儲存的 probe 推導：libvirt probe 找到 Hype
 
 ### 4.5 `redfish` method：掛載與開機導向
 
-BMC 廠商行為集中在單一 adapter（`internal/adapters/bmc/redfish`）；新的 BMC 家族可能需要新策略，由它的
-preflight 以 BMC 自己的錯誤訊息失敗而發現。
+BMC 廠商行為集中在單一 adapter（`internal/adapters/bmc/redfish`），依 BMC Profile 分開：共同部分只用 DMTF 標準
+做法，各家族的處理（AMI、Supermicro）各自在自己的 profile，認不出的 BMC 使用只有 DMTF 做法的 `default` profile。
+辨識、各 profile 的設定與觀察來源、新增 profile 的流程見 [bmc-profiles.md](bmc-profiles.md)。新的 BMC 家族可能需要
+新 profile，由它的 preflight 以 BMC 自己的錯誤訊息失敗而發現。
 
 - **探索**：每次呼叫都重新探索 BMC 資源（host System、virtual CD、actions），不信任儲存的路徑。host System 依序
   以 provisioner 的 System hint（MAAS `node_id`）、Server 的 hardware UUID 辨識，否則為「唯一有 `Boot` 的
   System」；GPU baseboard 等非 host System 不會被選中。讀不到的 System 會略過，只要仍能辨識 host（host 關機時
   GPU baseboard 會回 HTTP 500，而這正是佈署開始時）。忙碌的 BMC（HTTP 503、連線重設）會重試到 context 結束。
-- **掛載**：需要時先啟用廠商的 remote media（AMI 的 OEM action `AMIVirtualMedia.EnableRMedia`）。InsertMedia
-  不帶 `UserName`／`Password`（參考 BMC 對 HTTP 拒絕它們），transfer protocol 跟隨 URL scheme；許多 BMC 只接受
-  port 80 的 `http://`（§5.3）。若某個 virtual CD 掛著同一路徑但來自其他 host（base URL 改過），先退出。
-- **Mount settle**：剛掛上的 ISO 要等三分鐘、確認仍然 inserted 才算完成，期間不讓 host 開機；BMC 若掉了這個
+- **掛載**：需要時先由 profile 準備 virtual media（例如 AMI 要先啟用 remote media）。InsertMedia
+  不帶 `UserName`／`Password`（參考 BMC 對 HTTP 拒絕它們），transfer protocol 跟隨 URL scheme；BMC 拒絕其他選用參數時
+  去掉它再送（[bmc-profiles.md](bmc-profiles.md) §2.2）。許多 BMC 只接受 port 80 的 `http://`（§5.3）。
+- **Mount settle**：剛掛上的 ISO 要等 profile 的 settle 時間（目前都是三分鐘）、確認仍然 inserted 才算完成，期間不讓 host 開機；BMC 若掉了這個
   mount，就再掛一次（仍記著 image 名稱但 `Inserted: false` 的裝置視為空閒）。ISO 已經掛著的 Server 不付這段
   等待。preflight 整體上限六分鐘。
-- **開機導向**，依韌體能力選擇：
-  1. **AMI Aptio fixed boot order**：把 "UEFI USB Device" 群組（BMC virtual CD 所在）排到 BIOS fixed boot
-     order 第一，persistent（`Continuous`）。它撐得過 MAAS 的 force-PXE：PXE 失敗時 BIOS 退回群組順序；USB
-     群組沒有 ISO 時則落到磁碟。
+- **開機導向**，依 profile 列出的策略順序，選第一個這台 System 能用的（[bmc-profiles.md](bmc-profiles.md) §4）：
+  1. **AMI Aptio fixed boot order**（只有 `ami` profile）：把 "UEFI USB Device" 群組（BMC virtual CD 所在）排到
+     BIOS fixed boot order 第一，persistent（`Continuous`）。它撐得過 MAAS 的 force-PXE：PXE 失敗時 BIOS 退回群組
+     順序；USB 群組沒有 ISO 時則落到磁碟。
   2. BIOS 把 virtual CD 列為 UEFI boot option 時：放到 `BootOrder` 第一，並設 `BootNext`（`Once`）。
-  3. 其他：DMTF `Cd` override，允許時用 `Continuous`。
+  3. DMTF `Cd` override，允許時用 `Continuous`（`supermicro` profile 不用它）。
   只要可行，都另外加上一次性的 `BootNext` 到 virtual CD。最後讀回：ISO inserted 且 override 指向 virtual CD
-  才算成功，否則以 BMC 回報的狀態拒絕。
+  才算成功，否則以 BMC 回報的狀態拒絕。沒有策略可用時 probe 回報 `unsupported`，原因由 profile 提供。
 - 採 Aptio 策略時，Server 只要 ISO 還掛著就一直先開 ISO，這是刻意的常態：MAAS 對已 deployed 的 Machine 回答
   從本機開機（UEFI 路徑見 §5.2）。
 - **已知限制**：在參考 Server 上，fixed boot order 的寫入在 BIOS 套用後沒有保留（下次 POST 又回報 "UEFI
@@ -485,7 +490,9 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
 - **Hardware inspection**：Task 帶 `resolveLive`、不凍結 ISO，執行時才讀 Server 的 Boot Media，讓 inspection
   停在 attention 後才啟用的 Boot Media 也能被 retry 用上；停用時直接成功、不碰 BMC。
 - 失敗：BMC 或 Hypervisor 不可達、拒絕，為可 retry 的 `boot_media_ensure_failed`，依賴它的 `provision-os` 或
-  `inspect` 不會執行。沒有可用的 Boot ISO（沒選、檔案不存在、`redfish` 沒有 base URL）為
+  `inspect` 不會執行。它帶 Task diagnostic（decision 077）：帳號被拒（401）、BMC 拒絕請求（403）與缺少 BMC、BMC
+  credential 或 Hypervisor 為 `permanent`，不可達為 `transient`；另有 BMC 的 service root、失敗的請求與該改什麼的
+  remediation（[bmc-profiles.md](bmc-profiles.md) §2.1）。沒有可用的 Boot ISO（沒選、檔案不存在、`redfish` 沒有 base URL）為
   `boot_media_not_configured`：OS 佈署凍結的 ISO 不會自己變好，所以**不可 retry**（須選好 Boot ISO 再重新
   佈署）；inspection 的即時解析則**可 retry**。
 - 成功時記錄 `lastAppliedBy: ensure`。只有 inspection 與 OS 佈署會 re-ensure；provisioner 的其他 power-on
@@ -560,8 +567,10 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
     `ipxe.cfg` 與 per-MAC 設定以未指定網卡的 `${mac}` 組 URL 與 `BOOTIF`，iPXE 以最近開啟的網卡（`netX`）解出它。之後改選
     DHCP 時清除存在網卡上的靜態值（它們優先於 DHCP 租約）。
   - rack 必須是 IPv4：`next-server` 是 IPv4 型別的設定，hostname 存不進去，所以 BIOS 的表單沒有 DNS 欄位。
-- **UEFI（x86_64，ISO 自己的 GRUB）**：載入 `efinet`、`http`、`read`、`regexp`、`sleep` 與分割表模組 `part_gpt`、
-  `part_msdos`。
+- **UEFI（x86_64，ISO 自己的 GRUB）**：載入 `efinet`、`http`、`read`、`regexp`、`sleep`、分割表模組 `part_gpt`、
+  `part_msdos` 與顯示驅動 `all_video`。GRUB 不會自動載入顯示驅動：少了它，GRUB 開 kernel 時找不到 video mode，印出
+  「no suitable video mode found」與「Booting in blind mode」，不把 framebuffer 交給 kernel；MAAS 的 kernel 參數又有
+  `nomodeset`，GRUB 之後的輸出就全都不會出現在 console 上，但機器其實繼續開機（2026-11-10 在 pvt250 的 RAM 部署看到）。
   - DHCP：先列出 GRUB 找到的網卡與 MAC。efinet 列舉時會**不帶任何訊息**略過 firmware 沒交給 bootloader 的網卡（例如
     UEFI network stack 或該 port 的 UEFI PXE 沒開），以及 SNP `start`／`initialize` 失敗的網卡，所以這份清單是唯一看得出
     網卡缺少的地方。範本最多處理 `efinet0`…`efinet63`：GPU server 的 firmware 交給 GRUB 的網卡常超過 16 張（例如 pvt250
@@ -659,7 +668,7 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
 - 原地 rebuild 而不是建新 ISO 再逐台切換：後者讓舊 ISO 對仍使用它的人保持錯誤，且每台 Server 都要改一次 Boot
   Media（decision 047）。
 - 靜態位址不帶進 MAAS 的 ephemeral 環境：唯一能附加 kernel 參數的地方是 MAAS 的 `kernel_opts`（未 enlist 的機器只有
-  全域值；已知的 Machine 改用第一個帶 `kernel_opts` 的 tag，它取代全域值），而這些參數接在 `---` 之後，curtin 會把
+  全域值；已知的 Machine 是全域值再加上它所有帶 `kernel_opts` 的 tag，依 tag 名稱串接），而這些參數接在 `---` 之後，curtin 會把
   它們寫進已部署 OS 的開機參數；同一張網卡兩個 `ip=` 誰生效取決於 initramfs 的實作（Ubuntu 26.04 起從 initramfs-tools
   換成 dracut）；把 console 輸入的值帶進參數只能依賴 MAAS 原樣輸出 bootloader 變數這種沒有文件保證的行為；即使可行，
   沒有 DHCP 時每次開機（自動 inspection、部署的 ephemeral 開機與安裝後重開）都要有人輸入，違反無人值守的 Workflow
@@ -724,7 +733,7 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
 | Boot Media use case（probe、preflight、ensure、部署開機補救、capability sweep） | `internal/core/server/application/boot_media.go` |
 | method 解析、Boot ISO 檔案路由、capability sweep 迴圈 | `internal/app/boot_media_adapter.go` |
 | `ensure-boot-media` Task、OS 佈署的 Task 插入、部署開機監看 | `internal/app/boot_media_steps.go` |
-| Redfish adapter（探索、掛載、開機導向策略） | `internal/adapters/bmc/redfish/controller.go`、`internal/adapters/bmc/redfish/boot.go` |
+| Redfish adapter（探索、掛載、開機導向策略、BMC Profile） | `internal/adapters/bmc/redfish/controller.go`、`internal/adapters/bmc/redfish/boot.go`、`internal/adapters/bmc/redfish/profile*.go`（[bmc-profiles.md](bmc-profiles.md) §9） |
 | Boot ISO model 與 chain renderer port | `internal/core/provisioning/domain/boot_iso.go` |
 | MAAS rack 的 iPXE／GRUB 範本與 rack address 解析 | `internal/adapters/osprovisioning/maas/boot_chain.go` |
 | Boot ISO 建置、rebuild、刪除 | `internal/core/provisioning/application/boot_isos.go` |
@@ -758,7 +767,7 @@ power-on 會覆寫一次性設定），每次 hardware inspection 與 OS 佈署�
   [Power Configuration](glossaries/terms/power-configuration.md)、[BMC](glossaries/terms/bmc.md)、
   [Boot Media](glossaries/terms/boot-media.md)、[Boot ISO](glossaries/terms/boot-iso.md)、
   [Hypervisor](glossaries/terms/hypervisor.md)、[Machine](glossaries/terms/machine.md)、
-  [OS Provisioning State](glossaries/terms/os-provisioning-state.md)、
+  [BMC Profile](glossaries/terms/bmc-profile.md)、[OS Provisioning State](glossaries/terms/os-provisioning-state.md)、
   [Server Lock](glossaries/terms/server-lock.md)、[Deployment Key](glossaries/terms/deployment-key.md)、
   [Server Default User](glossaries/terms/server-default-user.md)、[Workflow](glossaries/terms/workflow.md)、
   [Task](glossaries/terms/task.md)。

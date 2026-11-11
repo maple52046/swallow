@@ -42,6 +42,16 @@ type LocalRunner struct {
 // killed. ansible-runner stops the playbook within seconds of SIGTERM.
 const runnerStopGrace = 30 * time.Second
 
+// sshKeepalive makes a run's ssh give up on a host that stops answering in the middle of a
+// session — a reboot, a crash, a lost network — after a minute: ssh asks the host every 15
+// seconds and exits 255 after 4 unanswered asks. Without it the session waits for TCP keepalive,
+// about two hours, while the Task stays running. sshd answers these asks while a quiet command
+// runs, so a long task is not cut short. The exit is retried like a refused connection
+// (ANSIBLE_SSH_RETRIES), which reruns the task's command once the host answers again (tasks are
+// idempotent); a host that came back as a new installation fails the retry on its changed host
+// key instead.
+const sshKeepalive = "-o ServerAliveInterval=15 -o ServerAliveCountMax=4"
+
 // NewLocalRunner constructs a runner whose mutable and persistent roots are explicit.
 func NewLocalRunner(command, projectRoot, runtimeRoot, artifactRoot string) *LocalRunner {
 	return &LocalRunner{
@@ -174,7 +184,7 @@ func (r *LocalRunner) Run(ctx context.Context, input workflowdomain.RunnerInput)
 	command.Stderr = logFile
 	command.Env = append(os.Environ(),
 		"ANSIBLE_HOST_KEY_CHECKING=True",
-		"ANSIBLE_SSH_ARGS=-o UserKnownHostsFile="+knownHostsPath,
+		"ANSIBLE_SSH_ARGS=-o UserKnownHostsFile="+knownHostsPath+" "+sshKeepalive,
 		// A freshly deployed host may be in the middle of an OS package upgrade, which restarts
 		// sshd, while a playbook's package maintenance hold waits for it to finish (or in a
 		// playbook without one); retrying a refused connection (ssh exit 255 only, with backoff)

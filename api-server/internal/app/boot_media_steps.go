@@ -168,9 +168,52 @@ func (e platformWorkflowStepExecutor) ensureBootMedia(ctx context.Context, input
 		if errors.Is(err, serverdomain.ErrBootMediaNotConfigured) {
 			return internalStepFailed("boot_media_not_configured", err.Error(), live)
 		}
-		return internalStepFailed("boot_media_ensure_failed", err.Error(), true)
+		return withDiagnostic(internalStepFailed("boot_media_ensure_failed", err.Error(), true), bootMediaDiagnostic(serverID, err))
 	}
 	return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}
+}
+
+// bootMediaDiagnostic explains a failed ensure for a Task diagnostic (decision 077): its Failure
+// Class, the Server, the BMC endpoint and the operation the controller recorded, the redacted
+// cause, and what to change before a retry. A rejected account, a refused request, and a Server
+// without a BMC, a BMC credential, or a Hypervisor repeat until something changes (permanent); an
+// unreachable BMC or Hypervisor is expected to clear (transient); anything else is unknown. The
+// Task stays retryable either way, because the user retries after changing what the remediation
+// names.
+func bootMediaDiagnostic(serverID string, err error) *workflowdomain.TaskDiagnostic {
+	var failure *serverdomain.BootMediaError
+	errors.As(err, &failure)
+	permanent := failure != nil && failure.Permanent
+	class := workflowdomain.FailureUnknown
+	switch {
+	case permanent, errors.Is(err, serverdomain.ErrRedfishUnsupported), errors.Is(err, serverdomain.ErrNoBMC),
+		errors.Is(err, serverdomain.ErrBMCCredentialUnavailable), errors.Is(err, serverdomain.ErrNoHypervisor):
+		class = workflowdomain.FailurePermanent
+	case errors.Is(err, serverdomain.ErrBMCUnreachable), errors.Is(err, serverdomain.ErrBMCConnectionUnavailable),
+		errors.Is(err, context.DeadlineExceeded):
+		class = workflowdomain.FailureTransient
+	}
+	diagnostic := workflowdomain.NewTaskDiagnostic(class, nil)
+	diagnostic.Target = serverTarget(serverID)
+	diagnostic.Cause = causeChain(err)
+	if failure != nil {
+		diagnostic.Endpoint, diagnostic.Operation = failure.Endpoint, failure.Operation
+	}
+	switch {
+	case errors.Is(err, serverdomain.ErrBMCUnreachable) && permanent:
+		diagnostic.Remediation = "Correct the BMC account in the Server's power settings, then retry this Task."
+	case errors.Is(err, serverdomain.ErrRedfishUnsupported):
+		diagnostic.Remediation = "Enable or license the BMC function the cause names, or turn Boot Media off for the Server, then retry this Task."
+	case errors.Is(err, serverdomain.ErrBMCCredentialUnavailable):
+		diagnostic.Remediation = "Give the Server's provisioner Integration a credential with administrator rights, so it can read the BMC connection, then retry this Task."
+	case errors.Is(err, serverdomain.ErrBMCConnectionUnavailable):
+		diagnostic.Remediation = "Check that the provisioner is running and reachable from swallow's worker, then retry this Task."
+	case class == workflowdomain.FailureTransient:
+		diagnostic.Remediation = "Check that the BMC answers from swallow's worker, then retry this Task."
+	case errors.Is(err, serverdomain.ErrBootMediaRejected):
+		diagnostic.Remediation = "Check the BMC's virtual media (another session or a stale image may hold it), then retry this Task."
+	}
+	return diagnostic
 }
 
 // liveBootMediaISO reads the Server's Boot Media now and resolves its Boot ISO. enabled is false

@@ -2,10 +2,14 @@
 // Redfish capability, mounts the installation's iPXE ISO on a virtual CD, and sets the boot
 // override, implementing serverdomain.RedfishController.
 //
-// It speaks only the DMTF Redfish schema plus the vendor quirks observed on real BMCs (documented
-// where they are handled). It owns no state: every call re-discovers the BMC's resources. It must
-// not hold credentials beyond one call, log them, or put them in an error; use cases decide what
-// to persist. Provider (MAAS) access and HTTP delivery do not belong here.
+// It is split into the common part and the BMC Profiles (docs/development/bmc-profiles.md). The
+// common part (transport.go, controller.go, resources.go, boot.go, profile.go) speaks only the
+// DMTF Redfish schema; a vendor's names, OEM fields, and firmware quirks live only in its
+// profile_<vendor>.go with where they were observed, and a BMC no profile recognizes gets the
+// DMTF-only default profile. It owns no state: every call re-discovers the BMC's resources and
+// recognizes its profile again. It must not hold credentials beyond one call, log them, or put
+// them in an error; use cases decide what to persist. Provider (MAAS) access and HTTP delivery do
+// not belong here.
 package redfish
 
 import (
@@ -95,6 +99,9 @@ type statusError struct {
 	Status    int
 	MessageID string
 	Message   string
+	// MessageArgs are the DMTF message's arguments, for example the refused property's name in
+	// PropertyUnknown; non-string arguments are left out.
+	MessageArgs []string
 }
 
 func (e *statusError) Error() string {
@@ -104,8 +111,38 @@ func (e *statusError) Error() string {
 	return fmt.Sprintf("%s %s: HTTP %d", e.Method, e.Path, e.Status)
 }
 
-// unreachableError means the BMC could not be reached or stayed busy until ctx ended.
-type unreachableError struct{ cause error }
+// operation is the request the error answered, "METHOD /path".
+func (e *statusError) operation() string { return e.Method + " " + e.Path }
+
+// permanent reports whether repeating the request unchanged cannot succeed: a client error other
+// than a timeout, a conflict, or a rate limit. A server error may pass.
+func (e *statusError) permanent() bool {
+	switch e.Status {
+	case http.StatusRequestTimeout, http.StatusConflict, http.StatusPreconditionFailed, http.StatusTooManyRequests:
+		return false
+	}
+	return e.Status >= 400 && e.Status < 500
+}
+
+// refusal explains a 403: which request the BMC refused and its own words (for example a feature
+// its license does not cover), so the user is not sent to fix an account that works.
+func (e *statusError) refusal() string {
+	reason := fmt.Sprintf("The BMC refused %s with HTTP 403", e.operation())
+	if e.Message != "" {
+		reason += ": " + strings.TrimSuffix(e.Message, ".")
+	}
+	if e.MessageID != "" {
+		reason += " (" + e.MessageID + ")"
+	}
+	return reason + "."
+}
+
+// unreachableError means the BMC could not be reached or stayed busy until ctx ended. operation is
+// the request that was being tried, or "" when the wait was not for a request.
+type unreachableError struct {
+	cause     error
+	operation string
+}
 
 func (e *unreachableError) Error() string { return e.cause.Error() }
 func (e *unreachableError) Unwrap() error { return e.cause }
@@ -153,7 +190,7 @@ func (s *session) do(ctx context.Context, method, path string, body any, header 
 		}
 		select {
 		case <-ctx.Done():
-			return nil, &unreachableError{cause: fmt.Errorf("%s %s: %w (last error: %v)", method, path, ctx.Err(), err)}
+			return nil, &unreachableError{cause: fmt.Errorf("%s %s: %w (last error: %v)", method, path, ctx.Err(), err), operation: method + " " + path}
 		case <-time.After(backoff):
 		}
 		backoff *= 2
@@ -186,7 +223,7 @@ func (s *session) once(ctx context.Context, method, path string, payload []byte,
 	httpResp, err := s.client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, false, &unreachableError{cause: fmt.Errorf("%s %s: %w", method, path, ctx.Err())}
+			return nil, false, &unreachableError{cause: fmt.Errorf("%s %s: %w", method, path, ctx.Err()), operation: method + " " + path}
 		}
 		// The URL in a transport error has no userinfo; still report only the path.
 		return nil, true, fmt.Errorf("%s %s: %s", method, path, transportReason(err))
@@ -207,8 +244,8 @@ func (s *session) once(ctx context.Context, method, path string, payload []byte,
 			Location: httpResp.Header.Get("Location"),
 		}, false, nil
 	default:
-		messageID, message := extractMessage(data)
-		return nil, false, &statusError{Method: method, Path: path, Status: httpResp.StatusCode, MessageID: messageID, Message: message}
+		m := extractMessage(data)
+		return nil, false, &statusError{Method: method, Path: path, Status: httpResp.StatusCode, MessageID: m.MessageID, Message: m.Message, MessageArgs: m.args()}
 	}
 }
 
@@ -235,14 +272,29 @@ type redfishMessage struct {
 	MessageID string `json:"MessageId"`
 	Message   string `json:"Message"`
 	Severity  string `json:"Severity"`
+	// MessageArgs is untyped because firmware is not consistent about the arguments' JSON types,
+	// and one odd argument must not lose the whole message.
+	MessageArgs []any `json:"MessageArgs"`
+}
+
+// args returns the message's string arguments.
+func (m redfishMessage) args() []string {
+	var args []string
+	for _, arg := range m.MessageArgs {
+		if s, ok := arg.(string); ok {
+			args = append(args, s)
+		}
+	}
+	return args
 }
 
 // extractMessage picks the most useful message from an error body: the first Critical, else the
-// first Warning, else the envelope's own message. BMCs put the actionable text in ExtendedInfo.
-func extractMessage(data []byte) (string, string) {
+// first Warning, else the first, else the envelope's own code and message. BMCs put the actionable
+// text in ExtendedInfo. A body that is not a DMTF error gives an empty message.
+func extractMessage(data []byte) redfishMessage {
 	var body redfishErrorBody
 	if err := json.Unmarshal(data, &body); err != nil {
-		return "", ""
+		return redfishMessage{}
 	}
 	pick := func(severity string) *redfishMessage {
 		for i := range body.Error.ExtendedInfo {
@@ -252,40 +304,60 @@ func extractMessage(data []byte) (string, string) {
 		}
 		return nil
 	}
-	for _, severity := range []string{"Critical", "Warning"} {
-		if m := pick(severity); m != nil {
-			return m.MessageID, strings.TrimSpace(m.Message)
-		}
+	m := pick("Critical")
+	if m == nil {
+		m = pick("Warning")
 	}
-	if len(body.Error.ExtendedInfo) > 0 {
-		m := body.Error.ExtendedInfo[0]
-		return m.MessageID, strings.TrimSpace(m.Message)
+	if m == nil && len(body.Error.ExtendedInfo) > 0 {
+		m = &body.Error.ExtendedInfo[0]
 	}
-	return body.Error.Code, strings.TrimSpace(body.Error.Message)
+	if m == nil {
+		return redfishMessage{MessageID: body.Error.Code, Message: strings.TrimSpace(body.Error.Message)}
+	}
+	picked := *m
+	picked.Message = strings.TrimSpace(picked.Message)
+	return picked
 }
 
+// rejectedAccount is the explanation of a 401: the BMC refused the credential itself.
+const rejectedAccount = "The BMC rejected the provisioner's BMC account for Redfish."
+
 // classify maps a transport or status failure onto the domain sentinels, keeping the BMC's own
-// words as the detail for the user.
+// words as the detail for the user and the failed request as the operation:
+//
+//   - not reached, or busy until ctx ended: ErrBMCUnreachable, transient;
+//   - 401: ErrBMCUnreachable, permanent — the account itself was rejected;
+//   - 403: ErrRedfishUnsupported, permanent — the account works but the BMC refuses this request
+//     (a privilege or a license it lacks), so the refused request and the BMC's message are kept;
+//   - any other answer: ErrBootMediaRejected, with the status's own permanence.
 func classify(err error) error {
 	var unreachable *unreachableError
 	var status *statusError
 	switch {
 	case errors.As(err, &unreachable):
-		return &controllerError{sentinel: serverdomain.ErrBMCUnreachable, detail: unreachable.Error()}
-	case errors.As(err, &status) && (status.Status == http.StatusUnauthorized || status.Status == http.StatusForbidden):
-		return &controllerError{sentinel: serverdomain.ErrBMCUnreachable, detail: "The BMC rejected the provisioner's BMC account for Redfish."}
+		return &controllerError{sentinel: serverdomain.ErrBMCUnreachable, detail: unreachable.Error(), operation: unreachable.operation}
+	case errors.As(err, &status) && status.Status == http.StatusUnauthorized:
+		return &controllerError{sentinel: serverdomain.ErrBMCUnreachable, detail: rejectedAccount, operation: status.operation(), permanent: true}
+	case errors.As(err, &status) && status.Status == http.StatusForbidden:
+		return &controllerError{sentinel: serverdomain.ErrRedfishUnsupported, detail: status.refusal(), operation: status.operation(), permanent: true}
 	case errors.As(err, &status):
-		return &controllerError{sentinel: serverdomain.ErrBootMediaRejected, detail: status.Error()}
+		return &controllerError{sentinel: serverdomain.ErrBootMediaRejected, detail: status.Error(), operation: status.operation(), permanent: status.permanent()}
 	default:
 		return &controllerError{sentinel: serverdomain.ErrBMCUnreachable, detail: err.Error()}
 	}
 }
 
 // controllerError carries a domain sentinel and the BMC's explanation out of the controller; the
-// use case wraps it into a BootMediaError naming the Server.
+// use case wraps it into a BootMediaError naming the Server. None of its fields holds a credential:
+// the detail is the BMC's message or swallow's sentence, and the operation is a request's method
+// and path or a step's name, and the endpoint is the service root without userinfo.
 type controllerError struct {
-	sentinel error
-	detail   string
+	sentinel  error
+	detail    string
+	operation string
+	permanent bool
+	// endpoint is set by the Controller's port methods (atEndpoint), not where the error is made.
+	endpoint string
 }
 
 func (e *controllerError) Error() string { return e.detail }
@@ -293,3 +365,14 @@ func (e *controllerError) Unwrap() error { return e.sentinel }
 
 // Detail is the user-facing explanation, without the sentinel's generic text.
 func (e *controllerError) Detail() string { return e.detail }
+
+// Operation is the request ("GET /redfish/v1/Systems/1/Bios") or step ("mount the ISO") that
+// failed, or "" when the failure was not one request's.
+func (e *controllerError) Operation() string { return e.operation }
+
+// Permanent reports whether retrying unchanged cannot succeed (a rejected account, a refused
+// request); a BMC that could not be reached or stayed busy is not permanent.
+func (e *controllerError) Permanent() bool { return e.permanent }
+
+// Endpoint is the BMC's Redfish service root, or "" when its address is not a host.
+func (e *controllerError) Endpoint() string { return e.endpoint }

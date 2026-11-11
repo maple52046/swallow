@@ -1,0 +1,11 @@
+# BMC Profile
+
+- Bounded context: swallow-wide (Server). `api-server`, `dashboard`, and `cli` use this term with the same meaning.
+- Definition: The way swallow talks to one family of BMCs beyond the DMTF Redfish schema — how it recognizes that family, how it prepares and mounts virtual media there, and which boot-direction strategies it tries — chosen by the Redfish adapter for each call from what the BMC reports about itself. The `default` profile is the one used for a BMC that matches no known family: it uses only DMTF-standard behavior, reads no BIOS settings, and applies no vendor workaround.
+- Allowed meaning: The profile a Redfish probe recognized, reported as part of the BMC's Redfish capability (`profile`) so a user can see whether swallow treats the BMC as a verified family or as an unverified one under `default`. Its values other than `default` (for example `ami`, `supermicro`) are owned by the Redfish adapter and listed in the BMC Profiles development document; a consumer displays the value and never branches on it. The profile is recognized again on every Redfish call; the reported value is a display fact of the last probe, and a probe made before profiles existed has none.
+- Disallowed meaning: Not a hardware model or a firmware version (those are the vendor and firmware of the Redfish capability; one profile covers many models). Not a setting a user chooses or overrides. Not a DMTF Redfish Interoperability Profile. Not part of the Power Configuration or of the provisioner's facts. Not a core concept: core neither lists the profiles nor behaves differently per profile.
+- Synonyms: None.
+- Deprecated terms: None.
+- Examples: "`hv-01`'s BMC reports an AMI service root, so its Redfish capability shows profile `ami`, and Boot Media uses the Aptio fixed boot order." / "A BMC from a vendor swallow has never seen gets profile `default`: Boot Media works when it follows the DMTF schema, and the Server Summary marks the BMC as unverified."
+- Related terms: BMC, Boot Media, Provider Adapter, Server.
+- Change note: Added 2026-11-10, because Redfish virtual media differs per BMC family (Supermicro refuses the BIOS read that AMI's Aptio strategy needs) and a fix for one family must not change another's behavior; the probe exposes the recognized profile so a user can tell a verified BMC from one handled only by DMTF defaults.

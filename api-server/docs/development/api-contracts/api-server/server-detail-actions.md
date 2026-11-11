@@ -577,6 +577,7 @@ installations publish `/boot-media/` there. The former fixed route
     "product": "AMI Redfish Server",
     "redfishVersion": "1.15.1",
     "firmwareVersion": "13.06.10",
+    "profile": "ami",
     "systemId": "Self",
     "virtualMedia": true,
     "bootOverrideModes": ["Once", "Continuous"],
@@ -607,10 +608,20 @@ installations publish `/boot-media/` there. The former fixed route
   successful one; a failure never changes `enabled`.
 - `redfish` is `null` before the first probe. `support` is `supported` (Redfish answers and the
   host System has a virtual CD and boot override), `unsupported` (Redfish answers but lacks one of
-  them, or the host System cannot be identified), `unreachable` (no Redfish service at the BMC
-  address, or it rejected the provisioner's BMC account), or `no_bmc` (a virtual machine, a
-  driver outside the `bmc` family, or the provisioner holds no BMC address). `reason` explains any
-  value but `supported`. The probe is made against the BMC address whatever `bmc`-family driver
+  them, the host System cannot be identified, or the BMC refused a request Boot Media needs with
+  `403 Forbidden` — for example a feature its license does not cover; `reason` then names the
+  request and carries the BMC's message), `unreachable` (no Redfish service at the BMC address, or
+  it rejected the provisioner's BMC account with `401 Unauthorized`), or `no_bmc` (a virtual
+  machine, a driver outside the `bmc` family, or the provisioner holds no BMC address). `reason`
+  explains any value but `supported`.
+- `redfish.profile` is the
+  [BMC Profile](../../../../../docs/development/glossaries/terms/bmc-profile.md) the probe
+  recognized the BMC as: `default` (an unrecognized BMC, handled with DMTF-standard behavior only)
+  or a value the Redfish adapter owns (for example `ami`, `supermicro`; listed in
+  [BMC Profiles](../../../../../docs/development/bmc-profiles.md)). It is `null` when the probe
+  could not read the Redfish service root (or for `no_bmc`), and for a probe stored before
+  profiles existed until the Server is probed again. It is for display: consumers must not branch
+  on its value. The probe is made against the BMC address whatever `bmc`-family driver
   the provisioner uses (an IPMI-driven BMC may offer Redfish). swallow's worker probes every present Server whose capability is missing — a
   newly enrolled Server — or older than a day, every ten minutes by default.
 - `method` is `redfish`, `libvirt`, or `null` (no method, or not probed yet), derived from the
@@ -716,7 +727,7 @@ disable).
 | --- | --- | --- |
 | 400 | `validation_error` | The body is not a JSON object with a boolean `enabled`; enabling without an `isoId`; or the Boot ISO belongs to another provisioner Integration. |
 | 404 | `not_found` | The Server does not exist, or the `isoId` names no Boot ISO. |
-| 409 | `conflict` | A preflight is already running on the Server (enable or disable); the Server or its hypervisor is locked; the Boot ISO is not served (its file is missing or, for `redfish`, the installation has no Boot Media base URL); the Server has no Boot Media method (no BMC and no swallow hypervisor); the provisioner would not reveal the BMC connection (its account is not an administrator); the BMC does not support Redfish Boot Media, or the hypervisor has no such domain; or the BMC or hypervisor refused the ISO, the storage pool, or the boot order (the message carries its own explanation). |
+| 409 | `conflict` | A preflight is already running on the Server (enable or disable); the Server or its hypervisor is locked; the Boot ISO is not served (its file is missing or, for `redfish`, the installation has no Boot Media base URL); the Server has no Boot Media method (no BMC and no swallow hypervisor); the provisioner would not reveal the BMC connection (its account is not an administrator); the BMC does not support Redfish Boot Media, or the hypervisor has no such domain; or the BMC or hypervisor refused the ISO, the storage pool, or the boot order, or the BMC refused a request Boot Media needs with `403 Forbidden` (the message carries its own explanation: the refused request and the BMC's message). |
 | 503 | `provider_unavailable` | The BMC's Redfish service or the hypervisor could not be reached or stayed busy, the provisioner could not be reached, or the Server Lock state is unavailable. |
 
 ### Probe
@@ -759,6 +770,13 @@ not alter the Server projection. These are provider events, not a claim that swa
 owns a complete durable audit trail.
 
 ## Compatibility Notes
+
+On 2026-11-10 the Redfish capability gained `profile`, the BMC Profile the probe recognized
+(`null` until the Server is probed again), additive for clients that ignore unknown fields. A BMC
+that refuses a request Boot Media needs with `403 Forbidden` is now probed `unsupported` with the
+refused request and the BMC's message in `reason`, and its enable answers `409 conflict`; before,
+it was probed `unreachable` as a rejected account and the enable answered `503
+provider_unavailable`.
 
 On 2026-11-09 a Power Configuration write became checked: it is kept only when the provisioner
 reads the Server's power through it, and is otherwise refused with `400 validation_error` after the

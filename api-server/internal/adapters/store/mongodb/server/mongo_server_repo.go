@@ -627,6 +627,7 @@ type redfishDoc struct {
 	Product           string    `bson:"product,omitempty"`
 	RedfishVersion    string    `bson:"redfishVersion,omitempty"`
 	FirmwareVersion   string    `bson:"firmwareVersion,omitempty"`
+	Profile           string    `bson:"profile,omitempty"`
 	SystemID          string    `bson:"systemId,omitempty"`
 	VirtualMedia      bool      `bson:"virtualMedia"`
 	BootOverrideModes []string  `bson:"bootOverrideModes,omitempty"`
@@ -666,7 +667,7 @@ func (r *MongoServerRepo) SetRedfishCapability(ctx context.Context, id string, c
 		update["$set"].(bson.M)["redfish"] = redfishDoc{
 			Support: string(capability.Support), Reason: capability.Reason, ServiceRoot: capability.ServiceRoot,
 			Vendor: capability.Vendor, Product: capability.Product, RedfishVersion: capability.RedfishVersion,
-			FirmwareVersion: capability.FirmwareVersion, SystemID: capability.SystemID,
+			FirmwareVersion: capability.FirmwareVersion, Profile: capability.Profile, SystemID: capability.SystemID,
 			VirtualMedia: capability.VirtualMedia, BootOverrideModes: capability.BootOverrideModes,
 			ProbedAt: capability.ProbedAt,
 		}
@@ -1150,7 +1151,7 @@ func toServer(doc *serverDoc) *serverdomain.Server {
 		s.Redfish = &serverdomain.RedfishCapability{
 			Support: serverdomain.RedfishSupport(r.Support), Reason: r.Reason, ServiceRoot: r.ServiceRoot,
 			Vendor: r.Vendor, Product: r.Product, RedfishVersion: r.RedfishVersion,
-			FirmwareVersion: r.FirmwareVersion, SystemID: r.SystemID,
+			FirmwareVersion: r.FirmwareVersion, Profile: r.Profile, SystemID: r.SystemID,
 			VirtualMedia: r.VirtualMedia, BootOverrideModes: r.BootOverrideModes, ProbedAt: r.ProbedAt,
 		}
 	}

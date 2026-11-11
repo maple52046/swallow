@@ -90,13 +90,16 @@ type BootMediaSettingItem struct {
 
 // RedfishCapabilityItem is the latest Redfish capability probe. It never carries a credential.
 type RedfishCapabilityItem struct {
-	Support           string   `json:"support"`
-	Reason            string   `json:"reason,omitempty"`
-	ServiceRoot       string   `json:"serviceRoot,omitempty"`
-	Vendor            string   `json:"vendor,omitempty"`
-	Product           string   `json:"product,omitempty"`
-	RedfishVersion    string   `json:"redfishVersion,omitempty"`
-	FirmwareVersion   string   `json:"firmwareVersion,omitempty"`
+	Support         string `json:"support"`
+	Reason          string `json:"reason,omitempty"`
+	ServiceRoot     string `json:"serviceRoot,omitempty"`
+	Vendor          string `json:"vendor,omitempty"`
+	Product         string `json:"product,omitempty"`
+	RedfishVersion  string `json:"redfishVersion,omitempty"`
+	FirmwareVersion string `json:"firmwareVersion,omitempty"`
+	// Profile is the BMC Profile swallow recognized the BMC as; null when never named (a probe
+	// that did not reach the BMC, or one stored before profiles existed).
+	Profile           *string  `json:"profile"`
 	SystemID          string   `json:"systemId,omitempty"`
 	VirtualMedia      bool     `json:"virtualMedia"`
 	BootOverrideModes []string `json:"bootOverrideModes"`
@@ -162,7 +165,7 @@ func ToRedfishCapabilityItem(c *serverdomain.RedfishCapability) *RedfishCapabili
 	return &RedfishCapabilityItem{
 		Support: string(c.Support), Reason: c.Reason, ServiceRoot: c.ServiceRoot,
 		Vendor: c.Vendor, Product: c.Product, RedfishVersion: c.RedfishVersion, FirmwareVersion: c.FirmwareVersion,
-		SystemID: c.SystemID, VirtualMedia: c.VirtualMedia, BootOverrideModes: wire.Strings(c.BootOverrideModes),
+		Profile: wire.String(c.Profile), SystemID: c.SystemID, VirtualMedia: c.VirtualMedia, BootOverrideModes: wire.Strings(c.BootOverrideModes),
 		ProbedAt: wire.Time(c.ProbedAt),
 	}
 }

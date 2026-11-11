@@ -40,10 +40,11 @@ const (
 	// identified, and it offers a virtual CD and a boot source override: Boot Media can be enabled.
 	RedfishSupported RedfishSupport = "supported"
 	// RedfishUnsupported means Redfish answered but the host System lacks virtual media or boot
-	// override (or swallow could not tell which System is the host).
+	// override, swallow could not tell which System is the host, or the BMC refused a request Boot
+	// Media needs (403 Forbidden: the account works, but not for that request).
 	RedfishUnsupported RedfishSupport = "unsupported"
-	// RedfishUnreachable means no Redfish service answered at the BMC address, or it refused the
-	// provisioner-held account.
+	// RedfishUnreachable means no Redfish service answered at the BMC address, or it rejected the
+	// provisioner-held account itself (401 Unauthorized).
 	RedfishUnreachable RedfishSupport = "unreachable"
 	// RedfishNoBMC means the Server has no BMC to probe: a virtual machine, or the provisioner holds
 	// no BMC address for it.
@@ -65,6 +66,11 @@ type RedfishCapability struct {
 	Product         string
 	RedfishVersion  string
 	FirmwareVersion string
+	// Profile is the BMC Profile the adapter recognized the BMC as ("default" or an
+	// adapter-owned value), or "" when the probe could not read the Redfish service root and for a
+	// probe stored before profiles existed. Like Vendor it is opaque to core: it is shown, never
+	// branched on.
+	Profile string
 	// SystemID is the Redfish ComputerSystem identified as the host (for example "Self"); a GPU
 	// baseboard or another non-host System is never chosen.
 	SystemID     string
@@ -376,9 +382,10 @@ var (
 	// connection; retrying later may succeed.
 	ErrBMCConnectionUnavailable = errors.New("the provisioner could not be reached for the BMC connection")
 	// ErrBMCUnreachable means the BMC's Redfish service could not be reached, stayed busy, or
-	// rejected the account.
+	// rejected the account (401).
 	ErrBMCUnreachable = errors.New("the BMC's Redfish service is unreachable")
-	// ErrRedfishUnsupported means the BMC lacks a Redfish function Boot Media needs.
+	// ErrRedfishUnsupported means the BMC lacks a Redfish function Boot Media needs, or refuses it
+	// to the account (403, for example a function its license does not cover).
 	ErrRedfishUnsupported = errors.New("the BMC does not support redfish boot media")
 	// ErrBootMediaRejected means the BMC refused to mount the ISO or set the boot override.
 	ErrBootMediaRejected = errors.New("the BMC refused the boot media")
@@ -387,12 +394,22 @@ var (
 )
 
 // BootMediaError explains a failed Boot Media action in user terms — which Server and what
-// the BMC said — while Unwrap keeps the sentinel for status mapping. Detail never holds a
-// credential.
+// the BMC said — while Unwrap keeps the sentinel for status mapping. Endpoint, Operation, and
+// Permanent are the evidence a Task diagnostic carries (decision 077); they do not change the
+// message or the status. No field ever holds a credential.
 type BootMediaError struct {
 	Err    error
 	Server string
 	Detail string
+	// Endpoint is the BMC's Redfish service root (without userinfo) when the failure was the
+	// BMC's and the Server has been probed; empty otherwise.
+	Endpoint string
+	// Operation is the BMC request ("GET /redfish/v1/Systems/1/Bios") or step ("mount the ISO")
+	// that failed, when the controller named one.
+	Operation string
+	// Permanent reports that repeating the action unchanged cannot succeed (a rejected account, a
+	// refused request); false when the failure may pass or is not known to be permanent.
+	Permanent bool
 }
 
 // Error is the user-facing sentence returned as error.message.

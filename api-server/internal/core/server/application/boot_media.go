@@ -865,8 +865,17 @@ func (uc *BootMediaUseCase) recordFailure(ctx context.Context, server *serverdom
 // detailed is implemented by controller errors that carry the BMC's own explanation.
 type detailed interface{ Detail() string }
 
+// located is implemented by controller errors that name the endpoint and the request or step that
+// failed, and whether repeating it can succeed.
+type located interface {
+	Endpoint() string
+	Operation() string
+	Permanent() bool
+}
+
 // explain wraps a controller or endpoint error into the user-facing BootMediaError for the
-// Server; errors that already are one or a HypervisorError, and unexpected errors, pass through as
+// Server, with the endpoint, the failed operation, and its permanence when the controller named
+// them. Errors that already are one or a HypervisorError, and unexpected errors, pass through as
 // they are.
 func (uc *BootMediaUseCase) explain(server *serverdomain.Server, err error) error {
 	var already *serverdomain.BootMediaError
@@ -887,7 +896,12 @@ func (uc *BootMediaUseCase) explain(server *serverdomain.Server, err error) erro
 			case errors.Is(sentinel, serverdomain.ErrBootMediaNotConfigured) && err.Error() != sentinel.Error():
 				detail = err.Error()
 			}
-			return &serverdomain.BootMediaError{Err: sentinel, Server: server.DisplayName(), Detail: detail}
+			failure := &serverdomain.BootMediaError{Err: sentinel, Server: server.DisplayName(), Detail: detail}
+			var l located
+			if errors.As(err, &l) {
+				failure.Endpoint, failure.Operation, failure.Permanent = l.Endpoint(), l.Operation(), l.Permanent()
+			}
+			return failure
 		}
 	}
 	if errors.Is(err, context.DeadlineExceeded) {

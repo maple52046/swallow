@@ -548,6 +548,11 @@ decision 072。
 - **執行前**：executor 從 store 讀取 Task、目標與 Site 的 Automation Configuration，確認世代與 Server Lock，建立
   inventory、學習目標主機的 SSH host key（與 Site 設定的 known_hosts 合併），並 resolve secret。run ID 由
   `<workflowId>/<taskId>/<attempt>` 決定。
+- **連線失效**：SSH 每 15 秒向主機確認一次，連續 4 次沒有回應就斷線，所以主機在 session 中途重開、當機或失去網路時，
+  一分鐘內就會被判定斷線，不會等 TCP keepalive（約兩小時），讓 Task 一直停在 `running`。斷線與連線被拒一樣依
+  `ANSIBLE_SSH_RETRIES` 重試：主機恢復回應時重跑該 task 的指令（task 必須冪等）；主機若已是新安裝的系統（例如 RAM 部署的
+  機器重開後由 provisioner 重新部署），host key 已經改變，重試會失敗。之後該主機是 `unreachable`，Task 失敗，可重試的
+  失敗停在 `requires_attention`，Task 重試時重新學習 host key。
 - **發佈 reference**：開始執行就經由 core 寫入 Task 的 `externalExecution` 與 `startedAt`（targeted update，不覆寫
   Task 的其他欄位），讓 events、logs、stderr 端點在執行中就有內容。
 - **串流**：每 2 秒讀取該 run artifact 目錄中新增的 job events（以檔名序號為 cursor），把每台 host 的 task 結果——

@@ -165,6 +165,13 @@ core 檔案的廠商詞彙數仍不得增加。新的平台或廠商名稱要寫
 每個 port 都有一組 adapter 一致性測試，描述 core 對該 port 的期待（例如不支援的 capability 要怎麼回報、
 暫時性錯誤要怎麼分類）。新的 adapter 必須通過同一組測試。
 
+- **位置**：一致性測試放在定義該 port 的 domain 底下的 `<port>test` package（例如
+  `internal/core/server/domain/bmcporttest`，`RedfishController` port 的測試）。它匯出 `Run(t, fixture, …)` 與一個
+  fixture 介面：測試列出需要的情境，adapter 的測試以自己的假外部系統建出每個情境。它只用 core 的詞彙、只寫跟廠商
+  無關的期待，只給測試 import；廠商自己的行為留在 adapter 的測試。
+- **現況**：`bmcporttest` 是第一組；Redfish adapter 的每個 BMC Profile 各有一台假 BMC 跑它
+  （[bmc-profiles.md](bmc-profiles.md)）。其他 port 還沒有，新增 adapter 或修改 port 時依同一個慣例補上。
+
 ## 4. 三種模組
 
 ### 4.1 Platform 模組

@@ -2001,7 +2001,7 @@ components:
     RedfishCapability:
       type: object
       description: The latest Redfish probe of the Server's BMC; never carries a credential.
-      required: [support, virtualMedia, bootOverrideModes, probedAt]
+      required: [support, profile, virtualMedia, bootOverrideModes, probedAt]
       properties:
         support:
           type: string
@@ -2018,6 +2018,10 @@ components:
           type: string
         firmwareVersion:
           type: string
+        profile:
+          type: string
+          nullable: true
+          description: The BMC Profile the probe recognized (`default` or an adapter-owned value); for display only, never branched on.
         systemId:
           type: string
         virtualMedia:

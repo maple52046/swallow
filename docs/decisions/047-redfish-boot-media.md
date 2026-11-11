@@ -37,9 +37,14 @@ and every disk deployment failed in curtin.
   periodically, because a BMC driven over IPMI may still offer it.
 - **Enable is a preflight**: probe, mount, direct the boot, read both back, and save the setting only
   when that worked on that Server, because support differs by model and firmware version.
-- **Boot direction follows the firmware**: an AMI Aptio fixed boot order with the USB group first
-  (persistent), else the virtual CD first in `BootOrder`, else the DMTF `Cd` override, plus a one-time
-  `BootNext` whenever possible.
+- **Vendor behavior lives in BMC Profiles; an unrecognized BMC uses the DMTF default profile.** The
+  Redfish adapter recognizes each BMC's family from what it reports about itself; the common code uses
+  only DMTF behavior, and each family's workarounds and boot-direction strategies live in its own
+  profile, so a fix for one family cannot change another's
+  ([bmc-profiles.md](../development/bmc-profiles.md)). Boot direction tries the profile's strategies
+  in order: for AMI an Aptio fixed boot order with the USB group first (persistent), then the virtual
+  CD first in `BootOrder` with a one-time `BootNext`, then the DMTF `Cd` override. A BMC that refuses
+  a request (HTTP 403) is unsupported, not unreachable. The probe reports the profile for display.
 - **Every hardware inspection and OS deployment re-ensures** with an `internal` `ensure-boot-media`
   Task that re-applies mount and boot direction unconditionally; an OS deployment freezes its Boot ISO.
   The provisioner's own power-on starts the host, after a fresh mount has settled.
@@ -118,8 +123,9 @@ and every disk deployment failed in curtin.
   fifteen minutes longer; the boot check needs the provisioner's event stream.
 - The installation must publish `/boot-media/` on port 80 of an address the BMC network reaches, and
   the MAAS integration account must be an administrator to read power parameters.
-- Vendor behaviour lives in one BMC adapter; a new BMC family may need a strategy there, found by its
-  preflight failing with the BMC's own message. With the Aptio strategy a Server boots the ISO first
+- Vendor behaviour lives in the BMC adapter's profiles; a new BMC family may need a profile there,
+  found by its preflight failing with the BMC's own message, and is handled by the default profile
+  until then. With the Aptio strategy a Server boots the ISO first
   while it is mounted, by design. Other provisioner power-ons do not re-ensure.
 - Secure Boot must be off: neither iPXE nor swallow's GRUB is signed. A new iPXE version, like a fixed
   template, reaches a Boot ISO only through a rebuild; UEFI Servers commissioned through the old path
@@ -139,3 +145,4 @@ and every disk deployment failed in curtin.
 - 2026-11-02: merged decision 047 into this ADR; the body states the current decision.
 - 2026-11-10: Boot ISOs open with a boot mode menu, DHCP by default or a static IPv4 address typed at the console that only reaches the rack, because MAAS's ephemeral environment cannot take a static address.
 - 2026-11-10: the UEFI GRUB also loads MAAS's default configuration after the per-MAC one, because the rack answers an unknown MAC with 404 and a new UEFI machine (pvt250) never enlisted.
+- 2026-11-10: vendor behavior moved into BMC Profiles (default, ami, supermicro), with a DMTF-only default for unrecognized BMCs and a refused request (HTTP 403) reported as unsupported, because Supermicro (pvt250) refuses the BIOS read the AMI strategy needs.

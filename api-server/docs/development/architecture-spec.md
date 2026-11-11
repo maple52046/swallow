@@ -126,7 +126,8 @@ api-server/
   `convergence`（controller 框架：runtime、lease、`KeysForChange`、Change Plan；用法見 desired-state-model.md §7、§12）
   與 `module`（模組契約與 registry）是各 slice 共用的機制，不是 feature slice。
   Delivery（HTTP）屬於 core，因為它是 swallow 自己發佈的契約。core 不得 import `internal/adapters` 或
-  `modules`。
+  `modules`。port 的 adapter 一致性測試放在定義該 port 的 domain 底下的 `<port>test` package（例如
+  `internal/core/server/domain/bmcporttest`），只給測試 import（root core-and-extensions.md §3.7）。
 - **adapters**：依它實作的 provider interface 分組；只依賴 core 的 port 與外部 SDK，不得 import 其他 adapter
   或模組。Mongo repository 依 context 放在 `store/mongodb/<context>`，schema migration 放在
   `store/mongodb/migration`。
@@ -346,7 +347,8 @@ Temporal、artifact path、retention、parallelism 等 security/lifecycle semant
 - Domain unit tests 不需要 MongoDB、HTTP、Temporal 或 provider。
 - Application tests 使用 fake ports，涵蓋 invariant、conflict、rollback/recovery。
 - Delivery tests驗證 request/response mapping、auth、status 與 error envelope。
-- Adapter tests 驗證 mapping、Mongo uniqueness、provider capability 與 runner behavior。
+- Adapter tests 驗證 mapping、Mongo uniqueness、provider capability 與 runner behavior。port 有一致性測試
+  （`<port>test` package 的 `Run`）時，adapter 的每個假外部系統都要跑它；廠商自己的行為另寫在 adapter 的測試。
 - Temporal tests需涵蓋 deterministic replay、worker restart、activity retry/cancel。
 - Cross-layer tests 放在 `tests/`；unit tests 與 source 同 package。
 

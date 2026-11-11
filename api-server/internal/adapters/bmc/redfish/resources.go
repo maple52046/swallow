@@ -2,6 +2,7 @@ package redfish
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 )
 
@@ -26,18 +27,44 @@ type serviceRoot struct {
 }
 
 // vendor returns the service's vendor: the Vendor property (Redfish 1.5+), else the first Oem key
-// (older AMI and Dell services name themselves only there).
+// (older services name themselves only there).
 func (r serviceRoot) vendor() string {
 	if v := strings.TrimSpace(r.Vendor); v != "" {
 		return v
 	}
-	var oem map[string]json.RawMessage
-	if json.Unmarshal(r.Oem, &oem) == nil {
-		for key := range oem {
-			return key
-		}
+	if keys := oemKeys(r.Oem); len(keys) > 0 {
+		return keys[0]
 	}
 	return ""
+}
+
+// oemKeys returns the vendor names an Oem object is keyed by, sorted so the result does not
+// depend on map order; a missing or malformed Oem object has none.
+func oemKeys(raw json.RawMessage) []string {
+	var oem map[string]json.RawMessage
+	if json.Unmarshal(raw, &oem) != nil {
+		return nil
+	}
+	keys := make([]string, 0, len(oem))
+	for key := range oem {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// actionNames returns the names of the actions listed under Actions, the vendor actions listed
+// under Actions.Oem included.
+func actionNames(actions map[string]json.RawMessage) []string {
+	var names []string
+	for name, raw := range actions {
+		if name != "Oem" {
+			names = append(names, name)
+			continue
+		}
+		names = append(names, oemKeys(raw)...)
+	}
+	return names
 }
 
 // action is one Redfish action entry.
@@ -76,19 +103,14 @@ type computerSystem struct {
 	} `json:"Links"`
 }
 
-// manager is the subset of a Manager swallow reads, including AMI's remote-media switch.
+// manager is the subset of a Manager swallow reads. Oem stays raw: only a BMC Profile knows what
+// its vendor keeps there.
 type manager struct {
 	ODataID         string                     `json:"@odata.id"`
 	FirmwareVersion string                     `json:"FirmwareVersion"`
 	VirtualMedia    *odataLink                 `json:"VirtualMedia"`
 	Actions         map[string]json.RawMessage `json:"Actions"`
-	Oem             struct {
-		Ami struct {
-			VirtualMedia *struct {
-				RMediaStatus string `json:"RMediaStatus"`
-			} `json:"VirtualMedia"`
-		} `json:"Ami"`
-	} `json:"Oem"`
+	Oem             json.RawMessage            `json:"Oem"`
 }
 
 // virtualMedia is one VirtualMedia device.
@@ -114,6 +136,16 @@ func (m virtualMedia) isCD() bool {
 		}
 	}
 	return false
+}
+
+// canInsert reports whether the device lists an InsertMedia target.
+func (m virtualMedia) canInsert() bool {
+	return m.Actions.Insert != nil && m.Actions.Insert.Target != ""
+}
+
+// canEject reports whether the device lists an EjectMedia target.
+func (m virtualMedia) canEject() bool {
+	return m.Actions.Eject != nil && m.Actions.Eject.Target != ""
 }
 
 // inserted reports the device's Inserted flag; a BMC that omits it is judged by its Image.
@@ -144,9 +176,10 @@ func (o bootOption) reference() string {
 	return "Boot" + o.ID
 }
 
-// isVirtualCD reports whether the option boots a BMC virtual CD: its device path is a CD-ROM
-// behind USB (how BMCs present virtual media) and its name says it is virtual.
-func (o bootOption) isVirtualCD() bool {
+// virtualCDByPath reports whether the option boots a BMC virtual CD as the UEFI device path shows
+// it: a CD-ROM behind USB (how BMCs present virtual media) whose name says it is virtual. An
+// option without a device path (BootOption before v1.1) never matches.
+func virtualCDByPath(o bootOption) bool {
 	path := strings.ToUpper(o.UefiDevicePath)
 	name := strings.ToUpper(o.DisplayName)
 	return strings.Contains(path, "CDROM(") && strings.Contains(path, "USB(") && strings.Contains(name, "VIRTUAL")
@@ -189,7 +222,7 @@ func (t task) lastMessage() string {
 }
 
 // oemActionTarget returns the target of a vendor action (for example
-// "#AMIVirtualMedia.EnableRMedia") listed under Actions.Oem, or "".
+// "#VendorVirtualMedia.Enable") listed under Actions.Oem, or "".
 func oemActionTarget(actions map[string]json.RawMessage, name string) string {
 	raw, ok := actions["Oem"]
 	if !ok {

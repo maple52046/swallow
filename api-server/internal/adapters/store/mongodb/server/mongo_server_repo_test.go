@@ -70,6 +70,18 @@ func TestBootMediaApplyDocRoundTrip(t *testing.T) {
 	}
 }
 
+// The stored BMC Profile reads back, and a probe stored before profiles existed names none.
+func TestRedfishProfileRead(t *testing.T) {
+	doc := &serverDoc{ID: "srv-1", Redfish: &redfishDoc{Support: "supported", Profile: "supermicro"}}
+	if got := toServer(doc).Redfish.Profile; got != "supermicro" {
+		t.Errorf("Profile = %q, want supermicro", got)
+	}
+	legacy := &serverDoc{ID: "srv-2", Redfish: &redfishDoc{Support: "supported"}}
+	if got := toServer(legacy).Redfish.Profile; got != "" {
+		t.Errorf("legacy Profile = %q, want empty", got)
+	}
+}
+
 // GPU documents created before kind existed must become correctly classified as soon as the
 // upgraded service reads them; waiting for a later inventory sweep would keep capacity wrong.
 func TestGPUKindLegacyCompatibility(t *testing.T) {

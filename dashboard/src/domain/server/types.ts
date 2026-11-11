@@ -296,8 +296,9 @@ export interface SetServerDefaultUserResult {
 /**
  * What swallow's Redfish probe found about a Server's BMC (glossary BMC, decision 047):
  * `supported` — Redfish answers and the host has a virtual CD and boot override, so Boot Media can
- * be enabled; `unsupported` — Redfish answers but lacks one of them; `unreachable` — no Redfish
- * service at the BMC address, or it rejected the provisioner's BMC account; `no_bmc` — a virtual
+ * be enabled; `unsupported` — Redfish answers but lacks one of them, or refuses a request Boot
+ * Media needs (HTTP 403, for example a feature that needs a license); `unreachable` — no Redfish
+ * service at the BMC address, or it rejected the provisioner's BMC account (HTTP 401); `no_bmc` — a virtual
  * machine, or the provisioner holds no BMC address. An unknown future value must be treated as not
  * supported.
  */
@@ -316,6 +317,13 @@ export interface RedfishCapability {
   product?: string
   redfishVersion?: string
   firmwareVersion?: string
+  /**
+   * The BMC Profile (glossary BMC Profile) the probe recognized: `default` for a BMC of no family
+   * swallow has verified, which gets only DMTF-standard behavior, or a family the api-server owns
+   * (`ami`, `supermicro`, …). `null` when the probe did not reach the BMC or ran before profiles
+   * existed. Display only: the dashboard never branches on a family, so a new one needs no change.
+   */
+  profile: string | null
   /** The Redfish System identified as the host (a GPU baseboard is never chosen). */
   systemId?: string
   virtualMedia: boolean

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"path"
 	"strings"
 	"time"
 
@@ -22,25 +21,31 @@ type Controller struct {
 	taskWait time.Duration
 	// settleWait bounds how long a change may take to show up in a re-read.
 	settleWait time.Duration
-	// mountSettle is how long a freshly mounted ISO must stay inserted before the host may be
-	// powered on. AMI reports the InsertMedia Task complete before the virtual CD is ready for
-	// the host: on hv-01 a power-on 18 or 67 seconds after an eject-and-mount left the CD
-	// detached (Inserted false) and the host booted its disk, while three minutes held through
-	// the power-on and the host booted the ISO. The wait applies only when this call mounted.
+	// mountSettle, when non-zero, replaces the BMC Profile's settle: how long a freshly mounted
+	// ISO must stay inserted before the host may be powered on, because some BMCs report a mount
+	// complete before the virtual CD is ready for the host. Only tests set it. The wait applies
+	// only when the call mounted.
 	mountSettle time.Duration
 	poll        time.Duration
 }
 
-// NewController returns a controller with timings suited to real BMCs: AMI MegaRAC takes up to
-// about a minute to mount an HTTP ISO and five seconds to enable remote media.
+// NewController returns a controller with timings suited to real BMCs: the slowest known takes
+// up to about a minute to mount an HTTP ISO and a few seconds to enable its remote media.
 func NewController() *Controller {
 	return &Controller{
-		client:      newHTTPClient(),
-		taskWait:    3 * time.Minute,
-		settleWait:  time.Minute,
-		mountSettle: 3 * time.Minute,
-		poll:        3 * time.Second,
+		client:     newHTTPClient(),
+		taskWait:   3 * time.Minute,
+		settleWait: time.Minute,
+		poll:       3 * time.Second,
 	}
+}
+
+// settleFor returns how long a fresh mount on a BMC of profile p must settle.
+func (c *Controller) settleFor(p *profile) time.Duration {
+	if c.mountSettle > 0 {
+		return c.mountSettle
+	}
+	return p.mountSettle
 }
 
 // Probe implements serverdomain.RedfishController. A BMC that does not answer, refuses the
@@ -56,6 +61,7 @@ func (c *Controller) Probe(ctx context.Context, endpoint serverdomain.BMCEndpoin
 	capability.ServiceRoot = s.base + "/redfish/v1"
 	found, err := s.discover(ctx, endpoint)
 	if found != nil {
+		capability.Profile = found.profile.name
 		capability.Vendor = found.root.vendor()
 		capability.Product = strings.TrimSpace(found.root.Product)
 		capability.RedfishVersion = found.root.RedfishVersion
@@ -82,14 +88,16 @@ func (c *Controller) Probe(ctx context.Context, endpoint serverdomain.BMCEndpoin
 		capability.Reason = "The host System offers no boot source override."
 	case !found.canTargetCD():
 		capability.Support = serverdomain.RedfishUnsupported
-		capability.Reason = "The host System cannot override boot to a CD."
+		capability.Reason = found.profile.noDirection
 	default:
 		capability.Support = serverdomain.RedfishSupported
 	}
 	return capability, nil
 }
 
-// probeFailure turns a discovery error into a support value and a user reason.
+// probeFailure turns a discovery error into a support value and a user reason: a rejected
+// account (401) is unreachable, while a refused request (403) is unsupported with the request and
+// the BMC's words, because the account works and only that function is unavailable.
 func probeFailure(err error) (serverdomain.RedfishSupport, string) {
 	var unsupported *unsupportedError
 	if errors.As(err, &unsupported) {
@@ -97,8 +105,10 @@ func probeFailure(err error) (serverdomain.RedfishSupport, string) {
 	}
 	var status *statusError
 	switch {
-	case errors.As(err, &status) && (status.Status == http.StatusUnauthorized || status.Status == http.StatusForbidden):
-		return serverdomain.RedfishUnreachable, "The BMC rejected the provisioner's BMC account for Redfish."
+	case errors.As(err, &status) && status.Status == http.StatusUnauthorized:
+		return serverdomain.RedfishUnreachable, rejectedAccount
+	case errors.As(err, &status) && status.Status == http.StatusForbidden:
+		return serverdomain.RedfishUnsupported, status.refusal()
 	case errors.As(err, &status) && status.Status == http.StatusNotFound:
 		return serverdomain.RedfishUnreachable, "The BMC has no Redfish service."
 	default:
@@ -107,10 +117,11 @@ func probeFailure(err error) (serverdomain.RedfishSupport, string) {
 }
 
 // ReadBootMedia implements serverdomain.RedfishController.
-func (c *Controller) ReadBootMedia(ctx context.Context, endpoint serverdomain.BMCEndpoint, isoURL string) (serverdomain.BootMediaState, error) {
+func (c *Controller) ReadBootMedia(ctx context.Context, endpoint serverdomain.BMCEndpoint, isoURL string) (_ serverdomain.BootMediaState, err error) {
+	defer func() { err = atEndpoint(endpoint, err) }()
 	s, err := c.open(endpoint)
 	if err != nil {
-		return serverdomain.BootMediaState{}, &controllerError{sentinel: serverdomain.ErrBMCUnreachable, detail: err.Error()}
+		return serverdomain.BootMediaState{}, &controllerError{sentinel: serverdomain.ErrBMCUnreachable, detail: err.Error(), permanent: true}
 	}
 	found, err := s.discover(ctx, endpoint)
 	if err != nil {
@@ -120,17 +131,18 @@ func (c *Controller) ReadBootMedia(ctx context.Context, endpoint serverdomain.BM
 }
 
 // ApplyBootMedia implements serverdomain.RedfishController.
-func (c *Controller) ApplyBootMedia(ctx context.Context, endpoint serverdomain.BMCEndpoint, isoURL string) (string, serverdomain.BootMediaState, error) {
+func (c *Controller) ApplyBootMedia(ctx context.Context, endpoint serverdomain.BMCEndpoint, isoURL string) (_ string, _ serverdomain.BootMediaState, err error) {
+	defer func() { err = atEndpoint(endpoint, err) }()
 	s, err := c.open(endpoint)
 	if err != nil {
-		return "", serverdomain.BootMediaState{}, &controllerError{sentinel: serverdomain.ErrBMCUnreachable, detail: err.Error()}
+		return "", serverdomain.BootMediaState{}, &controllerError{sentinel: serverdomain.ErrBMCUnreachable, detail: err.Error(), permanent: true}
 	}
 	found, err := s.discover(ctx, endpoint)
 	if err != nil {
 		return "", serverdomain.BootMediaState{}, discoveryError(err)
 	}
 	if len(found.cds()) == 0 {
-		return "", serverdomain.BootMediaState{}, &controllerError{sentinel: serverdomain.ErrRedfishUnsupported, detail: "The host System offers no virtual CD."}
+		return "", serverdomain.BootMediaState{}, &controllerError{sentinel: serverdomain.ErrRedfishUnsupported, detail: "The host System offers no virtual CD.", operation: "mount the ISO", permanent: true}
 	}
 	if found.mediaHolding(isoURL) == nil {
 		serverdomain.ReportBootMediaPhase(ctx, serverdomain.BootMediaPhaseMounting, nil)
@@ -153,23 +165,25 @@ func (c *Controller) ApplyBootMedia(ctx context.Context, endpoint serverdomain.B
 	state := found.state(isoURL)
 	if !state.Ready() {
 		return mode, state, &controllerError{sentinel: serverdomain.ErrBootMediaRejected,
-			detail: fmt.Sprintf("After the change the BMC reports media inserted=%t and boot override %s/%s.", state.MediaInserted, state.OverrideEnabled, state.OverrideTarget)}
+			detail:    fmt.Sprintf("After the change the BMC reports media inserted=%t and boot override %s/%s.", state.MediaInserted, state.OverrideEnabled, state.OverrideTarget),
+			operation: "verify the boot media"}
 	}
 	return mode, state, nil
 }
 
 // ClearBootMedia implements serverdomain.RedfishController.
-func (c *Controller) ClearBootMedia(ctx context.Context, endpoint serverdomain.BMCEndpoint, isoURL string) error {
+func (c *Controller) ClearBootMedia(ctx context.Context, endpoint serverdomain.BMCEndpoint, isoURL string) (err error) {
+	defer func() { err = atEndpoint(endpoint, err) }()
 	s, err := c.open(endpoint)
 	if err != nil {
-		return &controllerError{sentinel: serverdomain.ErrBMCUnreachable, detail: err.Error()}
+		return &controllerError{sentinel: serverdomain.ErrBMCUnreachable, detail: err.Error(), permanent: true}
 	}
 	found, err := s.discover(ctx, endpoint)
 	if err != nil {
 		return discoveryError(err)
 	}
 	for _, media := range found.media {
-		if !media.isCD() || !media.inserted() || !imageMatches(media.Image, media.ImageName, isoURL) {
+		if !media.isCD() || !media.inserted() || !found.profile.imageMatches(media.Image, media.ImageName, isoURL) {
 			continue
 		}
 		if err := c.eject(ctx, s, media); err != nil {
@@ -186,17 +200,18 @@ func (c *Controller) ClearBootMedia(ctx context.Context, endpoint serverdomain.B
 
 // MountBootMedia implements serverdomain.RedfishController: the mount of ApplyBootMedia without
 // its settle and without touching the boot direction.
-func (c *Controller) MountBootMedia(ctx context.Context, endpoint serverdomain.BMCEndpoint, isoURL string) (serverdomain.BootMediaState, error) {
+func (c *Controller) MountBootMedia(ctx context.Context, endpoint serverdomain.BMCEndpoint, isoURL string) (_ serverdomain.BootMediaState, err error) {
+	defer func() { err = atEndpoint(endpoint, err) }()
 	s, err := c.open(endpoint)
 	if err != nil {
-		return serverdomain.BootMediaState{}, &controllerError{sentinel: serverdomain.ErrBMCUnreachable, detail: err.Error()}
+		return serverdomain.BootMediaState{}, &controllerError{sentinel: serverdomain.ErrBMCUnreachable, detail: err.Error(), permanent: true}
 	}
 	found, err := s.discover(ctx, endpoint)
 	if err != nil {
 		return serverdomain.BootMediaState{}, discoveryError(err)
 	}
 	if len(found.cds()) == 0 {
-		return serverdomain.BootMediaState{}, &controllerError{sentinel: serverdomain.ErrRedfishUnsupported, detail: "The host System offers no virtual CD."}
+		return serverdomain.BootMediaState{}, &controllerError{sentinel: serverdomain.ErrRedfishUnsupported, detail: "The host System offers no virtual CD.", operation: "mount the ISO", permanent: true}
 	}
 	if found.mediaHolding(isoURL) == nil {
 		if found, err = c.prepareMount(ctx, s, endpoint, found, isoURL); err != nil {
@@ -212,34 +227,21 @@ func (c *Controller) MountBootMedia(ctx context.Context, endpoint serverdomain.B
 	return found.state(isoURL), nil
 }
 
-// prepareMount readies the virtual media for mounting isoURL and returns a fresh discovery. A CD
-// still holding the same ISO path from another host is a previous Boot Media URL (the
-// installation's base URL changed); it would be booted first and no longer answer, so it is
-// ejected. AMI remote media is enabled when it is off.
+// prepareMount runs the BMC Profile's preparation for mounting isoURL (see profile.prepareMount)
+// and returns a fresh discovery when it changed anything, else found.
 func (c *Controller) prepareMount(ctx context.Context, s *session, endpoint serverdomain.BMCEndpoint, found *discovered, isoURL string) (*discovered, error) {
-	ejected := false
-	for _, media := range found.media {
-		if media.isCD() && media.inserted() && sameISOPath(media.Image, isoURL) {
-			if err := c.eject(ctx, s, media); err != nil {
-				return nil, err
-			}
-			ejected = true
-		}
+	if found.profile.prepareMount == nil {
+		return found, nil
 	}
-	var err error
-	if ejected {
-		if found, err = s.discover(ctx, endpoint); err != nil {
-			return nil, discoveryError(err)
-		}
-	}
-	enabled, err := c.ensureRemoteMedia(ctx, s, found)
+	changed, err := found.profile.prepareMount(ctx, c, s, found, isoURL)
 	if err != nil {
 		return nil, err
 	}
-	if enabled {
-		if found, err = s.discover(ctx, endpoint); err != nil {
-			return nil, discoveryError(err)
-		}
+	if !changed {
+		return found, nil
+	}
+	if found, err = s.discover(ctx, endpoint); err != nil {
+		return nil, discoveryError(err)
 	}
 	return found, nil
 }
@@ -247,10 +249,11 @@ func (c *Controller) prepareMount(ctx context.Context, s *session, endpoint serv
 // ResetHost implements serverdomain.RedfishController. It posts ComputerSystem.Reset with
 // ForceRestart, or On for a host that is off, and returns once the BMC accepted it; a 202 Task
 // is not followed because the host's boot is observed by the provisioner, not here.
-func (c *Controller) ResetHost(ctx context.Context, endpoint serverdomain.BMCEndpoint) error {
+func (c *Controller) ResetHost(ctx context.Context, endpoint serverdomain.BMCEndpoint) (err error) {
+	defer func() { err = atEndpoint(endpoint, err) }()
 	s, err := c.open(endpoint)
 	if err != nil {
-		return &controllerError{sentinel: serverdomain.ErrBMCUnreachable, detail: err.Error()}
+		return &controllerError{sentinel: serverdomain.ErrBMCUnreachable, detail: err.Error(), permanent: true}
 	}
 	found, err := s.discover(ctx, endpoint)
 	if err != nil {
@@ -258,7 +261,7 @@ func (c *Controller) ResetHost(ctx context.Context, endpoint serverdomain.BMCEnd
 	}
 	target := actionTarget(found.system.Actions, "#ComputerSystem.Reset")
 	if target == "" {
-		return &controllerError{sentinel: serverdomain.ErrRedfishUnsupported, detail: "The host System offers no reset action."}
+		return &controllerError{sentinel: serverdomain.ErrRedfishUnsupported, detail: "The host System offers no reset action.", operation: "restart the host", permanent: true}
 	}
 	resetType := "ForceRestart"
 	if strings.EqualFold(found.system.PowerState, "Off") {
@@ -279,11 +282,25 @@ func (c *Controller) open(endpoint serverdomain.BMCEndpoint) (*session, error) {
 	return &session{client: c.client, base: base, username: endpoint.Username, password: endpoint.Password, pause: c.poll}, nil
 }
 
+// atEndpoint names the BMC's service root (without userinfo) on a controller error, so a Task
+// diagnostic can say which BMC failed; other errors, and an address that is not a host, pass as
+// they are.
+func atEndpoint(endpoint serverdomain.BMCEndpoint, err error) error {
+	var failure *controllerError
+	if !errors.As(err, &failure) || failure.endpoint != "" {
+		return err
+	}
+	if base, baseErr := serviceBase(endpoint.Address); baseErr == nil {
+		failure.endpoint = base + "/redfish/v1"
+	}
+	return err
+}
+
 // discoveryError classifies a discovery failure for the apply/read paths.
 func discoveryError(err error) error {
 	var unsupported *unsupportedError
 	if errors.As(err, &unsupported) {
-		return &controllerError{sentinel: serverdomain.ErrRedfishUnsupported, detail: unsupported.reason}
+		return &controllerError{sentinel: serverdomain.ErrRedfishUnsupported, detail: unsupported.reason, operation: "discover the host System", permanent: true}
 	}
 	return classify(err)
 }
@@ -300,8 +317,22 @@ type discovered struct {
 	manager *manager
 	media   []virtualMedia
 	options []bootOption
-	// aptio is the BIOS fixed boot order when the BIOS has one (AMI Aptio), else nil.
-	aptio *aptioBootOrder
+	// profile is the BMC Profile recognized from what was read; never nil once the service root
+	// was read.
+	profile *profile
+	// direction is the first of the profile's boot strategies that can direct this System's boot
+	// at the virtual CD, or nil when none can.
+	direction bootDirection
+}
+
+// identity returns what the resources read so far say about the BMC.
+func (d *discovered) identity() identity {
+	id := identity{vendor: d.root.Vendor, oemKeys: oemKeys(d.root.Oem), actions: actionNames(d.system.Actions)}
+	if d.manager != nil {
+		id.oemKeys = append(id.oemKeys, oemKeys(d.manager.Oem)...)
+		id.actions = append(id.actions, actionNames(d.manager.Actions)...)
+	}
+	return id
 }
 
 // maxMembers bounds how many members of one collection swallow reads, so a BMC that lists
@@ -309,13 +340,17 @@ type discovered struct {
 const maxMembers = 16
 
 // discover reads the service root, picks the host System, and lists its manager, virtual media,
-// and UEFI boot options. A failure to read the optional parts (manager, boot options) is ignored
-// because not every BMC offers them; a missing System or media collection is not.
+// and UEFI boot options; it recognizes the BMC Profile from the service root and again once the
+// System and Manager are read, then binds the profile's boot strategy. A failure to read the
+// optional parts (manager, boot options) is ignored because not every BMC offers them; a missing
+// System or media collection is not. A partial result returned with an error still names the
+// profile when the service root was read.
 func (s *session) discover(ctx context.Context, endpoint serverdomain.BMCEndpoint) (*discovered, error) {
 	found := &discovered{}
 	if err := s.get(ctx, "/redfish/v1/", &found.root); err != nil {
 		return nil, err
 	}
+	found.profile = selectProfile(found.identity())
 	if found.root.Systems.ID == "" {
 		return found, &unsupportedError{reason: "The Redfish service lists no Systems."}
 	}
@@ -360,6 +395,7 @@ func (s *session) discover(ctx context.Context, endpoint serverdomain.BMCEndpoin
 			return found, ctx.Err()
 		}
 	}
+	found.profile = selectProfile(found.identity())
 	mediaLink := ""
 	if system.VirtualMedia != nil {
 		mediaLink = system.VirtualMedia.ID
@@ -402,11 +438,9 @@ func (s *session) discover(ctx context.Context, endpoint serverdomain.BMCEndpoin
 			return found, ctx.Err()
 		}
 	}
-	aptio, err := s.readAptioBootOrder(ctx, system)
-	if err != nil {
+	if err := found.prepareDirection(ctx, s); err != nil {
 		return found, err
 	}
-	found.aptio = aptio
 	return found, nil
 }
 
@@ -487,11 +521,13 @@ func (d *discovered) targetAllowed(target string) bool {
 	return false
 }
 
-// cds returns the virtual CD devices that can be mounted through InsertMedia.
+// cds returns the virtual CD devices Boot Media can use: those InsertMedia can mount, and those
+// already holding media that offer EjectMedia, because some BMCs list InsertMedia only on an
+// empty device. insert picks among them only a free device with an InsertMedia target.
 func (d *discovered) cds() []virtualMedia {
 	var cds []virtualMedia
 	for _, media := range d.media {
-		if media.isCD() && media.Actions.Insert != nil && media.Actions.Insert.Target != "" {
+		if media.isCD() && (media.canInsert() || (media.inserted() && media.canEject())) {
 			cds = append(cds, media)
 		}
 	}
@@ -502,61 +538,11 @@ func (d *discovered) cds() []virtualMedia {
 func (d *discovered) mediaHolding(isoURL string) *virtualMedia {
 	for i := range d.media {
 		media := d.media[i]
-		if media.isCD() && media.inserted() && imageMatches(media.Image, media.ImageName, isoURL) {
+		if media.isCD() && media.inserted() && d.profile.imageMatches(media.Image, media.ImageName, isoURL) {
 			return &d.media[i]
 		}
 	}
 	return nil
-}
-
-// imageMatches reports whether a device's reported image is isoURL. BMCs rewrite the URL they
-// were given: AMI MegaRAC reports http://host/dir/file.iso as //host/dir/file.iso/file.iso with
-// ImageName file.iso, so the comparison ignores the scheme and accepts that suffix form.
-func imageMatches(image, imageName, isoURL string) bool {
-	image = strings.TrimSpace(image)
-	if image == "" {
-		return false
-	}
-	if image == isoURL {
-		return true
-	}
-	want, err := url.Parse(isoURL)
-	if err != nil || want.Host == "" {
-		return false
-	}
-	base := path.Base(want.Path)
-	wantPath := "//" + strings.ToLower(want.Host) + want.Path
-	got := image
-	if i := strings.Index(got, "://"); i >= 0 {
-		got = got[i+1:]
-	}
-	if host, rest, ok := strings.Cut(strings.TrimPrefix(got, "//"), "/"); ok {
-		got = "//" + strings.ToLower(host) + "/" + rest
-	}
-	if got == wantPath || got == wantPath+"/"+base {
-		return true
-	}
-	return strings.EqualFold(strings.TrimSpace(imageName), base) && strings.HasPrefix(got, wantPath)
-}
-
-// sameISOPath reports whether a device's image is isoURL's path served from a different host,
-// in either the verbatim or the AMI-rewritten form.
-func sameISOPath(image, isoURL string) bool {
-	want, err := url.Parse(isoURL)
-	if err != nil || want.Path == "" {
-		return false
-	}
-	got := strings.TrimSpace(image)
-	if i := strings.Index(got, "://"); i >= 0 {
-		got = got[i+1:]
-	}
-	got = strings.TrimPrefix(got, "//")
-	_, rest, ok := strings.Cut(got, "/")
-	if !ok {
-		return false
-	}
-	rest = "/" + rest
-	return rest == want.Path || rest == want.Path+"/"+path.Base(want.Path)
 }
 
 // state summarises the live Boot Media state for isoURL.
@@ -569,67 +555,31 @@ func (d *discovered) state(isoURL string) serverdomain.BootMediaState {
 	if b := d.system.Boot; b != nil {
 		state.OverrideEnabled = b.BootSourceOverrideEnabled
 		state.OverrideTarget = b.BootSourceOverrideTarget
-		// overrideTargetsCD decides per strategy; an Aptio fixed boot order directs the boot with
-		// the Redfish override Disabled, so the override's own mode must not be required here.
+		// overrideTargetsCD decides per strategy; a vendor strategy may direct the boot with the
+		// Redfish override Disabled, so the override's own mode must not be required here.
 		state.OverrideReady = d.overrideTargetsCD()
 	}
 	return state
 }
 
-// ensureRemoteMedia switches on a vendor's remote-media service when it is off and reports
-// whether it changed anything. AMI MegaRAC ships with RMediaStatus "Disabled", and InsertMedia
-// then fails; enabling it is the OEM action AMIVirtualMedia.EnableRMedia, which answers 200 with
-// an "error" body of severity OK and takes effect after a few seconds.
-func (c *Controller) ensureRemoteMedia(ctx context.Context, s *session, found *discovered) (bool, error) {
-	if found.manager == nil || found.manager.Oem.Ami.VirtualMedia == nil ||
-		!strings.EqualFold(found.manager.Oem.Ami.VirtualMedia.RMediaStatus, "Disabled") {
-		return false, nil
-	}
-	target := oemActionTarget(found.system.Actions, "#AMIVirtualMedia.EnableRMedia")
-	if target == "" {
-		target = oemActionTarget(found.manager.Actions, "#AMIVirtualMedia.EnableRMedia")
-	}
-	if target == "" {
-		return false, &controllerError{sentinel: serverdomain.ErrRedfishUnsupported, detail: "The BMC's remote media service is disabled and it offers no action to enable it."}
-	}
-	if _, err := s.do(ctx, http.MethodPost, target, map[string]string{"RMediaState": "Enable"}, nil); err != nil {
-		return false, classify(err)
-	}
-	deadline := time.Now().Add(c.settleWait)
-	for time.Now().Before(deadline) {
-		if err := sleep(ctx, c.poll); err != nil {
-			return false, classify(err)
-		}
-		var m manager
-		if err := s.get(ctx, found.manager.ODataID, &m); err != nil {
-			return false, classify(err)
-		}
-		if m.Oem.Ami.VirtualMedia != nil && strings.EqualFold(m.Oem.Ami.VirtualMedia.RMediaStatus, "Enabled") {
-			return true, nil
-		}
-	}
-	return false, &controllerError{sentinel: serverdomain.ErrBootMediaRejected, detail: "The BMC did not enable its remote media service."}
-}
-
-// insert mounts isoURL on a free virtual CD. AMI accepts only http:// sources on port 80 for
-// HTTP and rejects UserName/Password for them, so swallow sends neither; the transfer protocol
+// insert mounts isoURL on a free virtual CD. swallow sends no UserName/Password (the Boot ISO is
+// served without authentication, and some firmware rejects them for HTTP); the transfer protocol
 // follows the URL scheme. A 202 answer is a Redfish Task that is followed to its end.
 func (c *Controller) insert(ctx context.Context, s *session, found *discovered, isoURL string) error {
 	var target *virtualMedia
 	for _, cd := range found.cds() {
-		if !cd.inserted() {
+		if !cd.inserted() && cd.canInsert() {
 			cd := cd
 			target = &cd
 			break
 		}
 	}
 	if target == nil {
-		return &controllerError{sentinel: serverdomain.ErrBootMediaRejected, detail: "Every virtual CD already holds other media; eject one first."}
+		return &controllerError{sentinel: serverdomain.ErrBootMediaRejected, detail: "Every virtual CD already holds other media; eject one first.", operation: "mount the ISO", permanent: true}
 	}
-	if strings.TrimSpace(target.Image) != "" {
-		// A device that dropped its mount keeps naming the image (Inserted false), and AMI then
-		// refuses to mount it again ("being redirected via another CD instance") until it is
-		// ejected, so clear it first.
+	if found.profile.ejectStaleImage && strings.TrimSpace(target.Image) != "" {
+		// A device that dropped its mount keeps naming the image (Inserted false), and the
+		// profile's firmware refuses to mount it again until it is ejected, so clear it first.
 		if err := c.eject(ctx, s, *target); err != nil {
 			return err
 		}
@@ -643,26 +593,61 @@ func (c *Controller) insert(ctx context.Context, s *session, found *discovered, 
 	}
 	body := map[string]any{"Image": isoURL, "TransferProtocolType": protocol, "Inserted": true, "WriteProtected": true}
 	resp, err := s.do(ctx, http.MethodPost, target.Actions.Insert.Target, body, nil)
+	// Each retry drops at least one optional parameter, so this ends after a few requests.
+	for dropped := refusedInsertParameters(err, body); len(dropped) > 0; dropped = refusedInsertParameters(err, body) {
+		for _, name := range dropped {
+			delete(body, name)
+		}
+		resp, err = s.do(ctx, http.MethodPost, target.Actions.Insert.Target, body, nil)
+	}
 	if err != nil {
-		var status *statusError
-		if errors.As(err, &status) && status.Status == http.StatusBadRequest && strings.Contains(status.MessageID, "ActionParameter") &&
-			!strings.Contains(status.MessageID, "ValueFormat") {
-			// Some BMCs reject the optional parameters; retry with the two every BMC accepts.
-			resp, err = s.do(ctx, http.MethodPost, target.Actions.Insert.Target, map[string]any{"Image": isoURL, "TransferProtocolType": protocol}, nil)
-		}
-		if err != nil {
-			return insertError(err)
-		}
+		return insertError(err)
 	}
 	return c.followTask(ctx, s, resp, "mount the ISO")
 }
 
-// insertError explains a refused InsertMedia, including the format refusal AMI gives HTTPS.
+// optionalInsertParameters are the InsertMedia parameters DMTF makes optional, which a BMC may
+// not support; Image is required and never dropped.
+var optionalInsertParameters = []string{"Inserted", "WriteProtected", "TransferProtocolType"}
+
+// refusedInsertParameters returns the optional parameters of body to drop after InsertMedia
+// answered err: the one a 400 names in its DMTF message arguments (PropertyUnknown,
+// ActionParameterUnknown, ActionParameterNotSupported, …), or Inserted and WriteProtected for a
+// parameter refusal that names none. It returns nil for any other failure, for a refused URL
+// format (the URL, not a parameter, is wrong), and when nothing it would drop is left, which ends
+// the caller's retries.
+func refusedInsertParameters(err error, body map[string]any) []string {
+	var status *statusError
+	if !errors.As(err, &status) || status.Status != http.StatusBadRequest || strings.Contains(status.MessageID, "ValueFormat") {
+		return nil
+	}
+	for _, arg := range status.MessageArgs {
+		for _, name := range optionalInsertParameters {
+			if _, present := body[name]; present && strings.EqualFold(arg, name) {
+				return []string{name}
+			}
+		}
+	}
+	if !strings.Contains(status.MessageID, "ActionParameter") && !strings.Contains(status.MessageID, "Property") {
+		return nil
+	}
+	var dropped []string
+	for _, name := range []string{"Inserted", "WriteProtected"} {
+		if _, present := body[name]; present {
+			dropped = append(dropped, name)
+		}
+	}
+	return dropped
+}
+
+// insertError explains a refused InsertMedia, including the format refusal some firmware gives
+// an https:// image.
 func insertError(err error) error {
 	var status *statusError
 	if errors.As(err, &status) && strings.Contains(status.MessageID, "ValueFormat") {
 		return &controllerError{sentinel: serverdomain.ErrBootMediaRejected,
-			detail: "The BMC rejected the ISO URL's format (" + status.Message + "); many BMCs accept only http:// on port 80."}
+			detail:    "The BMC rejected the ISO URL's format (" + status.Message + "); many BMCs accept only http:// on port 80.",
+			operation: status.operation(), permanent: true}
 	}
 	return classify(err)
 }
@@ -708,14 +693,16 @@ func (c *Controller) followTask(ctx context.Context, s *session, resp *response,
 			return nil
 		}
 		return &controllerError{sentinel: serverdomain.ErrBootMediaRejected,
-			detail: fmt.Sprintf("The BMC could not %s: %s", what, nonEmpty(t.lastMessage(), t.TaskState))}
+			detail:    fmt.Sprintf("The BMC could not %s: %s", what, nonEmpty(t.lastMessage(), t.TaskState)),
+			operation: what}
 	}
-	return &controllerError{sentinel: serverdomain.ErrBootMediaRejected, detail: fmt.Sprintf("The BMC did not finish trying to %s within %s.", what, c.taskWait)}
+	return &controllerError{sentinel: serverdomain.ErrBootMediaRejected, detail: fmt.Sprintf("The BMC did not finish trying to %s within %s.", what, c.taskWait), operation: what}
 }
 
-// mountAndSettle inserts isoURL, waits until the BMC reports it inserted, then waits mountSettle
-// and checks it is still inserted, re-inserting once if the BMC dropped it. It returns a fresh
-// discovery. See mountSettle for why a mount must settle before the host powers on.
+// mountAndSettle inserts isoURL, waits until the BMC reports it inserted, then waits the profile's
+// settle and checks it is still inserted, re-inserting once if the BMC dropped it. It returns a
+// fresh discovery. See Controller.mountSettle for why a mount must settle before the host powers
+// on.
 func (c *Controller) mountAndSettle(ctx context.Context, s *session, endpoint serverdomain.BMCEndpoint, found *discovered, isoURL string) (*discovered, error) {
 	for attempt := 0; attempt < 2; attempt++ {
 		if attempt > 0 {
@@ -727,9 +714,10 @@ func (c *Controller) mountAndSettle(ctx context.Context, s *session, endpoint se
 		if _, err := c.awaitInserted(ctx, s, endpoint, isoURL); err != nil {
 			return nil, err
 		}
-		settled := time.Now().UTC().Add(c.mountSettle).Truncate(time.Millisecond)
+		settle := c.settleFor(found.profile)
+		settled := time.Now().UTC().Add(settle).Truncate(time.Millisecond)
 		serverdomain.ReportBootMediaPhase(ctx, serverdomain.BootMediaPhaseSettling, &settled)
-		if err := sleep(ctx, c.mountSettle); err != nil {
+		if err := sleep(ctx, settle); err != nil {
 			return nil, classify(err)
 		}
 		var err error
@@ -742,7 +730,7 @@ func (c *Controller) mountAndSettle(ctx context.Context, s *session, endpoint se
 		// The BMC dropped the fresh mount. A device that still names the image but reports
 		// Inserted false counts as free, so the second attempt mounts it again.
 	}
-	return nil, &controllerError{sentinel: serverdomain.ErrBootMediaRejected, detail: "The BMC mounted the ISO but dropped it again within a minute."}
+	return nil, &controllerError{sentinel: serverdomain.ErrBootMediaRejected, detail: "The BMC mounted the ISO but dropped it again within a minute.", operation: "mount the ISO"}
 }
 
 // awaitInserted re-reads until a virtual CD reports isoURL inserted.
@@ -757,7 +745,7 @@ func (c *Controller) awaitInserted(ctx context.Context, s *session, endpoint ser
 			return found, nil
 		}
 		if time.Now().After(deadline) {
-			return nil, &controllerError{sentinel: serverdomain.ErrBootMediaRejected, detail: "The BMC accepted the ISO but never reported it inserted."}
+			return nil, &controllerError{sentinel: serverdomain.ErrBootMediaRejected, detail: "The BMC accepted the ISO but never reported it inserted.", operation: "mount the ISO"}
 		}
 		if err := sleep(ctx, c.poll); err != nil {
 			return nil, classify(err)
@@ -768,7 +756,7 @@ func (c *Controller) awaitInserted(ctx context.Context, s *session, endpoint ser
 // eject removes the media from one device.
 func (c *Controller) eject(ctx context.Context, s *session, media virtualMedia) error {
 	if media.Actions.Eject == nil || media.Actions.Eject.Target == "" {
-		return &controllerError{sentinel: serverdomain.ErrRedfishUnsupported, detail: "The virtual CD offers no eject action."}
+		return &controllerError{sentinel: serverdomain.ErrRedfishUnsupported, detail: "The virtual CD offers no eject action.", operation: "eject the ISO", permanent: true}
 	}
 	resp, err := s.do(ctx, http.MethodPost, media.Actions.Eject.Target, map[string]any{}, nil)
 	if err != nil {
@@ -777,8 +765,8 @@ func (c *Controller) eject(ctx context.Context, s *session, media virtualMedia) 
 	return c.followTask(ctx, s, resp, "eject the ISO")
 }
 
-// patchBoot changes System.Boot, sending the System's ETag when it has one (AMI requires
-// If-Match and answers 412 for a stale tag, which is retried once with a fresh read).
+// patchBoot changes System.Boot, sending the System's ETag when it has one (some BMCs require
+// If-Match and answer 412 for a stale tag, which is retried once with a fresh read).
 func (c *Controller) patchBoot(ctx context.Context, s *session, system computerSystem, changes map[string]any) error {
 	etag := system.ETag
 	for attempt := 0; attempt < 2; attempt++ {
@@ -801,7 +789,7 @@ func (c *Controller) patchBoot(ctx context.Context, s *session, system computerS
 		}
 		return classify(err)
 	}
-	return &controllerError{sentinel: serverdomain.ErrBootMediaRejected, detail: "The BMC kept refusing the boot override change."}
+	return &controllerError{sentinel: serverdomain.ErrBootMediaRejected, detail: "The BMC kept refusing the boot override change.", operation: "PATCH " + system.ODataID}
 }
 
 // sleep waits d or until ctx ends.

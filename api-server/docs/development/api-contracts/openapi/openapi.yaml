@@ -13426,6 +13426,10 @@ components:
           $ref: '#/components/schemas/Timestamp'
         product:
           type: string
+        profile:
+          description: The BMC Profile the probe recognized (`default` or an adapter-owned value); for display only, never branched on.
+          nullable: true
+          type: string
         reason:
           type: string
         redfishVersion:
@@ -13447,6 +13451,7 @@ components:
           type: boolean
       required:
         - support
+        - profile
         - virtualMedia
         - bootOverrideModes
         - probedAt

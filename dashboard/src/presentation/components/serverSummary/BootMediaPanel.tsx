@@ -10,6 +10,7 @@ import { DescriptionList, type DescriptionItem } from '@/presentation/components
 import { formatRelative } from '@/shared/utils/time'
 import { BootMediaApplyProgress } from './BootMediaApplyProgress'
 import {
+  bmcProfileLabel,
   bootMediaApplierLabel,
   bootMediaTargetLabel,
   bootOverrideLabel,
@@ -97,6 +98,7 @@ function BootMediaFacts({ state, live }: Pick<BootMediaPanelProps, 'state' | 'li
   const { image, setting, redfish, libvirt, apply } = state.data
   const method = shownBootMediaMethod(state.data)
   const target = bootMediaTargetLabel(method)
+  const enabled = setting?.enabled ?? false
   const capability: DescriptionItem = method === 'libvirt' && libvirt
     ? { label: 'Hypervisor', value: <LibvirtFact capability={libvirt} /> }
     : {
@@ -106,7 +108,9 @@ function BootMediaFacts({ state, live }: Pick<BootMediaPanelProps, 'state' | 'li
             <HStack gap="2" wrap="wrap">
               <StatusBadge status={redfishSupportStatus(redfish.support)} label={redfishSupportLabel(redfish.support)} />
               <Text as="span" color="fg.muted" fontSize="sm">
-                {[redfish.vendor, redfish.firmwareVersion && `firmware ${redfish.firmwareVersion}`].filter(Boolean).join(' · ')}
+                {[redfish.vendor, redfish.firmwareVersion && `firmware ${redfish.firmwareVersion}`, bmcProfileLabel(redfish.profile)]
+                  .filter(Boolean)
+                  .join(' · ')}
                 {` · probed ${formatRelative(redfish.probedAt)}`}
               </Text>
             </HStack>
@@ -142,20 +146,14 @@ function BootMediaFacts({ state, live }: Pick<BootMediaPanelProps, 'state' | 'li
           )}
         </Stack>
       ) : (
-        <HStack gap="2">
-          <StatusBadge status="unknown" label="Disabled" />
-          <Text as="span" color="fg.muted" fontSize="sm">
-            {method === 'libvirt' ? 'OS deployments do not touch the virtual machine’s CD-ROM.' : 'OS deployments do not touch the BMC.'}
-          </Text>
-        </HStack>
+        <StatusBadge status="unknown" label="Disabled" />
       ),
     },
-    { label: 'Boot ISO', value: <BootISOFact image={image} libvirt={method === 'libvirt'} /> },
+    { label: 'Boot ISO', value: <BootISOFact image={image} libvirt={method === 'libvirt'} detached={!apply && !enabled} /> },
   ]
   if (live) {
     items.push({ label: method === 'libvirt' ? 'Hypervisor now' : 'BMC now', value: <LiveState live={live} target={target} /> })
   }
-  const enabled = setting?.enabled ?? false
   return (
     <Stack gap="3">
       <DescriptionList items={items} />
@@ -210,12 +208,17 @@ function LibvirtFact({ capability }: { capability: NonNullable<ServerBootMedia['
 
 /**
  * The Boot ISO the setting names: its name and, for Redfish, the URL the BMC mounts — for libvirt
- * the file is uploaded to the Hypervisor instead — or why there is none or it cannot be used. A
- * deleted ISO has no name, so its id is shown instead.
+ * the file is uploaded to the Hypervisor instead — or why it cannot be used, and N/A when there is
+ * none. A deleted ISO has no name, so its id is shown instead.
+ *
+ * `detached` is set while Boot Media is disabled and no preflight runs. Disabling asked the BMC or
+ * Hypervisor to detach the ISO, so the row reads N/A although the API still names the last Boot ISO
+ * (only so the enable dialog can preselect it). A detach that failed is reported when disabling,
+ * and the live read shows what is really attached.
  */
-function BootISOFact({ image, libvirt }: { image: ServerBootMedia['image']; libvirt: boolean }) {
-  if (!image) {
-    return <Text as="span" color="fg.muted">None chosen — choose one when enabling Boot Media.</Text>
+function BootISOFact({ image, libvirt, detached }: { image: ServerBootMedia['image']; libvirt: boolean; detached: boolean }) {
+  if (detached || !image) {
+    return <Text as="span" color="fg.muted" fontSize="sm">N/A</Text>
   }
   return (
     <Stack gap="1">
