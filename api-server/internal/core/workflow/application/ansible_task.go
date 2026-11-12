@@ -60,11 +60,13 @@ type AnsibleTaskRunner struct {
 	live           LiveRecorder
 	artifactRoot   string
 	streamInterval time.Duration
+	// failures are the modules' declared failure codes, applied to a failed run's diagnostic.
+	failures workflowdomain.FailureCatalog
 }
 
 // NewAnsibleTaskRunner builds the runner. Every dependency is required: a missing Server Lock
 // check, secret resolver, or event store would silently weaken a run, so construction fails
-// instead.
+// instead. failures may be empty: a build whose modules declare no failure code classifies none.
 func NewAnsibleTaskRunner(
 	configurations workflowdomain.AutomationConfigurationRepository,
 	catalog workflowdomain.PlaybookCatalog,
@@ -76,6 +78,7 @@ func NewAnsibleTaskRunner(
 	hostKeys HostKeyScanner,
 	live LiveRecorder,
 	artifactRoot string,
+	failures workflowdomain.FailureCatalog,
 ) (*AnsibleTaskRunner, error) {
 	if configurations == nil || catalog == nil || runner == nil || events == nil || inventory == nil ||
 		protection == nil || secrets == nil || hostKeys == nil || live == nil || artifactRoot == "" {
@@ -84,9 +87,13 @@ func NewAnsibleTaskRunner(
 	return &AnsibleTaskRunner{
 		configurations: configurations, catalog: catalog, runner: runner, events: events, inventory: inventory,
 		protection: protection, secrets: secrets, hostKeys: hostKeys, live: live, artifactRoot: artifactRoot,
-		streamInterval: streamInterval,
+		streamInterval: streamInterval, failures: failures,
 	}, nil
 }
+
+// TaskBudgetExceededCode is the error code of an attempt stopped at its Task's timeout
+// (Task.TimeoutSeconds).
+const TaskBudgetExceededCode = "task_budget_exceeded"
 
 // AnsibleRunID is the run ID of one attempt, derived from the Workflow, Task, and attempt so the
 // same attempt always names the same artifact directory.
@@ -161,6 +168,15 @@ func (r *AnsibleTaskRunner) Run(ctx context.Context, input AnsibleTask) Outcome 
 	extraVars, _ := task.Parameters["extraVars"].(map[string]any)
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	// A declared timeout stops the run the way a cancel does (ansible-runner gets SIGTERM); the
+	// outcome below tells the two apart by which context ended.
+	budget := time.Duration(task.TimeoutSeconds) * time.Second
+	if budget > 0 {
+		var cancelTimeout context.CancelFunc
+		runCtx, cancelTimeout = context.WithTimeout(runCtx, budget)
+		defer cancelTimeout()
+	}
+	started := time.Now()
 	type finished struct {
 		result workflowdomain.RunnerResult
 		err    error
@@ -195,9 +211,27 @@ func (r *AnsibleTaskRunner) Run(ctx context.Context, input AnsibleTask) Outcome 
 			if ctx.Err() != nil {
 				return Outcome{Status: workflowdomain.TaskCanceled, ExternalExecution: reference}
 			}
+			if budget > 0 && errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+				result := failedOutcome(TaskBudgetExceededCode,
+					fmt.Sprintf("The playbook ran longer than the Task's timeout of %s, so swallow stopped it.", budget), true)
+				diagnostic := workflowdomain.NewTaskDiagnostic(workflowdomain.FailureUnknown, context.DeadlineExceeded)
+				diagnostic.ElapsedSeconds = int64(time.Since(started).Seconds())
+				diagnostic.BudgetSeconds = int64(budget.Seconds())
+				diagnostic.Remediation = "Find what the playbook waited on in its output, fix it or raise the timeout, and run it again."
+				result.Error.Diagnostic = diagnostic
+				result.ExternalExecution, result.Artifacts = reference, r.artifacts(runID)
+				return result
+			}
 			if outcome.err != nil {
 				result := failedOutcome("ansible_failed", outcome.err.Error(), true)
 				result.Error.Diagnostic = runFailureDiagnostic(outcome.err, failures, targets)
+				if _, declared, ok := r.failures.Classify(outcome.err.Error()); ok {
+					result.Error.Diagnostic.FailureClass = declared.Class
+					result.Error.Diagnostic.Remediation = declared.Remediation
+					if declared.Retryable != nil {
+						result.Error.Retryable = *declared.Retryable
+					}
+				}
 				result.ExternalExecution, result.Artifacts = reference, r.artifacts(runID)
 				return result
 			}

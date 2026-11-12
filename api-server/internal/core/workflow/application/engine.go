@@ -342,7 +342,7 @@ func (e *Engine) Advance(ctx context.Context, request AdvanceRequest) (AdvanceRe
 				running++
 			}
 		}
-		schedule := workflowdomain.Plan(w.Steps, e.maxParallel-running)
+		schedule := workflowdomain.PlanWith(w.Steps, e.maxParallel-running, workflowdomain.PlanPolicy{Unattended: w.Unattended})
 		for _, index := range schedule.Skip {
 			task := &w.Steps[index]
 			task.Status = workflowdomain.TaskSkipped

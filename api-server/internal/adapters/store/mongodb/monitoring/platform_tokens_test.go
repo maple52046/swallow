@@ -4,32 +4,18 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
-	"os"
 	"testing"
 	"time"
 
-	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
+	"github.com/maple52046/swallow/internal/adapters/store/mongodb/mongotest"
 	monitoringdomain "github.com/maple52046/swallow/internal/core/monitoring/domain"
 )
 
 // Saving replaces the Platform's hash; a Platform without one is ErrPlatformTokenNotFound.
 func TestPlatformTokenStoreKeepsOneHashPerPlatform(t *testing.T) {
-	uri := os.Getenv("SWALLOW_TEST_MONGO_URI")
-	if uri == "" {
-		t.Skip("SWALLOW_TEST_MONGO_URI is not set")
-	}
+	_, db := mongotest.Database(t, "platform_tokens")
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	client, err := storemongo.Connect(ctx, uri)
-	if err != nil {
-		t.Fatalf("Connect() error = %v", err)
-	}
-	db := client.Database(fmt.Sprintf("swallow_platform_tokens_test_%d", time.Now().UnixNano()))
-	t.Cleanup(func() {
-		_ = db.Drop(context.Background())
-		_ = client.Disconnect(context.Background())
-	})
 	store := NewMongoPlatformTokenStore(db)
 
 	if _, err := store.TokenHash(ctx, "p-1"); !errors.Is(err, monitoringdomain.ErrPlatformTokenNotFound) {

@@ -37,7 +37,8 @@ only what happens outside them.
 ## During a drill
 
 - **Hot reload restarts processes.** The development `api-server`, `worker`, and
-  `ansible-executor` run under Air: saving a Go file under `api-server/` rebuilds and restarts all
+  `ansible-executor` run under Air: saving a Go, YAML, or JSON file under `api-server/` (a
+  playbook or a `module.json` included) rebuilds and restarts all
   three, and a running Ansible Task then stops in `requires_attention`
   (`executor_outcome_unknown`). Do not edit api-server Go code while a drill's Task runs; check the
   executor's recent logs first (`docker logs --since 10m swallow-dev-ansible-executor-1`).

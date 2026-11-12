@@ -68,7 +68,7 @@ func NewRootCommand() *cobra.Command {
 		Short: "CLI for swallow, GPU datacenter management",
 		Long: "swallow is the command-line client for swallow. " +
 			"It talks to the api-server HTTP API and covers auth, API keys, sites, integrations, servers, " +
-			"provisioning, infrastructure, ssh-keys, platforms, Change Plans, workflows, monitoring, " +
+			"provisioning, infrastructure, ssh-keys, platforms, Change Plans, workflows, validation, monitoring, " +
 			"and discovery. Managed Software, the Server Default User, the provisioner HTTP proxy, and " +
 			"Subnet DNS have no commands yet; use the Dashboard or the HTTP API for them.",
 		SilenceUsage:  true,
@@ -106,6 +106,7 @@ func NewRootCommand() *cobra.Command {
 		newPlatformsCommand(),
 		newPlansCommand(),
 		newWorkflowsCommand(),
+		newValidationCommand(),
 		newMonitoringCommand(),
 		newDiscoveryCommand(),
 	)

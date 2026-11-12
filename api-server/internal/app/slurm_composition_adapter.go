@@ -17,9 +17,10 @@ import (
 	dockerce "github.com/maple52046/swallow/modules/software/docker-ce"
 )
 
-// Slurm feature composition (decisions 063, 066, and 068). After its install-platform Task a Slurm
-// deployment appends one Job per composed Managed Software install, each an ansible install Task
-// plus the record Task that marks its Software Assignments installed:
+// Slurm feature composition (decisions 063, 066, and 068). After its install-platform Task and its
+// slurm-acceptance gate (validation_gate.go) a Slurm deployment appends one Job per composed Managed
+// Software install, each an ansible install Task plus the record Task that marks its Software
+// Assignments installed:
 //
 //  1. the container runtime, on the compute and login nodes when the containerRuntime feature is
 //     on, and on the primary controller when the Platform's Grafana uses the container method;
@@ -169,9 +170,10 @@ type composedPlan struct {
 }
 
 // planSlurmComposition validates and builds the container runtime, Platform Grafana, and monitoring
-// feature Jobs. provisionFirst lets the deployment's provision-os Tasks satisfy the deployed-state
-// requirement of every composed ansible Task. A composed install the software policy refuses (for
-// example Podman where Docker CE is installed, the two being mutually exclusive) is reported as
+// feature Jobs, the first of them after the Task after (the deployment's validation gate).
+// provisionFirst lets the deployment's provision-os Tasks satisfy the deployed-state requirement of
+// every composed ansible Task. A composed install the software policy refuses (for example Podman
+// where Docker CE is installed, the two being mutually exclusive) is reported as
 // ErrComposedSoftwareConflict, and an installation without the monitoring addresses a Job needs as
 // ErrMonitoringEndpointMissing, before anything is created.
 func (l platformDeploymentLauncher) planSlurmComposition(
@@ -179,6 +181,7 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 	launch platformdomain.DeploymentLaunch,
 	operationID string,
 	provisionFirst bool,
+	after string,
 ) (composedPlan, error) {
 	plan := composedPlan{}
 	monitoring := slurmMonitoringOf(launch)
@@ -205,7 +208,7 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 	if err := l.requireOmnistatScrapeAddresses(launch); err != nil {
 		return plan, err
 	}
-	previous := installPlatformStepID
+	previous := after
 
 	runtime, runtimeTargets, err := l.composedContainerRuntime(ctx, launch)
 	if err != nil {

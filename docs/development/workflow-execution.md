@@ -98,7 +98,8 @@ glossary [Task](glossaries/terms/task.md)。終態是 `succeeded`、`failed`、`
    `configure-node-exporter`（`requestedBy` 為 `swallow:node-exporter-controller`）。
 2. **驗證整份計畫**（Create）：kind 有效；有 definition 與 definition version；有 `siteId`；至少一個 Task；每個
    Task 有 id、kind、name 且 id 不重複；`DependsOn` 只指向同一 Workflow 的其他 Task，且沒有環；Task kind 已登錄、
-   Runner 與該 kind 相符；宣告的完成行為與取消補償都已登錄；每個具名的 Job 都宣告了重試粒度（§12）。launcher 可
+   Runner 與該 kind 相符；宣告的完成行為與取消補償都已登錄；每個具名的 Job 都宣告了重試粒度（§12）；每個 Task 的
+   目標都是 Workflow 的 target Server 或宣告的資源（否則它會改變 busy check 與所有權（§4）都沒有涵蓋的資源）。launcher 可
    預先指定 Workflow id，但必須是 UUID。任何一項不符都以 `validation_error` 拒絕，不會到執行時才發現。
 3. **Busy check**：對每台 `targetServerIds`，若已有未結束的 Workflow 以它為 target，受理以
    `ErrTargetsBusy`（`409 conflict`）拒絕，訊息點名佔用者（Workflow id、intent、status）。
@@ -162,7 +163,7 @@ decision 072；受理原子性見
 - **所有權不會自動過期**：卡住或被放棄的 Workflow 由 user 取消；取消一定生效，因為 execution 已不存在時
   dispatcher 會重新派發它來執行取消路徑（§8）。
 - **Busy check 與所有權是兩道不同的防線**：busy check 在受理時拒絕 target Server 重疊；所有權在執行時序列化。
-  `cancelActiveWorkflows` 只略過前者，從不略過後者（§9）。
+  `cancelActiveWorkflows` 與 preemptible 的取代只略過前者，從不略過後者（§9）。
 
 ### 設計理由
 
@@ -179,7 +180,8 @@ decision 072。
 - **依賴**：Task 依 `DependsOn` 執行。Job 之間的順序由 cross-Job `DependsOn` 推導：一個 Task 所在的 Job 依賴另一個
   Job 時，它也等那個 Job 的**每個** Task 定案。
 - **決定一個 Task**：依賴都**定案**後才決定。預設只有 `succeeded` 或 `skipped` 的依賴允許它執行，否則它被
-  `skipped`；Task 可用 `ContinueOn` 列出額外允許的依賴結果（例如補償 Task 允許 `skipped`），在 Job 內也一樣有效。
+  `skipped`；Task 的 `ContinueOn` 不是空的時候**取代**預設，列出所有允許的依賴結果：只在失敗時執行的紀錄 Task 列
+  `failed`，不論結果都要執行的 Task 連 `succeeded` 也要列。在 Job 內也一樣有效。
   `canceled` 與不可重試的 `failed` 算定案；**可重試的失敗不算**，依賴它的 Task 會等 user 重試，而不是被略過。
 - **並行**：sliding window，同時最多 `OperationMaxParallelism`（預設 4，`SWALLOW_API_OPERATION_MAX_PARALLELISM`）
   個 Task 執行；一個 Task 結束就補上下一個可執行的 Task，不等整批結束。
@@ -264,7 +266,8 @@ decision 072。
 | `inspect-hardware` 的 `wait-enrollment-settled`（provisioner） | 每 15 秒讀 enrollment，連續兩次 settled 才算 | 讀取失敗只重置計數 | 20 分鐘 | `requires_attention` `enrollment_not_settled`；不發佈 `Task.waiting` |
 | `inspect-hardware` 的 `inspect`（provisioner） | machine 狀態與 event stream；每次觀察發佈 `Task.waiting` | 有 event stream 時 15 分鐘沒有進度即 stall，abort 後最多等 3 分鐘 | 最多 3 次，每次 45 分鐘 | `requires_attention` `inspect_pxe_unreached`／`inspect_failed`／`inspect_abort_unsettled` |
 | 取消時回收被中斷的部署（`return-canceled-deployment` 補償，§8.3） | machine 狀態 | 讀取失敗不分類 | abort 後 10 分鐘；整個補償 30 分鐘（activity 的 StartToClose） | timeline 事件 `canceled_deployment_return_failed`；activity 每 3 秒 heartbeat，取消路徑等補償結束才釋放所有權 |
-| `ansible-playbook`（ansible executor） | playbook 自己的等待（role 的 `until` 迴圈） | swallow 不分類 | swallow 端沒有 timeout；activity 上限 7 天（heartbeat timeout 10 秒） | executor 遺失時 `requires_attention` `executor_outcome_unknown`（§5.3）；playbook 失敗時以 Ansible 的結果回報 |
+| `ansible-playbook`（ansible executor） | playbook 自己的等待（role 的 `until` 迴圈） | swallow 不分類；失敗訊息帶模組宣告的 `[code]` 時，diagnostic 取宣告的 Failure Class 與 remediation（宣告 `retryable: false` 時不可重試），code 仍是 `ansible_failed` | Task 宣告 `TimeoutSeconds` 時以它為上限，否則 swallow 端沒有 timeout；activity 上限 7 天（heartbeat timeout 10 秒） | 逾時：`failed`（可重試）`task_budget_exceeded`，ansible-runner 以 SIGTERM 停止，diagnostic 帶經過時間與預算。executor 遺失時 `requires_attention` `executor_outcome_unknown`（§5.3）；playbook 失敗時以 Ansible 的結果回報 |
+| Workflow 的整體預算（宣告 `BudgetSeconds` 的 Workflow） | 從開始（尚未開始時從受理）算起的經過時間；`workflow-dispatch` 在每次 reconcile 檢查 | — | 宣告的秒數；目前只有 report mode 的 Validation Run 宣告（[validation.md](validation.md) §4.4） | 寫入取消命令，原因以 `workflow_budget_exceeded` 開頭，之後依取消流程結束（§8）；resync（30 秒）決定最晚多久發現 |
 | `waiting_dependency`（§4） | 每 5 秒重新取得資源所有權 | — | 沒有上限 | 等到擁有資源的 Workflow 結束或自己被取消 |
 | `requires_attention`（§6） | 等 user 的重試或取消 | — | 沒有上限，期間持有全部資源 | — |
 
@@ -285,9 +288,9 @@ decision 072。
   10×(120+15) 秒）不分類、不發佈 `Task.waiting`，只在 playbook 失敗時以 Ansible 的訊息回報。
 - package maintenance hold 最長等 45 分鐘（`package_maintenance_hold_wait_seconds`）。
 - GPU Operator 的等待（每個資源 60×10 秒、helm `--timeout 10m`、driver 載入 300 秒）。
-- 沒有 Workflow 層級的總預算：各 Task 的預算加上停等時間沒有上限。
-- `requires_attention` 與 `waiting_dependency` 沒有上限；停在 `requires_attention` 的 Workflow 持有資源，等它資源的
-  Workflow 就一直 `waiting_dependency`。
+- 部署的 Workflow 沒有宣告整體預算，Ansible Task 也沒有宣告 timeout：各 Task 的預算加上停等時間沒有上限。
+- attended 的 Workflow 的 `requires_attention` 與 `waiting_dependency` 沒有上限；停在 `requires_attention` 的 Workflow
+  持有資源，等它資源的 Workflow 就一直 `waiting_dependency`。unattended 的 Workflow 不停等（§6）。
 - `wait-for-ssh`、部署後的 SSH 就緒與 `wait-enrollment-settled` 不發佈 `Task.waiting`、不帶 diagnostic；回收被中斷部署的
   補償不分類讀取錯誤；部署觀察的 2 小時整體上限沒有改變。
 
@@ -307,6 +310,10 @@ decision 072。失敗診斷、遮蔽而不抹除、等待觀察的發佈、log �
 
 - **進入**：有可重試的失敗而沒有其他可執行的 Task 時，Workflow 投影為 `requires_attention`（reason
   `A failed Step requires user attention.`），driver 等待 wake signal。
+- **unattended 的 Workflow 不停等**：宣告 unattended 的 Workflow（目前是 report mode 的 Validation Run）沒有人等著
+  重試，所以任何失敗（可重試與否）與交給 user 的 Task（`requires_attention`，例如 `executor_outcome_unknown`）都
+  立即落定、視為失敗：依賴它的 Task 被略過或依 `continueOn` 執行，Workflow 以 `failed` 或 `partially_succeeded` 結束
+  並釋放資源。它不能 rerun（§7）。
 - **持有所有權、不做 mutation**：停等期間 Workflow 仍擁有全部資源，但不執行任何 Task。所有權沒有 TTL，所以停等
   不需要續租，也不累積 history。
 - **離開**：user 的 Task 重試或取消；兩者都是 store 中的命令，由 dispatcher 送達（§10）。
@@ -334,7 +341,8 @@ desired-state 模型的 reapply（依 spec 重新收斂，[desired-state-model.m
 - **API**：`POST /workflows/{id}/rerun`，回 `202` 與新 Workflow 的投影。
 - **可 rerun 的狀態**：`failed`、`partially_succeeded`、`canceled`、`requires_attention`。`succeeded`（沒有東西可
   回復）與仍在前進的 `pending`／`running`／`waiting_external`／`waiting_dependency`／`canceling`（應改用 Task retry
-  或 cancel）回 `409 conflict`。
+  或 cancel）回 `409 conflict`。unattended 的 Workflow（§6）一律回 `409`：受理它的功能自己記錄結果（例如 Validation
+  Run），要再執行就從那個功能再受理一次。
 - **原 Workflow 為 `requires_attention` 時**：在同一個 transaction 中寫入它的取消命令（reason
   `Superseded by a rerun.`），並以 `SupersededOperationIDs` 受理新 Workflow，讓它通過 busy check。原 Workflow 依
   §8 走完取消路徑並釋放所有權後，新 Workflow 才離開 `waiting_dependency`（§4）。
@@ -477,6 +485,11 @@ decision 072。
 - **Platform 的刪除**：帶旗標時 lifecycle 為 `deploying` 的 Platform 也可以 uninstall；對仍在執行的 Workflow 被拒的
   取消由 Platform 的 `realized` Condition 回報。platform 專屬規則見 [platform-deployment.md](platform-deployment.md)
   §4.8 最後一段。
+- **preemptible 的 Workflow 被自動取代**：宣告 preemptible 的 Workflow（report mode 的 Validation Run，impact 不是
+  `disruptive` 時）佔用的 Server，任何不是 preemptible 的 Workflow 受理時都不算 busy：受理的 transaction 對它寫入取消
+  （reason `Preempted by Workflow <id> ("<intent>").`），新 Workflow 立即受理，等它走完取消路徑、釋放所有權後才開始，
+  與上面的取代相同。這不需要旗標，也只在 `WorkflowService.Create` 一處實作；preemptible 的 Workflow 不取代另一個
+  preemptible 的 Workflow（後者照常回 `409`）。
 - **Consumer**：dashboard 的 Release／Recover 對話框只送旗標、在請求內關閉，並提示工作會在被取消的 Workflow 結束後
   自動開始；Platform 的刪除選項列出佔用的 Workflow，要求 user 確認後才送旗標。CLI 的
   `platforms delete`、`provisioning release`、`provisioning recover` 提供 `--cancel-active-workflows`，未帶旗標
@@ -563,7 +576,8 @@ decision 072。
 - **取消與 fencing**：activity 以 heartbeat 回報進度；Workflow 被取消時 heartbeat 收到取消，executor 對
   `ansible-runner` 送 SIGTERM，由它停止 playbook（playbook 在自己的 session 中，只結束 `ansible-runner` 會留下仍在
   操作 host 的 playbook），30 秒內沒有結束才強制終止。activity 等 Runner 結束才結束，所以 run 的取消路徑在外部工作
-  停止之後才補償與釋放資源。執行中每 15 秒確認世代，不是目前的世代就同樣中止並結束。
+  停止之後才補償與釋放資源。host 上已經開始的 module 不會被中斷：它執行到自己結束或逾時，`always` 的清理也不會執行，
+  所以長時間的指令要自己帶 timeout。執行中每 15 秒確認世代，不是目前的世代就同樣中止並結束。
 - **結果**：成功時先執行 Task 宣告的結果類完成行為（例如記錄 Kubernetes 或 slurmrestd credential、Omnistat 與
   DME 的 Grafana URL、uninstall 收尾），playbook 回傳的資料不離開 executor；完成行為失敗時 Task 為 `failed`
   （`completion_failed`，可重試）。之後經由 core 記錄結果與 artifact metadata。
@@ -613,6 +627,12 @@ deployment 只需要產生這份計畫。
   - **結果類**：需要 Runner 回傳的資料，在執行該 Task 的 activity 內、記錄結果之前執行。目前有 Kubernetes 與
     slurmrestd credential、Omnistat 與 DME 的結果、platform uninstall 收尾。
 - **取消補償**：Task 宣告 `return-canceled-deployment`（被中斷時回收部署），或「取消時執行」（§8.1）。
+- **Workflow 層的宣告**（[decision 077](../decisions/077-task-diagnostics-and-wait-policy.md)、[decision 081](../decisions/081-validation-suites-and-runs.md)）：
+  unattended（不停等、不能 rerun，§6、§7）、`BudgetSeconds`（超過時被取消，§5.6）、preemptible（被其他 Workflow
+  取代，§9）；Task 可宣告 `TimeoutSeconds`（§5.6）。它們和其他宣告一樣在受理時凍結，engine 依宣告行事，不依 kind。
+- **Workflow Template**：模組在 `module.json` 宣告的範本（[Workflow Template](glossaries/terms/workflow-template.md)），
+  由 `internal/core/workflow/domain/template.go` 編譯成 Task 與 Job 宣告，再經同樣的受理驗證；編譯不受理也不執行。
+  目前只有 Validation Suite 以範本撰寫（[validation.md](validation.md) §3），部署的組合仍由 launcher 以 Go 產生。
 - **檢查**：受理時驗證整份計畫（§3）；宣告了卻沒有 handler 的型別讓 process 啟動失敗，不會靜默略過；engine 的
   package 不得引用任何 kind 常數（以測試保證）。
 

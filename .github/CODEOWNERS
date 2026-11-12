@@ -39,3 +39,6 @@
 /api-server/modules/software/podman/                @maple52046
 /api-server/modules/software/prometheus/            @maple52046
 /api-server/modules/software/victoriametrics/       @maple52046
+/api-server/modules/validation/host/                @maple52046
+/api-server/modules/validation/network/             @maple52046
+/api-server/modules/validation/script/              @maple52046

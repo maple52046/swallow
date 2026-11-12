@@ -1,0 +1,20 @@
+---
+# Count this host's AMD GPUs on PCI and in the KFD topology (files/amd_gpu_census.py) and leave the
+# census in amd_gpu_census: pci, kfd, pciDevices, passedThrough (bound to vfio-pci, not counted),
+# kfdNodes, kfdPresent. A census that cannot run leaves pci and kfd at -1. Nothing on the host
+# changes.
+
+- name: Count the AMD GPUs
+  ansible.builtin.script:
+    cmd: "amd_gpu_census.py --root={{ amd_gpu_census_root | quote }}"
+    executable: python3
+  register: amd_gpu_census_run
+  changed_when: false
+  failed_when: false
+
+- name: Read the census
+  ansible.builtin.set_fact:
+    amd_gpu_census: >-
+      {{ (amd_gpu_census_run.stdout | from_json)
+         if amd_gpu_census_run.rc | default(1) == 0 and (amd_gpu_census_run.stdout | default('') | trim).startswith('{')
+         else {'pci': -1, 'kfd': -1, 'error': amd_gpu_census_run.stderr | default('the census did not run', true)} }}

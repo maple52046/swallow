@@ -252,6 +252,25 @@ func (Platform) ReportsMembership(member platformdomain.PlatformMember) bool {
 	return slices.Contains(member.Roles, RoleCompute)
 }
 
+// AccessServers implements platformdomain.PlatformModule: the login members, where users submit
+// jobs, or the controllers when the Platform has no login node; in spec order, so the first
+// controller is the primary.
+func (Platform) AccessServers(spec platformdomain.PlatformSpec) []string {
+	var logins, controllers []string
+	for _, member := range spec.Members {
+		switch {
+		case slices.Contains(member.Roles, RoleLogin):
+			logins = append(logins, member.ServerID)
+		case slices.Contains(member.Roles, RoleController):
+			controllers = append(controllers, member.ServerID)
+		}
+	}
+	if len(logins) > 0 {
+		return logins
+	}
+	return controllers
+}
+
 func serverRef(id string) convergence.ResourceRef {
 	return convergence.ResourceRef{Kind: "server", ID: id}
 }

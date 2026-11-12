@@ -84,14 +84,13 @@ func TestMPIProbeReportsPMIxWireUp(t *testing.T) {
 	}
 }
 
-// The deployment proves PMIx with real launches and a failing rank, never with the plugin list alone,
-// and keeps MpiDefault none; uninstall removes the probe.
+// The deployment's slurm-acceptance gate proves PMIx with real launches and a failing rank, never
+// with the plugin list alone, and slurm.conf keeps MpiDefault none; uninstall removes the probe.
 func TestSlurmPMIxIsProvenByLaunches(t *testing.T) {
-	verify := slurmPlaybookFile(t, "roles", "slurm_verify", "tasks", "main.yml")
-	for _, want := range []string{"--mpi=pmix_v5", "--fail-rank=1", "[slurm_pmix_failed]", "selectattr('barrier')",
-		"'inside a container'", "pmixNamespace"} {
-		if !strings.Contains(verify, want) {
-			t.Errorf("slurm_verify does not contain %q", want)
+	acceptance := slurmPlaybookFile(t, "roles", "slurm_acceptance", "files", "slurm_acceptance.py")
+	for _, want := range []string{`"--mpi=pmix_v5"`, `"--fail-rank=1"`, `r.get("barrier")`, `"inside a container"`, "pmixNamespace"} {
+		if !strings.Contains(acceptance, want) {
+			t.Errorf("slurm_acceptance.py does not contain %q", want)
 		}
 	}
 	if conf := slurmPlaybookFile(t, "roles", "slurm_config", "templates", "slurm.conf.j2"); !strings.Contains(conf, "MpiDefault=none") {

@@ -1,0 +1,41 @@
+{
+  "contractVersion": 1,
+  "kind": "validation",
+  "id": "script",
+  "version": "0.1.0",
+  "playbooks": [
+    "run-validation-script"
+  ],
+  "workflowKinds": [],
+  "taskKinds": [],
+  "completions": [],
+  "hooks": [],
+  "capabilities": [
+    "host-automation"
+  ],
+  "routes": [],
+  "templates": {
+    "run-script": {
+      "version": 1,
+      "jobs": [
+        {
+          "name": "run-script",
+          "label": "Run Script",
+          "retry": "job"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "run-script",
+          "name": "Run the validation script",
+          "job": "run-script",
+          "content": {
+            "type": "host-automation",
+            "playbook": "run-validation-script"
+          },
+          "targets": "servers"
+        }
+      ]
+    }
+  }
+}

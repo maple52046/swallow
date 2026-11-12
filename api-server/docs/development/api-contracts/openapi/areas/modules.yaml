@@ -44,7 +44,7 @@ components:
       properties:
         kind:
           type: string
-          enum: [accelerator, platform, software]
+          enum: [accelerator, platform, software, validation]
           description: What the module adds to swallow (glossary Extension Module).
         id:
           type: string

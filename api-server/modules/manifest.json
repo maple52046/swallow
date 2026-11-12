@@ -136,6 +136,30 @@
       "name": "configure-ntp",
       "path": "shared/playbooks/configure-ntp.yml",
       "fetchesArtifacts": true
+    },
+    {
+      "name": "validate-slurm-acceptance",
+      "path": "platform/slurm/playbooks/validate-slurm-acceptance.yml"
+    },
+    {
+      "name": "validate-kubernetes-smoke",
+      "path": "platform/kubernetes/playbooks/validate-kubernetes-smoke.yml"
+    },
+    {
+      "name": "validate-amd-gpu-basic",
+      "path": "accelerator/amd/playbooks/validate-amd-gpu-basic.yml"
+    },
+    {
+      "name": "validate-host-baseline",
+      "path": "validation/host/playbooks/validate-host-baseline.yml"
+    },
+    {
+      "name": "validate-network-mesh",
+      "path": "validation/network/playbooks/validate-network-mesh.yml"
+    },
+    {
+      "name": "run-validation-script",
+      "path": "validation/script/playbooks/run-validation-script.yml"
     }
   ]
 }

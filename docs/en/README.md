@@ -28,6 +28,7 @@ Dashboard, CLI, API, automation, and installation assets in this repository.
 - [SSH keys and image login users](guides/ssh-keys.md)
 - [API keys](guides/api-keys.md)
 - [Workflows](guides/workflows.md)
+- [Validation](guides/validation.md)
 - [Monitoring](guides/monitoring.md)
 - [Troubleshooting](troubleshooting.md)
 

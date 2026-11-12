@@ -92,6 +92,9 @@ usage manual。
 - [`workflows`](../../../cli/docs/usage.zh-TW.md#workflows)：提供 `list`、`get`、
   `create`、`cancel`、`rerun`、`timeline`；
   `task retry|logs|stderr|events|artifacts` 可診斷與控制 individual Task。
+- [`validation`](../../../cli/docs/usage.zh-TW.md#validation)：`suites list|get|create|update|retire`、
+  `runs list|get|start|watch|cancel`（`start --wait` 與 `watch` 在 verdict 不是 passed 時以非零結束）、
+  `schedules list|get|create|update|delete`。見 [Validation 指南](../guides/validation.md)。
 - [`monitoring`](../../../cli/docs/usage.zh-TW.md#monitoring)：列出與 acknowledge
   alert；`metrics get|range|names` 讀取 current value 與 bounded history。
 - [`discovery`](../../../cli/docs/usage.zh-TW.md#discoverymachine-auth)：

@@ -19,7 +19,7 @@ their own view, so a Workflow kind or completion type one process knows can be m
 ## Decision
 
 1. **A module declares itself in `modules/<kind>/<id>/module.json`.** The manifest is data:
-   `contractVersion`, `kind` (`platform`, `accelerator`, or `software`), `id` (the directory name),
+   `contractVersion`, `kind` (`platform`, `accelerator`, `software`, or `validation`), `id` (the directory name),
    `version` (SemVer of the module), the playbook names it runs, the Workflow kinds it plans, the Task
    kinds and completion types it declares, the JSON Schema of its spec (when the module defines a
    resource spec), its Go hooks each with the reason data cannot express it, the provider
@@ -27,8 +27,13 @@ their own view, so a Workflow kind or completion type one process knows can be m
    from the Site's Local Repository or from their upstreams as the Site chooses (package sources with
    their signing keys, checksummed files, container images, pinned Python requirements). Artifacts
    are not owned: two modules may declare the same source or file
-   when the declarations agree, and the registry refuses them when they do not. Adding an optional
-   field like this one keeps the contract at v1.
+   when the declarations agree, and the registry refuses them when they do not. A module may also
+   declare Workflow templates (`templates`: Jobs and Tasks as data, with host automation content as a
+   content type plus a reference, which the core compiles into a Workflow plan), the Validation Suites
+   it offers (`validations`, each naming its template), and the failure codes of its host automation
+   (`failureCodes`, each with a Failure Class and a remediation) ([decision 081](081-validation-suites-and-runs.md)
+   (validation suites and runs)); suites and failure codes are owned like Workflow kinds. Adding an
+   optional field like these keeps the contract at v1.
 2. **A module with Go code has one root Go package in its directory** that embeds its `module.json`
    and returns the module: the manifest plus its hook implementations. Hook interfaces are ports in
    the core context that calls them (the software context for Software modules, the platform context
@@ -82,3 +87,4 @@ their own view, so a Workflow kind or completion type one process knows can be m
 
 - 2026-11-06: added the optional `artifacts` field, so a module declares what deployment fetches and the Site's Local Repository can serve it without the internet; the contract version stays 1.
 - 2026-11-06: a module-declared deb source carries the `signingKey` that verifies it, because a Site that does not use its Local Repository fetches it from its upstream (decision 078); the contract version stays 1.
+- 2026-11-12: added the `validation` kind and the optional `templates`, `validations`, and `failureCodes` fields (decision 081); the contract version stays 1.

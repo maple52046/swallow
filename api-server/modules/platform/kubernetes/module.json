@@ -6,7 +6,8 @@
   "playbooks": [
     "deploy-kubernetes",
     "uninstall-kubernetes",
-    "configure-kubernetes-grafana"
+    "configure-kubernetes-grafana",
+    "validate-kubernetes-smoke"
   ],
   "workflowKinds": [
     "deploy-kubernetes",
@@ -59,7 +60,72 @@
       "quay.io/k0sproject/kube-router:v2.10.0-iptables1.8.13-k0s.1",
       "quay.io/k0sproject/cni-node:v1.9.1-k0s.1",
       "quay.io/k0sproject/envoy-distroless:v1.39.0",
-      "docker.io/grafana/grafana:12.4.12@sha256:83be3e511ede559bee80e2215bb1987cb1246075461cb961beb515b0341e7aea"
+      "docker.io/grafana/grafana:12.4.12@sha256:83be3e511ede559bee80e2215bb1987cb1246075461cb961beb515b0341e7aea",
+      "docker.io/library/busybox:1.36"
     ]
-  }
+  },
+  "templates": {
+    "kubernetes-smoke": {
+      "version": 1,
+      "jobs": [
+        {
+          "name": "validate-kubernetes",
+          "label": "Validate Kubernetes",
+          "retry": "job"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "kubernetes-smoke",
+          "name": "Smoke-test the cluster",
+          "job": "validate-kubernetes",
+          "content": {
+            "type": "host-automation",
+            "playbook": "validate-kubernetes-smoke"
+          },
+          "targets": "access",
+          "timeoutSeconds": 600
+        }
+      ]
+    }
+  },
+  "validations": [
+    {
+      "id": "kubernetes-smoke",
+      "title": "Kubernetes smoke test",
+      "description": "Checks that every node is Ready, that a pod runs on every node that takes workloads, that cluster DNS resolves, and that a ClusterIP Service routes between pods. It runs short-lived pods in namespace swallow-validation and deletes them.",
+      "target": "platform",
+      "platformType": "kubernetes",
+      "impact": "observe",
+      "budgetSeconds": 900,
+      "experimental": true,
+      "template": "kubernetes-smoke",
+      "checks": [
+        {
+          "id": "nodes-ready",
+          "title": "Nodes Ready",
+          "description": "Every node is Ready, and every member that runs workloads is a node.",
+          "gating": true
+        },
+        {
+          "id": "pod-scheduling",
+          "title": "Pod scheduling",
+          "description": "A pod the scheduler places on each node that takes workloads runs to completion.",
+          "gating": true
+        },
+        {
+          "id": "cluster-dns",
+          "title": "Cluster DNS",
+          "description": "A pod resolves kubernetes.default through cluster DNS.",
+          "gating": true
+        },
+        {
+          "id": "service-routing",
+          "title": "Service routing",
+          "description": "A pod reaches another, on a different node when there is one, through a ClusterIP Service.",
+          "gating": true
+        }
+      ]
+    }
+  ]
 }

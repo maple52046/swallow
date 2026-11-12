@@ -148,6 +148,11 @@ decision 069 相同）：
 | OS Image | swallow 的命名與 `defaultUser` 等 metadata | provider 擁有的 artifact 本身 | 已遷移（§4.4）；Provider Data Overlay 隨之淘汰 |
 | Deployment Template | 可重用的部署意圖 | — | 只有 desired；它是 Server desired state 的輸入，自己不被實現 |
 | Provisioner 設定（HTTP Proxy、Subnet DNS） | 設定值 | provider 目前的值 | 已遷移（§4.4）；外部的改動是 drift |
+| user-defined Validation Suite | 名稱、script、執行身分、timeout、impact | — | 只有 desired，自己不被實現；一開始就依本模型設計（[validation.md](validation.md) §2.2） |
+| Validation Schedule | suite、目標、參數、trigger、是否啟用 | — | 由 controller 受理 run；一開始就依本模型設計（§4.4） |
+
+Validation Run 不是受管資源：它是動作的紀錄，請求在受理時寫入一次，結果是判定它的 Task 回報的 observed，status 與
+verdict 是 derived（[validation.md](validation.md) §4.1）。
 
 ### 4.4 已遷移的資源
 
@@ -168,9 +173,10 @@ Power Configuration 這類欄位的 drift 只回報。已遷移的資源與其�
 | Platform | type、拓樸、各 Server 的 Node Role、功能開關與版本（type 模組定義 schema） | Platform controller：接管最近一次部署的紀錄；非破壞性變更以 Workflow 收斂，破壞性變更產生 Change Plan（§5.2） | glossary [Platform](glossaries/terms/platform.md)、[platform-deployment.md](platform-deployment.md)、[platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md) |
 | Node Exporter（Managed Software） | 無：desired 由政策推導（§3.2），存在、`deployed`、沒有 lock、Site 啟用 automation 的 Server 應該有它 | Node Exporter controller：缺少或 `absent` 時以 Workflow 安裝，`failed` 依退避重試，`installed` 但 Site Prometheus 持續收集不到時重新安裝（auto-correct），不卸載 | [software-deployment.md](software-deployment.md) 的 Node Exporter、[monitoring.md](monitoring.md) §4.1、[software.md](../../api-server/docs/development/api-contracts/api-server/software.md#node-exporter) |
 | Local Repository | 每個 Site 的 user 來源（`spec.sources`）與部署怎麼使用它（`spec.mode`：`upstream`、`cache`、`offline`）；模組宣告的 `artifacts` 由 release 編入的模組決定，不儲存 | Local Repository controller：模式是 `cache` 或 `offline` 時，把兩者的合併經 Site 的 `repository` Integration 收斂到 provider，讀回每個來源、檔案與 image 的同步狀態（含來源是否提供中）；每一輪都 ensure，provider 中被刪除的內容在下一輪補回；`upstream` 時不收斂，只記 `ready` 為 `false`（`not_serving`） | glossary [Local Repository](glossaries/terms/local-repository.md)、[local-repository.md](local-repository.md)、[local-repository 契約](../../api-server/docs/development/api-contracts/api-server/local-repository.md) |
+| Validation Schedule | `spec`：suite、目標（Server 或 Platform）、參數、trigger（cron 加時區，或部署成功後）、`enabled` | Validation Schedule controller：到期或目標部署成功時受理一次 Validation Run，記錄下一次時間與最近的 run；錯過的時間只補一次，目標被佔用時略過；suite 或目標消失時 `realized=false` | glossary [Validation Schedule](glossaries/terms/validation-schedule.md)、[validation.md](validation.md) §6、[validation 契約](../../api-server/docs/development/api-contracts/api-server/validation.md) |
 
 遷移第一段的資源都已遷移；Platform 與 Node Exporter 不屬於這兩段，Platform 另依 §5.2 遷移，Node Exporter 是第一個由政策
-推導 desired 的資源，Local Repository 是一開始就依本模型設計的新資源。遷移第二段的資源（Power Configuration、Server
+推導 desired 的資源，Local Repository 與 Validation Schedule 是一開始就依本模型設計的新資源。遷移第二段的資源（Power Configuration、Server
 Default User、Boot Media）尚未遷移，維持現行行為。
 
 遷移後有 spec 的資源共同遵守（由政策推導 desired 的資源沒有 spec，不適用前兩點）：

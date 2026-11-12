@@ -28,6 +28,7 @@ import { describePlatformSpecState } from './platformSpecState'
 import { platformTopologyLabel } from './platformDetailShared'
 import { usePlatformMembers, type PlatformMembersState } from './usePlatformMembers'
 import { usePlatformWorkspaceContext } from './PlatformWorkspaceContext'
+import { RecentValidationRuns } from '@/presentation/components/validation/RecentValidationRuns'
 
 const ACTIVITY_PAGE_SIZE_KEY = 'swallow.platform.activity.page-size'
 const ACTIVITY_PAGE_SIZES = [5, 10, 15, 20] as const
@@ -117,6 +118,8 @@ export function PlatformOverviewRoute() {
           ))}
         </HStack>
       </SectionSurface>
+      {/* Renders nothing while the Validation area is hidden (an experimental feature). */}
+      <RecentValidationRuns platformId={platform.id} />
     </div>
   )
 }

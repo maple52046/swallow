@@ -1,0 +1,31 @@
+---
+# Accept the cluster from this host (files/slurm_acceptance.py) and add what it judged to this
+# host's swallow_validation_results. Its jobs carry a time limit and the job name
+# swallow-validation-<run>; a run that cannot start is an error of every check, judged on the
+# Platform.
+
+- name: Accept the Slurm cluster
+  ansible.builtin.script:
+    cmd: >-
+      slurm_acceptance.py --run-id={{ swallow_validation_run_id | quote }}
+      --platform-id={{ swallow_validation_platform_id | quote }}
+      --servers={{ slurm_acceptance_servers | to_json | quote }}
+      --expected-nodes={{ slurm_acceptance_expected_nodes | to_json | quote }}
+      --gpu-servers={{ slurm_acceptance_gpu_servers | to_json | quote }}
+      --hip-probe={{ slurm_acceptance_hip_probe | quote }} --mpi-probe={{ slurm_acceptance_mpi_probe | quote }}
+      --oci-bundle={{ slurm_acceptance_oci_bundle | quote }}{{ ' --drain' if slurm_acceptance_drain | bool else '' }}
+    executable: python3
+  become: true
+  register: slurm_acceptance_run
+  changed_when: slurm_acceptance_drain | bool and 'drained' in slurm_acceptance_run.stdout | default('')
+  failed_when: false
+
+- name: Record what the acceptance judged
+  ansible.builtin.set_fact:
+    swallow_validation_results: >-
+      {{ swallow_validation_results | default([])
+         + ((slurm_acceptance_run.stdout | from_json).checks
+            if slurm_acceptance_run.rc | default(1) == 0 and (slurm_acceptance_run.stdout | default('') | trim).startswith('{')
+            else [{'check': 'srun-all-nodes', 'target': {'kind': 'platform', 'id': swallow_validation_platform_id},
+                   'verdict': 'error', 'summary': 'the acceptance did not run: '
+                   ~ (slurm_acceptance_run.stderr | default('') | trim | default('no output', true))[-500:]}]) }}

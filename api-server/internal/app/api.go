@@ -18,6 +18,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/maple52046/swallow/bootstrap"
 	"github.com/maple52046/swallow/config"
@@ -71,6 +72,7 @@ import (
 	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
 	softwaredelivery "github.com/maple52046/swallow/internal/core/software/delivery"
 	sshkeydelivery "github.com/maple52046/swallow/internal/core/sshkey/delivery"
+	validationdelivery "github.com/maple52046/swallow/internal/core/validation/delivery"
 	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
 	workflowdelivery "github.com/maple52046/swallow/internal/core/workflow/delivery"
 	"github.com/maple52046/swallow/internal/shared/jwt"
@@ -153,9 +155,6 @@ func RunAPI(cfg config.APIConfig) error {
 		return err
 	}
 	slog.Info("connected to mongodb")
-	// The one Transactor of this process: every use case that keeps a cross-document invariant
-	// receives it through its constructor (decision 069).
-	transactor := storemongo.NewTransactor(client)
 	defer func() {
 		disconnectCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
@@ -167,18 +166,64 @@ func RunAPI(cfg config.APIConfig) error {
 		return fmt.Errorf("database schema: %w", err)
 	}
 
+	process, err := assembleAPI(ctx, cfg, modules, client, db, sealer, releaseVersion)
+	if err != nil {
+		return err
+	}
+	fiberApp := process.app
+
+	// Each API process relays the Server changes of every process to its own stream subscribers.
+	go process.relay.Run(ctx)
+
+	serverErr := make(chan error, 1)
+	go func() {
+		slog.Info("HTTP server listening", "addr", cfg.Addr)
+		serverErr <- fiberApp.Listen(cfg.Addr)
+	}()
+
+	select {
+	case err := <-serverErr:
+		return err
+	case <-ctx.Done():
+		slog.Info("shutdown requested; draining in-flight requests")
+		if err := fiberApp.ShutdownWithTimeout(shutdownTimeout); err != nil && !errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("shutdown: %w", err)
+		}
+		return nil
+	}
+}
+
+// apiProcess is the API role assembled over one store: the HTTP app with every route registered,
+// and the relay that feeds its Server stream from the store's change feed. Nothing in it has
+// started yet; RunAPI starts the relay and serves the app.
+type apiProcess struct {
+	app   *fiber.App
+	relay *serverapp.ServerEventRelay
+}
+
+// assembleAPI builds the API role over db: every repository, use case, and handler, and the routes
+// that serve them. It is the only place the API's dependencies are wired, so the assembly test
+// (process_assembly_test.go) builds exactly what RunAPI serves. It writes to the store only to
+// ensure the bootstrap admin user; it opens no listener and starts no goroutine. client must be the
+// one db belongs to (transactions and the readiness check use it).
+func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModules, client *mongo.Client,
+	db *mongo.Database, sealer *secret.Sealer, releaseVersion string,
+) (*apiProcess, error) {
+	// The one Transactor of this process: every use case that keeps a cross-document invariant
+	// receives it through its constructor (decision 069).
+	transactor := storemongo.NewTransactor(client)
 	userRepo := authstore.NewMongoUserRepo(db)
 	siteRepo, err := sitestore.NewMongoSiteRepo(db)
 	if err != nil {
-		return fmt.Errorf("site repo init: %w", err)
+		return nil, fmt.Errorf("site repo init: %w", err)
 	}
 	integrationRepo, err := sitestore.NewMongoIntegrationRepo(db, sealer)
 	if err != nil {
-		return fmt.Errorf("integration repo init: %w", err)
+		return nil, fmt.Errorf("integration repo init: %w", err)
 	}
 	mongoServerRepo, err := serverstore.NewMongoServerRepo(db)
 	if err != nil {
-		return fmt.Errorf("server repo init: %w", err)
+		return nil, fmt.Errorf("server repo init: %w", err)
 	}
 	// One in-process broker fans Server changes out to SSE subscribers. The relay started below
 	// feeds it from the store's change feed, so it carries every process's Server writes.
@@ -186,51 +231,51 @@ func RunAPI(cfg config.APIConfig) error {
 	serverRepo := mongoServerRepo
 	templateRepo, err := provisioningstore.NewMongoDeploymentTemplateRepo(db, sealer)
 	if err != nil {
-		return fmt.Errorf("deployment template repo init: %w", err)
+		return nil, fmt.Errorf("deployment template repo init: %w", err)
 	}
 	// OS Image metadata (decision 071): the names, OS and release labels, tags, and default user
 	// swallow keeps for provider images, merged onto the live catalog. Desired state that needs no
 	// provider realization, so no controller and no sealing apply.
 	osImageMetadataRepo, err := provisioningstore.NewMongoOSImageMetadataRepo(db)
 	if err != nil {
-		return fmt.Errorf("os image metadata repo init: %w", err)
+		return nil, fmt.Errorf("os image metadata repo init: %w", err)
 	}
 	// OS Image uploads (decision 027): the single-use intent recorded between the create request
 	// and the content request, which may reach different API processes. Expired records are
 	// discarded by the store.
 	osImageUploadRepo, err := provisioningstore.NewMongoOSImageUploadRepo(db)
 	if err != nil {
-		return fmt.Errorf("os image upload repo init: %w", err)
+		return nil, fmt.Errorf("os image upload repo init: %w", err)
 	}
 	// swallow-owned OS Image verification attestations: which deploy targets (disk/ram) a real
 	// verification deploy has proven for an image. Owned data keyed by the provider image identity,
 	// kept separate from the display metadata so pruning one never erases the other.
 	osImageVerificationRepo, err := provisioningstore.NewMongoOSImageVerificationRepo(db)
 	if err != nil {
-		return fmt.Errorf("os image verification repo init: %w", err)
+		return nil, fmt.Errorf("os image verification repo init: %w", err)
 	}
 	taskRepo, err := provisioningstore.NewMongoProvisioningTaskRepo(db)
 	if err != nil {
-		return fmt.Errorf("provisioning task repo init: %w", err)
+		return nil, fmt.Errorf("provisioning task repo init: %w", err)
 	}
 	orchestrationRepo, err := workflowstore.NewMongoWorkflowRepo(db)
 	if err != nil {
-		return fmt.Errorf("orchestration repo init: %w", err)
+		return nil, fmt.Errorf("orchestration repo init: %w", err)
 	}
 	operationSecretRepo, err := workflowstore.NewMongoOperationSecretRepo(db, sealer)
 	if err != nil {
-		return fmt.Errorf("operation secret repo init: %w", err)
+		return nil, fmt.Errorf("operation secret repo init: %w", err)
 	}
 	ownership, err := workflowstore.NewMongoOwnershipRepo(db)
 	if err != nil {
-		return fmt.Errorf("resource ownership repo init: %w", err)
+		return nil, fmt.Errorf("resource ownership repo init: %w", err)
 	}
 
 	if err := bootstrap.EnsureAdminUser(
 		ctx, userRepo,
 		cfg.BootstrapAdminUsername, cfg.BootstrapAdminPassword,
 	); err != nil {
-		return fmt.Errorf("bootstrap admin: %w", err)
+		return nil, fmt.Errorf("bootstrap admin: %w", err)
 	}
 
 	if cfg.JWTExpiryHours > 0 {
@@ -240,7 +285,7 @@ func RunAPI(cfg config.APIConfig) error {
 	jwtSvc := jwt.NewService(cfg.JWTSecret, cfg.AccessTokenTTL)
 	sessionRepo, err := authstore.NewMongoSessionRepo(db)
 	if err != nil {
-		return fmt.Errorf("session repo init: %w", err)
+		return nil, fmt.Errorf("session repo init: %w", err)
 	}
 	authHandler := authdelivery.NewAuthHandler(
 		authapp.NewSessionService(userRepo, sessionRepo, jwtSvc, authapp.SessionConfig{
@@ -251,7 +296,7 @@ func RunAPI(cfg config.APIConfig) error {
 	)
 	apiKeyRepo, err := apikeystore.NewMongoKeyRepo(db)
 	if err != nil {
-		return fmt.Errorf("api key repo init: %w", err)
+		return nil, fmt.Errorf("api key repo init: %w", err)
 	}
 	apiKeyService := apikeyapp.NewService(apiKeyRepo, apiKeyOwners{users: userRepo})
 	apiKeyHandler := apikeydelivery.NewHandler(apiKeyService)
@@ -276,7 +321,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// and Integration changes on the change feed; POST /ssh-keys/sync asks it through the store.
 	sshKeyService, err := newSSHKeyService(db, sealer, integrationRepo, providerFactory)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	sshKeyService.AttachRequester(convergencestore.NewMongoRequester(db))
 	sshKeyHandler := sshkeydelivery.NewSSHKeyHandler(sshKeyService)
@@ -293,7 +338,7 @@ func RunAPI(cfg config.APIConfig) error {
 	deploymentsUC := provisioningapp.NewDeployServersUseCase(serverRepo, templateRepo, providerFactory, osImageVerificationRepo, sshKeyService)
 	softwareAssignmentRepo, err := softwarestore.NewMongoAssignmentRepo(db)
 	if err != nil {
-		return fmt.Errorf("software assignment repo init: %w", err)
+		return nil, fmt.Errorf("software assignment repo init: %w", err)
 	}
 	// Reconcile clears the Software Assignments of a machine it observes without an OS, whoever
 	// removed the OS (decision 038).
@@ -332,11 +377,11 @@ func RunAPI(cfg config.APIConfig) error {
 	// provider factory is used here only to delete a group from the provisioners that hold it.
 	zoneRepo, err := infrastructurestore.NewMongoZoneRepo(db)
 	if err != nil {
-		return fmt.Errorf("zone repo init: %w", err)
+		return nil, fmt.Errorf("zone repo init: %w", err)
 	}
 	poolRepo, err := infrastructurestore.NewMongoPoolRepo(db)
 	if err != nil {
-		return fmt.Errorf("pool repo init: %w", err)
+		return nil, fmt.Errorf("pool repo init: %w", err)
 	}
 	infrastructureHandler := infrastructuredelivery.NewInfrastructureHandler(
 		infrastructureapp.NewGroupingService(
@@ -351,7 +396,7 @@ func RunAPI(cfg config.APIConfig) error {
 
 	platformRepo, err := platformstore.NewMongoPlatformRepo(db, sealer)
 	if err != nil {
-		return fmt.Errorf("platform repo init: %w", err)
+		return nil, fmt.Errorf("platform repo init: %w", err)
 	}
 	platformNames := platformNameReader{platforms: platformRepo}
 	deleteServerUC.AttachPlatformNames(platformNames)
@@ -370,7 +415,7 @@ func RunAPI(cfg config.APIConfig) error {
 	requirementService := platformapp.NewDeploymentRequirementService(requirementRepo)
 	platformReaderFactory, err := platformapp.NewReaderFactory(integrationRepo, modules.platformReaders...)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	membershipSync := platformapp.NewMembershipSyncUseCase(
 		platformRepo, serverRepo, platformReaderFactory)
@@ -384,7 +429,7 @@ func RunAPI(cfg config.APIConfig) error {
 
 	catalog, err := ansible.LoadManifestCatalog(cfg.PlaybookManifest, cfg.PlaybookDir)
 	if err != nil {
-		return fmt.Errorf("playbook catalog: %w", err)
+		return nil, fmt.Errorf("playbook catalog: %w", err)
 	}
 	lifecycleReader := platformLifecycleReader{orchestrations: orchestrationRepo}
 	orchestrationService := workflowapp.NewWorkflowService(transactor, orchestrationRepo,
@@ -394,7 +439,7 @@ func RunAPI(cfg config.APIConfig) error {
 	platformService, err := newPlatformService(transactor, platformRepo, siteRepo, serverRepo, orchestrationRepo,
 		integrationRepo, softwareAssignmentRepo, platformOperationCanceler{orchestrations: orchestrationService})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	automationRepo := workflowstore.NewMongoAutomationConfigurationRepo(db, sealer)
 	// Automation readers get the effective credential (the Deployment Key, decision 039) and the
@@ -418,7 +463,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// written straight to the Mongo repository (the event broker only carries projection changes).
 	bootISORepo, err := provisioningstore.NewMongoBootISORepo(db)
 	if err != nil {
-		return fmt.Errorf("boot ISO repo init: %w", err)
+		return nil, fmt.Errorf("boot ISO repo init: %w", err)
 	}
 	// Deleting an Integration is refused while a Boot ISO or a Platform depends on it, and removes
 	// its OS Image metadata and verification records with it.
@@ -447,7 +492,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// task list during a run rather than only after it finishes (decision: live progress).
 	ansibleEventRepo, err := workflowstore.NewMongoAnsibleEventRepo(db)
 	if err != nil {
-		return fmt.Errorf("ansible event repo init: %w", err)
+		return nil, fmt.Errorf("ansible event repo init: %w", err)
 	}
 	// Local Repository: the API reads and writes each Site's spec, browses content live through the
 	// Site's repository Integration, and resolves at acceptance where a deployment's hosts fetch
@@ -504,7 +549,7 @@ func RunAPI(cfg config.APIConfig) error {
 		serverRepo, providerFactory, provisioningdomain.DefaultPowerAdapters()))
 	subnetDNSRepo, err := provisioningstore.NewMongoSubnetDNSRepo(db)
 	if err != nil {
-		return fmt.Errorf("subnet DNS repo init: %w", err)
+		return nil, fmt.Errorf("subnet DNS repo init: %w", err)
 	}
 	provisioningHandler.AttachHTTPProxy(provisioningapp.NewHTTPProxyUseCase(providerFactory, provisioningstore.NewMongoHTTPProxyRepo(db)))
 	provisioningHandler.AttachSubnetDNS(provisioningapp.NewSubnetDNSUseCase(providerFactory, subnetDNSRepo))
@@ -515,6 +560,18 @@ func RunAPI(cfg config.APIConfig) error {
 		servers: serverRepo, protection: serverProtection, isos: bootISOs, keys: sshKeyService,
 	})
 	operationHandler := workflowdelivery.NewExecutionHandler(operationService, automationService, orchestrationService)
+
+	// Validation (decision 081): the suite catalog, user suites, runs, and schedules. Runs are
+	// accepted here as unattended Workflows; Platform deployments compose gate suites through the
+	// same service.
+	validationService, err := newValidationService(validationDeps{
+		db: db, transactor: transactor, modules: modules, operations: operationService, orchestrations: orchestrationService,
+		servers: serverRepo, platforms: platformRepo, lifecycle: lifecycleReader, retention: cfg.ValidationRunRetention,
+		ntpServer: cfg.NTPServer,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("validation service: %w", err)
+	}
 
 	// Platform lifecycle adapters keep durable operations outside the platform context. A Platform's
 	// monitoring token is issued by the deployments here and verified by the metrics gateway below,
@@ -527,15 +584,15 @@ func RunAPI(cfg config.APIConfig) error {
 		bootMedia: bootMediaPlan, software: softwareService, ntp: ntpPlan, nodeExporter: nodeExporterPlan,
 		protection: serverProtection,
 		networks:   networkService, requirements: requirementRepo, keys: sshKeyService,
-		monitoring: newPlatformMonitoringAccess(cfg), monitoringTokens: platformAccess,
+		monitoring: newPlatformMonitoringAccess(cfg), monitoringTokens: platformAccess, validation: validationService,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	deployService, gpuOperatorService := platformOps.deploy, platformOps.gpuOperators
 	changePlans, err := newChangePlanService(ctx, db, transactor, cfg.ChangePlanTTL, platformOps.planner)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	kubernetesExplorer := platformapp.NewKubernetesExplorerUseCase(
 		platformRepo, lifecycleReader, kubernetesClientFactory, serverRepo)
@@ -559,7 +616,7 @@ func RunAPI(cfg config.APIConfig) error {
 	// attached to an explorer pull whose image reference resolves to their registry.
 	registryCredentialRepo, err := softwarestore.NewMongoRegistryCredentialRepo(db, sealer)
 	if err != nil {
-		return fmt.Errorf("registry credential repo init: %w", err)
+		return nil, fmt.Errorf("registry credential repo init: %w", err)
 	}
 	dockerExplorer.AttachRegistryCredentials(registryCredentialRepo)
 	dockerHandler := explorerhttp.NewDockerHandler(dockerExplorer)
@@ -657,6 +714,7 @@ func RunAPI(cfg config.APIConfig) error {
 		changePlans:     convergencedelivery.NewChangePlanHandler(changePlans),
 		moduleList:      moduledelivery.NewModuleHandler(modules.registry),
 		localRepository: localRepositoryHandler,
+		validation:      validationdelivery.NewHandler(validationService),
 		releaseVersion:  releaseVersion,
 		readiness: func(ctx context.Context) error {
 			if err := client.Ping(ctx, nil); err != nil {
@@ -666,25 +724,10 @@ func RunAPI(cfg config.APIConfig) error {
 		},
 	})
 
-	// Each API process relays the Server changes of every process to its own stream subscribers.
-	go serverapp.NewServerEventRelay(storemongo.NewChangeFeed(db), mongoServerRepo, serverEventBroker).Run(ctx)
-
-	serverErr := make(chan error, 1)
-	go func() {
-		slog.Info("HTTP server listening", "addr", cfg.Addr)
-		serverErr <- fiberApp.Listen(cfg.Addr)
-	}()
-
-	select {
-	case err := <-serverErr:
-		return err
-	case <-ctx.Done():
-		slog.Info("shutdown requested; draining in-flight requests")
-		if err := fiberApp.ShutdownWithTimeout(shutdownTimeout); err != nil && !errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("shutdown: %w", err)
-		}
-		return nil
-	}
+	return &apiProcess{
+		app:   fiberApp,
+		relay: serverapp.NewServerEventRelay(storemongo.NewChangeFeed(db), mongoServerRepo, serverEventBroker),
+	}, nil
 }
 
 type routeDeps struct {
@@ -725,8 +768,10 @@ type routeDeps struct {
 	moduleList *moduledelivery.ModuleHandler
 	// localRepository serves each Site's Local Repository (contract local-repository.md).
 	localRepository *localrepodelivery.Handler
-	readiness       func(context.Context) error
-	releaseVersion  string
+	// validation serves Validation Suites, Runs, and Schedules (contract validation.md).
+	validation     *validationdelivery.Handler
+	readiness      func(context.Context) error
+	releaseVersion string
 }
 
 // registerPlatformRoutes registers the Platform routes on routes.
@@ -1037,6 +1082,10 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	monitoring.Get("/metrics", deps.monitoring.ServerMetrics)
 	monitoring.Get("/metrics/range", deps.monitoring.MetricRange)
 	monitoring.Get("/metrics/names", deps.monitoring.MetricNames)
+
+	// Validation (contract validation.md, decision 081): suites, runs executed as Workflows, and
+	// schedules.
+	deps.validation.RegisterRoutes(v1.Group("/validation", admin...))
 
 	// Canonical Workflow surface (decision 072). A Workflow is a DAG of Tasks.
 	workflows := v1.Group("/workflows", admin...)

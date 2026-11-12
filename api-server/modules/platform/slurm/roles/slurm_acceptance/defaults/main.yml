@@ -1,0 +1,13 @@
+---
+# slurm_acceptance role defaults: the probes deploy-slurm installs (the same paths as its plays'
+# slurm_pmix_probe and slurm_oci_probe_bundle, and the gpu_probe role's gpu_probe_path).
+slurm_acceptance_hip_probe: /usr/local/libexec/swallow/hip-probe
+slurm_acceptance_mpi_probe: /usr/local/libexec/swallow/mpi-probe
+slurm_acceptance_oci_bundle: /var/lib/swallow/oci/probe
+# Node name -> Server id, the Servers that should be nodes, and the Servers that must offer GPU
+# GRES; the playbook derives them from the Platform's members and the run's parameters.
+slurm_acceptance_servers: {}
+slurm_acceptance_expected_nodes: []
+slurm_acceptance_gpu_servers: []
+# Drain the GPU nodes that fail; only a gate (a deployment) does.
+slurm_acceptance_drain: false

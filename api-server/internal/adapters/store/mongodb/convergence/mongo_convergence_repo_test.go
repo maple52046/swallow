@@ -2,14 +2,12 @@ package convergence
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
 
-	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
+	"github.com/maple52046/swallow/internal/adapters/store/mongodb/mongotest"
 	"github.com/maple52046/swallow/internal/core/convergence"
 )
 
@@ -17,21 +15,7 @@ import (
 // database dropped when the test ends. Without the variable the test is skipped.
 func testDatabase(t *testing.T) *mongo.Database {
 	t.Helper()
-	uri := os.Getenv("SWALLOW_TEST_MONGO_URI")
-	if uri == "" {
-		t.Skip("SWALLOW_TEST_MONGO_URI is not set")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	client, err := storemongo.Connect(ctx, uri)
-	if err != nil {
-		t.Fatalf("Connect() error = %v", err)
-	}
-	db := client.Database(fmt.Sprintf("swallow_convergence_test_%d", time.Now().UnixNano()))
-	t.Cleanup(func() {
-		_ = db.Drop(context.Background())
-		_ = client.Disconnect(context.Background())
-	})
+	_, db := mongotest.Database(t, "convergence")
 	return db
 }
 

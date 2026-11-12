@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -63,7 +64,13 @@ type Dispatcher struct {
 	engine    *Engine
 	executor  WorkflowExecutor
 	resync    time.Duration
+	now       func() time.Time
 }
+
+// BudgetExceededCode is the reason code of the cancel the dispatcher writes for a Workflow past its
+// budget (Workflow.BudgetSeconds); it prefixes the cancel reason, which becomes the Workflow's
+// statusReason.
+const BudgetExceededCode = "workflow_budget_exceeded"
 
 var (
 	_ convergence.Controller   = (*Dispatcher)(nil)
@@ -72,7 +79,7 @@ var (
 
 // NewDispatcher builds the controller; resync is its own resync interval.
 func NewDispatcher(workflows workflowdomain.WorkflowRepository, engine *Engine, executor WorkflowExecutor, resync time.Duration) *Dispatcher {
-	return &Dispatcher{workflows: workflows, engine: engine, executor: executor, resync: resync}
+	return &Dispatcher{workflows: workflows, engine: engine, executor: executor, resync: resync, now: time.Now}
 }
 
 // Name implements convergence.Controller.
@@ -120,6 +127,15 @@ func (d *Dispatcher) Reconcile(ctx context.Context, request convergence.Request)
 	if w.Status.Terminal() {
 		return nil
 	}
+	if exceeded, reason := budgetExceeded(w, d.now()); exceeded {
+		// The cancel is a stored command like a user's: the change feed brings the Workflow back
+		// here, and deliver hands it to the run.
+		err := d.workflows.RequestCancel(ctx, w.ID, workflowdomain.CancelCommand{Reason: reason, RequestedAt: d.now().UTC()})
+		if err != nil && !errors.Is(err, workflowdomain.ErrWorkflowControlConflict) {
+			return err
+		}
+		return nil
+	}
 	switch {
 	case w.Dispatch.Driver != workflowdomain.DriverVersion || w.Dispatch.Generation == 0:
 		return d.dispatch(ctx, w.ID)
@@ -137,6 +153,24 @@ func (d *Dispatcher) Reconcile(ctx context.Context, request convergence.Request)
 		}
 	}
 	return nil
+}
+
+// budgetExceeded reports whether w declares a budget it has spent and has no cancel stored yet, with
+// the cancel reason to store. The budget counts from the Workflow's start, or from its acceptance
+// while it has not started; the dispatcher's resync bounds how late it is noticed.
+func budgetExceeded(w *workflowdomain.Workflow, now time.Time) (bool, string) {
+	if w.BudgetSeconds <= 0 || w.Commands.Cancel != nil {
+		return false, ""
+	}
+	started := w.RequestedAt
+	if w.StartedAt != nil {
+		started = *w.StartedAt
+	}
+	budget := time.Duration(w.BudgetSeconds) * time.Second
+	if now.Sub(started) <= budget {
+		return false, ""
+	}
+	return true, fmt.Sprintf("%s: the Workflow ran longer than its budget of %s, so swallow canceled it.", BudgetExceededCode, budget)
 }
 
 // dispatch starts a new generation and its run.

@@ -424,6 +424,8 @@ func (slurmSpecModule) Changes(*platformdomain.PlatformSpec, platformdomain.Plat
 
 func (slurmSpecModule) ReportsMembership(platformdomain.PlatformMember) bool { return true }
 
+func (slurmSpecModule) AccessServers(platformdomain.PlatformSpec) []string { return nil }
+
 // readSlurmInput reads every spec as the Omnistat Slurm deployment with the given settings.
 func readSlurmInput(omnistat platformdomain.OmnistatSettings) DeployRequestReader {
 	return func([]byte) (DeployPlatformInput, error) {

@@ -1,0 +1,11 @@
+---
+# k0s_smoke role defaults. The image is one the Kubernetes module declares, so with the Site's Local
+# Repository k0s's containerd resolves it through its registry mirrors.
+k0s_smoke_kubectl: /usr/local/bin/k0s kubectl
+k0s_smoke_namespace: swallow-validation
+k0s_smoke_image: docker.io/library/busybox:1.36
+k0s_smoke_timeout: 240
+# Node name -> Server id, and the Servers that should be nodes; the playbook derives both from the
+# Platform's members.
+k0s_smoke_servers: {}
+k0s_smoke_expected_nodes: []

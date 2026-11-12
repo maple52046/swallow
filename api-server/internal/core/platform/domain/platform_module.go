@@ -92,6 +92,10 @@ type PlatformModule interface {
 	// ReportsMembership says whether the platform reports member as one of its nodes, so a member
 	// that does not report membership has drifted.
 	ReportsMembership(member PlatformMember) bool
+	// AccessServers names the members a user enters the Platform through (its login or
+	// control-plane nodes), in the order to prefer them; a Validation Suite of the Platform runs
+	// there (decision 081). Empty when the spec has none.
+	AccessServers(spec PlatformSpec) []string
 }
 
 // MemberChanges compares the members of two specs: the Servers only desired has, the ones only

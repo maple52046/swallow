@@ -3,12 +3,10 @@ package infrastructure
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
 	"testing"
 	"time"
 
-	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
+	"github.com/maple52046/swallow/internal/adapters/store/mongodb/mongotest"
 	"github.com/maple52046/swallow/internal/core/convergence"
 	infradomain "github.com/maple52046/swallow/internal/core/infrastructure/domain"
 )
@@ -16,20 +14,8 @@ import (
 // A spec write increments the generation in the same update, and the controller's status round
 // trips without touching the spec. Skipped without SWALLOW_TEST_MONGO_URI.
 func TestZoneRepo_SpecAndStatusRoundTrip(t *testing.T) {
-	uri := os.Getenv("SWALLOW_TEST_MONGO_URI")
-	if uri == "" {
-		t.Skip("SWALLOW_TEST_MONGO_URI is not set")
-	}
+	_, db := mongotest.Database(t, "zone_repo")
 	ctx := context.Background()
-	client, err := storemongo.Connect(ctx, uri)
-	if err != nil {
-		t.Fatalf("Connect: %v", err)
-	}
-	db := client.Database(fmt.Sprintf("swallow_zone_repo_test_%d", time.Now().UnixNano()))
-	t.Cleanup(func() {
-		_ = db.Drop(context.Background())
-		_ = client.Disconnect(context.Background())
-	})
 	repo, err := NewMongoZoneRepo(db)
 	if err != nil {
 		t.Fatalf("NewMongoZoneRepo: %v", err)
@@ -77,20 +63,8 @@ func TestZoneRepo_SpecAndStatusRoundTrip(t *testing.T) {
 // AdoptSpec stores the observed description only on a Zone that has no generation yet, whether the
 // field is missing (a migrated document) or zero. Skipped without SWALLOW_TEST_MONGO_URI.
 func TestZoneRepo_AdoptSpecOnlyBeforeTheFirstGeneration(t *testing.T) {
-	uri := os.Getenv("SWALLOW_TEST_MONGO_URI")
-	if uri == "" {
-		t.Skip("SWALLOW_TEST_MONGO_URI is not set")
-	}
+	_, db := mongotest.Database(t, "zone_adopt")
 	ctx := context.Background()
-	client, err := storemongo.Connect(ctx, uri)
-	if err != nil {
-		t.Fatalf("Connect: %v", err)
-	}
-	db := client.Database(fmt.Sprintf("swallow_zone_adopt_test_%d", time.Now().UnixNano()))
-	t.Cleanup(func() {
-		_ = db.Drop(context.Background())
-		_ = client.Disconnect(context.Background())
-	})
 	repo, err := NewMongoZoneRepo(db)
 	if err != nil {
 		t.Fatalf("NewMongoZoneRepo: %v", err)

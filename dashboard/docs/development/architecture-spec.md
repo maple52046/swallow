@@ -189,6 +189,9 @@ Overview 的 Alerts 卡片與告警 attention item）。
   功能的關閉紀錄；清單已移除的 key（例如已發行功能的舊開關）讀取時忽略、下次寫入時丟棄。
 - 新增實驗功能時：擴充 `ExperimentalFeature` 與對話框文案，gate 所有入口，並在
   `tests/e2e/experimental-features.spec.ts` 與 `tests/production/` 補驗證。功能完成後移除 gate 與清單項目。
+- 實驗性 Validation Suite 不是實驗功能：它是 API 的 `experimental` 欄位，release build 也有。Validation 區以自己的偏好
+  （`useShowExperimentalSuites`，localStorage `swallow.validation.showExperimentalSuites`，預設關閉）決定是否列出與提供
+  這些 suite，不經過 `ExperimentalFeatureSettings`。
 
 ## Shared UI and DRY
 

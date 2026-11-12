@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
+	"github.com/maple52046/swallow/internal/adapters/store/mongodb/mongotest"
 	"github.com/maple52046/swallow/internal/core/store"
 )
 
@@ -38,21 +38,7 @@ func TestTopologyErrorAcceptsOnlyTopologiesWithTransactions(t *testing.T) {
 // dropped when the test ends. Without the variable the test is skipped.
 func testDatabase(t *testing.T) (*mongo.Client, *mongo.Database) {
 	t.Helper()
-	uri := os.Getenv("SWALLOW_TEST_MONGO_URI")
-	if uri == "" {
-		t.Skip("SWALLOW_TEST_MONGO_URI is not set")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	client, err := Connect(ctx, uri)
-	if err != nil {
-		t.Fatalf("Connect() error = %v", err)
-	}
-	db := client.Database(fmt.Sprintf("swallow_tx_test_%d", time.Now().UnixNano()))
-	t.Cleanup(func() {
-		_ = db.Drop(context.Background())
-		_ = client.Disconnect(context.Background())
-	})
+	client, db := mongotest.Database(t, "tx")
 	// Transactions cannot create collections on every server version; create them up front.
 	for _, name := range []string{"platforms", "servers"} {
 		if err := db.CreateCollection(context.Background(), name); err != nil {

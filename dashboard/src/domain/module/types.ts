@@ -1,5 +1,9 @@
-/** What an Extension Module adds to swallow (glossary Extension Module). */
-export type ModuleKind = 'accelerator' | 'platform' | 'software'
+/**
+ * What an Extension Module adds to swallow (glossary Extension Module). A `validation` module only
+ * offers Validation Suites (decision 081); the dashboard reads its suites through the validation
+ * contract, not through the module list.
+ */
+export type ModuleKind = 'accelerator' | 'platform' | 'software' | 'validation'
 
 /** The value type of one module setting; an `array` is a list of strings. */
 export type ModuleSettingType = 'string' | 'integer' | 'boolean' | 'array'

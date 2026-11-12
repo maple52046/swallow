@@ -33,6 +33,7 @@ import { ServerPowerConfigurationDialog } from './ServerPowerConfigurationDialog
 import { ServerTagEditor } from './ServerTagEditor'
 import { useBootMediaApplyWatch } from './useBootMediaApplyWatch'
 import { useServerDetailContext } from './useServerDetail'
+import { RecentValidationRuns } from '@/presentation/components/validation/RecentValidationRuns'
 
 /**
  * Builds a catalog deep link for the OS the provisioner reports installed, whoever deployed it
@@ -274,6 +275,8 @@ export function ServerSummaryTab() {
       <div className="sw-server-summary-grid sw-server-summary-grid--expand-single">
         <DetailsCard server={server} onEditTags={() => setTagEditorOpen(true)} />
       </div>
+      {/* Renders nothing while the Validation area is hidden (an experimental feature). */}
+      <RecentValidationRuns serverId={server.id} />
       {tagEditorOpen && (
         <ServerTagEditor
           servers={[server]}

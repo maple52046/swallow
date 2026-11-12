@@ -62,6 +62,7 @@ Request files intentionally track the API contract without copied CLI structs.
 - `infrastructure` — Zones and Pools.
 - `platforms` — Kubernetes/Slurm deployment, lifecycle, settings, and live views.
 - `workflows` — durable Workflow observation and control.
+- `validation` — Validation Suites (including script suites), runs with `--wait`, and schedules.
 - `plans` — review, approve, or reject the Change Plans of destructive changes, and set the
   Change Plan policy (the safety switch).
 - `monitoring` — alerts and fixed Server metrics.

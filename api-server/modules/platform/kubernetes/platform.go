@@ -182,6 +182,19 @@ func (Platform) ReportsMembership(member platformdomain.PlatformMember) bool {
 	return slices.Contains(member.Roles, RoleWorker) || slices.Contains(member.Roles, RoleWorkloads)
 }
 
+// AccessServers implements platformdomain.PlatformModule: the control-plane members, where k0s's
+// kubectl reaches the cluster with its admin configuration, in spec order (the first is the
+// initial controller).
+func (Platform) AccessServers(spec platformdomain.PlatformSpec) []string {
+	var servers []string
+	for _, member := range spec.Members {
+		if slices.Contains(member.Roles, RoleControlPlane) {
+			servers = append(servers, member.ServerID)
+		}
+	}
+	return servers
+}
+
 func serverRef(id string) convergence.ResourceRef {
 	return convergence.ResourceRef{Kind: "server", ID: id}
 }

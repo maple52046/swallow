@@ -2,33 +2,19 @@ package provisioning
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"slices"
 	"testing"
 	"time"
 
-	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
+	"github.com/maple52046/swallow/internal/adapters/store/mongodb/mongotest"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
 // Adoption inserts only when no setting exists, a spec write upserts and increments the generation,
 // and the status round trips. Skipped without SWALLOW_TEST_MONGO_URI.
 func TestProvisionerSettingsRepos(t *testing.T) {
-	uri := os.Getenv("SWALLOW_TEST_MONGO_URI")
-	if uri == "" {
-		t.Skip("SWALLOW_TEST_MONGO_URI is not set")
-	}
+	_, db := mongotest.Database(t, "settings")
 	ctx := context.Background()
-	client, err := storemongo.Connect(ctx, uri)
-	if err != nil {
-		t.Fatalf("Connect: %v", err)
-	}
-	db := client.Database(fmt.Sprintf("swallow_settings_test_%d", time.Now().UnixNano()))
-	t.Cleanup(func() {
-		_ = db.Drop(context.Background())
-		_ = client.Disconnect(context.Background())
-	})
 	now := time.Now().UTC().Truncate(time.Millisecond)
 
 	proxies := NewMongoHTTPProxyRepo(db)

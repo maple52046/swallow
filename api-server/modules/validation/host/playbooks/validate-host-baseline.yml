@@ -1,0 +1,133 @@
+---
+# Validation Suite host-baseline (docs/development/validation.md §7): does each Server keep time with
+# the installation's NTP server, show the CPUs and memory its hardware inspection found, and have a
+# writable root filesystem with free space? It only reads the hosts: a check that does not pass is a
+# verdict, not a failure, and every verdict reaches the run through the shared validation_report
+# role.
+
+- name: Check the host baseline
+  hosts: all
+  gather_facts: false
+  vars:
+    host_baseline_parameters: "{{ swallow_validation_parameters | default({}) }}"
+    host_baseline_max_offset_ms: "{{ host_baseline_parameters.maxClockOffsetMs | default(1000) | int }}"
+    host_baseline_min_free_percent: "{{ host_baseline_parameters.minFreeRootPercent | default(10) | int }}"
+    # The inventory's hardware inspection (cpu_cores, memory_mib) is the default expectation; 0 means
+    # neither it nor the run gave one.
+    host_baseline_min_cpus: "{{ host_baseline_parameters.minCpus | default(cpu_cores | default(0)) | int }}"
+    host_baseline_min_memory_mib: >-
+      {{ ((host_baseline_parameters.minMemoryGib | int) * 1024) if host_baseline_parameters.minMemoryGib is defined
+         else ((memory_mib | default(0) | int) * 0.9) | int }}
+  tasks:
+    - name: Read the CPU and memory facts
+      ansible.builtin.setup:
+        gather_subset: ["!all", "!min", "hardware"]
+        gather_timeout: 60
+
+    - name: Examine the clock
+      ansible.builtin.include_role:
+        name: time_sync_check
+      vars:
+        time_sync_check_mode: warn
+        time_sync_check_max_offset: "{{ (host_baseline_max_offset_ms | float) / 1000 }}"
+
+    - name: Judge the clock
+      ansible.builtin.include_role:
+        name: validation_report
+        tasks_from: record
+      vars:
+        validation_report_check: time-sync
+        validation_report_verdict: "{{ 'passed' if time_sync_check_problems | length == 0 else 'failed' }}"
+        host_baseline_offset_ms: >-
+          {{ ((time_sync_check_offset | float) * 1000) | round(3) if time_sync_check_offset | string | length > 0 else '' }}
+        validation_report_summary: >-
+          {{ time_sync_check_problems | join('; ') if time_sync_check_problems | length > 0
+             else 'synchronized' ~ ((', ' ~ host_baseline_offset_ms ~ ' ms from ' ~ swallow_ntp_servers[0])
+                                    if host_baseline_offset_ms | string | length > 0 else '') }}
+        validation_report_measurements: >-
+          {{ [{'name': 'clock_offset', 'value': host_baseline_offset_ms, 'unit': 'ms',
+               'expected': '<= ' ~ host_baseline_max_offset_ms}] if host_baseline_offset_ms | string | length > 0 else [] }}
+
+    - name: Judge the CPU count
+      ansible.builtin.include_role:
+        name: validation_report
+        tasks_from: record
+      vars:
+        validation_report_check: cpu-count
+        validation_report_verdict: >-
+          {{ 'skipped' if host_baseline_min_cpus | int == 0
+             else ('passed' if ansible_processor_vcpus | int >= host_baseline_min_cpus | int else 'failed') }}
+        validation_report_summary: >-
+          {{ 'no expected CPU count: the hardware inspection recorded none and the run set no minCpus'
+             if host_baseline_min_cpus | int == 0
+             else 'the OS shows ' ~ ansible_processor_vcpus ~ ' CPUs, expected at least ' ~ host_baseline_min_cpus }}
+        validation_report_measurements:
+          - name: cpus
+            value: "{{ ansible_processor_vcpus | int }}"
+            unit: count
+            expected: ">= {{ host_baseline_min_cpus }}"
+
+    - name: Judge the memory
+      ansible.builtin.include_role:
+        name: validation_report
+        tasks_from: record
+      vars:
+        validation_report_check: memory
+        validation_report_verdict: >-
+          {{ 'skipped' if host_baseline_min_memory_mib | int == 0
+             else ('passed' if ansible_memtotal_mb | int >= host_baseline_min_memory_mib | int else 'failed') }}
+        validation_report_summary: >-
+          {{ 'no expected memory: the hardware inspection recorded none and the run set no minMemoryGib'
+             if host_baseline_min_memory_mib | int == 0
+             else 'the OS shows ' ~ ansible_memtotal_mb ~ ' MiB, expected at least ' ~ host_baseline_min_memory_mib ~ ' MiB' }}
+        validation_report_measurements:
+          - name: memory
+            value: "{{ ansible_memtotal_mb | int }}"
+            unit: MiB
+            expected: ">= {{ host_baseline_min_memory_mib }}"
+
+    - name: Measure the root filesystem
+      ansible.builtin.command:
+        argv: [df, -P, -k, /]
+      register: host_baseline_df
+      changed_when: false
+      failed_when: false
+
+    - name: Read the root filesystem's mount options
+      ansible.builtin.command:
+        argv: [findmnt, --noheadings, --output, OPTIONS, /]
+      register: host_baseline_findmnt
+      changed_when: false
+      failed_when: false
+
+    - name: Judge the root filesystem
+      ansible.builtin.include_role:
+        name: validation_report
+        tasks_from: record
+      vars:
+        # df -P: filesystem, 1024-blocks, used, available, capacity, mount point.
+        host_baseline_df_fields: "{{ (host_baseline_df.stdout_lines | default([''], true) | last).split() }}"
+        host_baseline_total_kib: "{{ host_baseline_df_fields[1] | default(0) | int }}"
+        host_baseline_free_percent: >-
+          {{ (100 * (host_baseline_df_fields[3] | default(0) | int) / (host_baseline_total_kib | int)) | round(1)
+             if host_baseline_total_kib | int > 0 else 0 }}
+        host_baseline_read_only: "{{ 'ro' in (host_baseline_findmnt.stdout | default('') | trim).split(',') }}"
+        validation_report_verdict: >-
+          {{ 'error' if host_baseline_df.rc | default(1) != 0 or host_baseline_total_kib | int == 0
+             else ('failed' if host_baseline_read_only | bool
+                   or (host_baseline_free_percent | float) < (host_baseline_min_free_percent | float) else 'passed') }}
+        validation_report_check: root-filesystem
+        validation_report_summary: >-
+          {{ 'df could not measure /: ' ~ (host_baseline_df.stderr | default('') | trim)
+             if host_baseline_df.rc | default(1) != 0 or host_baseline_total_kib | int == 0
+             else ('/ is mounted read-only' if host_baseline_read_only | bool
+                   else host_baseline_free_percent ~ '% of / is free, expected at least ' ~ host_baseline_min_free_percent ~ '%') }}
+        validation_report_measurements:
+          - name: root_free
+            value: "{{ host_baseline_free_percent }}"
+            unit: percent
+            expected: ">= {{ host_baseline_min_free_percent }}"
+
+    - name: Write the results for Swallow
+      ansible.builtin.include_role:
+        name: validation_report

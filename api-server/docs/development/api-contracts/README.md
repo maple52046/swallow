@@ -109,8 +109,8 @@ a route: `system` (`/livez`, `/readyz`, `/healthz`, `/metrics`), `auth`
 of `/api/v1/provisioning/*`, the Boot ISO file, `/downloads/*`), `platforms`
 (`/api/v1/platforms*`), `change-plans` (`/api/v1/change-plans*`, `/api/v1/change-plan-policy`),
 `workflows` (`/api/v1/workflows*`), `software` (`/api/v1/software/*`, `/api/v1/servers/{id}/docker*`),
-`monitoring` (`/api/v1/overview`, `/api/v1/monitoring/*`, `/api/v1/discovery/*`), and `modules`
-(`/api/v1/modules`).
+`monitoring` (`/api/v1/overview`, `/api/v1/monitoring/*`, `/api/v1/discovery/*`), `modules`
+(`/api/v1/modules`), and `validation` (`/api/v1/validation/*`).
 
 ### Authoring rules
 

@@ -103,6 +103,8 @@ func (testPlatformModule) ReportsMembership(member platformdomain.PlatformMember
 	return slices.Contains(member.Roles, "worker")
 }
 
+func (testPlatformModule) AccessServers(platformdomain.PlatformSpec) []string { return nil }
+
 // memorySpecs is the spec store over the in-memory Platform repository.
 type memorySpecs struct{ repo *deployFakePlatformRepo }
 

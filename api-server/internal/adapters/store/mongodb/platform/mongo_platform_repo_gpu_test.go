@@ -2,14 +2,12 @@ package platform
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
+	"github.com/maple52046/swallow/internal/adapters/store/mongodb/mongotest"
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 )
 
@@ -17,23 +15,7 @@ import (
 // test ends. The test skips without the variable so `go test ./...` stays green without Mongo.
 func platformTestDatabase(t *testing.T) *mongo.Database {
 	t.Helper()
-	uri := os.Getenv("SWALLOW_TEST_MONGO_URI")
-	if uri == "" {
-		t.Skip("SWALLOW_TEST_MONGO_URI not set; skipping platform repository integration test")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
-	if err != nil {
-		t.Fatalf("connect mongo: %v", err)
-	}
-	db := client.Database(fmt.Sprintf("swallow_platform_test_%d", time.Now().UnixNano()))
-	t.Cleanup(func() {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cleanupCancel()
-		_ = db.Drop(cleanupCtx)
-		_ = client.Disconnect(cleanupCtx)
-	})
+	_, db := mongotest.Database(t, "platform")
 	return db
 }
 

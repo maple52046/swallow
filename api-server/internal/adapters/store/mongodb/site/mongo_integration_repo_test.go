@@ -3,16 +3,13 @@ package site
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
+	"github.com/maple52046/swallow/internal/adapters/store/mongodb/mongotest"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 	"github.com/maple52046/swallow/internal/shared/secret"
 )
@@ -21,21 +18,7 @@ import (
 // throwaway database dropped when the test ends; without the variable the test is skipped.
 func siteTestDatabase(t *testing.T) *mongo.Database {
 	t.Helper()
-	uri := os.Getenv("SWALLOW_TEST_MONGO_URI")
-	if uri == "" {
-		t.Skip("SWALLOW_TEST_MONGO_URI not set; skipping site repo integration test")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	db := client.Database(fmt.Sprintf("swallow_site_repo_test_%d", time.Now().UnixNano()))
-	t.Cleanup(func() {
-		_ = db.Drop(context.Background())
-		_ = client.Disconnect(context.Background())
-	})
+	_, db := mongotest.Database(t, "site_repo")
 	return db
 }
 

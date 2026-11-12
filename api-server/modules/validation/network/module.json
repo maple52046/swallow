@@ -1,0 +1,87 @@
+{
+  "contractVersion": 1,
+  "kind": "validation",
+  "id": "network",
+  "version": "0.1.0",
+  "playbooks": [
+    "validate-network-mesh"
+  ],
+  "workflowKinds": [],
+  "taskKinds": [],
+  "completions": [],
+  "hooks": [],
+  "capabilities": [
+    "host-automation"
+  ],
+  "routes": [],
+  "templates": {
+    "network-mesh": {
+      "version": 1,
+      "jobs": [
+        {
+          "name": "validate-network",
+          "label": "Validate Network",
+          "retry": "job"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "network-mesh",
+          "name": "Probe the network mesh",
+          "job": "validate-network",
+          "content": {
+            "type": "host-automation",
+            "playbook": "validate-network-mesh"
+          },
+          "targets": "servers",
+          "timeoutSeconds": 900
+        }
+      ]
+    }
+  },
+  "validations": [
+    {
+      "id": "network-mesh",
+      "title": "Network mesh",
+      "description": "Checks from every target Server that each other one answers ICMP, carries a full-sized unfragmented packet, and accepts connections on its SSH port, at the address swallow reaches it by. It sends a little traffic between the Servers.",
+      "target": "servers",
+      "impact": "observe",
+      "budgetSeconds": 1200,
+      "experimental": true,
+      "template": "network-mesh",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "mtu": {
+            "type": "integer",
+            "title": "Expected MTU",
+            "description": "The MTU every path must carry. Default: the MTU of the interface each path leaves through.",
+            "minimum": 576,
+            "maximum": 65536
+          }
+        }
+      },
+      "checks": [
+        {
+          "id": "ping-mesh",
+          "title": "Reachability",
+          "description": "Every other target Server answers ICMP echo.",
+          "gating": true
+        },
+        {
+          "id": "mtu",
+          "title": "Path MTU",
+          "description": "A packet of the path's MTU reaches every peer that answers without fragmenting.",
+          "gating": true
+        },
+        {
+          "id": "ssh-port",
+          "title": "SSH port",
+          "description": "Every other target Server accepts a TCP connection on port 22.",
+          "gating": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+---
+# amd_gpu_census role defaults. amd_gpu_census_root prefixes the sysfs paths the census reads; it is
+# for the content tests, and playbooks do not set it.
+amd_gpu_census_root: ""

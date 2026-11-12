@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
@@ -55,19 +57,9 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 		return err
 	}
 	defer mongoClient.Disconnect(context.Background())
-	// The one Transactor of this process, shared by every use case it composes (decision 069).
-	transactor := storemongo.NewTransactor(mongoClient)
 	db := mongoClient.Database(cfg.MongoDB)
 	if err := migration.Check(connectCtx, db); err != nil {
 		return fmt.Errorf("database schema: %w", err)
-	}
-	integrations, err := sitestore.NewMongoIntegrationRepo(db, sealer)
-	if err != nil {
-		return err
-	}
-	servers, err := serverstore.NewMongoServerRepo(db)
-	if err != nil {
-		return err
 	}
 	ansibleEvents, err := workflowstore.NewMongoAnsibleEventRepo(db)
 	if err != nil {
@@ -76,24 +68,63 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	// The executor writes the job artifacts, so it also prunes them: on its own disk, with no lease,
 	// because each executor host keeps the artifacts of the runs it executed.
 	go runArtifactRetention(ctx, cfg.JobArtifactDir, cfg.JobArtifactRetention, ansibleEvents)
-	orchestrations, err := workflowstore.NewMongoWorkflowRepo(db)
+	// Ansible Tasks arrive as Temporal activities on the executor's own task queue (decision 072).
+	temporalClient, err := dialTemporal(ctx, client.Options{HostPort: cfg.TemporalAddress, Namespace: cfg.TemporalNamespace}, temporalDialTimeout)
+	if err != nil {
+		return fmt.Errorf("temporal connect: %w", err)
+	}
+	defer temporalClient.Close()
+	ansibleWorker, err := assembleAnsibleExecutor(cfg, modules, mongoClient, db, sealer, ansibleEvents, temporalClient)
 	if err != nil {
 		return err
+	}
+	if err := ansibleWorker.Start(); err != nil {
+		return fmt.Errorf("start the Ansible task worker: %w", err)
+	}
+	defer ansibleWorker.Stop()
+	slog.Info("Ansible executor started", "parallelism", cfg.OperationMaxParallelism, "artifactDir", cfg.JobArtifactDir,
+		"taskQueue", cfg.AnsibleTaskQueue)
+	<-ctx.Done()
+	return nil
+}
+
+// assembleAnsibleExecutor wires the Ansible executor role over db and returns its Temporal worker
+// of the Ansible task queue, registered but not started. It is the only place the executor's
+// dependencies are wired, so the assembly test (process_assembly_test.go) builds exactly what
+// RunAnsibleExecutor runs; it neither writes to the store nor starts a goroutine. mongoClient must
+// be the one db belongs to, and the caller owns temporalClient.
+func assembleAnsibleExecutor(cfg config.APIConfig, modules composedModules, mongoClient *mongo.Client,
+	db *mongo.Database, sealer *secret.Sealer, ansibleEvents *workflowstore.MongoAnsibleEventRepo,
+	temporalClient client.Client,
+) (worker.Worker, error) {
+	// The one Transactor of this process, shared by every use case it composes (decision 069).
+	transactor := storemongo.NewTransactor(mongoClient)
+	integrations, err := sitestore.NewMongoIntegrationRepo(db, sealer)
+	if err != nil {
+		return nil, err
+	}
+	servers, err := serverstore.NewMongoServerRepo(db)
+	if err != nil {
+		return nil, err
+	}
+	orchestrations, err := workflowstore.NewMongoWorkflowRepo(db)
+	if err != nil {
+		return nil, err
 	}
 	operationSecrets, err := workflowstore.NewMongoOperationSecretRepo(db, sealer)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	catalog, err := ansible.LoadManifestCatalog(cfg.PlaybookManifest, cfg.PlaybookDir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	providers := maas.NewProviderFactory(integrations)
 	// Every run authenticates with the Deployment Key, the only automation key (decision 039),
 	// through the effective-credential decorator built below.
 	sshKeys, err := newSSHKeyService(db, sealer, integrations, providers)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	configurations := workflowapp.NewEffectiveAutomationConfigurations(
 		workflowstore.NewMongoAutomationConfigurationRepo(db, sealer), deploymentKeySource{keys: sshKeys})
@@ -105,52 +136,55 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	discovery := discoveryapp.NewDiscoveryUseCase(servers)
 	sites, err := sitestore.NewMongoSiteRepo(db)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	platforms, err := platformstore.NewMongoPlatformRepo(db, sealer)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	readers, err := platformapp.NewReaderFactory(integrations, modules.platformReaders...)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	membership := platformapp.NewMembershipSyncUseCase(platforms, servers, readers)
 	softwareAssignments, err := softwarestore.NewMongoAssignmentRepo(db)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// An uninstall completed by its ansible Step frees its Servers and, for Slurm, retires their
 	// Device Metrics Exporter records.
 	platformService, err := newPlatformService(transactor, platforms, sites, servers, orchestrations, integrations,
 		softwareAssignments, executorPlatformOperationCanceler{})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	credentials := platformapp.NewDeploymentCredentialService(transactor, platforms, integrations, membership)
 	results := workflowResults(platformDeploymentObserver{credentials: credentials, platforms: platformService},
 		modules.credentials...)
-	// Ansible Tasks arrive as Temporal activities on the executor's own task queue (decision 072).
-	temporalClient, err := dialTemporal(ctx, client.Options{HostPort: cfg.TemporalAddress, Namespace: cfg.TemporalNamespace}, temporalDialTimeout)
+	// Validation Runs (decision 081): the executor records what check Tasks return and their
+	// transitions.
+	validations, err := newValidationRecorder(db, transactor)
 	if err != nil {
-		return fmt.Errorf("temporal connect: %w", err)
+		return nil, fmt.Errorf("validation recorder: %w", err)
 	}
-	defer temporalClient.Close()
+	maps.Copy(results, validationResults(validations))
+	projections := workflowProjections(servers, softwareAssignments, platforms, platforms, platforms)
+	maps.Copy(projections, validationProjections(validations))
 	ownership, err := workflowstore.NewMongoOwnershipRepo(db)
 	if err != nil {
-		return fmt.Errorf("resource ownership repo: %w", err)
+		return nil, fmt.Errorf("resource ownership repo: %w", err)
 	}
 	engine, err := workflowapp.NewEngine(transactor, orchestrations, ownership, workflowPlanCatalog(modules.workflowKinds, modules.software), workflowapp.CompletionHandlers{
-		Projections: workflowProjections(servers, softwareAssignments, platforms, platforms, platforms), Results: results,
+		Projections: projections, Results: results,
 	}, cfg.OperationMaxParallelism)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ansibleTasks, err := workflowapp.NewAnsibleTaskRunner(configurations, catalog, runner, ansibleEvents,
 		executionInventoryAdapter{discovery: discovery}, protection, operationSecrets,
-		temporalworkflow.NewSSHKeyscanHostKeyScanner(), engine, cfg.JobArtifactDir)
+		temporalworkflow.NewSSHKeyscanHostKeyScanner(), engine, cfg.JobArtifactDir, failureCatalog(modules.registry))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	tasks := temporalworkflow.NewTaskActivities(engine, map[workflowdomain.RunnerKind]temporalworkflow.StepLifecycleExecutor{
 		workflowdomain.RunnerKindHostAutomation: ansibleTaskExecutor{runner: ansibleTasks},
@@ -160,14 +194,7 @@ func RunAnsibleExecutor(cfg config.APIConfig) error {
 	})
 	ansibleWorker.RegisterActivityWithOptions(tasks.ExecuteTask, activity.RegisterOptions{Name: temporalworkflow.ActivityExecuteTask})
 	ansibleWorker.RegisterActivityWithOptions(tasks.Compensate, activity.RegisterOptions{Name: temporalworkflow.ActivityCompensate})
-	if err := ansibleWorker.Start(); err != nil {
-		return fmt.Errorf("start the Ansible task worker: %w", err)
-	}
-	defer ansibleWorker.Stop()
-	slog.Info("Ansible executor started", "parallelism", cfg.OperationMaxParallelism, "artifactDir", cfg.JobArtifactDir,
-		"taskQueue", cfg.AnsibleTaskQueue)
-	<-ctx.Done()
-	return nil
+	return ansibleWorker, nil
 }
 
 // executorPlatformOperationCanceler is the Ansible executor's platformdomain.PlatformOperationCanceler.

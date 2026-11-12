@@ -1,0 +1,83 @@
+---
+# Validation Suite amd-gpu-basic (docs/development/validation.md §7): does the kernel's KFD driver
+# bring up every AMD GPU of each Server, and do they work through the HIP runtime? The HIP probe is
+# the one Slurm deployments run (shared role gpu_probe, decision 063), copied for this run only. A
+# Server without an AMD GPU skips both checks; one without a HIP runtime on the host (a Kubernetes
+# node whose GPU containers bring their own) skips the probe. Nothing on the host changes, and every
+# verdict reaches the run through the shared validation_report role.
+
+- name: Check the AMD GPUs
+  hosts: all
+  gather_facts: false
+  vars:
+    amd_gpu_basic_parameters: "{{ swallow_validation_parameters | default({}) }}"
+  tasks:
+    - name: Count the AMD GPUs
+      ansible.builtin.include_role:
+        name: amd_gpu_census
+
+    - name: Settle how many GPUs the driver must bring up
+      ansible.builtin.set_fact:
+        amd_gpu_basic_expected: "{{ amd_gpu_basic_parameters.expectedGpus | default(amd_gpu_census.pci) | int }}"
+
+    - name: Judge the GPUs the driver brought up
+      ansible.builtin.include_role:
+        name: validation_report
+        tasks_from: record
+      vars:
+        validation_report_check: kfd-gpus
+        validation_report_verdict: >-
+          {{ 'error' if amd_gpu_census.pci | int < 0
+             else ('skipped' if amd_gpu_basic_expected | int == 0
+                   else ('passed' if amd_gpu_census.kfd | int == amd_gpu_basic_expected | int else 'failed')) }}
+        validation_report_summary: >-
+          {{ ('the GPU census did not run: ' ~ amd_gpu_census.error | default('')) if amd_gpu_census.pci | int < 0
+             else ('no AMD GPU on PCI' if amd_gpu_basic_expected | int == 0
+                   else ('the driver brought up ' ~ amd_gpu_census.kfd ~ ' of ' ~ amd_gpu_basic_expected ~ ' GPUs'
+                         ~ ('' if amd_gpu_census.kfdPresent | default(false) else '; /sys/class/kfd is missing, so amdgpu is not loaded'))) }}
+        validation_report_evidence: >-
+          {{ 'PCI: ' ~ amd_gpu_census.pciDevices | default([]) | join(' ') ~ '; KFD nodes: ' ~ amd_gpu_census.kfdNodes | default([]) | join(' ')
+             ~ ('; passed through to VMs: ' ~ amd_gpu_census.passedThrough | join(' ') if amd_gpu_census.passedThrough | default([]) | length > 0 else '') }}
+        validation_report_measurements: >-
+          {{ [{'name': 'kfd_gpus', 'value': amd_gpu_census.kfd | int, 'unit': 'count', 'expected': '= ' ~ amd_gpu_basic_expected}]
+             if amd_gpu_basic_expected | int > 0 and amd_gpu_census.pci | int >= 0 else [] }}
+
+    - name: Run the HIP probe on the GPUs the driver brought up
+      ansible.builtin.include_role:
+        name: gpu_probe
+        tasks_from: run
+        apply:
+          # /dev/kfd is open to the render group only; the probe reads, it changes nothing.
+          become: true
+      vars:
+        gpu_probe_expect: "{{ amd_gpu_census.kfd | int }}"
+        gpu_probe_runs: 3
+      when: amd_gpu_census.kfd | int > 0
+
+    - name: Judge the HIP probe
+      ansible.builtin.include_role:
+        name: validation_report
+        tasks_from: record
+      vars:
+        amd_gpu_basic_probed: "{{ amd_gpu_census.kfd | int > 0 }}"
+        amd_gpu_basic_no_runtime: "{{ amd_gpu_basic_probed | bool and gpu_probe_run.rc | default(0) == 2 }}"
+        validation_report_check: hip-probe
+        validation_report_verdict: >-
+          {{ 'skipped' if not amd_gpu_basic_probed | bool or amd_gpu_basic_no_runtime | bool
+             else ('passed' if gpu_probe_ok | bool else 'failed') }}
+        validation_report_summary: >-
+          {{ ('no AMD GPU to probe' if amd_gpu_basic_expected | int == 0 else 'the driver brought up no GPU to probe')
+             if not amd_gpu_basic_probed | bool
+             else ('the HIP runtime is not installed on the host' if amd_gpu_basic_no_runtime | bool
+                   else ('every GPU passed ' ~ gpu_probe_report.runs | default(3) ~ ' runs' if gpu_probe_ok | bool
+                         else gpu_probe_report.error | default('the HIP probe failed')
+                              ~ ' (run ' ~ gpu_probe_report.run | default('-') ~ ', exit '
+                              ~ gpu_probe_report.returncode | default(gpu_probe_run.rc | default('-')) ~ ')')) }}
+        validation_report_evidence: "{{ gpu_probe_report.stderr | default(gpu_probe_run.stderr | default('')) if amd_gpu_basic_probed | bool else '' }}"
+        validation_report_measurements: >-
+          {{ [{'name': 'probed_gpus', 'value': gpu_probe_report.devices | default(0) | int, 'unit': 'count',
+               'expected': '= ' ~ amd_gpu_census.kfd}] if amd_gpu_basic_probed | bool and not amd_gpu_basic_no_runtime | bool else [] }}
+
+    - name: Write the results for Swallow
+      ansible.builtin.include_role:
+        name: validation_report

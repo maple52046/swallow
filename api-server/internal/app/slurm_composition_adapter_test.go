@@ -354,7 +354,7 @@ func TestSlurmCompositionComposesTheDeviceMetricsExporter(t *testing.T) {
 		},
 		MonitoringDashboards: &platformdomain.MonitoringDashboardsLaunch{ServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallNative},
 	}
-	plan, err := launcher.planSlurmComposition(context.Background(), launch, "op-1", false)
+	plan, err := launcher.planSlurmComposition(context.Background(), launch, "op-1", false, installPlatformStepID)
 	if err != nil {
 		t.Fatalf("planSlurmComposition() error = %v", err)
 	}
@@ -406,7 +406,7 @@ func TestSlurmCompositionComposesThePlatformGrafana(t *testing.T) {
 		RequestedBy:          "admin",
 		MonitoringDashboards: &platformdomain.MonitoringDashboardsLaunch{ServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallContainer},
 	}
-	plan, err := launcher.planSlurmComposition(context.Background(), launch, "op-1", false)
+	plan, err := launcher.planSlurmComposition(context.Background(), launch, "op-1", false, installPlatformStepID)
 	if err != nil {
 		t.Fatalf("planSlurmComposition() error = %v", err)
 	}
@@ -440,7 +440,7 @@ func TestSlurmCompositionComposesThePlatformGrafana(t *testing.T) {
 	}
 
 	launch.MonitoringDashboards = nil
-	if plan, err = launcher.planSlurmComposition(context.Background(), launch, "op-1", false); err != nil || len(plan.steps) != 0 {
+	if plan, err = launcher.planSlurmComposition(context.Background(), launch, "op-1", false, installPlatformStepID); err != nil || len(plan.steps) != 0 {
 		t.Errorf("without dashboards: steps %v, err %v; want none", taskIDs(plan.steps), err)
 	}
 }
@@ -459,7 +459,7 @@ func TestSlurmCompositionComposesOmnistat(t *testing.T) {
 		},
 		MonitoringDashboards: &platformdomain.MonitoringDashboardsLaunch{ServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallNative},
 	}
-	plan, err := launcher.planSlurmComposition(context.Background(), launch, "op-1", false)
+	plan, err := launcher.planSlurmComposition(context.Background(), launch, "op-1", false, installPlatformStepID)
 	if err != nil {
 		t.Fatalf("planSlurmComposition() error = %v", err)
 	}
@@ -630,7 +630,7 @@ func TestSlurmCompositionNeedsTheMonitoringAddresses(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			launcher := slurmCompositionLauncher(t, nil)
 			launcher.monitoring = tc.access
-			_, err := launcher.planSlurmComposition(context.Background(), tc.launch, "op-1", false)
+			_, err := launcher.planSlurmComposition(context.Background(), tc.launch, "op-1", false, installPlatformStepID)
 			if !errors.Is(err, platformdomain.ErrMonitoringEndpointMissing) || !strings.Contains(err.Error(), tc.setting) {
 				t.Errorf("planSlurmComposition() error = %v, want ErrMonitoringEndpointMissing naming %s", err, tc.setting)
 			}

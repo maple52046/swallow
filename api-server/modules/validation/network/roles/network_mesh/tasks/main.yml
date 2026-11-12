@@ -1,0 +1,26 @@
+---
+# Probe every peer from this host (files/mesh_probe.py) and leave what it found in facts: the peers
+# probed in network_mesh_probed, and network_mesh_results, one entry per peer with reachable,
+# rtt_ms, mtu, mtu_ok, and port_open. A probe that cannot run leaves network_mesh_error instead.
+# Nothing on the host changes.
+
+- name: Probe the other Servers
+  ansible.builtin.script:
+    cmd: >-
+      mesh_probe.py --mtu {{ network_mesh_mtu | int }} --port {{ network_mesh_port | int }}
+      {% for peer in network_mesh_peers %}{{ (peer ~ '=' ~ hostvars[peer].ansible_host) | quote }} {% endfor %}
+    executable: python3
+  register: network_mesh_probe
+  changed_when: false
+  failed_when: false
+  when: network_mesh_peers | length > 0
+
+- name: Read what the probe found
+  ansible.builtin.set_fact:
+    network_mesh_probed: "{{ network_mesh_peers }}"
+    network_mesh_results: >-
+      {{ (network_mesh_probe.stdout | from_json).peers
+         if network_mesh_probe.rc | default(1) == 0 and network_mesh_probe.stdout | default('') | trim | length > 0 else [] }}
+    network_mesh_error: >-
+      {{ '' if network_mesh_peers | length == 0 or network_mesh_probe.rc | default(1) == 0
+         else (network_mesh_probe.stderr | default('') | trim | default('the probe did not run', true)) }}

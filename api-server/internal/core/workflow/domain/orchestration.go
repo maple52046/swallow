@@ -119,20 +119,18 @@ type Task struct {
 	ID   string `json:"id" bson:"id"`
 	Kind string `json:"kind" bson:"kind"`
 	Name string `json:"name" bson:"name"`
-	// Job groups Tasks into a reusable, convergent unit (decision 072). When set, the
-	// Workflow runs each Job as a Temporal child workflow; empty means the Task runs in
-	// the flat, single-workflow path. Cross-Job dependencies order the child workflows.
+	// Job groups Tasks into a reusable, convergent unit (decision 072): a Task of a named Job
+	// retries at that Job's granularity, and a cross-Job DependsOn orders whole Jobs. Every Task of
+	// a Workflow runs in the one driver run; a Job is never a nested Workflow.
 	Job       string     `json:"job,omitempty" bson:"job,omitempty"`
 	Executor  RunnerKind `json:"executor" bson:"runner"`
 	DependsOn []string   `json:"dependsOn" bson:"dependsOn"`
-	// ContinueOn lists the dependency outcomes that still let this Task run. Empty is the
-	// default and preserves the original behaviour: the Task runs only when every dependency is
-	// satisfied (succeeded, or skipped as already-satisfied) and is otherwise skipped. A Task
-	// widens this — typically a compensation/cleanup Task that must run even when the work it
-	// follows was skipped because an earlier Task failed — by listing the extra permitted
-	// outcomes (for example "skipped"). A retryable dependency failure is never treated as
-	// settled, so a dependent still waits through user retries rather than skipping past a
-	// failure that may yet succeed.
+	// ContinueOn lists the dependency outcomes that let this Task run. Empty is the default: the
+	// Task runs only when every dependency succeeded or was skipped, and is otherwise skipped. A
+	// non-empty list replaces the default rather than adding to it: a Task that records a failure
+	// lists "failed" alone, and a Task that must run whatever its dependencies ended as lists
+	// "succeeded" too. A retryable dependency failure is never treated as settled, so a dependent
+	// still waits through user retries rather than skipping past a failure that may yet succeed.
 	ContinueOn        []TaskStatus                `json:"continueOn,omitempty" bson:"continueOn,omitempty"`
 	Targets           []ResourceReference         `json:"targets" bson:"targets"`
 	Parameters        map[string]any              `json:"parameters,omitempty" bson:"parameters,omitempty"`
@@ -158,6 +156,10 @@ type Task struct {
 	// accepted plan, never of the public projection.
 	Completion []Completion    `json:"-" bson:"completion,omitempty"`
 	OnCancel   *CancelBehavior `json:"-" bson:"onCancel,omitempty"`
+	// TimeoutSeconds bounds one attempt of the Task when its Runner honors it (the host automation
+	// Runner does): past it the attempt is stopped and fails with task_budget_exceeded. 0 means the
+	// Runner's own waits are the only bound (decision 077).
+	TimeoutSeconds int `json:"-"`
 	// Generation is the dispatch generation that began the running attempt; a running Task of an
 	// older generation is resumed by the next dispatch (ResumePolicy).
 	Generation int64 `json:"-" bson:"generation,omitempty"`
@@ -196,7 +198,18 @@ type Workflow struct {
 	Commands Commands         `json:"-" bson:"commands"`
 	// ResourcesAcquired is true from the transition that took the Workflow's resources until the
 	// terminal transition that released them.
-	ResourcesAcquired  bool       `json:"-" bson:"resourcesAcquired,omitempty"`
+	ResourcesAcquired bool `json:"-" bson:"resourcesAcquired,omitempty"`
+	// Unattended declares that nobody waits on this Workflow (decision 077): every failure,
+	// retryable or not, and an outcome that cannot be proven settle at once, so the Workflow ends and
+	// releases its resources instead of parking in requires_attention. It cannot be rerun.
+	Unattended bool `json:"-"`
+	// BudgetSeconds bounds the Workflow's wall-clock time from its start (or acceptance, before it
+	// starts); past it the dispatcher cancels it with reason workflow_budget_exceeded. 0 is no
+	// budget.
+	BudgetSeconds int `json:"-"`
+	// Preemptible declares that any non-preemptible Workflow accepted for the same Servers cancels
+	// this one in its acceptance transaction instead of being refused as busy (decision 061, 081).
+	Preemptible        bool       `json:"-"`
 	RetryOfOperationID string     `json:"retryOfOperationId,omitempty" bson:"retryOfOperationId,omitempty"`
 	RequestedBy        string     `json:"requestedBy" bson:"requestedBy"`
 	RequestCorrelation string     `json:"requestCorrelation,omitempty" bson:"requestCorrelation,omitempty"`

@@ -1,0 +1,27 @@
+---
+# Smoke-test the cluster from this control-plane member (files/kube_smoke.py) and add what it judged
+# to this host's swallow_validation_results. The test's pods and Service are deleted before it
+# returns; a test that cannot run is an error of every check, judged on the Platform.
+
+- name: Smoke-test the cluster
+  ansible.builtin.script:
+    cmd: >-
+      kube_smoke.py --kubectl={{ k0s_smoke_kubectl | quote }} --namespace={{ k0s_smoke_namespace | quote }}
+      --run-id={{ swallow_validation_run_id | quote }} --image={{ k0s_smoke_image | quote }}
+      --platform-id={{ swallow_validation_platform_id | quote }} --timeout={{ k0s_smoke_timeout | int }}
+      --servers={{ k0s_smoke_servers | to_json | quote }} --expected-nodes={{ k0s_smoke_expected_nodes | to_json | quote }}
+    executable: python3
+  become: true
+  register: k0s_smoke_run
+  changed_when: false
+  failed_when: false
+
+- name: Record what the smoke test judged
+  ansible.builtin.set_fact:
+    swallow_validation_results: >-
+      {{ swallow_validation_results | default([])
+         + ((k0s_smoke_run.stdout | from_json).checks
+            if k0s_smoke_run.rc | default(1) == 0 and (k0s_smoke_run.stdout | default('') | trim).startswith('{')
+            else [{'check': 'nodes-ready', 'target': {'kind': 'platform', 'id': swallow_validation_platform_id},
+                   'verdict': 'error', 'summary': 'the smoke test did not run: '
+                   ~ (k0s_smoke_run.stderr | default('') | trim | default('no output', true))[-500:]}]) }}

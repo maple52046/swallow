@@ -1,6 +1,7 @@
 import { expect, type Page, type Route } from 'playwright/test'
 import type { HealthState, Server, ServerHealthCounts } from '@/domain/server/types'
 import type { SoftwareAssignment, SoftwareCatalogEntry } from '@/domain/software/types'
+import { createValidationFixtures } from './validationFixtures'
 
 const now = '2026-08-27T03:00:00Z'
 
@@ -2574,10 +2575,13 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       }
     }
   }
+  // Per-page Validation Suites, Runs, and Schedules (validation.md).
+  const validationApi = createValidationFixtures()
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
     const path = url.pathname
+    if (path.startsWith('/api/v1/validation/')) return validationApi.handle(route, request, url)
 
     if (path === '/api/v1/auth/me') return json(route, { id: 'admin-1', username: 'admin', role: 'admin', authMethod: 'session' })
     if (path === '/api/v1/auth/login') {

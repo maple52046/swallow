@@ -8,9 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
+
+	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
 // ContractVersion1 is the only module contract version this core supports.
@@ -20,8 +24,9 @@ const ContractVersion1 = 1
 // refused at start.
 var SupportedContractVersions = []int{ContractVersion1}
 
-// Kind is what a module adds to swallow: a Platform runtime, a GPU vendor's accelerators, or one
-// piece of host software (glossary: Extension Module).
+// Kind is what a module adds to swallow: a Platform runtime, a GPU vendor's accelerators, one
+// piece of host software, or Validation Suites that belong to none of them (glossary: Extension
+// Module, Validation Module).
 type Kind string
 
 // The module kinds.
@@ -29,11 +34,12 @@ const (
 	KindPlatform    Kind = "platform"
 	KindAccelerator Kind = "accelerator"
 	KindSoftware    Kind = "software"
+	KindValidation  Kind = "validation"
 )
 
 // Valid reports whether k is a module kind.
 func (k Kind) Valid() bool {
-	return k == KindPlatform || k == KindAccelerator || k == KindSoftware
+	return k == KindPlatform || k == KindAccelerator || k == KindSoftware || k == KindValidation
 }
 
 // Ports a module may require of the installation, named by provider interface rather than by
@@ -87,6 +93,14 @@ type Manifest struct {
 	// from the upstreams they name. Unlike the lists above they are not owned: modules may declare
 	// the same source or file when the declarations agree.
 	Artifacts Artifacts `json:"artifacts,omitempty"`
+	// Templates are the module's Workflow Templates by name (decision 081); each runs only
+	// playbooks the module lists.
+	Templates map[string]workflowdomain.Template `json:"templates,omitempty"`
+	// Validations are the Validation Suites the module offers; suite ids are owned like Workflow
+	// kinds.
+	Validations []ValidationDeclaration `json:"validations,omitempty"`
+	// FailureCodes classify the failure codes of the module's host automation; codes are owned.
+	FailureCodes map[string]FailureCodeDeclaration `json:"failureCodes,omitempty"`
 }
 
 // Ref is "<kind>/<id>", the module's directory under modules/.
@@ -132,15 +146,17 @@ func ParseManifest(data []byte) (Manifest, error) {
 
 // Validate checks one manifest on its own: a supported contract version, a known kind, a
 // kebab-case id, a SemVer version, unique names in every list, a reason for every hook, known
-// ports, routes under /api/v1/, a well-formed spec schema when present, and artifacts that pass
-// Artifacts.Validate (the error then wraps both ErrInvalidManifest and ErrInvalidArtifact).
+// ports, routes under /api/v1/, a well-formed spec schema when present, artifacts that pass
+// Artifacts.Validate (the error then wraps both ErrInvalidManifest and ErrInvalidArtifact), Workflow
+// Templates that pass Template.Validate and run only the module's playbooks, Validation Suites that
+// name one of those templates, and classified failure codes.
 func (m Manifest) Validate() error {
 	if !supported(m.ContractVersion) {
 		return fmt.Errorf("%w: module %s declares contract version %d, this core loads %v",
 			ErrUnsupportedContract, m.Ref(), m.ContractVersion, SupportedContractVersions)
 	}
 	if !m.Kind.Valid() {
-		return fmt.Errorf("%w: kind %q is not platform, accelerator, or software", ErrInvalidManifest, m.Kind)
+		return fmt.Errorf("%w: kind %q is not platform, accelerator, software, or validation", ErrInvalidManifest, m.Kind)
 	}
 	if !moduleIDPattern.MatchString(m.ID) {
 		return fmt.Errorf("%w: id %q must be kebab-case", ErrInvalidManifest, m.ID)
@@ -182,7 +198,13 @@ func (m Manifest) Validate() error {
 	if err := m.Artifacts.Validate(); err != nil {
 		return fmt.Errorf("%w: module %s artifacts: %w", ErrInvalidManifest, m.Ref(), err)
 	}
-	return nil
+	if err := m.validateTemplates(); err != nil {
+		return err
+	}
+	if err := m.validateValidations(); err != nil {
+		return err
+	}
+	return m.validateFailureCodes()
 }
 
 // SpecSchema returns the module's spec schema, or nil when the module defines no spec.
@@ -225,13 +247,13 @@ type Registry struct {
 
 // NewRegistry validates the modules on their own and against each other: each manifest is valid,
 // each module's hook implementations are exactly its declared hooks, no two modules share a
-// reference, Workflow kind, completion type, route, or playbook, and modules that declare the same
-// artifact source or file agree on it (artifactClaims.claim).
+// reference, Workflow kind, completion type, route, playbook, Validation Suite id, or failure code,
+// and modules that declare the same artifact source or file agree on it (artifactClaims.claim).
 func NewRegistry(modules ...Module) (*Registry, error) {
 	registry := &Registry{
 		byRef: map[string]Module{}, byWorkflowKind: map[string]Module{}, byCompletion: map[string]Module{},
 	}
-	routes, playbooks := map[string]string{}, map[string]string{}
+	routes, playbooks, suites, failureCodes := map[string]string{}, map[string]string{}, map[string]string{}, map[string]string{}
 	artifacts := newArtifactClaims()
 	for _, module := range modules {
 		manifest := module.Manifest
@@ -262,6 +284,16 @@ func NewRegistry(modules ...Module) (*Registry, error) {
 			return nil, err
 		}
 		if err := claim(playbooks, manifest.Playbooks, ref, "playbook"); err != nil {
+			return nil, err
+		}
+		suiteIDs := make([]string, 0, len(manifest.Validations))
+		for _, suite := range manifest.Validations {
+			suiteIDs = append(suiteIDs, suite.ID)
+		}
+		if err := claim(suites, suiteIDs, ref, "Validation Suite"); err != nil {
+			return nil, err
+		}
+		if err := claim(failureCodes, slices.Sorted(maps.Keys(manifest.FailureCodes)), ref, "failure code"); err != nil {
 			return nil, err
 		}
 		if err := artifacts.claim(ref, manifest.Artifacts); err != nil {

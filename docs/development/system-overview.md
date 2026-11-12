@@ -37,6 +37,7 @@ release build 中隱藏。
 | Local Repository（Site 選擇使用時，部署取得 artifact 的站點來源） | 有（Infrastructure → Local repository） | 無 | `local-repository.md` | [local-repository.md](local-repository.md) |
 | Workflow | 有 | `workflows.go` | `workflows.md` | [workflow-execution.md](workflow-execution.md) |
 | 監控與告警 | 有（告警為實驗） | `monitoring.go` | `monitoring-alerts.md`、`server-metrics.md` | [monitoring.md](monitoring.md) |
+| Validation（Validation Suite、Run、Schedule） | 實驗 | `validation.go` | `validation.md` | [validation.md](validation.md) |
 | Prometheus 的 service discovery | 無 | `discovery.go` | `discovery-prometheus.md` | — |
 | Overview | 有 | `overview.go` | `overview.md` | — |
 | 登入、API Key | 有 | `auth.go`、`apikeys.go` | `auth-*.md`、`api-keys.md` | [access-and-credentials.md](access-and-credentials.md) |
@@ -86,9 +87,10 @@ flowchart LR
   `http-proxy`、`subnet-dns`、`ssh-keys`、`auto-inspect`（為新 enroll 的 Server 建立 `inspect-hardware` Workflow）、
   `platform`（Platform spec 與 Change Plan 的 apply）、`change-plan-expiry`、`node-exporter`（讓每台受政策涵蓋的
   Server 都有運作中的 Node Exporter，以 `configure-node-exporter` Workflow 安裝，[software-deployment.md](software-deployment.md)
-  的 Node Exporter；`SWALLOW_WORKER_NODE_EXPORTER_ENSURE=false` 時不註冊，開發環境預設如此），以及 `local-repository`
-  （Site 使用 Local Repository 時，把模組宣告的 artifact 與 Site 的來源收斂到它，並讀回同步狀態，[local-repository.md](local-repository.md) §7）。
-  定期 resync 的間隔：`workflow-dispatch` 30 秒、`change-plan-expiry` 5 分鐘，其他 10 分鐘
+  的 Node Exporter；`SWALLOW_WORKER_NODE_EXPORTER_ENSURE=false` 時不註冊，開發環境預設如此）、`local-repository`
+    （Site 使用 Local Repository 時，把模組宣告的 artifact 與 Site 的來源收斂到它，並讀回同步狀態，[local-repository.md](local-repository.md) §7），
+  以及 `validation-schedule`（到期或部署成功時受理 Validation Schedule 的 run，[validation.md](validation.md) §6）。
+  定期 resync 的間隔：`workflow-dispatch` 30 秒、`validation-schedule` 1 分鐘、`change-plan-expiry` 5 分鐘，其他 10 分鐘
   （`controllerResyncInterval`）。規則見 [desired-state-model.md](desired-state-model.md) §7。
 
   worker 也執行觀察外部系統的 periodic pass（`internal/app/observation_passes.go`，`convergence.Periodic`）：每個 pass
@@ -194,6 +196,7 @@ collection 可能由多個 process 寫入，但每個欄位只有一個寫入者
 | workflow | `ansible_task_events`、`automation_configurations` | Ansible 的即時事件；Site automation 設定 | ansible-executor（事件與它們的 retention）；api（設定） |
 | convergence | `change_plans`、`change_plan_policy`、`convergence_requests`、`convergence_events` | Change Plan；Change Plan 政策（是否送出即核准）；要求 controller 立即收斂；controller 的 timeline | api（提出、核准、政策、要求）；worker（apply、重算後提出新的 plan、過期、事件） |
 | convergence | `controller_leases`、`change_feed_checkpoints` | controller 與 periodic pass 的單一 instance lease；change stream 的 resume token | worker |
+| validation | `validation_suites`、`validation_runs`、`validation_schedules` | user-defined 的 Validation Suite；Validation Run 的請求、結果與狀態（保留 90 天）；Validation Schedule 的 spec 與 status | api（user suite、受理 run、schedule 的 spec）；部署受理的 process（gate run）；worker（schedule 的 status 與受理的 run，`validation-run-state` 投影）；ansible-executor（`validation-result`、投影） |
 | monitoring | `platform_monitoring_tokens` | 每個 Platform 的 monitoring token 的 hash（token 本身不保存） | 受理會安裝 Platform Grafana 的 deployment 的 process（API 或 worker，在受理的 transaction 內） |
 | migration | `schema_metadata` | schema 版本 | migrate |
 
@@ -238,6 +241,7 @@ architecture spec。找東西時：
 | Local Repository（port、controller、Pulp adapter、共用 role `artifact_sources`） | `api-server/internal/core/localrepo/`、`api-server/internal/adapters/localrepo/pulp/`、`api-server/modules/shared/roles/artifact_sources/` |
 | MongoDB 的 repository（列表的篩選與搜尋在這裡） | `api-server/internal/adapters/store/mongodb/<context>/` |
 | 模組（module.json、hook、playbook、role） | `api-server/modules/<種類>/<id>/` |
+| Validation（受理、結果、schedule、範本的 compiler） | `api-server/internal/core/validation/`、`api-server/internal/core/workflow/domain/template.go`、`api-server/internal/app/validation_launcher.go` |
 | dashboard 的頁面、模組畫面、API adapter | `dashboard/src/presentation/pages/`、`dashboard/src/modules/`、`dashboard/src/infrastructure/api/` |
 | CLI 的指令 | `cli/internal/command/` |
 | 開發環境 | `deploy/dev/` |

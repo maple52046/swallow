@@ -4,7 +4,8 @@
   "id": "amd",
   "version": "0.1.0",
   "playbooks": [
-    "configure-amd-gpu-operator"
+    "configure-amd-gpu-operator",
+    "validate-amd-gpu-basic"
   ],
   "workflowKinds": [
     "configure-gpu-operator",
@@ -38,5 +39,69 @@
       "docker.io/rocm/k8s-gpu-dra-driver:v1.0.1",
       "docker.io/library/busybox:1.36"
     ]
-  }
+  },
+  "templates": {
+    "amd-gpu-basic": {
+      "version": 1,
+      "jobs": [
+        {
+          "name": "validate-amd-gpus",
+          "label": "Validate AMD GPUs",
+          "retry": "job"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "amd-gpu-basic",
+          "name": "Check the AMD GPUs",
+          "job": "validate-amd-gpus",
+          "content": {
+            "type": "host-automation",
+            "playbook": "validate-amd-gpu-basic"
+          },
+          "targets": "servers",
+          "timeoutSeconds": 900
+        }
+      ]
+    }
+  },
+  "validations": [
+    {
+      "id": "amd-gpu-basic",
+      "title": "AMD GPU basics",
+      "description": "Checks that the amdgpu driver brings up every AMD GPU each Server has on PCI, and that every GPU it brings up allocates, fills, and frees memory through the HIP runtime, three times. A Server without an AMD GPU skips both checks.",
+      "target": "servers",
+      "impact": "workload",
+      "budgetSeconds": 1200,
+      "experimental": true,
+      "template": "amd-gpu-basic",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedGpus": {
+            "type": "integer",
+            "title": "Expected GPUs",
+            "description": "The GPUs the driver must bring up on each Server. Default: the AMD GPUs on its PCI bus, without those passed through to VMs.",
+            "minimum": 0,
+            "maximum": 64
+          }
+        }
+      },
+      "checks": [
+        {
+          "id": "kfd-gpus",
+          "title": "Driver brings up the GPUs",
+          "description": "The kernel's KFD topology lists as many GPUs as are expected.",
+          "gating": true
+        },
+        {
+          "id": "hip-probe",
+          "title": "HIP probe",
+          "description": "Every GPU the driver brings up allocates, fills, and frees memory through the HIP runtime, three times.",
+          "gating": true
+        }
+      ]
+    }
+  ]
 }

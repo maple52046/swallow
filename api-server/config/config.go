@@ -107,6 +107,10 @@ type APIConfig struct {
 	JobArtifactDir string `yaml:"jobArtifactDir"`
 	// JobArtifactRetention controls automatic removal of local runner artifacts.
 	JobArtifactRetention time.Duration `yaml:"jobArtifactRetention"`
+	// ValidationRunRetention is how long a Validation Run is kept after it was requested; the
+	// store's TTL index deletes it then (decision 081). Its Workflow and job artifacts follow their
+	// own retention, so a run can outlive its logs.
+	ValidationRunRetention time.Duration `yaml:"validationRunRetention"`
 	// AllowedOrigins is a comma-separated development exception for a dashboard served from
 	// another origin. Listed origins may send credentials (the refresh cookie), so each must be
 	// explicit; "*" is rejected by validation.

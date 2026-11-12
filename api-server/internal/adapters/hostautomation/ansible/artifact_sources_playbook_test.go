@@ -399,6 +399,9 @@ var internetURLAllowlist = map[string]map[string]string{
 	filepath.Join("roles", "omnistat", "templates", "omnistat.service.j2"): {
 		"https://rocm.github.io/omnistat/": "the unit's Documentation= link, which nothing fetches",
 	},
+	filepath.Join("roles", "k0s_smoke", "files", "kube_smoke.py"): {
+		"http://{service}.{kubectl.namespace}.svc.cluster.local:8080/": "the smoke test's own Service inside the cluster, which a test pod fetches",
+	},
 }
 
 // downloadNotYet are the roles whose get_url tasks may still download from elsewhere, with the reason.

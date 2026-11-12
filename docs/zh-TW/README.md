@@ -23,6 +23,7 @@ CLI、API、automation 與 installation assets。
 - [SSH key 與 image 登入帳號](guides/ssh-keys.md)
 - [API key](guides/api-keys.md)
 - [Workflow](guides/workflows.md)
+- [Validation](guides/validation.md)
 - [Monitoring](guides/monitoring.md)
 - [疑難排解](troubleshooting.md)
 

@@ -56,7 +56,9 @@ No path parameters, query parameters, or body.
 
 ### Success Response
 
-`200 OK`. Modules are ordered by kind and then id. `spec` is `null` for a module that defines no
+`200 OK`. Modules are ordered by kind and then id; `kind` is `accelerator`, `platform`, `software`, or
+`validation` (a Validation Module, which defines no spec; the suites modules declare are listed by the
+[validation](validation.md) contract, not here). `spec` is `null` for a module that defines no
 resource spec; otherwise it is the manifest's schema as written, so its properties keep the
 manifest's order, which is the order a generic form shows them in.
 

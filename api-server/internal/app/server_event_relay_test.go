@@ -2,13 +2,12 @@ package app
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/maple52046/swallow/internal/adapters/events/memory"
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
+	"github.com/maple52046/swallow/internal/adapters/store/mongodb/mongotest"
 	serverstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/server"
 	serverapp "github.com/maple52046/swallow/internal/core/server/application"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
@@ -18,21 +17,9 @@ import (
 // worker or the executor holds) reaches the API's stream subscribers through the change feed: an
 // upsert for a written Server, a removal once it is absent. A timestamp-only rewrite reaches nobody.
 func TestServerEventRelayStreamsWritesOfOtherProcesses(t *testing.T) {
-	uri := os.Getenv("SWALLOW_TEST_MONGO_URI")
-	if uri == "" {
-		t.Skip("SWALLOW_TEST_MONGO_URI is not set")
-	}
+	_, db := mongotest.Database(t, "relay")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	client, err := storemongo.Connect(ctx, uri)
-	if err != nil {
-		t.Fatalf("Connect() error = %v", err)
-	}
-	db := client.Database(fmt.Sprintf("swallow_relay_test_%d", time.Now().UnixNano()))
-	t.Cleanup(func() {
-		_ = db.Drop(context.Background())
-		_ = client.Disconnect(context.Background())
-	})
 	apiServers, err := serverstore.NewMongoServerRepo(db)
 	if err != nil {
 		t.Fatalf("NewMongoServerRepo() error = %v", err)

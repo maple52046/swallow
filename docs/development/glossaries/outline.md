@@ -34,10 +34,11 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 - [Provider Interface](terms/provider-interface.md): A core-defined port, in core vocabulary, for one kind of external system (OS provisioning, Workflow executor, host automation, store, metrics and alerts, BMC and hypervisor, Local Repository).
 - [Provider Adapter](terms/provider-adapter.md): The replaceable implementation of a Provider Interface for one system (MAAS, Temporal, Ansible, MongoDB, Pulp, …), translating its vocabulary; never part of the core.
-- [Extension Module](terms/extension-module.md): A unit adding something swallow manages — a Platform Module, Accelerator Module, or Software Module — through the module contract; also called a plugin.
+- [Extension Module](terms/extension-module.md): A unit adding something swallow manages — a Platform Module, Accelerator Module, Software Module, or Validation Module — through the module contract; also called a plugin.
 - [Platform Module](terms/platform-module.md): The module that makes one kind of Platform runtime manageable (Kubernetes, Slurm).
 - [Accelerator Module](terms/accelerator-module.md): The module for one GPU vendor (AMD, later NVIDIA), an axis separate from Platforms.
 - [Software Module](terms/software-module.md): The module that provides one Managed Software kind.
+- [Validation Module](terms/validation-module.md): The module kind `validation` for Validation Suites that belong to no Platform, GPU vendor, or software (host and network checks), and the runner of user-defined suites.
 - [Module Manifest](terms/module-manifest.md): The data declaration, with a contract version, by which the core loads a module.
 - [Module Package](terms/module-package.md): A planned bundle of one module installed or updated without upgrading swallow — stage 2 for project-built modules, stage 3 (signed, no Go hooks) for modules maintained outside the project.
 
@@ -163,11 +164,21 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Local Repository Mode](terms/local-repository-mode.md): How a Site's deployments use its Local Repository — `upstream | cache | offline`.
 - [Repository Source](terms/repository-source.md): One upstream a Local Repository mirrors (a declared package source) or caches (a pull-through registry host or PyPI) — `pending | syncing | ready | failed`, and served or not.
 
+### Validation
+
+- [Validation Suite](terms/validation-suite.md): A named test plan run against deployed Servers or a Platform — module-declared (swallow-defined) or a user's script judged by its exit code; never request validation or OS Image verification.
+- [Validation Check](terms/validation-check.md): One named judgement of a suite on each target, optionally `gating` a deployment that composes the suite.
+- [Validation Verdict](terms/validation-verdict.md): A check's outcome on a target — `passed | failed | error | skipped` — and a run's derived verdict `passed | failed | error`.
+- [Validation Impact](terms/validation-impact.md): What running a suite does to its targets — `observe | workload | disruptive` — which decides where it may run and whether it can be preempted.
+- [Validation Run](terms/validation-run.md): One execution of a suite, run by a Workflow in `report` or `gate` mode — `pending | running | completed | canceled`; triggered `manual`, by `schedule`, or by a `deployment`.
+- [Validation Schedule](terms/validation-schedule.md): Desired state that a suite runs on its own on a cron expression in a time zone, or after a deployment of the target.
+
 ### Automation
 
 - [Workflow](terms/workflow.md): A user intent as a desired end-state for a set of resources, executed durably and convergently as a composition of Jobs and Tasks (canonical; compatibility code and wire fields still contain "Operation").
 - [Job](terms/job.md): A reusable, convergent unit of Tasks that brings resources to a sub-goal (e.g. `ensure-os`), composable into Workflows and runnable on its own.
 - [Task](terms/task.md): The atomic, idempotent ("ensure") unit of work run by exactly one Runner (code/API still say "Step").
+- [Workflow Template](terms/workflow-template.md): A module-declared, data-only description of Jobs and Tasks that the core compiles, with one request's targets and inputs, into a Workflow's plan.
 - [Task Diagnostic](terms/task-diagnostic.md): The durable, redacted, two-layer explanation of a failed Task attempt — what happened, who is affected, what to do next, and the evidence.
 - [Failure Class](terms/failure-class.md): Whether doing the same thing again can succeed — `transient | permanent | unknown`.
 - [Runner](terms/runner.md): The mechanism that executes a Task — `provisioner` / `ansible` (host automation) / `internal` (named by the Provider Interface it drives; code still says "executor", and `maas` → `provisioner`).

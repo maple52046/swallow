@@ -1,0 +1,49 @@
+---
+# Validation Suite slurm-acceptance (docs/development/validation.md §7): the checks that prove a
+# Slurm Platform works, not merely that its daemons run: a step on every node, jobs sharing a
+# node, native OCI containers, MPI through PMIx, and GPU GRES with the HIP probe (decisions 063 and
+# 066). It runs once, on the Server the Platform is entered through, and reads the nodes, their GRES,
+# and the features they have from the cluster itself, so a run on its own and the gate a deployment
+# composes are the same content. Only the gate (swallow_validation_mode gate) drains the GPU nodes
+# that fail. A node's verdicts are its Server's: deploy-slurm names each node after its OS hostname,
+# which the inventory's hostname and platform_node_name give for every member. Every verdict reaches
+# the run through the shared validation_report role. The inventory holds every member and --limit
+# narrows the play to the Task's targets, so the play takes all of them and ends on every host but
+# the first: all[0] would pick the inventory's first member, which need not be a target.
+
+- name: Accept the Slurm Platform
+  hosts: all
+  gather_facts: false
+  vars:
+    slurm_acceptance_members: "{{ swallow_validation_members | default([]) }}"
+  tasks:
+    - name: Run once, on the first Server the Task targets
+      ansible.builtin.meta: end_host
+      when: inventory_hostname != ansible_play_hosts_all[0]
+
+    - name: Map the nodes to their Servers
+      ansible.builtin.set_fact:
+        slurm_acceptance_node_servers: >-
+          {%- set names = {} -%}
+          {%- for member in slurm_acceptance_members -%}
+          {%- set host = hostvars[member.serverId] | default({}) -%}
+          {%- for name in [host.platform_node_name | default(''), host.hostname | default(''),
+                           (host.hostname | default('')).split('.') | first] if name -%}
+          {%- set _ = names.update({name: member.serverId}) -%}
+          {%- endfor -%}
+          {%- endfor -%}
+          {{ names }}
+
+    - name: Accept the cluster
+      ansible.builtin.include_role:
+        name: slurm_acceptance
+      vars:
+        slurm_acceptance_servers: "{{ slurm_acceptance_node_servers }}"
+        slurm_acceptance_expected_nodes: >-
+          {{ slurm_acceptance_members | selectattr('roles', 'contains', 'compute') | map(attribute='serverId') | list }}
+        slurm_acceptance_gpu_servers: "{{ (swallow_validation_parameters | default({})).gpuServers | default([]) }}"
+        slurm_acceptance_drain: "{{ swallow_validation_mode | default('report') == 'gate' }}"
+
+    - name: Write the results for Swallow
+      ansible.builtin.include_role:
+        name: validation_report

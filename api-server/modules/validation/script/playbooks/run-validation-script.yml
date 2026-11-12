@@ -1,0 +1,89 @@
+---
+# Run a user-defined Validation Suite (docs/development/validation.md §2.2) on each target Server:
+# the suite's script, as the account it names, for at most its timeout. Exit code 0 passes the
+# script check and any other code fails it; a script that runs out of time, or cannot be put on the
+# host, is an error. The tail of its output becomes the result's evidence, which the API redacts
+# again. The script lives in a private temporary directory only while it runs; nothing else of the
+# playbook's changes the host.
+
+- name: Run the validation script
+  hosts: all
+  gather_facts: false
+  vars:
+    script_validation_timeout: "{{ swallow_validation_timeout_seconds | default(600) | int }}"
+    script_validation_become: "{{ (swallow_validation_run_as | default('automation-user')) == 'root' }}"
+    # A script without an interpreter line runs under /bin/sh.
+    script_validation_shebang: "{{ swallow_validation_script | default('') is match('#!') }}"
+    script_validation_max_evidence: 8000
+  tasks:
+    - name: Create a private directory for the script
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: .swallow-validation
+      become: "{{ script_validation_become | bool }}"
+      register: script_validation_dir
+      ignore_errors: true
+
+    - name: Run the script
+      when: script_validation_dir is succeeded
+      block:
+        - name: Write the script
+          ansible.builtin.copy:
+            dest: "{{ script_validation_dir.path }}/script"
+            content: "{{ swallow_validation_script }}"
+            mode: "0700"
+          become: "{{ script_validation_become | bool }}"
+          register: script_validation_written
+          # The script is the suite's, readable through the API; it need not fill the job's log too.
+          no_log: true
+          ignore_errors: true
+
+        - name: Run the script with its timeout
+          ansible.builtin.command:
+            argv: >-
+              {{ ['timeout', '--kill-after=10', script_validation_timeout | string]
+                 + ([] if script_validation_shebang | bool else ['/bin/sh'])
+                 + [script_validation_dir.path ~ '/script'] }}
+            chdir: "{{ script_validation_dir.path }}"
+          become: "{{ script_validation_become | bool }}"
+          register: script_validation_run
+          changed_when: false
+          failed_when: false
+          when: script_validation_written is succeeded
+      always:
+        - name: Remove the script
+          ansible.builtin.file:
+            path: "{{ script_validation_dir.path }}"
+            state: absent
+          become: "{{ script_validation_become | bool }}"
+          changed_when: false
+
+    - name: Judge the script
+      ansible.builtin.include_role:
+        name: validation_report
+        tasks_from: record
+      vars:
+        script_validation_rc: "{{ script_validation_run.rc | default(-1) }}"
+        script_validation_ran: "{{ script_validation_run.rc is defined }}"
+        # timeout exits 124 when the script ran out of time, 137 when it also had to be killed.
+        script_validation_timed_out: "{{ script_validation_rc | int in [124, 137] }}"
+        validation_report_check: script
+        validation_report_verdict: >-
+          {{ 'error' if not script_validation_ran | bool or script_validation_timed_out | bool
+             else ('passed' if script_validation_rc | int == 0 else 'failed') }}
+        validation_report_summary: >-
+          {{ ('the script could not be put on the host: '
+              ~ (script_validation_dir.msg | default('') if script_validation_dir is failed else 'the copy failed'))
+             if not script_validation_ran | bool
+             else ('the script ran past its timeout of ' ~ script_validation_timeout ~ ' s'
+                   if script_validation_timed_out | bool
+                   else 'the script exited ' ~ script_validation_rc) }}
+        validation_report_evidence: "{{ ([script_validation_run.stdout | default(''), script_validation_run.stderr | default('')]
+          | select | join('\n'))[-(script_validation_max_evidence | int):] }}"
+        validation_report_measurements: >-
+          {{ [{'name': 'exit_code', 'value': script_validation_rc | int, 'unit': 'code', 'expected': '0'}]
+             if script_validation_ran | bool else [] }}
+
+    - name: Write the results for Swallow
+      ansible.builtin.include_role:
+        name: validation_report

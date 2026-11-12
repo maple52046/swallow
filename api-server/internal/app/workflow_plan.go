@@ -71,6 +71,8 @@ func workflowPlanCatalog(kinds workflowdomain.WorkflowKinds, software *softwared
 			softwareStepKindRecord:              internal(workflowdomain.RerunKeep),
 			softwareStepKindClear:               internal(workflowdomain.RerunKeep),
 			"noop":                              internal(workflowdomain.RerunKeep),
+			// A gate's final Task reads the results its checks recorded, so a rerun judges again.
+			completeValidationTaskKind: internal(workflowdomain.RerunConverge),
 			// A playbook is idempotent, but its outcome cannot be proven after its executor stopped,
 			// and a host a release-os released no longer runs the OS it needs.
 			"ansible-playbook": {

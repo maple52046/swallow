@@ -1,0 +1,112 @@
+{
+  "contractVersion": 1,
+  "kind": "validation",
+  "id": "host",
+  "version": "0.1.0",
+  "playbooks": [
+    "validate-host-baseline"
+  ],
+  "workflowKinds": [],
+  "taskKinds": [],
+  "completions": [],
+  "hooks": [],
+  "capabilities": [
+    "host-automation"
+  ],
+  "routes": [],
+  "templates": {
+    "host-baseline": {
+      "version": 1,
+      "jobs": [
+        {
+          "name": "validate-hosts",
+          "label": "Validate Hosts",
+          "retry": "job"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "host-baseline",
+          "name": "Check the host baseline",
+          "job": "validate-hosts",
+          "content": {
+            "type": "host-automation",
+            "playbook": "validate-host-baseline"
+          },
+          "targets": "servers",
+          "timeoutSeconds": 600
+        }
+      ]
+    }
+  },
+  "validations": [
+    {
+      "id": "host-baseline",
+      "title": "Host baseline",
+      "description": "Checks that each Server keeps time with the installation's NTP server, shows the CPUs and memory its hardware inspection found, and has a writable root filesystem with free space. It only reads the Servers.",
+      "target": "servers",
+      "impact": "observe",
+      "budgetSeconds": 900,
+      "experimental": true,
+      "template": "host-baseline",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "maxClockOffsetMs": {
+            "type": "integer",
+            "title": "Largest clock offset (ms)",
+            "description": "How far a clock may be from the installation's NTP server. Default 1000.",
+            "minimum": 1,
+            "maximum": 60000
+          },
+          "minFreeRootPercent": {
+            "type": "integer",
+            "title": "Least free space on / (%)",
+            "description": "Default 10.",
+            "minimum": 1,
+            "maximum": 99
+          },
+          "minCpus": {
+            "type": "integer",
+            "title": "Fewest CPUs",
+            "description": "The CPUs each Server must show. Default: the count its hardware inspection found.",
+            "minimum": 1
+          },
+          "minMemoryGib": {
+            "type": "integer",
+            "title": "Least memory (GiB)",
+            "description": "The memory each Server must show. Default: 90% of what its hardware inspection found.",
+            "minimum": 1
+          }
+        }
+      },
+      "checks": [
+        {
+          "id": "time-sync",
+          "title": "Time synchronization",
+          "description": "The clock is synchronized and within the largest offset of the installation's NTP server.",
+          "gating": true
+        },
+        {
+          "id": "cpu-count",
+          "title": "CPU count",
+          "description": "The OS shows at least the expected number of CPUs.",
+          "gating": true
+        },
+        {
+          "id": "memory",
+          "title": "Memory",
+          "description": "The OS shows at least the expected memory.",
+          "gating": true
+        },
+        {
+          "id": "root-filesystem",
+          "title": "Root filesystem",
+          "description": "The root filesystem is writable and has at least the least free space.",
+          "gating": true
+        }
+      ]
+    }
+  ]
+}

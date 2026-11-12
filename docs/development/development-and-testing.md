@@ -24,9 +24,10 @@ Go、Node、MongoDB、Temporal 與 Ansible 都在容器內。
 | `pulp-api`、`pulp-content`、`pulp-worker`、`pulp-web` | 開發 Site 的 [Local Repository](glossaries/terms/local-repository.md)（Pulp 3，[local-repository.md](local-repository.md)）；`pulp-web` 發佈在每個介面的 `PULP_HTTP_PORT`（預設 8080），api-server 以 `http://pulp-web:8080` 呼叫它 |
 | `dashboard` | Vite dev server（port 5173，HMR） |
 
-- **hot reload**：Air 監看 `api-server/` 的 `.go`、`.yaml`、`.yml`（排除 `tests/`、`docs/` 與 `_test.go`），存檔就重新
-  建置並重啟這三個 process。重啟 `ansible-executor` 會中斷執行中的 Ansible Task，該 Task 停在 `requires_attention`
-  （`executor_outcome_unknown`）。`modules/manifest.json` 不在監看的副檔名內，改了它要手動重啟。
+- **hot reload**：Air 監看 `api-server/` 的 `.go`、`.yaml`、`.yml`、`.json`（排除 `tests/`、`docs/` 與 `_test.go`），存檔
+  就重新建置並重啟這三個 process；`module.json` 與 `modules/manifest.json` 以 `go:embed` 編進執行檔，所以也要監看。重啟
+  `ansible-executor` 會中斷執行中的 Ansible Task，該 Task 停在 `requires_attention`（`executor_outcome_unknown`）。改了
+  `deploy/dev/air*.toml` 要重啟該 container 才生效。
 - **沒有 MAAS 時**：MAAS 是選用的。沒有設定 MAAS，stack、登入、Site 與 metrics Integration 都能用，但不會有任何
   Server：Server 只來自 provisioner 的 reconcile。開發 provisioning 功能不需要真的 MAAS：Go 的測試用 fake provider 與
   MAAS adapter 的 httptest server（§3.1），dashboard 用 Playwright fixture（§4）。
@@ -65,7 +66,8 @@ Go、Node、MongoDB、Temporal 與 Ansible 都在容器內。
 | 單一 handler | 同 package 的 delivery 測試：自己建 Fiber app，第一個 middleware 掛 `apicontract.ResponseValidator(t)`，例如 `internal/core/provisioning/delivery/http_proxy_handler_test.go` |
 | 回應符合契約 | `apicontract.ResponseValidator(t)` 依 OpenAPI 檢查每個回應的 status、Content-Type 與 body（不允許多出的欄位）；`setupPlatform` 已掛上 |
 | 路由與契約一致 | `internal/app/routes_contract_test.go` 檢查註冊的路由與契約列出的路由雙向一致 |
-| Mongo repository 與 transaction | `internal/adapters/store/mongodb/<context>/`；需要 `SWALLOW_TEST_MONGO_URI`（§3.2），每個測試建立自己的 database 並在結束時刪除（沒有共用 helper；可照著寫的範例：`server/platform_claim_transaction_test.go` 的 `claimTestDatabase`） |
+| Mongo repository 與 transaction | `internal/adapters/store/mongodb/<context>/`；需要 `SWALLOW_TEST_MONGO_URI`（§3.2）。每個測試以 `internal/adapters/store/mongodb/mongotest` 的 `Database(t, name)` 取得自己的 database，測試結束時刪除；被中斷的 run 留下的 database（`swallow_*_test_*`，超過一小時）由下一次建立 database 時刪除。開發環境的 `mongo` 容器把 open files 上限設為 64000，平行的 `go test ./...` 才不會用光 file descriptor |
+| process 的組裝 | `internal/app/process_assembly_test.go`：以 Mongo 測試 database 與不連線的 Temporal client 組出 api、worker、ansible-executor 三個 role，缺少依賴或註冊衝突時在測試失敗，而不是在啟動時；需要 `SWALLOW_TEST_MONGO_URI` |
 | MAAS adapter | `internal/adapters/osprovisioning/maas/provider_test.go` 的 `fakeMAAS`（httptest server）與 `newTestProvider` |
 | 其他 provider 的 fake | `tests/fakes_test.go`：`fakeProvider`（預設有 MAAS 的全部 capability，可注入錯誤並記錄呼叫）、`minimalProvider`（沒有任何 capability）、`fakeProviderFactory`、`executingLauncher`（在 request 內同步執行部署，取代 Temporal）。沒有共用的 fake provider package，其他 package 各自定義小型 fake |
 | Temporal driver | `internal/adapters/executor/temporalworkflow/driver_test.go`，用 Temporal SDK 的 testsuite，不需要 Temporal server |

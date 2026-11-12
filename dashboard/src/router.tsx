@@ -65,6 +65,11 @@ import { LocalRepositoryPage } from './presentation/pages/infrastructure/LocalRe
 import { SSHKeysPage } from './presentation/pages/account/SSHKeysPage'
 import { ApiKeysPage } from './presentation/pages/account/ApiKeysPage'
 import { FeatureRoute } from './presentation/components/FeatureRoute'
+import { ValidationRedirect } from './presentation/pages/validation/ValidationRedirect'
+import { ValidationRunsPage } from './presentation/pages/validation/ValidationRunsPage'
+import { ValidationRunDetailPage } from './presentation/pages/validation/ValidationRunDetailPage'
+import { ValidationSuitesPage } from './presentation/pages/validation/ValidationSuitesPage'
+import { ValidationSchedulesPage } from './presentation/pages/validation/ValidationSchedulesPage'
 
 /**
  * Stable Dashboard routes, each backed by active `/api/v1` provider contracts.
@@ -129,6 +134,11 @@ export const router = createBrowserRouter([
       { path: 'clusters/:id', element: <LegacyPlatformRedirect /> },
       { path: 'workflows', element: <ConsoleOperationsPage /> },
       { path: 'change-plans', element: <ChangePlansPage /> },
+      { path: 'validation', element: <ValidationRedirect /> },
+      { path: 'validation/runs', element: <ValidationRunsPage /> },
+      { path: 'validation/runs/:id', element: <ValidationRunDetailPage /> },
+      { path: 'validation/suites', element: <ValidationSuitesPage /> },
+      { path: 'validation/schedules', element: <ValidationSchedulesPage /> },
       { path: 'workflows/:id', element: <ConsoleOperationDetailPage /> },
       { path: 'operations', element: <LegacyWorkflowRedirect /> },
       { path: 'operations/:id', element: <LegacyWorkflowRedirect /> },

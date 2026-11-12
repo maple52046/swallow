@@ -31,19 +31,38 @@ type Schedule struct {
 	Reason string
 }
 
-// Plan schedules tasks with slots free places in the sliding window. A Task belongs to the Job it
-// names, or to the implicit Job when it names none. Within the window a Task waits until every
-// dependency has settled: its DependsOn, and — when its Job depends on another named Job through
-// a cross-Job DependsOn — every Task of that Job. A settled dependency permits the Task when it
-// succeeded or was skipped, or when the Task's ContinueOn lists its outcome; otherwise the Task is
-// skipped, which can settle further dependencies, so skipping repeats until nothing changes. A
-// retryable failure is not settled: its dependents wait through the user's retry instead of
-// being skipped past a failure that may yet succeed.
+// PlanPolicy is what a Workflow declares about how its Tasks settle.
+type PlanPolicy struct {
+	// Unattended settles every failure at once, retryable or not, and treats a Task handed to the
+	// user (requires_attention, an outcome that cannot be proven) as failed: nobody waits on the
+	// Workflow, so it never parks (Workflow.Unattended).
+	Unattended bool
+}
+
+// Plan schedules tasks with slots free places in the sliding window, for an attended Workflow
+// (PlanWith with the zero PlanPolicy).
 func Plan(tasks []Task, slots int) Schedule {
+	return PlanWith(tasks, slots, PlanPolicy{})
+}
+
+// PlanWith schedules tasks with slots free places in the sliding window. A Task belongs to the Job
+// it names, or to the implicit Job when it names none. Within the window a Task waits until every
+// dependency has settled: its DependsOn, and — when its Job depends on another named Job through
+// a cross-Job DependsOn — every Task of that Job. A settled dependency permits the Task when the
+// Task's ContinueOn lists its outcome, or, with an empty ContinueOn, when it succeeded or was
+// skipped; otherwise the Task is
+// skipped, which can settle further dependencies, so skipping repeats until nothing changes. In an
+// attended Workflow a retryable failure is not settled: its dependents wait through the user's
+// retry instead of being skipped past a failure that may yet succeed. An unattended Workflow
+// (policy.Unattended) settles it at once, and a Task handed to the user counts as failed.
+func PlanWith(tasks []Task, slots int, policy PlanPolicy) Schedule {
 	status := make([]TaskStatus, len(tasks))
 	index := make(map[string]int, len(tasks))
 	for i, task := range tasks {
 		status[i] = task.Status
+		if policy.Unattended && status[i] == TaskRequiresAttention {
+			status[i] = TaskFailed
+		}
 		index[task.ID] = i
 	}
 	deps := effectiveDependencies(tasks, index)
@@ -55,7 +74,7 @@ func Plan(tasks []Task, slots int) Schedule {
 			if !pendingStatus(status[i]) {
 				continue
 			}
-			if decide(tasks[i], deps[i], tasks, status) == decisionSkip {
+			if decide(tasks[i], deps[i], tasks, status, policy) == decisionSkip {
 				status[i] = TaskSkipped
 				schedule.Skip = append(schedule.Skip, i)
 				skipped = true
@@ -71,7 +90,7 @@ func Plan(tasks []Task, slots int) Schedule {
 		switch {
 		case status[i] == TaskRunning || status[i] == TaskWaitingExternal:
 			running = true
-		case pendingStatus(status[i]) && decide(tasks[i], deps[i], tasks, status) == decisionRun:
+		case pendingStatus(status[i]) && decide(tasks[i], deps[i], tasks, status, policy) == decisionRun:
 			if len(schedule.Ready) < slots {
 				schedule.Ready = append(schedule.Ready, i)
 			}
@@ -93,7 +112,7 @@ func Plan(tasks []Task, slots int) Schedule {
 		default:
 			done = false
 		}
-		if (status[i] == TaskFailed || status[i] == TaskRequiresAttention) && task.Error != nil && task.Error.Retryable {
+		if !policy.Unattended && (status[i] == TaskFailed || status[i] == TaskRequiresAttention) && task.Error != nil && task.Error.Retryable {
 			retryable = true
 		}
 		if reason == "" && task.Error != nil {
@@ -127,10 +146,10 @@ const (
 )
 
 // decide resolves one pending Task against the current status of its dependencies.
-func decide(task Task, deps []int, tasks []Task, status []TaskStatus) decision {
+func decide(task Task, deps []int, tasks []Task, status []TaskStatus, policy PlanPolicy) decision {
 	permitted := true
 	for _, dep := range deps {
-		if dep < 0 || !settled(status[dep], tasks[dep].Error) {
+		if dep < 0 || !settled(status[dep], tasks[dep].Error, policy) {
 			return decisionWait
 		}
 		if !dependencyPermits(status[dep], task.ContinueOn) {
@@ -198,21 +217,22 @@ func pendingStatus(status TaskStatus) bool {
 	return status == TaskPending || status == TaskWaitingDependency
 }
 
-// settled reports whether an outcome will not change by itself. A retryable failure (or
-// requires_attention) is not settled: it waits for a user retry.
-func settled(status TaskStatus, failure *NormalizedError) bool {
+// settled reports whether an outcome will not change by itself. In an attended Workflow a retryable
+// failure (or requires_attention) is not settled: it waits for a user retry. In an unattended one
+// every failure is settled (requires_attention already reads as failed there).
+func settled(status TaskStatus, failure *NormalizedError, policy PlanPolicy) bool {
 	switch status {
 	case TaskSucceeded, TaskSkipped, TaskCanceled:
 		return true
 	case TaskFailed:
-		return failure == nil || !failure.Retryable
+		return policy.Unattended || failure == nil || !failure.Retryable
 	default:
 		return false
 	}
 }
 
-// dependencyPermits reports whether a settled dependency outcome lets a dependent run: succeeded
-// or skipped by default, or any outcome the dependent's ContinueOn lists.
+// dependencyPermits reports whether a settled dependency outcome lets a dependent run: an outcome
+// the dependent's ContinueOn lists, or succeeded or skipped when ContinueOn is empty.
 func dependencyPermits(status TaskStatus, continueOn []TaskStatus) bool {
 	if len(continueOn) == 0 {
 		return status == TaskSucceeded || status == TaskSkipped

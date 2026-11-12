@@ -1,0 +1,13 @@
+---
+# validation_report role defaults. record.yml takes one result through the validation_report_*
+# vars of its include; main.yml merges what the hosts of validation_report_hosts recorded.
+validation_report_hosts: "{{ ansible_play_hosts_all }}"
+validation_report_target_kind: server
+validation_report_target_id: "{{ inventory_hostname }}"
+validation_report_summary: ""
+validation_report_evidence: ""
+validation_report_measurements: []
+# The bounds the API applies (docs/development/validation.md §4.2); the role keeps the tail of the
+# evidence so the result file stays small.
+validation_report_max_summary: 1000
+validation_report_max_evidence: 8000

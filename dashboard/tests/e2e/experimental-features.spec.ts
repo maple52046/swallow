@@ -30,7 +30,9 @@ test('Experimental features are on in development and switch live from the accou
   for (const label of ['Alerts', 'OS image upload', 'Deployment Templates', 'Virtual machines']) {
     await expect(dialog.getByLabel(label, { exact: true })).toBeChecked()
   }
-  await expect(dialog.getByLabel('Monitoring', { exact: true })).toHaveCount(0)
+  for (const released of ['Monitoring', 'Validation']) {
+    await expect(dialog.getByLabel(released, { exact: true })).toHaveCount(0)
+  }
 
   await dialog.getByText('Alerts', { exact: true }).click()
   await expect(dialog.getByLabel('Alerts', { exact: true })).not.toBeChecked()
@@ -148,6 +150,21 @@ test.describe('with every in-development feature hidden (the release view)', () 
     await expect(page.getByLabel('Platform name')).toBeVisible()
 
     expect(templateRequests).toEqual([])
+  })
+
+  test('Validation is released: its entry, pages, and sections stay with every feature off', async ({ page }) => {
+    await installApiFixtures(page)
+
+    await page.goto('/?site=site-a')
+    await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Validation' })).toBeVisible()
+
+    await page.goto('/validation/runs/run-failed?site=site-a')
+    await expect(page.getByRole('heading', { name: 'Host baseline', level: 1 })).toBeVisible()
+
+    await page.goto('/servers/srv-2/summary?site=site-a')
+    await expect(page.getByRole('heading', { name: 'Validation', exact: true })).toBeVisible()
+    await page.goto('/platforms/platform-a/overview?site=site-a')
+    await expect(page.getByRole('heading', { name: 'Validation', exact: true })).toBeVisible()
   })
 
   test('libvirt virtual machines are not offered and their Boot Media is not shown', async ({ page }) => {

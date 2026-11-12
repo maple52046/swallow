@@ -16,6 +16,7 @@ import { ApiSSHKeyRepository } from '@/infrastructure/api/ApiSSHKeyRepository'
 import { ApiApiKeyRepository } from '@/infrastructure/api/ApiApiKeyRepository'
 import { ApiChangePlanRepository } from '@/infrastructure/api/ApiChangePlanRepository'
 import { ApiLocalRepository } from '@/infrastructure/api/ApiLocalRepository'
+import { ApiValidationRepository } from '@/infrastructure/api/ApiValidationRepository'
 import { ApiKubernetesExplorer } from '@/modules/platform/kubernetes/infrastructure/ApiKubernetesExplorer'
 import { ApiSlurmPlatform } from '@/modules/platform/slurm/infrastructure/ApiSlurmPlatform'
 import { ApiAMDPlatform } from '@/modules/accelerator/amd/infrastructure/ApiAMDPlatform'
@@ -41,6 +42,7 @@ import type { SSHKeyRepository } from '@/application/ports/SSHKeyRepository'
 import type { ApiKeyRepository } from '@/application/ports/ApiKeyRepository'
 import type { ChangePlanRepository } from '@/application/ports/ChangePlanRepository'
 import type { LocalRepositoryPort } from '@/application/ports/LocalRepositoryPort'
+import type { ValidationRepository } from '@/application/ports/ValidationRepository'
 import type { ExperimentalFeatureSettings } from '@/application/ports/ExperimentalFeatureSettings'
 import type { KubernetesExplorerPort } from '@/modules/platform/kubernetes/KubernetesExplorerPort'
 import type { SlurmPlatformPort } from '@/modules/platform/slurm/SlurmPlatformPort'
@@ -77,6 +79,8 @@ export interface AppContainer {
   changePlans: ChangePlanRepository
   /** Each Site's Local Repository: its sync state, its content, and the user's sources (decision 078). */
   localRepository: LocalRepositoryPort
+  /** Validation Suites, Runs, and Schedules (decision 081); the area is an experimental feature. */
+  validation: ValidationRepository
   operations: OperationRepository
   monitoring: MonitoringRepository
   /** Which in-development dashboard features are shown; adjustable only in development builds. */
@@ -121,6 +125,7 @@ export function createContainer(): AppContainer {
     apiKeys: new ApiApiKeyRepository(),
     changePlans: new ApiChangePlanRepository(),
     localRepository: new ApiLocalRepository(),
+    validation: new ApiValidationRepository(),
     operations: new ApiOperationRepository(),
     monitoring: new ApiMonitoringRepository(),
     experimentalFeatures: import.meta.env.DEV

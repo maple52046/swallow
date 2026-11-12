@@ -13,6 +13,7 @@ import (
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
+	validationdomain "github.com/maple52046/swallow/internal/core/validation/domain"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/modules/accelerator/amd"
 	"github.com/maple52046/swallow/modules/platform/kubernetes"
@@ -28,6 +29,9 @@ import (
 	"github.com/maple52046/swallow/modules/software/podman"
 	"github.com/maple52046/swallow/modules/software/prometheus"
 	"github.com/maple52046/swallow/modules/software/victoriametrics"
+	validationhost "github.com/maple52046/swallow/modules/validation/host"
+	validationnetwork "github.com/maple52046/swallow/modules/validation/network"
+	validationscript "github.com/maple52046/swallow/modules/validation/script"
 )
 
 // compiledModules are the modules this build includes, by their root package's Module function.
@@ -35,6 +39,7 @@ var compiledModules = []func() (moduledomain.Module, error){
 	kubernetes.Module, slurm.Module, amd.Module,
 	dockerce.Module, podman.Module, nfs.Module, prometheus.Module, grafana.Module, devicemetricsexporter.Module,
 	nodeexporter.Module, victoriametrics.Module, libvirt.Module,
+	validationhost.Module, validationnetwork.Module, validationscript.Module,
 }
 
 // moduleRegistry returns the registry of the modules compiled into this build (decision 075). api,
@@ -75,6 +80,8 @@ type composedModules struct {
 	// artifacts are the modules' declarations of what their deployments fetch, from the Site's
 	// Local Repository or from these upstreams.
 	artifacts []localrepodomain.ModuleDeclaration
+	// validations are the Validation Suites the modules declare (decision 081).
+	validations []validationdomain.Suite
 }
 
 // composeModules assembles the registry and derives the software catalog and the accepted Workflow
@@ -109,10 +116,14 @@ func composeModules() (composedModules, error) {
 	if err != nil {
 		return composedModules{}, err
 	}
+	validations, err := validationSuites(registry)
+	if err != nil {
+		return composedModules{}, err
+	}
 	return composedModules{
 		registry: registry, software: software, workflowKinds: kinds, platformReaders: readers,
 		accelerators: accelerators, credentials: credentials, platforms: platforms,
-		artifacts: localRepositoryDeclarations(registry),
+		artifacts: localRepositoryDeclarations(registry), validations: validations,
 	}, nil
 }
 
@@ -296,6 +307,18 @@ func workflowKinds(registry *moduledomain.Registry) (workflowdomain.WorkflowKind
 	return kinds, nil
 }
 
+// failureCatalog restates the modules' declared failure codes (decision 077) in the workflow
+// context's terms, for the Ansible Runner to classify failed runs with.
+func failureCatalog(registry *moduledomain.Registry) workflowdomain.FailureCatalog {
+	catalog := workflowdomain.FailureCatalog{}
+	for code, declared := range registry.FailureCodes() {
+		catalog[code] = workflowdomain.DeclaredFailure{
+			Class: workflowdomain.FailureClass(declared.FailureClass), Remediation: declared.Remediation, Retryable: declared.Retryable,
+		}
+	}
+	return catalog
+}
+
 // integrationProviders are the provider kinds the adapters and Platform modules compiled into this
 // build offer for each Integration kind; the core validates Integrations against it.
 func integrationProviders() sitedomain.IntegrationProviders {
@@ -317,7 +340,7 @@ func bootChainRenderers() provisioningdomain.BootChainRenderers {
 // exactly one module.
 var coreWorkflowKinds = []string{
 	"deploy-os", "release-os", "recover-server", "verify-os-image", "inspect-hardware",
-	"enroll-virtual-machines", "configure-ntp", "custom",
+	"enroll-virtual-machines", "configure-ntp", "run-validation", "custom",
 }
 
 // coreCompletions are the completion types the core declares itself; every other type belongs to
@@ -325,4 +348,5 @@ var coreWorkflowKinds = []string{
 var coreCompletions = []string{
 	completionServerDeployment, completionServerDeploymentCleared, completionSoftwareFailure,
 	completionPlatformUninstall, completionPlatformGrafanaResult,
+	completionValidationResult, completionValidationRunState,
 }

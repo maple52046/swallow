@@ -3581,6 +3581,183 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/validation/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Validation Runs, newest first.
+         * @description Requires the `admin` role. Runs sorted by `requestedAt` descending, paged, without their results (read a run for them). Every filter is optional and exact-match.
+         */
+        get: operations["listValidationRuns"];
+        put?: never;
+        /**
+         * Start a Validation Run of a suite against deployed Servers or a Platform.
+         * @description Requires the `admin` role. Accepts the run and its `run-validation` Workflow in one transaction and returns 202 with the `pending` run; progress is read on the run (and its Workflow).
+         */
+        post: operations["startValidationRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/validation/runs/{runId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: components["parameters"]["ValidationRunId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read one Validation Run with its results.
+         * @description Requires the `admin` role.
+         */
+        get: operations["getValidationRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/validation/runs/{runId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: components["parameters"]["ValidationRunId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a report-mode Validation Run.
+         * @description Requires the `admin` role. Writes the cancel of the run's Workflow and returns 202 with the run; it ends `canceled` once the Workflow's cancel path finished.
+         */
+        post: operations["cancelValidationRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/validation/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Validation Schedules.
+         * @description Requires the `admin` role. Ordered by name; not paginated.
+         */
+        get: operations["listValidationSchedules"];
+        put?: never;
+        /**
+         * Create a Validation Schedule.
+         * @description Requires the `admin` role. The schedule starts at generation 1.
+         */
+        post: operations["createValidationSchedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/validation/schedules/{scheduleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scheduleId: components["parameters"]["ValidationScheduleId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read one Validation Schedule.
+         * @description Requires the `admin` role.
+         */
+        get: operations["getValidationSchedule"];
+        /**
+         * Replace a Validation Schedule's spec.
+         * @description Requires the `admin` role. Increments `generation`; with `generation` in the body the write applies only at that generation.
+         */
+        put: operations["replaceValidationSchedule"];
+        post?: never;
+        /**
+         * Delete a Validation Schedule.
+         * @description Requires the `admin` role. Its runs stay readable.
+         */
+        delete: operations["deleteValidationSchedule"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/validation/suites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the Validation Suite catalog.
+         * @description Requires the `admin` role. Module suites first (by id), then user suites (by name); not paginated. Retired user suites are omitted unless `includeRetired=true`.
+         */
+        get: operations["listValidationSuites"];
+        put?: never;
+        /**
+         * Create a user-defined Validation Suite (a script judged by its exit code).
+         * @description Requires the `admin` role. The suite starts at revision 1.
+         */
+        post: operations["createValidationSuite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/validation/suites/{suiteId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A module suite's kebab-case id, or a user suite's UUID. */
+                suiteId: components["parameters"]["ValidationSuiteId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read one Validation Suite.
+         * @description Requires the `admin` role. A retired user suite is still readable.
+         */
+        get: operations["getValidationSuite"];
+        /**
+         * Replace a user-defined Validation Suite, creating its next revision.
+         * @description Requires the `admin` role. A change to the script, `runAs`, `timeoutSeconds`, or `impact` increments `revision`; runs already accepted keep the revision they ran.
+         */
+        put: operations["replaceValidationSuite"];
+        post?: never;
+        /**
+         * Retire a user-defined Validation Suite.
+         * @description Requires the `admin` role. The suite leaves the catalog; its runs stay readable. Retiring a retired suite succeeds.
+         */
+        delete: operations["deleteValidationSuite"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workflows": {
         parameters: {
             query?: never;
@@ -5203,7 +5380,7 @@ export interface components {
              * @description What the module adds to swallow (glossary Extension Module).
              * @enum {string}
              */
-            kind: "accelerator" | "platform" | "software";
+            kind: "accelerator" | "platform" | "software" | "validation";
             /** @description The schema of the resource spec the module defines, as its manifest declares it, or null when it defines none. Properties keep the manifest's order. */
             spec: components["schemas"]["ModuleSpecSchema"] | null;
             /** @description The module's SemVer version. */
@@ -6926,6 +7103,268 @@ export interface components {
          * @description ISO 8601 in UTC (conventions.md, Timestamps).
          */
         Timestamp: string;
+        ValidationCheck: {
+            description: string;
+            /** @description Whether a deployment that composes the suite as a gate fails when this check does not pass. */
+            gating: boolean;
+            id: string;
+            title: string;
+        };
+        ValidationMeasurement: {
+            expected: string;
+            name: string;
+            unit: string;
+            value: number;
+        };
+        /** @description One check's verdict on one target. */
+        ValidationResult: {
+            check: string;
+            /** @description A bounded, redacted excerpt of what the host printed; empty when there is none. */
+            evidence: string;
+            measurements: components["schemas"]["ValidationMeasurement"][];
+            observedAt: components["schemas"]["Timestamp"];
+            summary: string;
+            target: components["schemas"]["ValidationResultTarget"];
+            /** @description The Task that judged it; null for an `error` swallow recorded because no Task did. */
+            taskId: string | null;
+            /** @enum {string} */
+            verdict: "passed" | "failed" | "error" | "skipped";
+        };
+        ValidationResultTarget: {
+            id: string;
+            /** @enum {string} */
+            kind: "server" | "platform";
+        };
+        /** @description A Validation Run (glossary) with every check's verdict on every target. */
+        ValidationRun: {
+            checks: components["schemas"]["ValidationCheck"][];
+            counts: components["schemas"]["ValidationRunCounts"];
+            finishedAt: components["schemas"]["Timestamp"] | null;
+            id: string;
+            /** @enum {string} */
+            mode: "report" | "gate";
+            parameters: {
+                [key: string]: unknown;
+            };
+            requestedAt: components["schemas"]["Timestamp"];
+            requestedBy: string;
+            results: components["schemas"]["ValidationResult"][];
+            siteId: string;
+            startedAt: components["schemas"]["Timestamp"] | null;
+            status: components["schemas"]["ValidationRunStatus"];
+            statusReason: string | null;
+            suite: components["schemas"]["ValidationRunSuite"];
+            target: components["schemas"]["ValidationRunTarget"];
+            trigger: components["schemas"]["ValidationRunTrigger"];
+            verdict: components["schemas"]["ValidationRunVerdict"] | null;
+            workflowId: string;
+        };
+        ValidationRunCounts: {
+            error: number;
+            failed: number;
+            passed: number;
+            skipped: number;
+        };
+        /** @description The pagination envelope (conventions.md, Pagination) over Validation Runs. */
+        ValidationRunPage: {
+            items: components["schemas"]["ValidationRunSummary"][];
+            page: number;
+            pageSize: number;
+            total: number;
+        };
+        ValidationRunRequest: {
+            /**
+             * @description Required to be true for a `disruptive` suite.
+             * @default false
+             */
+            confirm: boolean;
+            /** @description Run parameters, checked against the suite's `parameters` schema. */
+            parameters?: {
+                [key: string]: unknown;
+            };
+            /** @description The target Platform of a `platform` suite. */
+            platformId?: string;
+            /** @description The target Servers of a `servers` suite. */
+            serverIds?: string[];
+            suiteId: string;
+        };
+        /** @enum {string} */
+        ValidationRunStatus: "pending" | "running" | "completed" | "canceled";
+        ValidationRunSuite: {
+            id: string;
+            name: string;
+            /** @description The revision a user suite ran. */
+            revision: number | null;
+            scriptSha256: string | null;
+            /** @enum {string} */
+            source: "module" | "user";
+            /** @description The declaring module's version, for a module suite. */
+            version: string | null;
+        };
+        /** @description A Validation Run without its results, as the list returns it. */
+        ValidationRunSummary: {
+            checks: components["schemas"]["ValidationCheck"][];
+            counts: components["schemas"]["ValidationRunCounts"];
+            finishedAt: components["schemas"]["Timestamp"] | null;
+            id: string;
+            /** @enum {string} */
+            mode: "report" | "gate";
+            parameters: {
+                [key: string]: unknown;
+            };
+            requestedAt: components["schemas"]["Timestamp"];
+            requestedBy: string;
+            siteId: string;
+            startedAt: components["schemas"]["Timestamp"] | null;
+            status: components["schemas"]["ValidationRunStatus"];
+            statusReason: string | null;
+            suite: components["schemas"]["ValidationRunSuite"];
+            target: components["schemas"]["ValidationRunTarget"];
+            trigger: components["schemas"]["ValidationRunTrigger"];
+            verdict: components["schemas"]["ValidationRunVerdict"] | null;
+            /** @description The Workflow that executes the run (its own, or its deployment's in gate mode). */
+            workflowId: string;
+        };
+        ValidationRunTarget: {
+            kind: components["schemas"]["ValidationTargetKind"];
+            platformId: string | null;
+            /** @description The target Servers, or the Platform's access Servers the run entered through. */
+            serverIds: string[];
+        };
+        ValidationRunTrigger: {
+            kind: components["schemas"]["ValidationTriggerKind"];
+            scheduleId: string | null;
+            /** @description The deployment Workflow that triggered the run (a gate, or a schedule after a deployment). */
+            workflowId: string | null;
+        };
+        /** @enum {string} */
+        ValidationRunVerdict: "passed" | "failed" | "error";
+        ValidationSchedule: {
+            createdAt: components["schemas"]["Timestamp"];
+            /** Format: int64 */
+            generation: number;
+            id: string;
+            siteId: string;
+            spec: components["schemas"]["ValidationScheduleSpec"];
+            status: components["schemas"]["ValidationScheduleStatus"];
+            updatedAt: components["schemas"]["Timestamp"];
+        };
+        ValidationScheduleList: {
+            items: components["schemas"]["ValidationSchedule"][];
+        };
+        ValidationScheduleRequest: {
+            /** @default true */
+            enabled: boolean;
+            /**
+             * Format: int64
+             * @description On a replace, the generation the write expects (optional).
+             */
+            generation?: number;
+            name: string;
+            parameters?: {
+                [key: string]: unknown;
+            };
+            platformId?: string;
+            serverIds?: string[];
+            suiteId: string;
+            trigger: {
+                cron?: string;
+                /** @enum {string} */
+                kind: "cron" | "after-deployment";
+                timezone?: string;
+            };
+        };
+        ValidationScheduleSpec: {
+            enabled: boolean;
+            name: string;
+            parameters: {
+                [key: string]: unknown;
+            };
+            platformId: string | null;
+            serverIds: string[];
+            suiteId: string;
+            trigger: components["schemas"]["ValidationScheduleTrigger"];
+        };
+        ValidationScheduleStatus: {
+            conditions: components["schemas"]["Condition"][];
+            lastRunAt: components["schemas"]["Timestamp"] | null;
+            lastRunId: string | null;
+            /** @description Why the latest occurrence did not start a run (for example the target was busy). */
+            lastSkipReason: string | null;
+            nextRunAt: components["schemas"]["Timestamp"] | null;
+            /** Format: int64 */
+            observedGeneration: number;
+        };
+        ValidationScheduleTrigger: {
+            /** @description Five fields (minute hour day-of-month month day-of-week), for a `cron` trigger. */
+            cron: string | null;
+            /** @enum {string} */
+            kind: "cron" | "after-deployment";
+            /** @description The IANA time zone the cron expression is read in; `UTC` when not set. */
+            timezone: string | null;
+        };
+        /** @description A Validation Suite (glossary). A module suite's user-suite fields are null; a user suite's `module`, `platformType`, and `parameters` are null. */
+        ValidationSuite: {
+            /** @description How long one report run may take before it is canceled. */
+            budgetSeconds: number;
+            checks: components["schemas"]["ValidationCheck"][];
+            createdAt: components["schemas"]["Timestamp"] | null;
+            createdBy: string | null;
+            description: string;
+            /** @description A module suite offered as a preview whose checks may still change; it runs like any other. Always false for a user suite. */
+            experimental: boolean;
+            id: string;
+            /** @enum {string} */
+            impact: "observe" | "workload" | "disruptive";
+            module: components["schemas"]["ValidationSuiteModule"] | null;
+            name: string;
+            /** @description The schema of the run parameters the suite accepts (the modules area's spec schema subset). */
+            parameters: components["schemas"]["ModuleSpecSchema"] | null;
+            /** @description The Platform type a `platform` suite validates. */
+            platformType: string | null;
+            retired: boolean;
+            revision: number | null;
+            /** @enum {string|null} */
+            runAs: "automation-user" | "root" | null;
+            script: string | null;
+            scriptSha256: string | null;
+            /** @enum {string} */
+            source: "module" | "user";
+            target: components["schemas"]["ValidationTargetKind"];
+            timeoutSeconds: number | null;
+            updatedAt: components["schemas"]["Timestamp"] | null;
+        };
+        ValidationSuiteList: {
+            items: components["schemas"]["ValidationSuite"][];
+        };
+        ValidationSuiteModule: {
+            id: string;
+            /** @enum {string} */
+            kind: "accelerator" | "platform" | "software" | "validation";
+            version: string;
+        };
+        /** @enum {string} */
+        ValidationTargetKind: "servers" | "platform";
+        /** @enum {string} */
+        ValidationTriggerKind: "manual" | "schedule" | "deployment";
+        ValidationUserSuiteRequest: {
+            description?: string;
+            /**
+             * @default workload
+             * @enum {string}
+             */
+            impact: "observe" | "workload" | "disruptive";
+            name: string;
+            /**
+             * @default automation-user
+             * @enum {string}
+             */
+            runAs: "automation-user" | "root";
+            /** @description At most 64 KiB; run with its own interpreter line, or under /bin/sh without one. */
+            script: string;
+            /** @default 600 */
+            timeoutSeconds: number;
+        };
         VirtualMachineEnrollmentAccepted: {
             workflowId: string;
         };
@@ -7025,7 +7464,7 @@ export interface components {
          * @description What a Workflow is for; selects its definition. Several kinds are launched only through their owning feature endpoint (for example `verify-os-image`, `inspect-hardware`) and appear here in listings. `install-exporters` and `uninstall-exporters` are no longer accepted; they appear only on Workflows created by an earlier release (the Node Exporter is Managed Software, `configure-node-exporter` and `uninstall-node-exporter`). `deploy-k8s-exporters` and `remove-k8s-exporters` are no longer accepted either; they appear only on Workflows created by an earlier release (the Kubernetes exporter DaemonSets were retired).
          * @enum {string}
          */
-        WorkflowKind: "deploy-os" | "release-os" | "recover-server" | "verify-os-image" | "inspect-hardware" | "enroll-virtual-machines" | "install-gpu-driver" | "deploy-kubernetes" | "uninstall-kubernetes" | "configure-gpu-operator" | "configure-slurm" | "uninstall-slurm" | "install-exporters" | "uninstall-exporters" | "deploy-k8s-exporters" | "remove-k8s-exporters" | "configure-docker-ce" | "uninstall-docker-ce" | "configure-podman" | "uninstall-podman" | "configure-nfs" | "uninstall-nfs" | "configure-prometheus" | "uninstall-prometheus" | "configure-grafana" | "uninstall-grafana" | "configure-omnistat" | "configure-device-metrics-exporter" | "uninstall-device-metrics-exporter" | "configure-node-exporter" | "uninstall-node-exporter" | "configure-victoriametrics" | "uninstall-victoriametrics" | "configure-libvirt" | "uninstall-libvirt" | "configure-ntp" | "custom";
+        WorkflowKind: "deploy-os" | "release-os" | "recover-server" | "verify-os-image" | "inspect-hardware" | "enroll-virtual-machines" | "install-gpu-driver" | "deploy-kubernetes" | "uninstall-kubernetes" | "configure-gpu-operator" | "configure-slurm" | "uninstall-slurm" | "install-exporters" | "uninstall-exporters" | "deploy-k8s-exporters" | "remove-k8s-exporters" | "configure-docker-ce" | "uninstall-docker-ce" | "configure-podman" | "uninstall-podman" | "configure-nfs" | "uninstall-nfs" | "configure-prometheus" | "uninstall-prometheus" | "configure-grafana" | "uninstall-grafana" | "configure-omnistat" | "configure-device-metrics-exporter" | "uninstall-device-metrics-exporter" | "configure-node-exporter" | "uninstall-node-exporter" | "configure-victoriametrics" | "uninstall-victoriametrics" | "configure-libvirt" | "uninstall-libvirt" | "configure-ntp" | "run-validation" | "custom";
         /** @description The pagination envelope (conventions.md, Pagination) over Workflows. */
         WorkflowPage: {
             items: components["schemas"]["Workflow"][];
@@ -7329,6 +7768,15 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description `validation_error`: the body is not valid JSON; the name or `suiteId` is empty; the targets do not fit the suite's target kind; the parameters do not match the suite's schema; the trigger kind is unknown, a `cron` trigger has an invalid expression or time zone, or an `after-deployment` trigger has a `cron`; or the Servers belong to more than one Site. */
+        ValidationScheduleRejected: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description The Workflow already finished, or its execution cannot accept the control in its current state (`conflict`). */
         WorkflowControlConflict: {
             headers: {
@@ -7462,6 +7910,10 @@ export interface components {
         RegistryCredentialId: string;
         /** @description The browser refresh-token cookie set by login (HttpOnly, SameSite=Strict, Path /api/v1/auth). Used when the body carries no `refreshToken`. */
         SessionRefreshCookie: string;
+        ValidationRunId: string;
+        ValidationScheduleId: string;
+        /** @description A module suite's kebab-case id, or a user suite's UUID. */
+        ValidationSuiteId: string;
         /** @description `true` keeps only unfinished Workflows. Any other value, or absence, applies no constraint. */
         WorkflowActiveFilter: string;
         /** @description The Workflow ID. */
@@ -15694,6 +16146,561 @@ export interface operations {
             };
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listValidationRuns: {
+        parameters: {
+            query?: {
+                suiteId?: string;
+                /** @description Runs whose targets include this Server, or whose Platform has it as a member. */
+                serverId?: string;
+                platformId?: string;
+                scheduleId?: string;
+                status?: components["schemas"]["ValidationRunStatus"];
+                verdict?: components["schemas"]["ValidationRunVerdict"];
+                trigger?: components["schemas"]["ValidationTriggerKind"];
+                /** @description Only `pending` and `running` runs. Only the literal `true` constrains. */
+                active?: boolean;
+                page?: components["parameters"]["Page"];
+                pageSize?: components["parameters"]["PageSize"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of runs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationRunPage"];
+                };
+            };
+            /** @description `validation_error`: a `status`, `verdict`, or `trigger` value is not one of its values. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    startValidationRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValidationRunRequest"];
+            };
+        };
+        responses: {
+            /** @description The run was accepted. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationRun"];
+                };
+            };
+            /** @description `validation_error`: the body is not valid JSON; `suiteId` is empty; a `servers` suite has no `serverIds`, a Server is listed twice, or `platformId` is set; a `platform` suite has no `platformId` or has `serverIds`; the parameters do not match the suite's schema; the Servers belong to more than one Site; or a `disruptive` suite is started without `confirm: true`. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `not_found`: the suite (or a retired user suite), a target Server, or the Platform does not exist. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `conflict`: a target Server is not `deployed`, is locked, or (for a `workload` or `disruptive` Servers suite) is claimed by a Platform; the Platform is not `active`, is not of the suite's Platform type, or has no access Server; or a target already has active durable work (another run's included). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `provider_unavailable`: the targets' Site cannot run Ansible automation (no automation configuration, automation disabled, or no Deployment Key), or the Server Lock state of a target cannot be confirmed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getValidationRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: components["parameters"]["ValidationRunId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The run. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationRun"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `not_found`: no run has this id (it never existed or its retention ended). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    cancelValidationRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: components["parameters"]["ValidationRunId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The cancel was accepted. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationRun"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `not_found`: no run has this id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `conflict`: the run already ended, or it is a gate run (cancel its deployment instead). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listValidationSchedules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every schedule. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationScheduleList"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    createValidationSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValidationScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description The created schedule. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationSchedule"];
+                };
+            };
+            400: components["responses"]["ValidationScheduleRejected"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `not_found`: the suite, a target Server, or the Platform does not exist. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getValidationSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scheduleId: components["parameters"]["ValidationScheduleId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The schedule. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationSchedule"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `not_found`: no schedule has this id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    replaceValidationSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scheduleId: components["parameters"]["ValidationScheduleId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValidationScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description The replaced schedule. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationSchedule"];
+                };
+            };
+            400: components["responses"]["ValidationScheduleRejected"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `not_found`: the schedule, the suite, a target Server, or the Platform does not exist. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `conflict`: `generation` is not the schedule's current generation. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteValidationSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scheduleId: components["parameters"]["ValidationScheduleId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The schedule is deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `not_found`: no schedule has this id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listValidationSuites: {
+        parameters: {
+            query?: {
+                /** @description Include retired user suites. Only the literal `true` enables it. */
+                includeRetired?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The catalog. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationSuiteList"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    createValidationSuite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValidationUserSuiteRequest"];
+            };
+        };
+        responses: {
+            /** @description The created suite. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationSuite"];
+                };
+            };
+            /** @description `validation_error`: the body is not valid JSON, the name or script is empty, the script is larger than 64 KiB, or `runAs`, `timeoutSeconds`, or `impact` is not accepted. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getValidationSuite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A module suite's kebab-case id, or a user suite's UUID. */
+                suiteId: components["parameters"]["ValidationSuiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The suite. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationSuite"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `not_found`: no suite has this id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    replaceValidationSuite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A module suite's kebab-case id, or a user suite's UUID. */
+                suiteId: components["parameters"]["ValidationSuiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValidationUserSuiteRequest"];
+            };
+        };
+        responses: {
+            /** @description The replaced suite. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationSuite"];
+                };
+            };
+            /** @description `validation_error`: as for create. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `not_found`: no suite has this id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `conflict`: the suite is a module suite, which cannot be changed, or it is retired. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteValidationSuite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A module suite's kebab-case id, or a user suite's UUID. */
+                suiteId: components["parameters"]["ValidationSuiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The suite is retired. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `not_found`: no suite has this id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `conflict`: the suite is a module suite, or a Validation Schedule names it. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             default: components["responses"]["Error"];
         };
     };

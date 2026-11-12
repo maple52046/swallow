@@ -22,6 +22,7 @@ import (
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
+	validationapp "github.com/maple52046/swallow/internal/core/validation/application"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/redact"
 	"github.com/maple52046/swallow/internal/shared/sshprobe"
@@ -54,6 +55,9 @@ type platformWorkflowStepExecutor struct {
 	// bootISOs resolves a Server's chosen Boot ISO for the inspect-hardware ensure-boot-media
 	// Task, which reads Boot Media when it runs rather than from a frozen URL (decision 053).
 	bootISOs serverdomain.BootISOResolver
+	// validations reads a gate run's results for the complete-validation Task (decision 081). Nil
+	// fails a gate's complete-validation, retryably.
+	validations *validationapp.Recorder
 	// sshProber performs the authenticated SSH readiness probe for wait-for-ssh. Nil uses the
 	// x/crypto/ssh client; tests inject a fake to exercise readiness without a live SSH server.
 	sshProber sshprobe.Prober
@@ -85,6 +89,8 @@ func (e platformWorkflowStepExecutor) Execute(ctx context.Context, input tempora
 		return e.recordSoftwareAssignment(ctx, input, softwaredomain.StateAbsent)
 	case ensureBootMediaTaskKind:
 		return e.ensureBootMedia(ctx, input)
+	case completeValidationTaskKind:
+		return e.completeValidation(ctx, input)
 	default:
 		return internalStepFailed("unsupported_internal_step", "The internal Step kind is not supported.", false)
 	}

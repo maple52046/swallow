@@ -1,8 +1,8 @@
 # 模組撰寫指南
 
 本文件說明如何在 `api-server/modules/` 新增或修改一個模組的內容：目錄怎麼放、playbook 怎麼登錄、role 怎麼解析與
-命名、每支 playbook 都要遵守的規則，以及要加哪些測試。讀者是新增或修改 plugin（Platform、Accelerator、Software
-模組）或共用 host automation 內容的開發者與 AI agent。
+命名、每支 playbook 都要遵守的規則、驗證的內容（§7），以及要加哪些測試。讀者是新增或修改 plugin（Platform、
+Accelerator、Software、Validation 模組）或共用 host automation 內容的開發者與 AI agent。
 
 > **範圍**：模組的宣告（`module.json`、root Go package 與它實作的 hook、HTTP 路由，§1.1）、模組在 dashboard 的畫面
 > （§1.2）與 host automation 內容（playbook 與 role）。模組是什麼、可以依賴什麼，見
@@ -17,7 +17,7 @@
 ```text
 api-server/modules/
 ├── manifest.json                 # release 的 playbook allowlist（§2）
-├── <種類>/<id>/                  # 一個模組一個目錄；種類是 platform、accelerator 或 software
+├── <種類>/<id>/                  # 一個模組一個目錄；種類是 platform、accelerator、software 或 validation
 │   ├── playbooks/<file>.yml
 │   ├── roles/<role>/
 │   └── <Go package>/             # 模組的 Go 程式碼（若有）
@@ -357,7 +357,82 @@ role 的行為要實際執行才看得出來時（改寫主機設定、冪等、
 端到端的驗證在 lab 以真機進行，規則（可用哪些機器、事先確認什麼）見 skill
 [`skills/lab-verification/SKILL.md`](../../skills/lab-verification/SKILL.md)。
 
-## 7. 搬移或改名內容
+## 7. 驗證的內容
+
+模組以資料宣告 Validation Suite，由 core 受理與記錄（[validation.md](validation.md)，[decision 081](../decisions/081-validation-suites-and-runs.md)（validation suites and runs））。
+屬於某個 Platform、Accelerator 或 Software 的檢查放在該模組；不屬於任何一個的（主機、網路）放在 Validation Module
+`modules/validation/<id>/`（kind `validation`，root package 只嵌入 `module.json`，沒有 hook）。
+
+### 7.1 宣告 suite 與範本
+
+```json
+{
+  "playbooks": ["validate-host-baseline"],
+  "templates": {
+    "host-baseline": {
+      "version": 1,
+      "jobs": [{ "name": "validate-hosts", "label": "Validate Hosts", "retry": "job" }],
+      "tasks": [{
+        "id": "host-baseline", "name": "Check the host baseline", "job": "validate-hosts",
+        "content": { "type": "host-automation", "playbook": "validate-host-baseline" },
+        "targets": "servers", "timeoutSeconds": 600
+      }]
+    }
+  },
+  "validations": [{
+    "id": "host-baseline", "title": "Host baseline", "target": "servers", "impact": "observe",
+    "budgetSeconds": 900, "template": "host-baseline",
+    "parameters": { "type": "object", "additionalProperties": false, "properties": { "minCpus": { "type": "integer", "title": "Fewest CPUs", "minimum": 1 } } },
+    "checks": [{ "id": "cpu-count", "title": "CPU count", "gating": true }]
+  }]
+}
+```
+
+（節錄自 `api-server/modules/validation/host/module.json`。）
+
+- `validations` 的欄位見 [validation.md](validation.md) §2.1；suite id 在所有模組之間唯一。`parameters` 是 spec schema 子集
+  （§1.1），沒有 `default`：預設值寫在 playbook，並寫進屬性的 `description`。
+- `impact` 依 [Validation Impact](glossaries/terms/validation-impact.md) 的判斷依據：只讀取，或少量、短暫、不會明顯影響
+  運作中 workload 的探測（幾個 ping、DNS 查詢、port 檢查）是 `observe`；在一段時間內佔用或吃滿 workload 使用的資源
+  （GPU 運算與記憶體、頻寬測試、scheduler 的節點）是 `workload`。宣告得比實際重，會讓 suite 無法在 Platform 的成員上執行。
+- check 還可能改變的 suite 宣告 `experimental: true`：照常執行，dashboard 預設不顯示。部署組入的 gate 不應是實驗性的。
+- `templates` 是 Workflow Template（glossary [Workflow Template](glossaries/terms/workflow-template.md)，格式在
+  `internal/core/workflow/domain/template.go`）：Job 帶顯示名稱與重試粒度；Task 的 `content` 是 `host-automation`（模組自己
+  `playbooks` 列出的 playbook）或 `task`（已登錄的 Task kind）；`targets` 是 `servers`（run 的目標 Server）、`access`
+  （Platform 的進入點，由 Platform 模組的 `AccessServers` 決定）或 `members`（Platform 的每個成員）。Job 名稱會出現在組入
+  部署的 Workflow，所以帶上模組的名稱（`validate-slurm`），不要與部署的 Job 重名。
+- 每個 Task 宣告 `timeoutSeconds`，小於 suite 的 `budgetSeconds`。
+- 失敗訊息帶 `[code]` 的 role 可以在 `failureCodes` 宣告 Failure Class 與 remediation（decision 077）。
+
+### 7.2 寫驗證的 playbook
+
+- 只讀取或執行短暫的工作，不安裝套件、不改設定（需要套件的檢查等 artifact 宣告涵蓋它們，[validation.md](validation.md) §7）。
+  要在主機上執行的 probe 以 `ansible.builtin.script` 從 role 的 `files/` 複製，執行完就消失；不要安裝。
+- check 沒有通過是 verdict，不是失敗：命令都 `failed_when: false`，再依結果判定。playbook 本身失敗（主機連不上、工具壞掉）
+  才是 Task 失敗，它的 check 由 swallow 補上 `error`。
+- 從 trusted var 讀 run 的內容：`swallow_validation_parameters`、`swallow_validation_targets`、`swallow_validation_members`、
+  `swallow_validation_mode`（`gate` 時才可以做部署的補救動作，例如 drain）等，清單見 [validation.md](validation.md) §3。
+- Platform suite 在一台 access Server 執行一次：inventory 有每個成員（供 `hostvars` 讀取），`--limit` 才把 play 限縮到
+  Task 的目標，所以 play 寫 `hosts: all`，第一個 task 以 `meta: end_host` 結束 `ansible_play_hosts_all[0]` 以外的主機；
+  `hosts: all[0]` 取的是 inventory 的第一個成員，不一定是目標，結果是沒有主機執行。節點名稱以成員的 inventory
+  `hostname` 與 `platform_node_name` 對回 Server id。
+- 內容也要能單獨執行：從系統本身讀出要驗證什麼（節點、GRES、啟用的功能），不依賴部署時的 fact。
+
+### 7.3 回報結果
+
+- 每個結果以共用 role `validation_report` 的 `tasks_from: record` 記錄：`validation_report_check`、
+  `validation_report_verdict`（`passed`、`failed`、`error`、`skipped`），以及選用的 `validation_report_summary`、
+  `validation_report_evidence`、`validation_report_measurements`（`name`、`value`、`unit`、`expected`）、
+  `validation_report_target_kind` 與 `validation_report_target_id`（預設是這台主機的 Server）。不認得的 verdict 以
+  `[validation_result_invalid]` 停下。一次產生很多結果的 helper 可以直接輸出同樣形狀的清單，加到主機的
+  `swallow_validation_results`。
+- playbook 最後一個 play 的最後一個 task 是 `include_role: validation_report`（main），把每台主機記錄的結果寫到
+  `swallow_result_path`（結果的形狀與上限見 [validation.md](validation.md) §4.2）。
+- 內容測試：`validation_playbook_test.go` 的 `TestValidationPlaybooksReportThroughTheSharedRole` 檢查每支驗證的 playbook
+  以它結尾；為新的 suite 寫一個在 localhost 實際執行的測試，以假的工具（sysfs 目錄、kubectl、Slurm 指令）涵蓋 passed、
+  failed 與 skipped（範例：`validation_playbook_test.go`、`slurm_acceptance_playbook_test.go`）。
+
+## 8. 搬移或改名內容
 
 - 改 manifest 的 `path`；playbook 的 `name` 已被 Site 的 `playbookMappings` 與已受理的 Workflow 引用，改名時保留
   舊名當 alias（§2）。
@@ -366,7 +441,7 @@ role 的行為要實際執行才看得出來時（改寫主機設定、冪等、
   [software-deployment.md](software-deployment.md) §7、[installation.md](installation.md)（`configure-ntp`）。
 - `deploy/production/swallowctl` 的 doctor 執行 `shared/playbooks/diagnostic-ping.yml`，搬移它時一併修改。
 
-## 8. 提交前的檢查清單
+## 9. 提交前的檢查清單
 
 每次修改：
 
@@ -384,6 +459,6 @@ role 的行為要實際執行才看得出來時（改寫主機設定、冪等、
 - [ ] dashboard 的畫面已決定：專屬畫面登錄在 `src/modules/registry.ts`，或依 `spec` 產生（§1.2）。
 - [ ] 新模組的 `api-server/modules/<種類>/<id>/` 與 dashboard 的模組目錄（有的話；Software 模組沒有）已在 `.github/CODEOWNERS` 登錄負責人；
   `internal/app` 的測試檢查每個編入的模組都有一行。
-- [ ] 新 playbook 已登錄在 `manifest.json`；改名保留了舊名（§2、§7）。
-- [ ] 搬移或改名後，位置表與相關規格已更新（§7）。
+- [ ] 新 playbook 已登錄在 `manifest.json`；改名保留了舊名（§2、§8）。
+- [ ] 搬移或改名後，位置表與相關規格已更新（§8）。
 - [ ] 模組層級的檢查見 [core-and-extensions.md](core-and-extensions.md) §11.2。

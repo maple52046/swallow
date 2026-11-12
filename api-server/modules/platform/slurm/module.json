@@ -6,7 +6,8 @@
   "playbooks": [
     "deploy-slurm",
     "uninstall-slurm",
-    "configure-omnistat"
+    "configure-omnistat",
+    "validate-slurm-acceptance"
   ],
   "workflowKinds": [
     "configure-slurm",
@@ -118,5 +119,88 @@
       "wheel==0.48.0",
       "zipp==4.1.1"
     ]
-  }
+  },
+  "templates": {
+    "slurm-acceptance": {
+      "version": 1,
+      "jobs": [
+        {
+          "name": "validate-slurm",
+          "label": "Validate Slurm",
+          "retry": "job"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "slurm-acceptance",
+          "name": "Accept the Slurm cluster",
+          "job": "validate-slurm",
+          "content": {
+            "type": "host-automation",
+            "playbook": "validate-slurm-acceptance"
+          },
+          "targets": "access",
+          "timeoutSeconds": 1500
+        }
+      ]
+    }
+  },
+  "validations": [
+    {
+      "id": "slurm-acceptance",
+      "title": "Slurm acceptance",
+      "description": "Checks that a step runs on every node, that jobs share a node, that native OCI containers run rootless and see only their GPUs, that MPI launches through PMIx, and that Slurm hands out working GPUs. It reads the nodes and features from the cluster and runs short jobs, so it competes with the cluster's workload. Every Slurm deployment runs it as its gate; there, GPU nodes that fail are drained.",
+      "target": "platform",
+      "platformType": "slurm",
+      "impact": "workload",
+      "budgetSeconds": 1800,
+      "template": "slurm-acceptance",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "gpuServers": {
+            "type": "array",
+            "title": "GPU Servers",
+            "description": "Servers that must offer GPU GRES. Default: none beyond the nodes whose GRES names GPUs.",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "checks": [
+        {
+          "id": "srun-all-nodes",
+          "title": "Step on every node",
+          "description": "One task runs on every node at once, and every compute member is a node.",
+          "gating": false
+        },
+        {
+          "id": "shared-node",
+          "title": "Jobs share a node",
+          "description": "Two one-CPU jobs without a memory request run on one node together, unless the partition hands out whole nodes.",
+          "gating": true
+        },
+        {
+          "id": "oci-container",
+          "title": "Native OCI containers",
+          "description": "A container step runs rootless, and a one-GPU container step sees exactly one GPU on every GPU node.",
+          "gating": true
+        },
+        {
+          "id": "mpi-pmix",
+          "title": "MPI with PMIx",
+          "description": "srun --mpi=pmix_v5 launches ranks on one node, across nodes, and in containers, and a failing rank fails its step.",
+          "gating": true
+        },
+        {
+          "id": "gpu-gres",
+          "title": "GPU GRES",
+          "description": "Every GPU node offers GPU GRES, and the HIP probe works without a GPU request, with one GPU, and with every GPU.",
+          "gating": true
+        }
+      ]
+    }
+  ]
 }

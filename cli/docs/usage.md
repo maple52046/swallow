@@ -821,7 +821,7 @@ spec:
 
 ```bash
 swallow platforms create -f platform-slurm-omnistat.yaml --approve
-swallow workflows get <workflowId>    # ensure-os, configure-slurm, configure-podman, configure-grafana, configure-omnistat
+swallow workflows get <workflowId>    # ensure-os, configure-slurm, validate-slurm (the acceptance gate), configure-podman, configure-grafana, configure-omnistat
 swallow platforms get <platformId>    # containerRuntime, omnistat.state and .hardwareCounters, then the Platform Grafana link in monitoringLinks
 ```
 
@@ -906,6 +906,45 @@ swallow workflows task artifacts wf1 task1
 ```
 
 `workflow.yaml`: `{ kind: custom, intent: "verify SSH", targetServerIds: [srv1], playbookName: diagnostic-ping, extraVars: {} }`
+
+### validation
+
+```bash
+# The catalog: suites the modules declare (read-only) and script suites. A preview suite whose
+# checks may still change carries experimental: true (-o yaml); it runs like any other.
+swallow validation suites list
+swallow validation suites get host-baseline
+
+# A script suite: its exit code is the verdict (0 passed, other failed, past the timeout an error).
+# The script is stored and shown as written; do not put secrets in it.
+swallow validation suites create --name "Data mounts" --script-file check-mounts.sh --timeout 120
+swallow validation suites update <suiteId> --name "Data mounts" --script-file check-mounts.sh --run-as root
+swallow validation suites retire <suiteId>
+
+# Runs: a servers suite takes --server (repeat or comma-separate), a platform suite --platform.
+# --param values are read as YAML (64 is a number, [a,b] a list); a disruptive suite needs --confirm.
+swallow validation runs start --suite host-baseline --server srv1,srv2 --param minCpus=64
+swallow validation runs start --suite slurm-acceptance --platform plat1 --wait
+swallow validation runs list --server srv1 --verdict failed
+swallow validation runs get <runId> -o yaml    # every check's verdict on every target; a table shows only the counts
+swallow validation runs watch <runId> --interval 10s
+swallow validation runs cancel <runId>
+
+# Schedules: the spec is a body.
+swallow validation schedules create -f nightly.yaml
+swallow validation schedules update <scheduleId> -f nightly.yaml
+swallow validation schedules list
+swallow validation schedules delete <scheduleId>
+```
+
+`nightly.yaml`: `{ name: Nightly baseline, suiteId: host-baseline, serverIds: [srv1, srv2], trigger: { kind: cron, cron: "0 2 * * *", timezone: Asia/Taipei } }`
+(or `trigger: { kind: after-deployment }` to run after each deployment of the target).
+
+`runs start --wait` and `runs watch` read the run every `--interval` (default 5s) until it ends,
+writing a line to stderr when its status or counts change, then print the run. They exit 0 only
+when the run completed with verdict `passed`, so a script can gate on them. A deployment's gate run
+(for example a Slurm deployment's `slurm-acceptance`) is listed with `--trigger deployment`; it ends
+with its deployment and cannot be canceled on its own.
 
 ### monitoring
 

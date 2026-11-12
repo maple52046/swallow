@@ -17,6 +17,7 @@ import (
 	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 	"github.com/maple52046/swallow/internal/core/store"
+	validationapp "github.com/maple52046/swallow/internal/core/validation/application"
 	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/modules/accelerator/amd"
@@ -33,6 +34,9 @@ type platformOperations struct {
 	// software is the Managed Software service the operations compose installs through, over the
 	// same acceptance checks; the worker's Node Exporter controller starts its installs with it.
 	software *softwareapp.SoftwareService
+	// validation is the Validation service the deployments' gates are planned through; the worker's
+	// schedule controller starts its runs with it.
+	validation *validationapp.Service
 }
 
 // platformOperationDeps is what the Platform operations are built from.
@@ -61,6 +65,9 @@ type platformOperationDeps struct {
 	// monitoringTokens issues a Platform's monitoring token when a deployment that installs its
 	// Grafana is accepted. Required: buildPlatformOperations refuses nil.
 	monitoringTokens platformTokenIssuer
+	// validation plans and records the gate a Slurm deployment composes (validation.md §5).
+	// Required: buildPlatformOperations refuses nil.
+	validation *validationapp.Service
 }
 
 // newPlatformMonitoringAccess reads the installation's monitoring addresses from the process's
@@ -131,10 +138,17 @@ func buildPlatformOperations(deps platformOperationDeps) (platformOperations, er
 	if deps.monitoringTokens == nil {
 		return platformOperations{}, fmt.Errorf("compose the platform operations: no Platform monitoring token issuer")
 	}
+	if deps.validation == nil {
+		return platformOperations{}, fmt.Errorf("compose the platform operations: no validation service for the deployment gate")
+	}
+	gate := &validationGate{service: deps.validation, launcher: validationLauncher{
+		operations: deps.operations, workflows: deps.orchestrations, registry: deps.modules.registry, ntp: deps.ntp,
+		catalog: workflowPlanCatalog(deps.modules.workflowKinds, deps.modules.software),
+	}}
 	launcher := platformDeploymentLauncher{
 		operations: deps.operations, orchestrations: deps.orchestrations, deployments: deps.deployments, servers: deps.servers,
 		bootMedia: deps.bootMedia, software: deps.software, ntp: deps.ntp, nodeExporter: deps.nodeExporter,
-		monitoring: deps.monitoring, monitoringTokens: deps.monitoringTokens,
+		monitoring: deps.monitoring, monitoringTokens: deps.monitoringTokens, gate: gate,
 	}
 	// The GPU Operator and the Device Metrics Exporter are the AMD Accelerator module's Platform
 	// features, so they serve its GPUs.
@@ -161,6 +175,6 @@ func buildPlatformOperations(deps platformOperationDeps) (platformOperations, er
 	return platformOperations{
 		deploy: deploy, uninstall: uninstall, gpuOperators: gpuOperators,
 		planner:  platformapp.NewPlatformPlanner(deps.platforms, deps.lifecycle, deploy, uninstall, gpuOperators, deps.modules.platforms),
-		software: deps.software,
+		software: deps.software, validation: deps.validation,
 	}, nil
 }

@@ -64,5 +64,10 @@ test('Release builds hide in-development features and offer no switch', async ({
   await expect(addServers.getByRole('button', { name: /Yes, keep its OS/ })).toBeVisible()
   await expect(addServers.getByRole('button', { name: /libvirt virtual machine/ })).toHaveCount(0)
 
+  // Validation is released: its pages and its entry are in every build.
+  await page.goto('/validation/runs?site=site-a')
+  await expect(page.getByRole('table', { name: 'Validation Runs' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Validation' })).toBeVisible()
+
   expect(alertRequests).toEqual([])
 })

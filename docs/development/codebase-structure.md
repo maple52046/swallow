@@ -115,11 +115,12 @@ flowchart LR
   - [`server-enrollment-and-boot-media.md`](server-enrollment-and-boot-media.md) — Server Enrollment、硬體檢視、Power Configuration、Boot Media 與 Boot ISO。
   - [`bmc-profiles.md`](bmc-profiles.md) — Redfish adapter 的 BMC Profile：BMC 家族的辨識、共同 DMTF 行為與各家族處理的界線、新增 profile 的流程。
   - [`workflow-execution.md`](workflow-execution.md) — durable Workflow 的跨功能執行語意：啟動、資源所有權、Task 重試、rerun、取消、取代佔用的工作、即時事件與 Job label。
+  - [`validation.md`](validation.md) — Validation：模組宣告與 user-defined 的 Validation Suite、Validation Run 的受理、結果與 verdict、組入部署的閘門、Validation Schedule。
   - [`access-and-credentials.md`](access-and-credentials.md) — 憑證（Deployment Key、Access Key、Server Default User、Site automation credential）與認證概要。
   - [`installation.md`](installation.md) — 支援的安裝拓樸、`swallowctl` 生命週期保證、發佈產物與時間同步。
   - [`commit-spec.md`](commit-spec.md) — commit message 規範。
   - [`glossaries/`](glossaries) — 跨 component 共通的 domain glossary，定義 swallow 的 ubiquitous language。
-  - [`context-maps/`](context-maps) — 跨 context 的 context map：[`automation-execution.md`](context-maps/automation-execution.md)、[`os-provisioning.md`](context-maps/os-provisioning.md)；需要時新增。
+  - [`context-maps/`](context-maps) — 跨 context 的 context map：[`automation-execution.md`](context-maps/automation-execution.md)、[`os-provisioning.md`](context-maps/os-provisioning.md)、[`validation.md`](context-maps/validation.md)；需要時新增。
 - [`docs/decisions/`](../decisions) — 輕量 ADR，記錄現行的決議與「為什麼」；決議改變時更新，修訂紀錄在每份的最後；現行行為寫在上列規格。
 - `docs/plans/` — 歷史計畫紀錄；`docs/plans/manuscripts/` 為進行中的計畫草稿。
 
@@ -135,7 +136,7 @@ component 之內，不是新的頂層 component。位置：
 | --- | --- |
 | core | `api-server/internal/core/` |
 | provider adapter | `api-server/internal/adapters/<provider interface>/<adapter>/` |
-| 擴充模組 | `api-server/modules/<種類>/<id>/`（一個模組一個目錄，含 manifest、host automation 內容與 Go hook） |
+| 擴充模組 | `api-server/modules/<種類>/<id>/`（一個模組一個目錄，含 manifest、host automation 內容與 Go hook；種類是 `platform`、`accelerator`、`software`、`validation`） |
 | 跨模組共用的 host automation 內容 | `api-server/modules/shared/` |
 
 `api-server` 內部的完整目錄配置與依賴規則見

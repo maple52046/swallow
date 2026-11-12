@@ -1,0 +1,30 @@
+---
+# Record one Validation Check's verdict (docs/development/validation.md §4.2) in this host's
+# swallow_validation_results. The include sets validation_report_check and
+# validation_report_verdict, and may set the summary, evidence, measurements, and target (by
+# default this host's Server). A check that judges another Server or the Platform is recorded on
+# the host that observed it. Nothing on the host changes.
+
+- name: Refuse a result Swallow cannot read
+  ansible.builtin.assert:
+    that:
+      - validation_report_check | default('') | length > 0
+      - validation_report_verdict | default('') in ['passed', 'failed', 'error', 'skipped']
+      - validation_report_target_kind in ['server', 'platform']
+      - validation_report_target_id | string | length > 0
+    fail_msg: >-
+      [validation_result_invalid] check {{ validation_report_check | default('') }}: a result needs a check, a verdict
+      of passed, failed, error, or skipped, and a server or platform target
+    quiet: true
+
+- name: Record the {{ validation_report_check }} result
+  ansible.builtin.set_fact:
+    swallow_validation_results: >-
+      {{ swallow_validation_results | default([]) + [{
+           'check': validation_report_check,
+           'target': {'kind': validation_report_target_kind, 'id': validation_report_target_id | string},
+           'verdict': validation_report_verdict,
+           'summary': (validation_report_summary | string | trim)[:validation_report_max_summary | int],
+           'measurements': validation_report_measurements,
+           'evidence': (validation_report_evidence | string)[-(validation_report_max_evidence | int):]
+         }] }}

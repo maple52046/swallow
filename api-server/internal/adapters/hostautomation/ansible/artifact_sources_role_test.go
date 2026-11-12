@@ -25,6 +25,10 @@ type roleRun struct {
 	playbook string
 	env      []string
 	dir      string
+	// inventory and limit stand in for the runner's inventory of every member and its --limit to the
+	// Task's targets; an empty inventory is localhost alone. Every host connects locally.
+	inventory string
+	limit     string
 }
 
 // newRoleRun prepares a play of the shipped role, gathering facts when the role needs them, and
@@ -98,7 +102,15 @@ func (r *roleRun) run(vars map[string]any) (output string, changed, failed int) 
 	if err := os.WriteFile(varsFile, raw, 0o600); err != nil {
 		r.t.Fatal(err)
 	}
-	cmd := exec.Command(r.playbook, "-i", "localhost,", "-c", "local", "-e", "@"+varsFile, "play.yml")
+	inventory := r.inventory
+	if inventory == "" {
+		inventory = "localhost,"
+	}
+	args := []string{"-i", inventory, "-c", "local", "-e", "@" + varsFile}
+	if r.limit != "" {
+		args = append(args, "--limit", r.limit)
+	}
+	cmd := exec.Command(r.playbook, append(args, "play.yml")...)
 	cmd.Dir, cmd.Env = r.dir, r.env
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out

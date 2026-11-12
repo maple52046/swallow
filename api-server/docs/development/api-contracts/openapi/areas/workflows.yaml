@@ -512,6 +512,7 @@ components:
         - configure-libvirt
         - uninstall-libvirt
         - configure-ntp
+        - run-validation
         - custom
     WorkflowStatus:
       type: string

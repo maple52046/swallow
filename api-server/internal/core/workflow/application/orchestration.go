@@ -2,7 +2,10 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -40,6 +43,12 @@ type CreateWorkflowInput struct {
 	// caller has just requested, so the target-busy check ignores them (decision 061). The new
 	// Workflow still cannot act before they end: it waits for their resource leases.
 	SupersededOperationIDs []string
+	// Unattended, BudgetSeconds, and Preemptible are the Workflow's plan declarations of the same
+	// names (workflowdomain.Workflow): it never parks, it is canceled past its budget, and a later
+	// non-preemptible Workflow for the same Servers cancels it instead of being refused as busy.
+	Unattended    bool
+	BudgetSeconds int
+	Preemptible   bool
 }
 
 // WorkflowItem is the public orchestration projection. Execution remains as a
@@ -161,25 +170,44 @@ func (s *WorkflowService) create(ctx context.Context, input CreateWorkflowInput)
 			return nil, fmt.Errorf("%w: %w", ErrInvalidOperation, err)
 		}
 	}
+	resources := append([]workflowdomain.ResourceReference(nil), input.TargetResources...)
+	for _, serverID := range input.TargetServerIDs {
+		resources = append(resources, workflowdomain.ResourceReference{Kind: "server", ID: serverID})
+	}
+	resources = uniqueResources(resources)
+	if err := validateTaskTargets(input.Steps, resources); err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	id := strings.TrimSpace(input.ID)
+	if id == "" {
+		id = uuid.NewString()
+	} else if _, err := uuid.Parse(id); err != nil {
+		return nil, fmt.Errorf("%w: id must be a UUID", ErrInvalidOperation)
+	}
 	superseded := make(map[string]bool, len(input.SupersededOperationIDs))
 	for _, operationID := range input.SupersededOperationIDs {
 		superseded[operationID] = true
 	}
+	// A preemptible holder (decision 061, 081) gives way to any Workflow that is not preemptible
+	// itself: its cancel is written below, in this transaction, and the new Workflow waits for its
+	// resources like a supersede's does.
+	preempted := map[string]bool{}
 	for _, serverID := range input.TargetServerIDs {
-		limit := 1
-		if len(superseded) > 0 {
-			limit = 100
-		}
-		active, total, err := s.operations.List(ctx, workflowdomain.WorkflowFilter{ServerID: serverID, ActiveOnly: true, Limit: limit})
+		active, total, err := s.operations.List(ctx, workflowdomain.WorkflowFilter{ServerID: serverID, ActiveOnly: true, Limit: 100})
 		if err != nil {
 			return nil, err
 		}
 		blocking := total
 		var holder *workflowdomain.Workflow
 		for _, operation := range active {
-			if superseded[operation.ID] {
+			switch {
+			case superseded[operation.ID] || preempted[operation.ID]:
 				blocking--
-			} else if holder == nil {
+			case operation.Preemptible && !input.Preemptible:
+				preempted[operation.ID] = true
+				blocking--
+			case holder == nil:
 				holder = operation
 			}
 		}
@@ -197,14 +225,15 @@ func (s *WorkflowService) create(ctx context.Context, input CreateWorkflowInput)
 				workflowdomain.ErrTargetsBusy, serverID, holder.ID, rerunSummary(holder), holder.Status)
 		}
 	}
-
-	now := time.Now().UTC()
-	id := strings.TrimSpace(input.ID)
-	if id == "" {
-		id = uuid.NewString()
-	} else if _, err := uuid.Parse(id); err != nil {
-		return nil, fmt.Errorf("%w: id must be a UUID", ErrInvalidOperation)
+	for _, operationID := range slices.Sorted(maps.Keys(preempted)) {
+		reason := fmt.Sprintf("Preempted by Workflow %s (%q).", id, strings.TrimSpace(input.IntentSummary))
+		err := s.operations.RequestCancel(ctx, operationID, workflowdomain.CancelCommand{Reason: reason, RequestedAt: now})
+		// A holder that finished since it was listed has released, or is releasing, its resources.
+		if err != nil && !errors.Is(err, workflowdomain.ErrWorkflowControlConflict) {
+			return nil, fmt.Errorf("preempt Workflow %s: %w", operationID, err)
+		}
 	}
+
 	steps := append([]workflowdomain.Task(nil), input.Steps...)
 	for index := range steps {
 		// A recovery rerun (see Rerun) clones an Operation's Steps: it carries the succeeded (or
@@ -288,11 +317,6 @@ func (s *WorkflowService) create(ctx context.Context, input CreateWorkflowInput)
 			steps[stepIndex].SecretRefs[name] = reference
 		}
 	}
-	resources := append([]workflowdomain.ResourceReference(nil), input.TargetResources...)
-	for _, serverID := range input.TargetServerIDs {
-		resources = append(resources, workflowdomain.ResourceReference{Kind: "server", ID: serverID})
-	}
-	resources = uniqueResources(resources)
 	operation := &workflowdomain.Workflow{
 		ID: id, SchemaVersion: 3, Kind: input.Kind,
 		Intent: cloneMap(input.IntentSnapshot), Definition: input.Definition,
@@ -307,6 +331,7 @@ func (s *WorkflowService) create(ctx context.Context, input CreateWorkflowInput)
 		RetryOfOperationID: input.RetryOfOperationID,
 		RequestedBy:        input.RequestedBy, RequestCorrelation: input.RequestCorrelation,
 		RequestedAt: now, UpdatedAt: now,
+		Unattended: input.Unattended, BudgetSeconds: max(input.BudgetSeconds, 0), Preemptible: input.Preemptible,
 	}
 	operation.Intent["summary"] = strings.TrimSpace(input.IntentSummary)
 	if err := s.operations.Create(ctx, operation); err != nil {
@@ -320,6 +345,27 @@ func (s *WorkflowService) create(ctx context.Context, input CreateWorkflowInput)
 	}
 	item := toWorkflowItem(operation, s.catalog)
 	return &item, nil
+}
+
+// validateTaskTargets refuses a plan in which a Task acts on a resource its Workflow does not own.
+// The busy check and the resource ownership (workflow-execution.md §3, §4) cover only the
+// Workflow's declared resources, so a Task targeting anything else would change a Server or
+// Platform that another Workflow may own at the same time, and that the Server controller's hold
+// would not see.
+func validateTaskTargets(steps []workflowdomain.Task, resources []workflowdomain.ResourceReference) error {
+	owned := make(map[workflowdomain.ResourceReference]bool, len(resources))
+	for _, resource := range resources {
+		owned[resource] = true
+	}
+	for _, step := range steps {
+		for _, target := range step.Targets {
+			if !owned[target] {
+				return fmt.Errorf("%w: Step %q targets %s %s, which the Workflow does not declare as a target or resource",
+					ErrInvalidOperation, step.ID, target.Kind, target.ID)
+			}
+		}
+	}
+	return nil
 }
 
 func validateSteps(steps []workflowdomain.Task) error {
@@ -488,8 +534,9 @@ func (s *WorkflowService) RetryStep(ctx context.Context, id, stepID string) erro
 // links back through RetryOfOperationID; its later requestedAt makes the platform lifecycle follow
 // it while the original stays for diagnosis.
 //
-// A succeeded Workflow has nothing to rerun and one still advancing (pending, running, waiting, or
-// canceling) should be retried by Task or canceled; both are ErrWorkflowControlConflict. A parked
+// A succeeded Workflow has nothing to rerun, one still advancing (pending, running, waiting, or
+// canceling) should be retried by Task or canceled, and an unattended one is started again by the
+// feature that accepted it; all are ErrWorkflowControlConflict. A parked
 // original gets a cancel command in the same transaction that accepts the replacement, so a
 // rejected rerun leaves the original as it was and no orphaned secrets; the replacement waits for
 // the original's resources until its cancel path released them. Secret storage is required;
@@ -500,6 +547,10 @@ func (s *WorkflowService) Rerun(ctx context.Context, id, requestedBy string) (*W
 		return nil, err
 	}
 	switch {
+	case old.Unattended:
+		// The feature that accepted an unattended Workflow records its outcome itself (a Validation
+		// Run), and a rerun would be a second execution that feature never accepted.
+		return nil, fmt.Errorf("%w: an unattended Workflow cannot be rerun; start it again from the feature that accepted it", workflowdomain.ErrWorkflowControlConflict)
 	case old.Status == workflowdomain.WorkflowSucceeded:
 		return nil, fmt.Errorf("%w: a succeeded Operation has nothing to rerun", workflowdomain.ErrWorkflowControlConflict)
 	case !old.Status.Terminal() && old.Status != workflowdomain.WorkflowRequiresAttention:

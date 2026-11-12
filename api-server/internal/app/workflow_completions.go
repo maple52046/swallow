@@ -60,6 +60,7 @@ func completionClasses() map[string]workflowdomain.CompletionClass {
 		completionOmnistatResult: result, completionDeviceMetricsExporterResult: result,
 		completionOmnistatHardwareCounters: result,
 		completionPlatformUninstall:        result, completionPlatformGrafanaResult: result,
+		completionValidationResult: result, completionValidationRunState: projection,
 	}
 }
 

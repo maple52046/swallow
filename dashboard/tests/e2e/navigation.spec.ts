@@ -21,12 +21,12 @@ test('the sidebar lists its sections in one flat list with OS Images above Infra
   await page.goto('/provisioning/images?site=site-a')
   const nav = desktopNavigation(page)
 
-  await expect(nav.getByRole('link')).toHaveText(['Overview', 'Servers', 'Platforms', 'Software', 'Monitoring', 'Activity', 'OS Images', 'Infrastructure'])
+  await expect(nav.getByRole('link')).toHaveText(['Overview', 'Servers', 'Platforms', 'Software', 'Monitoring', 'Activity', 'Validation', 'OS Images', 'Infrastructure'])
   // The rules between the four sections are drawn but hidden from assistive technology, so the
   // list counts only destinations; there is no section label.
   await expect(nav.locator('[role="separator"]')).toHaveCount(3)
   await expect(nav.getByRole('separator')).toHaveCount(0)
-  await expect(nav.getByRole('listitem')).toHaveCount(8)
+  await expect(nav.getByRole('listitem')).toHaveCount(9)
   await expect(page.getByTestId('desktop-navigation').getByText('Workspace', { exact: true })).toHaveCount(0)
   for (const retired of ['Provisioning', 'Workflows', 'Change Plans']) {
     await expect(nav.getByRole('link', { name: retired })).toHaveCount(0)
@@ -49,6 +49,7 @@ test('each sidebar entry is current on its own routes only', async ({ page }) =>
     { path: '/provisioning/templates?site=site-a', current: 'OS Images' },
     { path: '/workflows?site=site-a', current: 'Activity' },
     { path: '/change-plans?site=site-a', current: 'Activity' },
+    { path: '/validation/runs/run-failed?site=site-a', current: 'Validation' },
     { path: '/infrastructure/boot-isos?site=site-a', current: 'Infrastructure' },
   ]
   for (const entry of cases) {
@@ -65,13 +66,13 @@ test('the collapsed rail shows every entry as an icon whose tooltip names it', a
   await expect.poll(() => rail.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBe(64)
 
   const nav = desktopNavigation(page)
-  await expect(nav.getByRole('link')).toHaveText(['', '', '', '', '', '', '', ''])
+  await expect(nav.getByRole('link')).toHaveText(['', '', '', '', '', '', '', '', ''])
   const osImages = nav.getByRole('link', { name: 'OS Images', exact: true })
   await osImages.hover()
   await expect(page.getByRole('tooltip', { name: 'OS Images', exact: true })).toBeVisible()
 
   // Keyboard users reach it in list order and it navigates like any entry.
-  await nav.getByRole('link', { name: 'Activity', exact: true }).focus()
+  await nav.getByRole('link', { name: 'Validation', exact: true }).focus()
   await page.keyboard.press('Tab')
   await expect(osImages).toBeFocused()
   await page.keyboard.press('Enter')
@@ -84,7 +85,7 @@ test('the mobile drawer shows the same sections and closes after choosing an ent
   await page.goto('/?site=site-a')
   await page.getByRole('button', { name: 'Open navigation' }).click()
   const nav = page.getByRole('dialog').getByRole('navigation', { name: 'Primary navigation' })
-  await expect(nav.getByRole('link')).toHaveText(['Overview', 'Servers', 'Platforms', 'Software', 'Monitoring', 'Activity', 'OS Images', 'Infrastructure'])
+  await expect(nav.getByRole('link')).toHaveText(['Overview', 'Servers', 'Platforms', 'Software', 'Monitoring', 'Activity', 'Validation', 'OS Images', 'Infrastructure'])
   await expect(nav.locator('[role="separator"]')).toHaveCount(3)
 
   await nav.getByRole('link', { name: 'OS Images' }).click()

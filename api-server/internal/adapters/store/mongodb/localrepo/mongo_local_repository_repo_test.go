@@ -3,8 +3,6 @@ package localrepo
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -12,7 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
+	"github.com/maple52046/swallow/internal/adapters/store/mongodb/mongotest"
 	"github.com/maple52046/swallow/internal/core/convergence"
 	localrepodomain "github.com/maple52046/swallow/internal/core/localrepo/domain"
 )
@@ -21,19 +19,7 @@ import (
 // SWALLOW_TEST_MONGO_URI.
 func localRepositoryTestDatabase(t *testing.T) *mongo.Database {
 	t.Helper()
-	uri := os.Getenv("SWALLOW_TEST_MONGO_URI")
-	if uri == "" {
-		t.Skip("SWALLOW_TEST_MONGO_URI is not set")
-	}
-	client, err := storemongo.Connect(context.Background(), uri)
-	if err != nil {
-		t.Fatalf("Connect: %v", err)
-	}
-	db := client.Database(fmt.Sprintf("swallow_localrepo_test_%d", time.Now().UnixNano()))
-	t.Cleanup(func() {
-		_ = db.Drop(context.Background())
-		_ = client.Disconnect(context.Background())
-	})
+	_, db := mongotest.Database(t, "localrepo")
 	return db
 }
 

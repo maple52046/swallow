@@ -630,6 +630,17 @@ stack (see [MPI (PMIx)](#mpi-pmix)). `monitoringDashboards` (a setting beside `s
 `true`) gives the Platform its own Grafana (see
 [Platform monitoring dashboards](#platform-monitoring-dashboards)).
 
+Every Slurm deployment proves the cluster works with the `slurm-acceptance`
+[Validation Suite](validation.md) as its gate. After `install-platform` the Workflow runs the Job
+`validate-slurm`: the suite's check Task from the primary controller, then `complete-validation`;
+the Jobs that follow depend on it. The gate's Validation Run (`mode: gate`, `trigger.kind:
+deployment`, `workflowId` the deployment's) holds each check's verdict per node. A gating check
+that does not pass fails `complete-validation` with the retryable `validation_gate_failed`, whose
+diagnostic names the checks, nodes, and summaries and whose remediation points at the run; the
+Workflow ends `requires_attention`, and retrying the Job reruns the whole suite. The step on every
+node (`srun-all-nodes`) is recorded but does not gate. The sections below name the check that proves
+each behavior.
+
 ### Node sharing, memory, and job hooks
 
 Jobs share a compute node: the `main` partition is `OverSubscribe=NO` (separate CPUs, memory, and
@@ -638,8 +649,7 @@ GPUs per job, never oversubscribed CPUs) unless [Omnistat](#omnistat) needs whol
 least 2 GiB and at most 16 GiB, never more than half), and `DefMemPerCPU` is the smallest per-CPU
 share of schedulable memory over the compute nodes, so a job that names no memory gets memory in
 proportion to its CPUs instead of the whole node. The deployment proves it: two one-CPU jobs without
-`--mem` must run on one node at the same time, otherwise the Task fails with
-`slurm_shared_node_failed`.
+`--mem` must run on one node at the same time, otherwise the gate's `shared-node` check fails.
 
 `slurm.conf` names exactly one Prolog and one Epilog, swallow's dispatchers
 (`/etc/slurm/swallow-prolog`, `/etc/slurm/swallow-epilog`, `PrologFlags=Alloc,Contain`). On each
@@ -692,10 +702,11 @@ GPUs must be usable, not merely listed: on every GPU node the HIP probe
 (`/usr/local/libexec/swallow/hip-probe`) calls `hipGetDeviceCount` (which must equal the KFD GPU
 count), then `hipSetDevice`, `hipMalloc`, `hipMemset`, `hipDeviceSynchronize`, and `hipFree` on
 every GPU, three times, each in its own process so a crash at exit fails it. It runs directly on
-the node and again through Slurm: a job without a GPU request sees no GPU, a `--gres=gpu:1` job
-sees exactly one as device `0`, and a job requesting every GPU of the node passes the probe. A
-failure drains the node (`reason=swallow: GPU probe failed`) and fails the deployment with
-`gpu_probe_failed` (`hip_runtime_missing` when the image has no HIP runtime). The live
+the node, where a failure fails `install-platform` with `gpu_probe_failed` (`hip_runtime_missing`
+when the image has no HIP runtime), and again through Slurm in the gate's `gpu-gres` check: a job
+without a GPU request sees no GPU, a `--gres=gpu:1` job sees exactly one as device `0`, and a job
+requesting every GPU of the node passes the probe. Either failure drains the node
+(`reason=swallow: GPU probe failed`) and stops the deployment. The live
 [Slurm cluster read](#read-slurm-cluster-state) reports each node's `gres`.
 
 ### GPU driver options
@@ -1042,8 +1053,8 @@ cgroup applies inside the container: a container that binds `/dev` still opens o
 GPUs. swallow does not build, pull, or distribute OCI bundles: a bundle must exist at the same
 absolute path on every node the job runs on. The deployment verifies the path with a bundle built
 from the node's own filesystem (`/var/lib/swallow/oci/probe`): a container step runs as an
-unprivileged user, and on every GPU node a one-GPU container sees exactly one GPU
-(`slurm_oci_failed` otherwise). Each rank of a step runs in its own container, so ranks on one node
+unprivileged user, and on every GPU node a one-GPU container sees exactly one GPU (the gate's
+`oci-container` check otherwise). Each rank of a step runs in its own container, so ranks on one node
 share no memory: an MPI program that places several ranks on a node selects a transport between
 them, for example `OMPI_MCA_btl=self,tcp` with OpenMPI. Turning the option off removes `oci.conf` and the probe bundle; the
 `crun` package stays, because Podman uses it too. Podman through `scrun` is not set up.
@@ -1055,8 +1066,8 @@ node so `srun --mpi=pmix_v5` launches MPI programs
 ([decision 066](../../../../../docs/decisions/066-slurm-job-hooks-and-device-metrics-exporter.md)).
 The cluster's `MpiDefault` stays `none`: jobs ask for PMIx explicitly. The deployment verifies the
 launch path with an MPI probe: two ranks on one node and one rank on each of two compute nodes must
-pass a barrier under one PMIx namespace, and a failing rank must fail the step (`slurm_pmix_failed`
-otherwise). With `ociContainers` the probe also runs as one rank in a native OCI container on each of
+pass a barrier under one PMIx namespace, and a failing rank must fail the step (the gate's
+`mpi-pmix` check otherwise). With `ociContainers` the probe also runs as one rank in a native OCI container on each of
 two compute nodes (one rank on one node when there is a single compute node). Turning the option off
 removes the probe; the OpenMPI packages stay.
 

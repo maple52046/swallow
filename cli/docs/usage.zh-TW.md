@@ -774,7 +774,7 @@ spec:
 
 ```bash
 swallow platforms create -f platform-slurm-omnistat.yaml --approve
-swallow workflows get <workflowId>    # ensure-os、configure-slurm、configure-podman、configure-grafana、configure-omnistat
+swallow workflows get <workflowId>    # ensure-os、configure-slurm、validate-slurm（驗收閘門）、configure-podman、configure-grafana、configure-omnistat
 swallow platforms get <platformId>    # containerRuntime、omnistat.state 與 .hardwareCounters，以及 monitoringLinks 中的 Platform Grafana
 ```
 
@@ -857,6 +857,44 @@ swallow workflows task artifacts wf1 task1
 
 `workflow.yaml`：
 `{ kind: custom, intent: "verify SSH", targetServerIds: [srv1], playbookName: diagnostic-ping, extraVars: {} }`
+
+### validation
+
+```bash
+# 目錄：模組宣告的 suite（唯讀）與 script suite。check 之後可能改變的預覽 suite 帶 experimental: true
+#（-o yaml），照常執行。
+swallow validation suites list
+swallow validation suites get host-baseline
+
+# script suite：以 exit code 判定（0 是 passed，其他是 failed，超過 timeout 是 error）。
+# script 依原樣儲存與顯示，不要放入 secret。
+swallow validation suites create --name "Data mounts" --script-file check-mounts.sh --timeout 120
+swallow validation suites update <suiteId> --name "Data mounts" --script-file check-mounts.sh --run-as root
+swallow validation suites retire <suiteId>
+
+# run：servers suite 以 --server 指定（可重複或以逗號分隔），platform suite 以 --platform。
+# --param 的值以 YAML 讀取（64 是數字，[a,b] 是清單）；disruptive 的 suite 要加 --confirm。
+swallow validation runs start --suite host-baseline --server srv1,srv2 --param minCpus=64
+swallow validation runs start --suite slurm-acceptance --platform plat1 --wait
+swallow validation runs list --server srv1 --verdict failed
+swallow validation runs get <runId> -o yaml    # 每個 check 在每個目標上的 verdict；表格只顯示計數
+swallow validation runs watch <runId> --interval 10s
+swallow validation runs cancel <runId>
+
+# schedule：spec 以 body 傳入。
+swallow validation schedules create -f nightly.yaml
+swallow validation schedules update <scheduleId> -f nightly.yaml
+swallow validation schedules list
+swallow validation schedules delete <scheduleId>
+```
+
+`nightly.yaml`：`{ name: Nightly baseline, suiteId: host-baseline, serverIds: [srv1, srv2], trigger: { kind: cron, cron: "0 2 * * *", timezone: Asia/Taipei } }`
+（或 `trigger: { kind: after-deployment }`，在目標每次部署之後執行）。
+
+`runs start --wait` 與 `runs watch` 每隔 `--interval`（預設 5 秒）讀取 run，直到結束；status 或各 verdict
+的數量改變時在 stderr 印一行，最後印出 run。只有 run 以 verdict `passed` 完成時 exit 0，script 可以用它作為
+閘門。部署的 gate run（例如 Slurm 部署的 `slurm-acceptance`）以 `--trigger deployment` 列出；它隨部署結束，
+不能單獨取消。
 
 ### monitoring
 

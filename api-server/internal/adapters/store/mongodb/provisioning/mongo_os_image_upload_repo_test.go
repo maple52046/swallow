@@ -3,8 +3,6 @@ package provisioning
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -12,7 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
+	"github.com/maple52046/swallow/internal/adapters/store/mongodb/mongotest"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
@@ -35,21 +33,7 @@ func TestOSImageUploadDocRoundTrips(t *testing.T) {
 // dropped when the test ends.
 func uploadTestRepo(t *testing.T) (*MongoOSImageUploadRepo, *mongo.Database) {
 	t.Helper()
-	uri := os.Getenv("SWALLOW_TEST_MONGO_URI")
-	if uri == "" {
-		t.Skip("SWALLOW_TEST_MONGO_URI is not set")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	client, err := storemongo.Connect(ctx, uri)
-	if err != nil {
-		t.Fatalf("Connect() error = %v", err)
-	}
-	db := client.Database(fmt.Sprintf("swallow_os_image_upload_test_%d", time.Now().UnixNano()))
-	t.Cleanup(func() {
-		_ = db.Drop(context.Background())
-		_ = client.Disconnect(context.Background())
-	})
+	_, db := mongotest.Database(t, "os_image_upload")
 	repo, err := NewMongoOSImageUploadRepo(db)
 	if err != nil {
 		t.Fatalf("NewMongoOSImageUploadRepo() error = %v", err)

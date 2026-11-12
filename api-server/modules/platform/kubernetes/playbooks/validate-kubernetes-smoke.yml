@@ -1,0 +1,47 @@
+---
+# Validation Suite kubernetes-smoke (docs/development/validation.md §7): are the nodes Ready, does a
+# pod run on every node that takes workloads, does cluster DNS resolve, and does a ClusterIP Service
+# route between pods? It runs once, on the first control-plane member (where k0s's kubectl reaches
+# the cluster), in namespace swallow-validation, and leaves no workload behind. A node's verdicts are
+# its Server's: deploy-kubernetes names each node after its OS hostname, which the inventory's
+# hostname and platform_node_name give for every member. Every verdict reaches the run through the
+# shared validation_report role. The inventory holds every member and --limit narrows the play to
+# the Task's targets, so the play takes all of them and ends on every host but the first: all[0]
+# would pick the inventory's first member, which need not be a target.
+
+- name: Smoke-test the Kubernetes Platform
+  hosts: all
+  gather_facts: false
+  vars:
+    kubernetes_smoke_members: "{{ swallow_validation_members | default([]) }}"
+  tasks:
+    - name: Run once, on the first Server the Task targets
+      ansible.builtin.meta: end_host
+      when: inventory_hostname != ansible_play_hosts_all[0]
+
+    - name: Map the nodes to their Servers
+      ansible.builtin.set_fact:
+        kubernetes_smoke_servers: >-
+          {%- set names = {} -%}
+          {%- for member in kubernetes_smoke_members -%}
+          {%- set host = hostvars[member.serverId] | default({}) -%}
+          {%- for name in [host.platform_node_name | default(''), host.hostname | default(''),
+                           (host.hostname | default('')).split('.') | first] if name -%}
+          {%- set _ = names.update({name: member.serverId}) -%}
+          {%- endfor -%}
+          {%- endfor -%}
+          {{ names }}
+        kubernetes_smoke_expected: >-
+          {{ kubernetes_smoke_members | selectattr('roles', 'contains', 'worker') | map(attribute='serverId') | list
+             + kubernetes_smoke_members | selectattr('roles', 'contains', 'workloads') | map(attribute='serverId') | list }}
+
+    - name: Smoke-test the cluster
+      ansible.builtin.include_role:
+        name: k0s_smoke
+      vars:
+        k0s_smoke_servers: "{{ kubernetes_smoke_servers }}"
+        k0s_smoke_expected_nodes: "{{ kubernetes_smoke_expected | unique }}"
+
+    - name: Write the results for Swallow
+      ansible.builtin.include_role:
+        name: validation_report

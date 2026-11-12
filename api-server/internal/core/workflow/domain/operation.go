@@ -66,6 +66,11 @@ const (
 	// a standalone Workflow and never resolved through a site playbook mapping; the launchers name
 	// the configure-ntp playbook.
 	WorkflowKindConfigureNTP WorkflowKind = "configure-ntp"
+	// WorkflowKindRunValidation runs one report-mode Validation Run (decision 081): the Tasks its
+	// suite's Workflow Template compiles to, on deployed targets, unattended and within a budget.
+	// The same kind labels a gate's Ansible Tasks composed into a deployment, which never resolve
+	// through a site playbook mapping.
+	WorkflowKindRunValidation WorkflowKind = "run-validation"
 )
 
 // builtInWorkflowKinds are the kinds the workflow context accepts without any module, each with
@@ -90,8 +95,9 @@ var builtInWorkflowKinds = map[WorkflowKind]string{
 	WorkflowKindConfigureOmnistat:     "deployed",
 	// configure-ntp reaches the host over SSH; the preceding provision-os Task satisfies this
 	// (PrepareAnsibleStep provisionFirst).
-	WorkflowKindConfigureNTP: "deployed",
-	WorkflowKindCustom:       "",
+	WorkflowKindConfigureNTP:  "deployed",
+	WorkflowKindRunValidation: "deployed",
+	WorkflowKindCustom:        "",
 }
 
 // BuiltInWorkflowKinds returns the kinds the workflow context accepts without any module, sorted.

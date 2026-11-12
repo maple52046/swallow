@@ -38,7 +38,10 @@ overlay. Prometheus and Grafana are generic single programs that other runtimes 
 - **GPUs are proven with the HIP runtime, not an inventory listing.** A host-only HIP probe (no
   device code, so any architecture) must see as many GPUs as KFD lists and allocate, fill, and free
   memory on each, repeatedly and in separate processes, directly and again through Slurm; a
-  failure drains the node and fails the deployment.
+  failure drains the node and fails the deployment. The probe through Slurm is a check of the Slurm
+  module's acceptance Validation Suite, which the deployment composes as a gate
+  ([decision 081](081-validation-suites-and-runs.md) (validation suites and runs)): the same check
+  can run again on a deployed Platform, where it reports without draining.
 - **The device cgroup is the GPU access boundary.** A udev rule opens `/dev/kfd` and the render
   nodes to every user on GPU nodes, so a job's user needs no `render` group membership; Slurm's
   device cgroup still admits a job only to its allocated GPUs. The trade-off is that a process
@@ -193,3 +196,4 @@ moved `omnistat-query` to Grafana's datasource proxy (original text in git histo
 - 2026-11-03: the Monitoring Link is recorded by the Platform's Grafana install rather than from the Omnistat run's result.
 - 2026-11-08: added hardware counters (`VALUBusy`), asked for by the wizard and degraded per node instead of failing the deployment; Omnistat's environment is built by uv from a hash lock (decisions 079 and 080).
 - 2026-11-09: a deployed Platform turns the hardware counters on or off without a Change Plan, rerunning only the Omnistat Job; they used to be fixed at deployment.
+- 2026-11-12: the HIP probe through Slurm runs as a check of the Slurm acceptance Validation Suite composed into the deployment as a gate (decision 081); what makes the Platform deployed is unchanged.

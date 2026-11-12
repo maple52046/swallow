@@ -73,9 +73,18 @@ func workerPlatformOperations(
 		kubernetesMembershipChecker{servers: deps.servers, platforms: deps.platforms})
 	software.AttachLauncher(softwareDeploymentLauncher{operations: operations, orchestrations: orchestrations, modules: modules.registry})
 	software.AttachPlatformNames(platformNameReader{platforms: deps.platforms})
+	lifecycle := platformLifecycleReader{orchestrations: deps.operations}
+	validation, err := newValidationService(validationDeps{
+		db: db, transactor: transactor, modules: modules, operations: operations, orchestrations: orchestrations,
+		servers: deps.servers, platforms: deps.platforms, lifecycle: lifecycle, retention: cfg.ValidationRunRetention,
+		ntpServer: cfg.NTPServer,
+	})
+	if err != nil {
+		return platformOperations{}, fmt.Errorf("validation service: %w", err)
+	}
 	return buildPlatformOperations(platformOperationDeps{
 		transactor: transactor, modules: modules, platformService: deps.platformService, platforms: deps.platforms,
-		servers: deps.servers, claims: deps.servers, lifecycle: platformLifecycleReader{orchestrations: deps.operations},
+		servers: deps.servers, claims: deps.servers, lifecycle: lifecycle,
 		operations: operations, orchestrations: orchestrations, deployments: deps.deployments,
 		bootMedia: bootMediaPlanner{servers: deps.servers, isos: deps.bootISOs}, software: software,
 		ntp: ntpStepPlanner{server: cfg.NTPServer, operations: operations}, protection: protection,
@@ -83,6 +92,7 @@ func workerPlatformOperations(
 		networks:     provisioningapp.NewNetworkConfigurationService(deps.servers, deps.providers),
 		requirements: platformstore.NewMongoDeploymentRequirementRepo(db), keys: deps.keys,
 		monitoring: newPlatformMonitoringAccess(cfg), monitoringTokens: newPlatformTokenIssuer(db),
+		validation: validation,
 	})
 }
 

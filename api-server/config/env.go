@@ -145,6 +145,11 @@ func applyEnv(cfg *Config) error {
 			cfg.API.JobArtifactRetention = d
 		}
 	}
+	if v := os.Getenv("SWALLOW_API_VALIDATION_RUN_RETENTION"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.API.ValidationRunRetention = d
+		}
+	}
 	if v := os.Getenv("SWALLOW_API_ALLOWED_ORIGINS"); v != "" {
 		cfg.API.AllowedOrigins = v
 	}

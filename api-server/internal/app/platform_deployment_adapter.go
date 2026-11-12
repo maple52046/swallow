@@ -64,9 +64,9 @@ const (
 // Platform projections once every release succeeds. As with deploy, cross-Job `DependsOn`
 // (the finalize Task depending on all releases) drives the Job order at execution time.
 //
-// Assigning a Job to every uninstall Task is required, not cosmetic: the Temporal orchestrator
-// switches to the child-Job execution path as soon as any Task carries a Job, so a mix of
-// jobbed and job-less Tasks would place the job-less ones in an unnamed bucket.
+// Assigning a Job to every uninstall Task keeps the plan readable: a job-less Task falls into the
+// implicit Job, which the API and the dashboard list without a group and which always retries
+// one Task at a time.
 const (
 	jobUninstallPlatform = "uninstall-platform"
 	jobReleaseServers    = "release-servers"
@@ -100,6 +100,9 @@ type platformDeploymentLauncher struct {
 	// monitoringTokens issues the Platform's monitoring token for its Grafana when a deployment that
 	// composes one is persisted. Required wherever deployments are persisted (buildPlatformOperations).
 	monitoringTokens platformTokenIssuer
+	// gate composes a Slurm deployment's acceptance suite (validation.md §5). Required for Slurm:
+	// without it a Slurm deployment is refused rather than accepted without its gate.
+	gate *validationGate
 }
 
 // platformTokenIssuer issues a Platform's monitoring token (monitoringapp.PlatformAccess.Issue):
@@ -120,6 +123,9 @@ type preparedPlatformDeployment struct {
 	// exporters is the Node Exporter install the ensure-os Job composes; its pending assignments
 	// are written with the Workflow.
 	exporters nodeExporterInstall
+	// gate is the Validation Suite a Slurm deployment composes as its gate; its run is written with
+	// the Workflow.
+	gate *composedGate
 }
 
 // OperationID is the preassigned Workflow id.
@@ -184,6 +190,11 @@ func (l platformDeploymentLauncher) PersistDeployment(ctx context.Context, prepa
 	if install := plan.exporters.install; install != nil {
 		if err := l.software.RecordComposedInstall(ctx, *install, created.ID); err != nil {
 			return "", fmt.Errorf("record the Node Exporter's software assignments: %w", err)
+		}
+	}
+	if plan.gate != nil {
+		if err := l.gate.service.RecordGateRun(ctx, plan.gate.run); err != nil {
+			return "", fmt.Errorf("record the deployment's validation gate: %w", err)
 		}
 	}
 	if err := persistInitialDeployments(ctx, l.servers, created.ID, plan.workflow.Steps); err != nil {
@@ -276,12 +287,13 @@ func (l platformDeploymentLauncher) prepareKubernetes(ctx context.Context, launc
 // prepareSlurm plans the durable Slurm deployment Operation. It reuses the ensure-os Job to
 // bring targets to a booted, SSH-reachable OS (with the user's Slurm image in provision_os
 // mode) and then runs the hardcoded deploy-slurm playbook. Unlike k0s it adds no internal
-// validate-platform-health Task: the deployed reader integration only exists once the
-// install step's result is recorded, so cluster validation lives in the playbook itself and
-// membership is filled in by the background sync. With the container runtime or Omnistat feature (decision 063)
-// the Workflow also carries the composed software Jobs and the configure-omnistat Job after
-// install-platform, under the Workflow id the deploy use case preassigned for the Omnistat
-// record's fence. The composed Software Assignments are written by PersistDeployment.
+// validate-platform-health Task: the deployed reader integration only exists once the install
+// step's result is recorded, so the cluster is proven by the slurm-acceptance gate the launcher
+// composes right after install-platform (validation.md §5), and membership is filled in by the
+// background sync. With the container runtime or Omnistat feature (decision 063) the Workflow also
+// carries the composed software Jobs and the configure-omnistat Job after the gate, under the
+// Workflow id the deploy use case preassigned for the Omnistat record's fence. The composed
+// Software Assignments and the gate run are written by PersistDeployment.
 func (l platformDeploymentLauncher) prepareSlurm(ctx context.Context, launch platformdomain.DeploymentLaunch) (*preparedPlatformDeployment, error) {
 	provisionFirst := launch.MachinePreparation.Mode == platformdomain.MachinePreparationProvisionOS
 	launch.TrustedVars = l.ntp.withCheckVars(launch.TrustedVars, launch.TimeSyncCheck)
@@ -314,7 +326,13 @@ func (l platformDeploymentLauncher) prepareSlurm(ctx context.Context, launch pla
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 		Completion: []workflowdomain.Completion{{Type: slurmapi.CredentialCompletion}},
 	})
-	composed, err := l.planSlurmComposition(ctx, launch, operationID, provisionFirst)
+	gate, err := l.gate.compose(ctx, launch, operationID, slurmGateRequest(launch, prepared.SiteID),
+		[]string{installPlatformStepID}, provisionFirst)
+	if err != nil {
+		return nil, err
+	}
+	steps = append(steps, gate.steps...)
+	composed, err := l.planSlurmComposition(ctx, launch, operationID, provisionFirst, gate.last)
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +343,8 @@ func (l platformDeploymentLauncher) prepareSlurm(ctx context.Context, launch pla
 	if err != nil {
 		return nil, err
 	}
-	return &preparedPlatformDeployment{workflow: workflow, composed: composed, exporters: ensure.exporters}, nil
+	workflow.Jobs = labelGateJobs(workflow.Jobs, gate)
+	return &preparedPlatformDeployment{workflow: workflow, composed: composed, exporters: ensure.exporters, gate: gate}, nil
 }
 
 // ensureOSPlan is the ensure-os Job's Tasks plus what the caller needs to finish the

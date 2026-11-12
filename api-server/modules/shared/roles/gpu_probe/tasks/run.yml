@@ -1,0 +1,23 @@
+---
+# Run the HIP probe once without installing it: ansible.builtin.script copies it for this run only,
+# so nothing stays on the host. Validation suites use this entry point; a deployment installs the
+# probe with main.yml. The report lands in gpu_probe_report and gpu_probe_ok, and the probe's exit
+# code (2: no HIP runtime) in gpu_probe_run.rc; nothing fails the play.
+
+- name: Run the HIP probe on every GPU
+  ansible.builtin.script:
+    cmd: >-
+      hip_probe.py --expect {{ gpu_probe_expect | int }} --runs {{ gpu_probe_runs | int }}
+      --bytes {{ gpu_probe_bytes | int }}
+    executable: python3
+  register: gpu_probe_run
+  changed_when: false
+  failed_when: false
+
+- name: Read the HIP probe report
+  ansible.builtin.set_fact:
+    gpu_probe_report: >-
+      {{ (gpu_probe_run.stdout_lines | last | from_json)
+         if (gpu_probe_run.stdout_lines | default([]) | length > 0 and (gpu_probe_run.stdout_lines | last).startswith('{'))
+         else {'ok': false, 'error': gpu_probe_run.stderr | default('the probe printed no report', true)} }}
+    gpu_probe_ok: "{{ gpu_probe_run.rc | default(1) == 0 }}"

@@ -52,7 +52,9 @@ GPU to none, while Slurm's own GRES allocation and device cgroup are correct.
   crun. The host keeps `kernel.apparmor_restrict_unprivileged_userns=1`; the distribution's
   path-scoped crun profile grants the user namespace, so no Swallow wrapper or profile is needed.
   PMIx installs the distribution's OpenMPI with PMIx on compute and login nodes; `MpiDefault` stays
-  `none`. Each is proven by a probe job. Podman through `scrun` is a later slice.
+  `none`. Each is proven by a probe job, a gating check of the Slurm module's acceptance Validation
+  Suite composed into the deployment ([decision 081](081-validation-suites-and-runs.md) (validation
+  suites and runs)); so is the shared-node check. Podman through `scrun` is a later slice.
 
 ## Alternatives considered
 
@@ -89,3 +91,4 @@ GPU to none, while Slurm's own GRES allocation and device cgroup are correct.
 ## Revision history
 
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
+- 2026-11-12: the OCI, PMIx, and shared-node probe jobs run as gating checks of the Slurm acceptance Validation Suite composed into the deployment (decision 081); the requirement is unchanged.

@@ -57,12 +57,17 @@ const visualCases = [
   { name: 'platform-detail-uninstall-starting', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
   { name: 'platform-selector', path: '/platforms/deploy?site=site-a', heading: 'Deploy platform', authenticated: true, representative: false },
   { name: 'infrastructure', path: '/infrastructure/sites?site=site-a', heading: 'Infrastructure', authenticated: true, representative: false },
+  { name: 'validation-runs', path: '/validation/runs?site=site-a', heading: 'Validation', authenticated: true, representative: false },
+  { name: 'validation-run-detail', path: '/validation/runs/run-failed?site=site-a', heading: 'Host baseline', authenticated: true, representative: false },
+  { name: 'validation-suites', path: '/validation/suites?site=site-a', heading: 'Validation', authenticated: true, representative: false },
+  { name: 'validation-schedules', path: '/validation/schedules?site=site-a', heading: 'Validation', authenticated: true, representative: false },
 ] as const
 
 /** Cases whose header carries tabs (an area's or a detail page's); see the phone `-top` capture. */
 const TAB_HEADER_CASES: ReadonlySet<string> = new Set([
   'workflow-list', 'change-plans', 'os-image-list', 'os-image-templates', 'boot-isos', 'infrastructure',
   'server-detail', 'platform-detail', 'platform-detail-kubernetes-cluster', 'platform-detail-slurm-deployed',
+  'validation-runs', 'validation-suites', 'validation-schedules',
 ])
 
 const visualSoftwareAssignments: SoftwareAssignment[] = [
@@ -321,6 +326,30 @@ test.describe('dashboard visual review', () => {
         await page.getByRole('article', { name: 'Change Plan for Platform research-slurm' }).getByRole('button', { name: 'Approve plan' }).click()
         await expect(page.getByRole('alertdialog', { name: 'Approve Change Plan' }).getByRole('button', { name: 'Cancel' })).toBeFocused()
         await capture(page, testInfo, `${visualCase.name}-approve-dialog`, false)
+      }
+      // The run dialog with a suite, a Server, and its parameter field, the densest Validation form;
+      // and the details of a failed check on the run page.
+      if (visualCase.name === 'validation-runs') {
+        await page.getByRole('button', { name: 'Run a suite' }).click()
+        const dialog = page.getByRole('dialog', { name: 'Run a Validation Suite' })
+        await dialog.getByRole('combobox', { name: 'Suite' }).click()
+        await dialog.getByRole('option', { name: 'Host baseline' }).click()
+        await dialog.getByRole('checkbox', { name: 'gpu-node-02' }).locator('..').click()
+        await expect(dialog.getByRole('list', { name: 'Chosen Servers' })).toContainText('gpu-node-02')
+        await capture(page, testInfo, `${visualCase.name}-run-dialog`, false)
+      }
+      // The catalog with its experimental suite shown: the switch on, and the suite's Experimental mark.
+      if (visualCase.name === 'validation-suites') {
+        await page.getByRole('checkbox', { name: /Show experimental suites/ }).locator('..').click()
+        await expect(page.locator(':text-is("Experimental"):visible').first()).toBeVisible()
+        await capture(page, testInfo, `${visualCase.name}-experimental`)
+      }
+      if (visualCase.name === 'validation-run-detail') {
+        await page.getByRole('button', { name: 'CPU count on gpu-node-02: Failed. Show details' }).first().click()
+        await expect(page.getByRole('region', { name: 'CPU count on gpu-node-02' })).toBeVisible()
+        // A full-page capture taken scrolled down would draw the sticky shell mid-page.
+        await page.evaluate(() => window.scrollTo(0, 0))
+        await capture(page, testInfo, `${visualCase.name}-result`)
       }
       // The Health column appears only when the table has room (87rem), which the 1440 baseline does
       // not give it, so the desktop runs also capture the table at a wide viewport with its badges.

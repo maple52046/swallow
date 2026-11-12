@@ -71,6 +71,19 @@ the request for good (inferred from the Runners' code at the time).
    publisher bound to the Workflow, dispatch generation, Task, and attempt; the write is a targeted
    update guarded like the Ansible Runner's live progress, so a superseded run or an ended attempt
    writes nothing, and every transition that ends, retries, begins, or cancels the attempt clears it.
+7. **A plan may bound its own time and its waits for the user.** A Task may declare a timeout: an
+   Ansible Task that exceeds it is stopped like a canceled one and fails with `task_budget_exceeded`,
+   its diagnostic carrying the budget and the elapsed time. A Workflow may declare a wall-clock
+   budget, after which swallow cancels it, and may declare itself unattended: a failure, retryable or
+   not, and an outcome that cannot be proven settle at once, so the Workflow ends and releases its
+   resources instead of parking in `requires_attention` for a user who is not watching. Validation
+   runs ([decision 081](081-validation-suites-and-runs.md) (validation suites and runs)) declare all
+   three; a deployment declares none and parks as before.
+8. **A module classifies its own failures.** A module declares the codes its host automation fails
+   with (`failureCodes`: the `[code]` a role's failure message starts with), each with a Failure Class,
+   a remediation, and optionally that a retry cannot help; the Ansible Runner applies the declaration
+   to the diagnostic of a failed run whose message carries the code. The error's code stays
+   `ansible_failed`.
 
 ## Alternatives considered
 
@@ -104,3 +117,4 @@ the request for good (inferred from the Runners' code at the time).
 ## Revision history
 
 - 2026-11-05: a failed read of a wait's observation source is classified and tolerated within its own budget, and a wait whose external work keeps running ends as `requires_attention`.
+- 2026-11-12: a Task may declare a timeout and a Workflow a budget and unattended execution; modules declare the Failure Class and remediation of their failure codes (decision 081).

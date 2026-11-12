@@ -59,6 +59,7 @@ Request file 刻意直接跟隨 API contract，不維護 copied CLI struct。
 - `infrastructure` — Zone／Pool。
 - `platforms` — Kubernetes／Slurm deployment、lifecycle、settings、live view。
 - `workflows` — durable Workflow observation／control。
+- `validation` — Validation Suite（含 script suite）、run（可加 `--wait`）與 schedule。
 - `plans` — 檢視、核准或拒絕破壞性變更的 Change Plan，以及設定 Change Plan 政策（安全開關）。
 - `monitoring` — alert 與 fixed Server metric。
 - `discovery` — 使用 machine auth 的 Prometheus HTTP service discovery。

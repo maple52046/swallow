@@ -3,15 +3,13 @@ package workflow
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
+	"github.com/maple52046/swallow/internal/adapters/store/mongodb/mongotest"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 )
 
@@ -21,26 +19,7 @@ import (
 // an ephemeral instance (mirrors the migration package's harness).
 func workflowTestDatabase(t *testing.T) *mongo.Database {
 	t.Helper()
-	uri := os.Getenv("SWALLOW_TEST_MONGO_URI")
-	if uri == "" {
-		t.Skip("SWALLOW_TEST_MONGO_URI not set; skipping workflow repo integration test")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
-	if err != nil {
-		t.Fatalf("connect mongo: %v", err)
-	}
-	if err := client.Ping(ctx, nil); err != nil {
-		t.Fatalf("ping mongo: %v", err)
-	}
-	db := client.Database(fmt.Sprintf("swallow_workflow_repo_test_%d", time.Now().UnixNano()))
-	t.Cleanup(func() {
-		cctx, ccancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer ccancel()
-		_ = db.Drop(cctx)
-		_ = client.Disconnect(cctx)
-	})
+	_, db := mongotest.Database(t, "workflow_repo")
 	return db
 }
 

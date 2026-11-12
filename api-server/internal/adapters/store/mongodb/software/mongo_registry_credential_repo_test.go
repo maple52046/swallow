@@ -4,15 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
+	"github.com/maple52046/swallow/internal/adapters/store/mongodb/mongotest"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 	"github.com/maple52046/swallow/internal/shared/secret"
 )
@@ -21,23 +20,7 @@ import (
 // when the test ends; the test skips without it so `go test ./...` needs no Mongo.
 func credentialTestDatabase(t *testing.T) *mongo.Database {
 	t.Helper()
-	uri := os.Getenv("SWALLOW_TEST_MONGO_URI")
-	if uri == "" {
-		t.Skip("SWALLOW_TEST_MONGO_URI not set; skipping registry credential repo integration test")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
-	if err != nil {
-		t.Fatalf("connect mongo: %v", err)
-	}
-	db := client.Database(fmt.Sprintf("swallow_registry_credential_test_%d", time.Now().UnixNano()))
-	t.Cleanup(func() {
-		cctx, ccancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer ccancel()
-		_ = db.Drop(cctx)
-		_ = client.Disconnect(cctx)
-	})
+	_, db := mongotest.Database(t, "registry_credential")
 	return db
 }
 

@@ -1,0 +1,7 @@
+---
+# network_mesh role defaults. The peers are the run's other target Servers, reached at the address
+# the inventory connects to them by.
+network_mesh_peers: "{{ swallow_validation_targets | default([]) | difference([inventory_hostname]) }}"
+# 0 probes each path at the MTU of the interface its route leaves through.
+network_mesh_mtu: 0
+network_mesh_port: 22

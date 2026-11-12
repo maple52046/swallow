@@ -32,6 +32,8 @@ tags:
     name: software
   - description: Liveness, readiness, and process metrics of the API process.
     name: system
+  - description: 'Validate deployed Servers and Platforms with Validation Suites: list the catalog, manage user-defined suites, start, list, read, and cancel Validation Runs, and manage Validation Schedules.'
+    name: validation
   - description: Durable Workflows (a DAG of Tasks run by Runners), their timeline and per-Task diagnostics.
     name: workflows
 paths:
@@ -7644,6 +7646,487 @@ paths:
       summary: Request an immediate realization pass over every provisioner Integration.
       tags:
         - auth
+  /api/v1/validation/runs:
+    get:
+      description: Requires the `admin` role. Runs sorted by `requestedAt` descending, paged, without their results (read a run for them). Every filter is optional and exact-match.
+      operationId: listValidationRuns
+      parameters:
+        - in: query
+          name: suiteId
+          required: false
+          schema:
+            type: string
+        - description: Runs whose targets include this Server, or whose Platform has it as a member.
+          in: query
+          name: serverId
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: platformId
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: scheduleId
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: status
+          required: false
+          schema:
+            $ref: '#/components/schemas/ValidationRunStatus'
+        - in: query
+          name: verdict
+          required: false
+          schema:
+            $ref: '#/components/schemas/ValidationRunVerdict'
+        - in: query
+          name: trigger
+          required: false
+          schema:
+            $ref: '#/components/schemas/ValidationTriggerKind'
+        - description: Only `pending` and `running` runs. Only the literal `true` constrains.
+          in: query
+          name: active
+          required: false
+          schema:
+            default: false
+            type: boolean
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationRunPage'
+          description: One page of runs.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`validation_error`: a `status`, `verdict`, or `trigger` value is not one of its values.'
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: List Validation Runs, newest first.
+      tags:
+        - validation
+    post:
+      description: Requires the `admin` role. Accepts the run and its `run-validation` Workflow in one transaction and returns 202 with the `pending` run; progress is read on the run (and its Workflow).
+      operationId: startValidationRun
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidationRunRequest'
+        required: true
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationRun'
+          description: The run was accepted.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`validation_error`: the body is not valid JSON; `suiteId` is empty; a `servers` suite has no `serverIds`, a Server is listed twice, or `platformId` is set; a `platform` suite has no `platformId` or has `serverIds`; the parameters do not match the suite''s schema; the Servers belong to more than one Site; or a `disruptive` suite is started without `confirm: true`.'
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`not_found`: the suite (or a retired user suite), a target Server, or the Platform does not exist.'
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`conflict`: a target Server is not `deployed`, is locked, or (for a `workload` or `disruptive` Servers suite) is claimed by a Platform; the Platform is not `active`, is not of the suite''s Platform type, or has no access Server; or a target already has active durable work (another run''s included).'
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`provider_unavailable`: the targets'' Site cannot run Ansible automation (no automation configuration, automation disabled, or no Deployment Key), or the Server Lock state of a target cannot be confirmed.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Start a Validation Run of a suite against deployed Servers or a Platform.
+      tags:
+        - validation
+  /api/v1/validation/runs/{runId}:
+    get:
+      description: Requires the `admin` role.
+      operationId: getValidationRun
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationRun'
+          description: The run.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`not_found`: no run has this id (it never existed or its retention ended).'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Read one Validation Run with its results.
+      tags:
+        - validation
+    parameters:
+      - $ref: '#/components/parameters/ValidationRunId'
+  /api/v1/validation/runs/{runId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/ValidationRunId'
+    post:
+      description: Requires the `admin` role. Writes the cancel of the run's Workflow and returns 202 with the run; it ends `canceled` once the Workflow's cancel path finished.
+      operationId: cancelValidationRun
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationRun'
+          description: The cancel was accepted.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`not_found`: no run has this id.'
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`conflict`: the run already ended, or it is a gate run (cancel its deployment instead).'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Cancel a report-mode Validation Run.
+      tags:
+        - validation
+  /api/v1/validation/schedules:
+    get:
+      description: Requires the `admin` role. Ordered by name; not paginated.
+      operationId: listValidationSchedules
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationScheduleList'
+          description: Every schedule.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: List Validation Schedules.
+      tags:
+        - validation
+    post:
+      description: Requires the `admin` role. The schedule starts at generation 1.
+      operationId: createValidationSchedule
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidationScheduleRequest'
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationSchedule'
+          description: The created schedule.
+        "400":
+          $ref: '#/components/responses/ValidationScheduleRejected'
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`not_found`: the suite, a target Server, or the Platform does not exist.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Create a Validation Schedule.
+      tags:
+        - validation
+  /api/v1/validation/schedules/{scheduleId}:
+    delete:
+      description: Requires the `admin` role. Its runs stay readable.
+      operationId: deleteValidationSchedule
+      responses:
+        "204":
+          description: The schedule is deleted.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`not_found`: no schedule has this id.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Delete a Validation Schedule.
+      tags:
+        - validation
+    get:
+      description: Requires the `admin` role.
+      operationId: getValidationSchedule
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationSchedule'
+          description: The schedule.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`not_found`: no schedule has this id.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Read one Validation Schedule.
+      tags:
+        - validation
+    parameters:
+      - $ref: '#/components/parameters/ValidationScheduleId'
+    put:
+      description: Requires the `admin` role. Increments `generation`; with `generation` in the body the write applies only at that generation.
+      operationId: replaceValidationSchedule
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidationScheduleRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationSchedule'
+          description: The replaced schedule.
+        "400":
+          $ref: '#/components/responses/ValidationScheduleRejected'
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`not_found`: the schedule, the suite, a target Server, or the Platform does not exist.'
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`conflict`: `generation` is not the schedule''s current generation.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Replace a Validation Schedule's spec.
+      tags:
+        - validation
+  /api/v1/validation/suites:
+    get:
+      description: Requires the `admin` role. Module suites first (by id), then user suites (by name); not paginated. Retired user suites are omitted unless `includeRetired=true`.
+      operationId: listValidationSuites
+      parameters:
+        - description: Include retired user suites. Only the literal `true` enables it.
+          in: query
+          name: includeRetired
+          required: false
+          schema:
+            default: false
+            type: boolean
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationSuiteList'
+          description: The catalog.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: List the Validation Suite catalog.
+      tags:
+        - validation
+    post:
+      description: Requires the `admin` role. The suite starts at revision 1.
+      operationId: createValidationSuite
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidationUserSuiteRequest'
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationSuite'
+          description: The created suite.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`validation_error`: the body is not valid JSON, the name or script is empty, the script is larger than 64 KiB, or `runAs`, `timeoutSeconds`, or `impact` is not accepted.'
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Create a user-defined Validation Suite (a script judged by its exit code).
+      tags:
+        - validation
+  /api/v1/validation/suites/{suiteId}:
+    delete:
+      description: Requires the `admin` role. The suite leaves the catalog; its runs stay readable. Retiring a retired suite succeeds.
+      operationId: deleteValidationSuite
+      responses:
+        "204":
+          description: The suite is retired.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`not_found`: no suite has this id.'
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`conflict`: the suite is a module suite, or a Validation Schedule names it.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Retire a user-defined Validation Suite.
+      tags:
+        - validation
+    get:
+      description: Requires the `admin` role. A retired user suite is still readable.
+      operationId: getValidationSuite
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationSuite'
+          description: The suite.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`not_found`: no suite has this id.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Read one Validation Suite.
+      tags:
+        - validation
+    parameters:
+      - $ref: '#/components/parameters/ValidationSuiteId'
+    put:
+      description: Requires the `admin` role. A change to the script, `runAs`, `timeoutSeconds`, or `impact` increments `revision`; runs already accepted keep the revision they ran.
+      operationId: replaceValidationSuite
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidationUserSuiteRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationSuite'
+          description: The replaced suite.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`validation_error`: as for create.'
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`not_found`: no suite has this id.'
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`conflict`: the suite is a module suite, which cannot be changed, or it is retired.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Replace a user-defined Validation Suite, creating its next revision.
+      tags:
+        - validation
   /api/v1/workflows:
     get:
       description: Requires the `admin` role. Workflows sorted by `requestedAt` descending, paged. Every filter is optional and exact-match.
@@ -8312,6 +8795,25 @@ components:
       required: false
       schema:
         type: string
+    ValidationRunId:
+      in: path
+      name: runId
+      required: true
+      schema:
+        type: string
+    ValidationScheduleId:
+      in: path
+      name: scheduleId
+      required: true
+      schema:
+        type: string
+    ValidationSuiteId:
+      description: A module suite's kebab-case id, or a user suite's UUID.
+      in: path
+      name: suiteId
+      required: true
+      schema:
+        type: string
     WorkflowActiveFilter:
       description: '`true` keeps only unfinished Workflows. Any other value, or absence, applies no constraint.'
       in: query
@@ -8411,6 +8913,12 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
       description: The shared error envelope (conventions.md).
+    ValidationScheduleRejected:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+      description: '`validation_error`: the body is not valid JSON; the name or `suiteId` is empty; the targets do not fit the suite''s target kind; the parameters do not match the suite''s schema; the trigger kind is unknown, a `cron` trigger has an invalid expression or time zone, or an `after-deployment` trigger has a `cron`; or the Servers belong to more than one Site.'
     WorkflowControlConflict:
       content:
         application/json:
@@ -11257,6 +11765,7 @@ components:
             - accelerator
             - platform
             - software
+            - validation
           type: string
         spec:
           allOf:
@@ -15048,6 +15557,699 @@ components:
       description: ISO 8601 in UTC (conventions.md, Timestamps).
       format: date-time
       type: string
+    ValidationCheck:
+      properties:
+        description:
+          type: string
+        gating:
+          description: Whether a deployment that composes the suite as a gate fails when this check does not pass.
+          type: boolean
+        id:
+          type: string
+        title:
+          type: string
+      required:
+        - id
+        - title
+        - description
+        - gating
+      type: object
+    ValidationMeasurement:
+      properties:
+        expected:
+          type: string
+        name:
+          type: string
+        unit:
+          type: string
+        value:
+          type: number
+      required:
+        - name
+        - value
+        - unit
+        - expected
+      type: object
+    ValidationResult:
+      description: One check's verdict on one target.
+      properties:
+        check:
+          type: string
+        evidence:
+          description: A bounded, redacted excerpt of what the host printed; empty when there is none.
+          type: string
+        measurements:
+          items:
+            $ref: '#/components/schemas/ValidationMeasurement'
+          type: array
+        observedAt:
+          $ref: '#/components/schemas/Timestamp'
+        summary:
+          type: string
+        target:
+          $ref: '#/components/schemas/ValidationResultTarget'
+        taskId:
+          description: The Task that judged it; null for an `error` swallow recorded because no Task did.
+          nullable: true
+          type: string
+        verdict:
+          enum:
+            - passed
+            - failed
+            - error
+            - skipped
+          type: string
+      required:
+        - check
+        - target
+        - verdict
+        - summary
+        - measurements
+        - evidence
+        - observedAt
+        - taskId
+      type: object
+    ValidationResultTarget:
+      properties:
+        id:
+          type: string
+        kind:
+          enum:
+            - server
+            - platform
+          type: string
+      required:
+        - kind
+        - id
+      type: object
+    ValidationRun:
+      description: A Validation Run (glossary) with every check's verdict on every target.
+      properties:
+        checks:
+          items:
+            $ref: '#/components/schemas/ValidationCheck'
+          type: array
+        counts:
+          $ref: '#/components/schemas/ValidationRunCounts'
+        finishedAt:
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        id:
+          type: string
+        mode:
+          enum:
+            - report
+            - gate
+          type: string
+        parameters:
+          additionalProperties: true
+          type: object
+        requestedAt:
+          $ref: '#/components/schemas/Timestamp'
+        requestedBy:
+          type: string
+        results:
+          items:
+            $ref: '#/components/schemas/ValidationResult'
+          type: array
+        siteId:
+          type: string
+        startedAt:
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        status:
+          $ref: '#/components/schemas/ValidationRunStatus'
+        statusReason:
+          nullable: true
+          type: string
+        suite:
+          $ref: '#/components/schemas/ValidationRunSuite'
+        target:
+          $ref: '#/components/schemas/ValidationRunTarget'
+        trigger:
+          $ref: '#/components/schemas/ValidationRunTrigger'
+        verdict:
+          allOf:
+            - $ref: '#/components/schemas/ValidationRunVerdict'
+          nullable: true
+        workflowId:
+          type: string
+      required:
+        - id
+        - siteId
+        - suite
+        - checks
+        - target
+        - parameters
+        - mode
+        - trigger
+        - workflowId
+        - status
+        - statusReason
+        - verdict
+        - counts
+        - results
+        - requestedBy
+        - requestedAt
+        - startedAt
+        - finishedAt
+      type: object
+    ValidationRunCounts:
+      properties:
+        error:
+          type: integer
+        failed:
+          type: integer
+        passed:
+          type: integer
+        skipped:
+          type: integer
+      required:
+        - passed
+        - failed
+        - error
+        - skipped
+      type: object
+    ValidationRunPage:
+      description: The pagination envelope (conventions.md, Pagination) over Validation Runs.
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/ValidationRunSummary'
+          type: array
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+      required:
+        - items
+        - total
+        - page
+        - pageSize
+      type: object
+    ValidationRunRequest:
+      additionalProperties: false
+      properties:
+        confirm:
+          default: false
+          description: Required to be true for a `disruptive` suite.
+          type: boolean
+        parameters:
+          additionalProperties: true
+          description: Run parameters, checked against the suite's `parameters` schema.
+          type: object
+        platformId:
+          description: The target Platform of a `platform` suite.
+          type: string
+        serverIds:
+          description: The target Servers of a `servers` suite.
+          items:
+            type: string
+          type: array
+        suiteId:
+          type: string
+      required:
+        - suiteId
+      type: object
+    ValidationRunStatus:
+      enum:
+        - pending
+        - running
+        - completed
+        - canceled
+      type: string
+    ValidationRunSuite:
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        revision:
+          description: The revision a user suite ran.
+          nullable: true
+          type: integer
+        scriptSha256:
+          nullable: true
+          type: string
+        source:
+          enum:
+            - module
+            - user
+          type: string
+        version:
+          description: The declaring module's version, for a module suite.
+          nullable: true
+          type: string
+      required:
+        - id
+        - source
+        - name
+        - version
+        - revision
+        - scriptSha256
+      type: object
+    ValidationRunSummary:
+      description: A Validation Run without its results, as the list returns it.
+      properties:
+        checks:
+          items:
+            $ref: '#/components/schemas/ValidationCheck'
+          type: array
+        counts:
+          $ref: '#/components/schemas/ValidationRunCounts'
+        finishedAt:
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        id:
+          type: string
+        mode:
+          enum:
+            - report
+            - gate
+          type: string
+        parameters:
+          additionalProperties: true
+          type: object
+        requestedAt:
+          $ref: '#/components/schemas/Timestamp'
+        requestedBy:
+          type: string
+        siteId:
+          type: string
+        startedAt:
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        status:
+          $ref: '#/components/schemas/ValidationRunStatus'
+        statusReason:
+          nullable: true
+          type: string
+        suite:
+          $ref: '#/components/schemas/ValidationRunSuite'
+        target:
+          $ref: '#/components/schemas/ValidationRunTarget'
+        trigger:
+          $ref: '#/components/schemas/ValidationRunTrigger'
+        verdict:
+          allOf:
+            - $ref: '#/components/schemas/ValidationRunVerdict'
+          nullable: true
+        workflowId:
+          description: The Workflow that executes the run (its own, or its deployment's in gate mode).
+          type: string
+      required:
+        - id
+        - siteId
+        - suite
+        - checks
+        - target
+        - parameters
+        - mode
+        - trigger
+        - workflowId
+        - status
+        - statusReason
+        - verdict
+        - counts
+        - requestedBy
+        - requestedAt
+        - startedAt
+        - finishedAt
+      type: object
+    ValidationRunTarget:
+      properties:
+        kind:
+          $ref: '#/components/schemas/ValidationTargetKind'
+        platformId:
+          nullable: true
+          type: string
+        serverIds:
+          description: The target Servers, or the Platform's access Servers the run entered through.
+          items:
+            type: string
+          type: array
+      required:
+        - kind
+        - serverIds
+        - platformId
+      type: object
+    ValidationRunTrigger:
+      properties:
+        kind:
+          $ref: '#/components/schemas/ValidationTriggerKind'
+        scheduleId:
+          nullable: true
+          type: string
+        workflowId:
+          description: The deployment Workflow that triggered the run (a gate, or a schedule after a deployment).
+          nullable: true
+          type: string
+      required:
+        - kind
+        - scheduleId
+        - workflowId
+      type: object
+    ValidationRunVerdict:
+      enum:
+        - passed
+        - failed
+        - error
+      type: string
+    ValidationSchedule:
+      properties:
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        generation:
+          format: int64
+          type: integer
+        id:
+          type: string
+        siteId:
+          type: string
+        spec:
+          $ref: '#/components/schemas/ValidationScheduleSpec'
+        status:
+          $ref: '#/components/schemas/ValidationScheduleStatus'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+      required:
+        - id
+        - siteId
+        - generation
+        - spec
+        - status
+        - createdAt
+        - updatedAt
+      type: object
+    ValidationScheduleList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/ValidationSchedule'
+          type: array
+      required:
+        - items
+      type: object
+    ValidationScheduleRequest:
+      additionalProperties: false
+      properties:
+        enabled:
+          default: true
+          type: boolean
+        generation:
+          description: On a replace, the generation the write expects (optional).
+          format: int64
+          type: integer
+        name:
+          type: string
+        parameters:
+          additionalProperties: true
+          type: object
+        platformId:
+          type: string
+        serverIds:
+          items:
+            type: string
+          type: array
+        suiteId:
+          type: string
+        trigger:
+          additionalProperties: false
+          properties:
+            cron:
+              type: string
+            kind:
+              enum:
+                - cron
+                - after-deployment
+              type: string
+            timezone:
+              type: string
+          required:
+            - kind
+          type: object
+      required:
+        - name
+        - suiteId
+        - trigger
+      type: object
+    ValidationScheduleSpec:
+      properties:
+        enabled:
+          type: boolean
+        name:
+          type: string
+        parameters:
+          additionalProperties: true
+          type: object
+        platformId:
+          nullable: true
+          type: string
+        serverIds:
+          items:
+            type: string
+          type: array
+        suiteId:
+          type: string
+        trigger:
+          $ref: '#/components/schemas/ValidationScheduleTrigger'
+      required:
+        - name
+        - suiteId
+        - serverIds
+        - platformId
+        - parameters
+        - trigger
+        - enabled
+      type: object
+    ValidationScheduleStatus:
+      properties:
+        conditions:
+          items:
+            $ref: '#/components/schemas/Condition'
+          type: array
+        lastRunAt:
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        lastRunId:
+          nullable: true
+          type: string
+        lastSkipReason:
+          description: Why the latest occurrence did not start a run (for example the target was busy).
+          nullable: true
+          type: string
+        nextRunAt:
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        observedGeneration:
+          format: int64
+          type: integer
+      required:
+        - observedGeneration
+        - nextRunAt
+        - lastRunId
+        - lastRunAt
+        - lastSkipReason
+        - conditions
+      type: object
+    ValidationScheduleTrigger:
+      properties:
+        cron:
+          description: Five fields (minute hour day-of-month month day-of-week), for a `cron` trigger.
+          nullable: true
+          type: string
+        kind:
+          enum:
+            - cron
+            - after-deployment
+          type: string
+        timezone:
+          description: The IANA time zone the cron expression is read in; `UTC` when not set.
+          nullable: true
+          type: string
+      required:
+        - kind
+        - cron
+        - timezone
+      type: object
+    ValidationSuite:
+      description: A Validation Suite (glossary). A module suite's user-suite fields are null; a user suite's `module`, `platformType`, and `parameters` are null.
+      properties:
+        budgetSeconds:
+          description: How long one report run may take before it is canceled.
+          type: integer
+        checks:
+          items:
+            $ref: '#/components/schemas/ValidationCheck'
+          type: array
+        createdAt:
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        createdBy:
+          nullable: true
+          type: string
+        description:
+          type: string
+        experimental:
+          description: A module suite offered as a preview whose checks may still change; it runs like any other. Always false for a user suite.
+          type: boolean
+        id:
+          type: string
+        impact:
+          enum:
+            - observe
+            - workload
+            - disruptive
+          type: string
+        module:
+          allOf:
+            - $ref: '#/components/schemas/ValidationSuiteModule'
+          nullable: true
+        name:
+          type: string
+        parameters:
+          allOf:
+            - $ref: '#/components/schemas/ModuleSpecSchema'
+          description: The schema of the run parameters the suite accepts (the modules area's spec schema subset).
+          nullable: true
+        platformType:
+          description: The Platform type a `platform` suite validates.
+          nullable: true
+          type: string
+        retired:
+          type: boolean
+        revision:
+          nullable: true
+          type: integer
+        runAs:
+          enum:
+            - automation-user
+            - root
+            - null
+          nullable: true
+          type: string
+        script:
+          nullable: true
+          type: string
+        scriptSha256:
+          nullable: true
+          type: string
+        source:
+          enum:
+            - module
+            - user
+          type: string
+        target:
+          $ref: '#/components/schemas/ValidationTargetKind'
+        timeoutSeconds:
+          nullable: true
+          type: integer
+        updatedAt:
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+      required:
+        - id
+        - source
+        - module
+        - name
+        - description
+        - target
+        - platformType
+        - impact
+        - checks
+        - parameters
+        - budgetSeconds
+        - script
+        - runAs
+        - timeoutSeconds
+        - revision
+        - scriptSha256
+        - experimental
+        - retired
+        - createdAt
+        - updatedAt
+        - createdBy
+      type: object
+    ValidationSuiteList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/ValidationSuite'
+          type: array
+      required:
+        - items
+      type: object
+    ValidationSuiteModule:
+      properties:
+        id:
+          type: string
+        kind:
+          enum:
+            - accelerator
+            - platform
+            - software
+            - validation
+          type: string
+        version:
+          type: string
+      required:
+        - kind
+        - id
+        - version
+      type: object
+    ValidationTargetKind:
+      enum:
+        - servers
+        - platform
+      type: string
+    ValidationTriggerKind:
+      enum:
+        - manual
+        - schedule
+        - deployment
+      type: string
+    ValidationUserSuiteRequest:
+      additionalProperties: false
+      properties:
+        description:
+          type: string
+        impact:
+          default: workload
+          enum:
+            - observe
+            - workload
+            - disruptive
+          type: string
+        name:
+          type: string
+        runAs:
+          default: automation-user
+          enum:
+            - automation-user
+            - root
+          type: string
+        script:
+          description: At most 64 KiB; run with its own interpreter line, or under /bin/sh without one.
+          type: string
+        timeoutSeconds:
+          default: 600
+          maximum: 3600
+          minimum: 1
+          type: integer
+      required:
+        - name
+        - script
+      type: object
     VirtualMachineEnrollmentAccepted:
       properties:
         workflowId:
@@ -15319,6 +16521,7 @@ components:
         - configure-libvirt
         - uninstall-libvirt
         - configure-ntp
+        - run-validation
         - custom
       type: string
     WorkflowPage:

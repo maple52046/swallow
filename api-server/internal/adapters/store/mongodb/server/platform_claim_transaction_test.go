@@ -3,8 +3,6 @@ package server
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
+	"github.com/maple52046/swallow/internal/adapters/store/mongodb/mongotest"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	"github.com/maple52046/swallow/internal/core/store"
 )
@@ -34,21 +33,9 @@ func TestPlatformClaimDocRoundTrip(t *testing.T) {
 // Without the variable the test is skipped.
 func claimTestDatabase(t *testing.T) (store.Transactor, *MongoServerRepo, *mongo.Database) {
 	t.Helper()
-	uri := os.Getenv("SWALLOW_TEST_MONGO_URI")
-	if uri == "" {
-		t.Skip("SWALLOW_TEST_MONGO_URI is not set")
-	}
+	client, db := mongotest.Database(t, "claim_tx")
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	client, err := storemongo.Connect(ctx, uri)
-	if err != nil {
-		t.Fatalf("Connect() error = %v", err)
-	}
-	db := client.Database(fmt.Sprintf("swallow_claim_tx_test_%d", time.Now().UnixNano()))
-	t.Cleanup(func() {
-		_ = db.Drop(context.Background())
-		_ = client.Disconnect(context.Background())
-	})
 	repo, err := NewMongoServerRepo(db)
 	if err != nil {
 		t.Fatalf("NewMongoServerRepo() error = %v", err)

@@ -131,8 +131,11 @@ func (e *recordingEvents) ListEvents(context.Context, string) ([]workflowdomain.
 func newAnsibleTaskFixture(t *testing.T, runner *fakeAnsibleRunner, guard stubGuard) (*AnsibleTaskRunner, *recordingLive, *recordingEvents) {
 	t.Helper()
 	live, events := &recordingLive{}, &recordingEvents{}
+	notRetryable := false
 	tasks, err := NewAnsibleTaskRunner(stubAnsibleConfigurations{}, stubCatalog{}, runner, events, stubInventory{}, guard,
-		stubSecrets{}, stubScanner{}, live, t.TempDir())
+		stubSecrets{}, stubScanner{}, live, t.TempDir(), workflowdomain.FailureCatalog{
+			"gpu_probe_failed": {Class: workflowdomain.FailurePermanent, Remediation: "Repair the GPU.", Retryable: &notRetryable},
+		})
 	if err != nil {
 		t.Fatalf("NewAnsibleTaskRunner: %v", err)
 	}
@@ -253,7 +256,37 @@ func TestAnsibleTaskCancelStopsTheRun(t *testing.T) {
 
 func TestNewAnsibleTaskRunnerRequiresEveryDependency(t *testing.T) {
 	if _, err := NewAnsibleTaskRunner(stubAnsibleConfigurations{}, stubCatalog{}, &fakeAnsibleRunner{}, &recordingEvents{},
-		stubInventory{}, nil, stubSecrets{}, stubScanner{}, &recordingLive{}, "/tmp"); err == nil {
+		stubInventory{}, nil, stubSecrets{}, stubScanner{}, &recordingLive{}, "/tmp", nil); err == nil {
 		t.Fatal("a runner without the Server Lock guard was built")
+	}
+}
+
+// A run past its Task's timeout is stopped and fails with task_budget_exceeded, its diagnostic
+// carrying the budget, not as a cancel.
+func TestAnsibleTaskTimeoutStopsTheRun(t *testing.T) {
+	runner := &fakeAnsibleRunner{block: true, started: make(chan struct{})}
+	tasks, _, _ := newAnsibleTaskFixture(t, runner, stubGuard{})
+	input := ansibleInput()
+	input.Task.TimeoutSeconds = 1
+	outcome := tasks.Run(context.Background(), input)
+	if outcome.Status != workflowdomain.TaskFailed || outcome.Error.Code != TaskBudgetExceededCode || !outcome.Error.Retryable {
+		t.Fatalf("a run past its timeout = %+v, want a retryable %s", outcome, TaskBudgetExceededCode)
+	}
+	if diagnostic := outcome.Error.Diagnostic; diagnostic == nil || diagnostic.BudgetSeconds != 1 || diagnostic.Remediation == "" {
+		t.Errorf("diagnostic = %+v, want the 1 s budget and a next step", diagnostic)
+	}
+}
+
+// A failure whose message carries a code a module declared takes the declared Failure Class,
+// remediation, and retryability; the error code stays ansible_failed.
+func TestAnsibleTaskAppliesDeclaredFailureCodes(t *testing.T) {
+	summary := "- s1: task \"Probe\" failed: [gpu_probe_failed] GPU 3 did not allocate"
+	tasks, _, _ := newAnsibleTaskFixture(t, &fakeAnsibleRunner{fail: errors.New(summary)}, stubGuard{})
+	outcome := tasks.Run(context.Background(), ansibleInput())
+	if outcome.Error == nil || outcome.Error.Code != "ansible_failed" || outcome.Error.Retryable {
+		t.Fatalf("error = %+v, want a non-retryable ansible_failed", outcome.Error)
+	}
+	if diagnostic := outcome.Error.Diagnostic; diagnostic.FailureClass != workflowdomain.FailurePermanent || diagnostic.Remediation != "Repair the GPU." {
+		t.Errorf("diagnostic = %+v, want the declared class and remediation", diagnostic)
 	}
 }

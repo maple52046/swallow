@@ -168,8 +168,12 @@ Exporter, or none), and the Platform Grafana (on by default; see
 on eligible compute nodes.
 
 Before a GPU node joins, swallow proves every GPU works by allocating and freeing
-memory on it through the HIP runtime, on the node and again through Slurm; a node
-that fails is drained and the deployment fails with the reason. The GRES type
+memory on it through the HIP runtime on the node. Once Slurm is installed, the
+deployment runs the `slurm-acceptance` [Validation Suite](validation.md) as its gate
+(the **Validate Slurm** Job): a step on every node, jobs sharing a node, containers
+and MPI when they are on, and the HIP probe through Slurm on every GPU node. A GPU
+node that fails is drained, and a check that does not pass stops the deployment with
+the reason; retry the Job after fixing it. The GRES type
 defaults to the GPU architecture (for example `gfx942`). Under **Advanced
 settings** you can name a different GRES type that existing job scripts expect
 (for example `mi308x_vf`) and set amdgpu driver module options. swallow already

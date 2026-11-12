@@ -82,6 +82,11 @@ the dashboard canceled that work and polled before submitting, which read as a f
   dashboard's Release and Recover dialogs close within the request, Platform deletion lists the
   holding Workflows for the user to confirm, and the CLI offers `--cancel-active-workflows`.
   Without the flag, the busy conflict names the holding Workflow.
+- **A preemptible Workflow is superseded by any Workflow that needs its Servers**, without a flag:
+  the Workflow that declared itself preemptible (a report-mode Validation Run,
+  [decision 081](081-validation-suites-and-runs.md) (validation suites and runs)) gets its cancel in
+  the accepting transaction, exactly as above, so validation never blocks a deployment. A preemptible
+  Workflow never preempts another one.
 
 ## Alternatives considered
 
@@ -122,3 +127,4 @@ the dashboard canceled that work and polled before submitting, which read as a f
 - 2026-10-19: decision 061 made a cancel keep finished results and return interrupted deployments to Ready, and made rerun converge from the current state.
 - 2026-10-19: decision 061 moved superseding the Workflows that hold a Release's or Recover's Servers from the dashboard into the backend, and on 2026-10-27 extended it to Platform uninstall.
 - 2026-11-02: merged decision 061 into this ADR; the body states the current decision.
+- 2026-11-12: a preemptible Workflow (a report-mode Validation Run, decision 081) is superseded by any Workflow that needs its Servers, without a flag.

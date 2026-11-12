@@ -8,6 +8,7 @@ import {
   Network,
   Package,
   Server,
+  ShieldCheck,
   type LucideIcon,
 } from 'lucide-react'
 import { Fragment } from 'react'
@@ -48,6 +49,7 @@ const NAVIGATION: ReadonlyArray<readonly NavEntry[]> = [
   [
     { label: 'Monitoring', path: '/monitoring', icon: ChartLine, activeFor: ['/monitoring'] },
     { label: 'Activity', path: '/workflows', icon: Activity, activeFor: ['/workflows', '/change-plans'] },
+    { label: 'Validation', path: '/validation/runs', icon: ShieldCheck, activeFor: ['/validation'] },
   ],
   [
     { label: 'OS Images', path: '/provisioning/images', icon: Disc3, activeFor: ['/provisioning'] },

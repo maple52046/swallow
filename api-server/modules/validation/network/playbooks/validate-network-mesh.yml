@@ -1,0 +1,81 @@
+---
+# Validation Suite network-mesh (docs/development/validation.md §7): can every target Server reach
+# every other one, carry a full-sized unfragmented packet to it, and open its SSH port? Each host
+# probes its peers at the address the inventory connects to them by, so the verdicts describe the
+# management network. A peer that does not answer is a verdict of the host that probed it; every
+# verdict reaches the run through the shared validation_report role.
+
+- name: Check the network mesh
+  hosts: all
+  gather_facts: false
+  vars:
+    network_mesh_parameters: "{{ swallow_validation_parameters | default({}) }}"
+    network_mesh_mtu: "{{ network_mesh_parameters.mtu | default(0) | int }}"
+  tasks:
+    - name: Probe the other Servers
+      ansible.builtin.include_role:
+        name: network_mesh
+
+    - name: Judge the mesh
+      ansible.builtin.include_role:
+        name: validation_report
+        tasks_from: record
+      vars:
+        validation_report_check: "{{ network_mesh_check.id }}"
+        # The MTU is judged only toward peers that answer; a peer whose MTU could not be read is not
+        # judged at all.
+        network_mesh_considered: >-
+          {{ network_mesh_results | selectattr('reachable') | list if network_mesh_check.reachable_only else network_mesh_results }}
+        network_mesh_judged: "{{ network_mesh_considered | selectattr(network_mesh_check.field, 'ne', none) | list }}"
+        network_mesh_bad: "{{ network_mesh_judged | rejectattr(network_mesh_check.field) | list }}"
+        network_mesh_bad_names: >-
+          {% for peer in network_mesh_bad %}{{ hostvars[peer.id].hostname | default(peer.id, true) }} ({{ peer.address }}){{ ', ' if not loop.last else '' }}{% endfor %}
+        validation_report_verdict: >-
+          {{ 'skipped' if network_mesh_probed | length == 0
+             else ('error' if network_mesh_error | length > 0
+                   else ('skipped' if network_mesh_considered | length == 0
+                         else ('error' if network_mesh_judged | length == 0
+                               else ('failed' if network_mesh_bad | length > 0 else 'passed')))) }}
+        validation_report_summary: >-
+          {{ 'a mesh needs at least two target Servers' if network_mesh_probed | length == 0
+             else (('the probe did not run: ' ~ network_mesh_error) if network_mesh_error | length > 0
+                   else ('no peer answers, so there is no path to measure' if network_mesh_considered | length == 0
+                         else (network_mesh_check.unjudged if network_mesh_judged | length == 0
+                               else ((network_mesh_check.failed ~ ': ' ~ network_mesh_bad_names) if network_mesh_bad | length > 0
+                                     else (network_mesh_check.passed ~ ' (' ~ network_mesh_judged | length ~ ')'))))) }}
+        validation_report_evidence: "{{ network_mesh_bad | map(attribute=network_mesh_check.output) | join('\n') }}"
+        validation_report_measurements: >-
+          {{ [{'name': network_mesh_check.measure, 'value': network_mesh_bad | length, 'unit': 'count', 'expected': '0'}]
+             if network_mesh_judged | length > 0 and network_mesh_error | length == 0 else [] }}
+      loop:
+        - id: ping-mesh
+          field: reachable
+          reachable_only: false
+          output: ping_output
+          measure: unreachable_peers
+          failed: cannot reach
+          passed: reaches every peer
+          unjudged: no peer was probed
+        - id: mtu
+          field: mtu_ok
+          reachable_only: true
+          output: mtu_output
+          measure: mtu_failures
+          failed: a full-sized unfragmented packet does not reach
+          passed: full-sized packets reach every peer that answers
+          unjudged: the MTU of no path could be read
+        - id: ssh-port
+          field: port_open
+          reachable_only: false
+          output: port_error
+          measure: closed_ports
+          failed: the SSH port refuses connections on
+          passed: the SSH port accepts connections on every peer
+          unjudged: no peer was probed
+      loop_control:
+        loop_var: network_mesh_check
+        label: "{{ network_mesh_check.id }}"
+
+    - name: Write the results for Swallow
+      ansible.builtin.include_role:
+        name: validation_report

@@ -1,0 +1,31 @@
+---
+# Write the results the hosts recorded (record.yml) to the run's result file, once, on the
+# executor (docs/development/validation.md §4.2). Include it as the last task of the playbook's last
+# play. A check with no result on a target is reported by the run as error, so a host that
+# recorded nothing needs no placeholder here.
+
+- name: Report the validation results
+  ansible.builtin.debug:
+    msg: >-
+      {% for result in validation_report_results %}{{ result.check }} on {{ result.target.id }}: {{ result.verdict
+      }}{{ '; ' if not loop.last else '' }}{% else %}no results{% endfor %}
+  vars:
+    validation_report_results: >-
+      {{ validation_report_hosts | map('extract', hostvars)
+         | map(attribute='swallow_validation_results', default=[]) | flatten(levels=1) | list }}
+  run_once: true
+
+- name: Write the validation results for Swallow
+  # The result goes to this run's private directory on the executor, never to a host.
+  ansible.builtin.copy:
+    dest: "{{ swallow_result_path }}"
+    content: "{{ {'checks': validation_report_results} | to_json }}"
+    mode: "0600"
+  vars:
+    validation_report_results: >-
+      {{ validation_report_hosts | map('extract', hostvars)
+         | map(attribute='swallow_validation_results', default=[]) | flatten(levels=1) | list }}
+  delegate_to: localhost
+  run_once: true
+  changed_when: false
+  when: swallow_result_path | default('') | length > 0

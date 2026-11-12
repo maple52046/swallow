@@ -80,17 +80,16 @@ func runHIPProbe(t *testing.T, env []string, args ...string) (hipProbeReport, in
 	return report, code
 }
 
-// A Slurm GPU node joins only after its GPUs pass the probe directly and through Slurm (no GPU
-// request, one GPU, every GPU); a failed node is drained before the run fails.
+// A Slurm GPU node joins only after its GPUs pass the probe directly and, in the slurm-acceptance
+// gate, through Slurm (no GPU request, one GPU, every GPU); the gate drains a failed node.
 func TestSlurmGPUGatesUseTheHIPProbe(t *testing.T) {
 	cases := map[string][]string{
 		filepath.Join("roles", "slurm_gpu", "tasks", "main.yml"): {
 			"name: gpu_probe", "gpu_probe_expect: \"{{ slurm_gpus | length }}\"", "state=drain",
 			"'hip_runtime_missing' if gpu_probe_run.rc == 2 else 'gpu_probe_failed'", "slurm_node_gres_full",
 		},
-		filepath.Join("roles", "slurm_verify", "tasks", "main.yml"): {
-			"--expect=0", "--gres=gpu:1", "--expect=1", "--gres={{ hostvars[item].slurm_node_gres_full }}", "--runs=3",
-			"state=drain", "[gpu_probe_failed]",
+		filepath.Join("roles", "slurm_acceptance", "files", "slurm_acceptance.py"): {
+			`"--expect=0"`, `"--gres=gpu:1"`, `"--expect=1"`, `"--gres=" + full`, `"--runs=3"`, `"state=drain"`,
 		},
 		filepath.Join("roles", "gpu_probe", "tasks", "main.yml"): {"'hip_runtime_missing' if gpu_probe_run.rc == 2 else 'gpu_probe_failed'"},
 		"uninstall-slurm.yml": {"/usr/local/libexec/swallow/hip-probe"},

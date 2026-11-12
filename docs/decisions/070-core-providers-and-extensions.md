@@ -48,11 +48,13 @@ owner of desired state. That only holds if no external system is part of the cor
    system's vocabulary, states, identifiers, and errors into the core's language; none of them cross
    the adapter. MAAS is the OS provisioning adapter shipped first; Temporal is the executor and can be
    replaced the same way.
-3. **What swallow manages is an extension module.** There are three kinds: Platform modules
+3. **What swallow manages is an extension module.** There are four kinds: Platform modules
    (Kubernetes, Slurm), Accelerator modules (AMD; a separate axis from Platforms, so a GPU vendor is
-   supported once rather than once per Platform), and Software modules (the Managed Software
-   catalog). Platform-specific and GPU-vendor-specific logic lives only in modules and reaches the
-   core through the module contract.
+   supported once rather than once per Platform), Software modules (the Managed Software
+   catalog), and Validation modules (Validation Suites that belong to no Platform, GPU vendor, or
+   software, such as host and network checks; [decision 081](081-validation-suites-and-runs.md)
+   (validation suites and runs)). Platform-specific and GPU-vendor-specific logic lives only in
+   modules and reaches the core through the module contract.
 4. **The architecture is the generic core; the product is a distribution.** What a customer receives
    is the core plus a validated set of adapters and modules, recorded in a support matrix per
    release.
@@ -118,3 +120,4 @@ owner of desired state. That only holds if no external system is part of the cor
 ## Revision history
 
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
+- 2026-11-12: added the fourth module kind, Validation modules, for Validation Suites that belong to no other module (decision 081).

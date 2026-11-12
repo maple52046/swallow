@@ -945,10 +945,14 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   controller＋compute → `control-plane` 且 `runWorkloads`、compute → `worker`；login-only 不是 role assignment，
   另列在 `loginServerIds`。因此 slurmrestd 只把 compute 回報成 member 時，controller 仍會被計入與列出。
 - **Job**：重用 `ensure-os`（用 user 的 Slurm image 佈 OS 或重用已 `deployed` 者），新增
-  `configure-slurm` Job 只含 `install-platform`（ansible）。**無 `validate-platform-health`**——
-  deployed integration 要等 install 步驟成功後才存在，故驗證放在 playbook 內（`slurm_verify`：`scontrol ping` 與
-  `sinfo --Node` 必須通過；跨 compute 的 `srun` smoke test 只警告，因為 slurmd 剛啟動時可能仍在註冊），成員由背景
-  membership sync 補上。
+  `configure-slurm` Job 只含 `install-platform`（ansible），之後是 gate 的 `validate-slurm` Job。**無
+  `validate-platform-health`**——deployed integration 要等 install 步驟成功後才存在。`deploy-slurm` 只確認叢集成形
+  （`slurm_verify`：`scontrol ping` 與每台 compute 在 `sinfo --Node` 註冊為可排程）；叢集能不能用由 Validation Suite
+  `slurm-acceptance` 以 gate 驗收（[validation.md](validation.md) §5、§7）：launcher 在 `install-platform` 之後組入它的
+  Task（從 primary controller 進入，gate mode，`gpuServers` 是部署對應的 GPU compute node）與 `complete-validation`，
+  兩者同屬 `validate-slurm` Job，所以重試這個 Job 會重跑整個 suite；之後組入的 Job 都依賴它。gate 的 run 與 Workflow 在
+  同一個 transaction 寫入。gating check 沒有通過時部署以 `validation_gate_failed` 停在 `requires_attention`；`srun-all-nodes`
+  不是 gating，只記在 run。成員由背景 membership sync 補上。
 - **trusted vars**（`swallow_slurm_*`，client 不可偽造）：`cluster_name`（未指定時為清理過的 Platform 名稱）、
   `platform_name`、`controller_ids`（有序，第一個為 primary）、`compute_ids`、`login_ids`、`primary_controller_id`、
   `high_availability`、`controller_state_mode`（`local`／`shared`）、HA 時的 `state_server_id` 與 `state_export`
@@ -1051,13 +1055,14 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   以 `[amdgpu_reload_blocked]` 失敗並列出佔用者（整個 role 只有這一個 reboot，靜態測試守住 guard）。之後逐一
   比對 `/sys/module/amdgpu/parameters`，不符以 `[amdgpu_option_not_applied]` 失敗；modinfo 有但 sysfs 不公開的
   只列為 unverifiable。不比對任何 GPU 型號或 SR-IOV。
-- **GPU 可用性驗收（decision 063）**：`gpu_probe` role 在每台 GPU node 安裝
+- **GPU 可用性驗收（decision 063）**：共用 role `gpu_probe` 在每台 GPU node 安裝
   `/usr/local/libexec/swallow/hip-probe`（ctypes 呼叫 `libamdhip64`，無 device code、與架構無關）並直接執行：
   `hipGetDeviceCount`＝KFD GPU 數，每張 GPU `hipSetDevice`／`hipMalloc`／`hipMemset`／`hipDeviceSynchronize`／
-  `hipFree`，連續 3 次、每次獨立 process（結束時 crash 也算失敗）。`slurm_verify` 再透過 Slurm 跑三種作業：無
-  GPU request（看到 0）、`--gres=gpu:1`（看到 1 且 `ROCR_VISIBLE_DEVICES=0`）、整台
-  （`slurm_node_gres_full`，probe 3 次）。失敗的節點 `scontrol update state=drain`，並以 `[gpu_probe_failed]`
-  （無 HIP runtime 為 `[hip_runtime_missing]`）失敗。
+  `hipFree`，連續 3 次、每次獨立 process（結束時 crash 也算失敗）；失敗時 `slurm_gpu` drain 該節點並以
+  `[gpu_probe_failed]`（無 HIP runtime 為 `[hip_runtime_missing]`）失敗。`slurm-acceptance` gate 的 `gpu-gres` 再透過
+  Slurm 跑三種作業：無 GPU request（看到 0）、`--gres=gpu:1`（看到 1 且 `ROCR_VISIBLE_DEVICES=0`）、整台（節點 GRES 只有
+  一種 type 時是該 GRES，否則 `gpu:<數量>`，probe 3 次），並要求 `gpuServers` 的每台都提供 GPU GRES；失敗的節點
+  `scontrol update state=drain`（只有 gate mode 會 drain），部署以 `validation_gate_failed` 停下。
 - **選用功能：container runtime（decision 063）**：deploy request 帶 `containerRuntime.kind`
   （`docker-ce`／`podman`）時，`Platform.containerRuntime` 記下選擇，`DeploymentLaunch.ContainerRuntime`
   帶 compute ∪ login 的 serverId；launcher 把該 runtime 當 Managed Software 組入（見下表），每台 Server
@@ -1072,7 +1077,8 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   hook），舊 Platform 重佈時取代 Omnistat 先前的 Prolog/Epilog 檔。非 Omnistat 時
   partition `OverSubscribe=NO`（既有叢集在下次重佈時生效，之後 job 以 `--exclusive` 要求整台節點）；偵測 play 依 `slurmd -C` 的 `RealMemory` 扣 OS 保留（5%，2–16 GiB，至多一半）
   得到 `slurm_node_schedulable_memory`，`slurm_config` 取各節點「可排程記憶體／CPU」最小值為 `DefMemPerCPU`。
-  `slurm_verify` 以兩個未帶 `--mem` 的一 CPU job 同時在同一節點 RUNNING 驗證（`[slurm_shared_node_failed]`）。
+  `slurm-acceptance` 的 `shared-node` 以兩個未帶 `--mem` 的一 CPU job 同時在同一節點 RUNNING 驗證（partition 是
+  `OverSubscribe=EXCLUSIVE` 時 `skipped`）。
   `group_by` 與結果檔 `changed_when: false`，收斂的叢集重跑 `changed=0`。
 - **Platform 的 Grafana（[monitoring.md](monitoring.md) §6.2）**：Platform spec 的 `settings.monitoringDashboards`
   （desired，省略或 `null` 即開啟，CPU-only 也一樣）決定 Platform 是否有自己的 Grafana。Slurm deploy use case 在開啟時
@@ -1211,15 +1217,17 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   Prometheus）的 assignment 保留。
 - **選用功能：native OCI 與 PMIx（decision 066）**：`slurm.ociContainers`／`slurm.pmix` 記在 Platform，
   以 `swallow_slurm_oci_containers`／`swallow_slurm_pmix` 交給 `deploy-slurm`（roles `slurm_oci`、`slurm_pmix`）；
-  兩者都以 probe job 驗證（`[slurm_oci_failed]`、`[slurm_pmix_failed]`）。OCI：`slurm_config` 渲染 `oci.conf`
+  兩者都由 `slurm-acceptance` 的 probe job 驗證（`oci-container`、`mpi-pmix`；它從 compute node 上的 `oci.conf` 與
+  probe 判斷功能是否開啟，開啟卻缺 probe 是 `error`）。OCI：`slurm_config` 渲染 `oci.conf`
   （rootless `/usr/bin/crun`、`ContainerPath=/run/user/%U/slurm-oci`、不設 `MountSpoolDir`（容器內 spool 與主機同路徑，
   PMIx server 目錄才對得上）、`RunTimeEnvExclude` 排除 `NOTIFY_SOCKET`），變更計入 `slurm_config_changed` 讓 slurmd 重啟重抓；`slurm_oci`
   在 compute 裝 crun、確認 userns 受限時 crun 的 AppArmor profile 已載入（不改 sysctl）、以
   `files/oci-probe-bundle.py` 建 `/var/lib/swallow/oci/probe`（唯讀空 rootfs＋bind 主機 `/usr`、`/etc`、`/opt`、`/dev`，
-  `/run` 為 tmpfs 並帶入主機 `/run/munge`，host network）。`slurm_verify` 以 `runuser -u nobody` 跑容器 step（uid_map
+  `/run` 為 tmpfs 並帶入主機 `/run/munge`，host network；userns 受限而缺 profile 時以 `[slurm_oci_failed]` 失敗）。
+  `slurm-acceptance` 以 `runuser -u nobody` 跑容器 step（uid_map
   不可映射到 root）與每台 GPU node 的 1-GPU 容器 HIP probe。PMIx：`slurm_pmix` 在 compute＋login 裝 `openmpi-bin`、
   `python3-mpi4py`（不裝 recommends；SchedMD 的 `mpi_pmix_v5.so` RPATH 指向 Ubuntu `libpmix2` 的目錄），compute 裝
-  `files/mpi-probe.py`；套件新裝時 slurmd 重啟。`slurm_verify` 跑單節點 2 rank、兩節點各 1 rank、（OCI 時）兩節點容器
+  `files/mpi-probe.py`；套件新裝時 slurmd 重啟。`slurm-acceptance` 跑單節點 2 rank、兩節點各 1 rank、（OCI 時）兩節點容器
   各 1 rank，要求同一 PMIx namespace、barrier 通過，並確認失敗 rank 讓 step 失敗。關閉時移除 `oci.conf` 與 bundle，crun 套件保留（Podman 也依賴它）。
 - **非目標（後續）**：SlurmDBD/accounting、RSMI GPU accounting、production 等級/外部 HA controller-state
   filesystem（controller state 目前為 lab 等級 managed NFS）、非 NFS 的 workload 儲存型別、多個
@@ -1233,7 +1241,9 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
 Slurm playbook：[`deploy-slurm.yml`](../../api-server/modules/platform/slurm/playbooks/deploy-slurm.yml) 與
 Slurm 模組的 `roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_gpu`、
 `slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、
-`slurm_cluster_credential`、`slurm_job_hooks`）；Device Metrics Exporter：
+`slurm_cluster_credential`、`slurm_job_hooks`）與共用的 `gpu_probe`；gate 的 suite：
+[`validate-slurm-acceptance.yml`](../../api-server/modules/platform/slurm/playbooks/validate-slurm-acceptance.yml) 與
+`roles/slurm_acceptance`（檢查在 `files/slurm_acceptance.py`），組入部署的程式在 `internal/app/validation_gate.go`；Device Metrics Exporter：
 [`deploy-device-metrics-exporter.yml`](../../api-server/modules/software/device-metrics-exporter/playbooks/deploy-device-metrics-exporter.yml)
 （standalone 與 Slurm 共用；舊名 `configure-device-metrics-exporter` 為 manifest alias）與共用的 `roles/device_metrics_exporter`（套件宣告的 path／SHA-256 與上游 `config.json` 在 role 內，上游 URL 在模組的 `artifacts`）；Omnistat：[`configure-omnistat.yml`](../../api-server/modules/platform/slurm/playbooks/configure-omnistat.yml)
 與 `roles/omnistat`（上游 tag 壓縮檔宣告的 path 與 sha256 在 `defaults/main.yml`，上游 URL 在 Slurm 模組的 `artifacts`，swallow 維護的 patch、環境的 hash lock 與兩個 probe 在 `files/`；收斂在 `tasks/converge.yml`、`probe.yml`、`install.yml`，hardware counters 在 `hardware_counters.yml`、`hardware_counters_probe.yml`、`counter_probe.yml`、`hardware_counters_remove.yml`，exporter 的設定與 unit 在 `service.yml`）。
@@ -1326,14 +1336,14 @@ playbook 使用的內容放在 `shared/`。
 | --- | --- |
 | Playbook manifest（allow-list） | `manifest.json` |
 | 依賴鎖 | `api-server/internal/adapters/hostautomation/ansible/requirements.txt`、`requirements.yml` |
-| Kubernetes 模組 | `platform/kubernetes/`：`deploy-kubernetes.yml`、`uninstall-kubernetes.yml`、`configure-kubernetes-grafana.yml`；roles `k0s_*`（reference 範本：`k0s_host_preflight`、`k0s_prereq`、`k0s_binary`、`k0s_config`、`k0s_controller_bootstrap`、`k0s_controller_join`、`k0s_worker_join`、`k0s_cluster_credential`、`k0s_verify`）、`k0s_platform_grafana`（chart 在 `files/`，chart、image digest 與 NodePort 在 `defaults/`） |
-| Slurm 模組 | `platform/slurm/`：`deploy-slurm.yml`、`uninstall-slurm.yml`、`configure-omnistat.yml`；roles `slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、`slurm_cluster_credential`…）、`gpu_probe`、`omnistat` |
-| AMD 模組（GPU Operator） | `accelerator/amd/`：`configure-amd-gpu-operator.yml`；role `amd_gpu_operator`（chart 在 `files/`；DeviceConfig 與 metrics exporter 的 ConfigMap 在 `templates/`） |
+| Kubernetes 模組 | `platform/kubernetes/`：`deploy-kubernetes.yml`、`uninstall-kubernetes.yml`、`configure-kubernetes-grafana.yml`、`validate-kubernetes-smoke.yml`；roles `k0s_*`（reference 範本：`k0s_host_preflight`、`k0s_prereq`、`k0s_binary`、`k0s_config`、`k0s_controller_bootstrap`、`k0s_controller_join`、`k0s_worker_join`、`k0s_cluster_credential`、`k0s_verify`）、`k0s_platform_grafana`（chart 在 `files/`，chart、image digest 與 NodePort 在 `defaults/`）、`k0s_smoke`（suite `kubernetes-smoke`，`files/kube_smoke.py`） |
+| Slurm 模組 | `platform/slurm/`：`deploy-slurm.yml`、`uninstall-slurm.yml`、`configure-omnistat.yml`、`validate-slurm-acceptance.yml`；roles `slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、`slurm_cluster_credential`…、`slurm_acceptance`（suite `slurm-acceptance`，`files/slurm_acceptance.py`））、`omnistat` |
+| AMD 模組（GPU Operator） | `accelerator/amd/`：`configure-amd-gpu-operator.yml`、`validate-amd-gpu-basic.yml`；role `amd_gpu_operator`（chart 在 `files/`；DeviceConfig 與 metrics exporter 的 ConfigMap 在 `templates/`）、`amd_gpu_census`（suite `amd-gpu-basic`） |
 | DME（Managed Software） | `software/device-metrics-exporter/`：`deploy-device-metrics-exporter.yml`、`uninstall-device-metrics-exporter.yml`；role 是共用的 `device_metrics_exporter` |
 | Prometheus／Grafana（Managed Software） | `software/prometheus/`、`software/grafana/`（datasource 與 dashboard bundles 在共用 role `grafana_provisioning`） |
 | Node Exporter（Managed Software，OS 部署組入） | `software/node-exporter/`：`deploy-node-exporter.yml`、`uninstall-node-exporter.yml`；role `node_exporter` |
 | 共用 playbook | `shared/playbooks/`：`diagnostic-ping.yml`、`configure-ntp.yml` |
-| 共用 role | `shared/roles/`：`amdgpu_loader`（GPU Operator、Slurm GRES 與 DME）、`device_metrics_exporter`（Slurm 與 DME）、`helm`（固定版本的 helm 與 SHA-256，GPU Operator 與 Kubernetes 的 Platform Grafana）、`grafana_provisioning`（每個 swallow 安裝的 Grafana 共用的 datasource、dashboard provider 與 `files/dashboards/<bundle>`：`node-exporter`、`omnistat`、`device-metrics-exporter`；以檔案交給 Grafana Managed Software，以 Helm values 與 ConfigMap 交給 Kubernetes 的 Platform Grafana）、`time_sync_check`（`deploy-kubernetes.yml` 與 `deploy-slurm.yml` 開頭使用；SNTP 量測 `files/ntp_offset.py`）、`ntp_client`（decision 065；偵測與 client 順序在 `vars/`，timesyncd／chrony／ntpd 設定 template 在 `templates/`）、`package_maintenance_hold`（decision 073；改套件的 playbook 第一個 play 取得、最後一個 play 釋放）、`artifact_sources`（decision 078；取得 hold 之後的下一個 play，把 apt、pip、uv 與 container runtime 指向 Site 選擇的 artifact 來源：Local Repository 或宣告的上游）、`python_toolchain`（decision 080；找出任何 CPython 3.12 與任何 uv，缺少時才從 OS 套件與宣告的 uv release 補上）；`docker_runtime` 與 `rdc_exporter` 仍在，但沒有 playbook 使用 |
+| 共用 role | `shared/roles/`：`amdgpu_loader`（GPU Operator、Slurm GRES 與 DME）、`gpu_probe`（HIP probe：Slurm 部署以 `main.yml` 安裝並執行，`amd-gpu-basic` 以 `run.yml` 只在執行時複製）、`validation_report`（驗證結果的記錄與寫出，[validation.md](validation.md) §4.2）、`device_metrics_exporter`（Slurm 與 DME）、`helm`（固定版本的 helm 與 SHA-256，GPU Operator 與 Kubernetes 的 Platform Grafana）、`grafana_provisioning`（每個 swallow 安裝的 Grafana 共用的 datasource、dashboard provider 與 `files/dashboards/<bundle>`：`node-exporter`、`omnistat`、`device-metrics-exporter`；以檔案交給 Grafana Managed Software，以 Helm values 與 ConfigMap 交給 Kubernetes 的 Platform Grafana）、`time_sync_check`（`deploy-kubernetes.yml` 與 `deploy-slurm.yml` 開頭使用；SNTP 量測 `files/ntp_offset.py`）、`ntp_client`（decision 065；偵測與 client 順序在 `vars/`，timesyncd／chrony／ntpd 設定 template 在 `templates/`）、`package_maintenance_hold`（decision 073；改套件的 playbook 第一個 play 取得、最後一個 play 釋放）、`artifact_sources`（decision 078；取得 hold 之後的下一個 play，把 apt、pip、uv 與 container runtime 指向 Site 選擇的 artifact 來源：Local Repository 或宣告的上游）、`python_toolchain`（decision 080；找出任何 CPython 3.12 與任何 uv，缺少時才從 OS 套件與宣告的 uv release 補上）；`docker_runtime` 與 `rdc_exporter` 仍在，但沒有 playbook 使用 |
 
 映像：production 於 build 時把 `api-server/modules`（去掉 Go 原始碼）複製到 `/opt/swallow/automation/modules`；`ansible`
 與 API/worker 共用同一映像，以不同 command 啟動。

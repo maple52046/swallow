@@ -172,7 +172,7 @@ core 檔案的廠商詞彙數仍不得增加。新的平台或廠商名稱要寫
 - **現況**：`bmcporttest` 是第一組；Redfish adapter 的每個 BMC Profile 各有一台假 BMC 跑它
   （[bmc-profiles.md](bmc-profiles.md)）。其他 port 還沒有，新增 adapter 或修改 port 時依同一個慣例補上。
 
-## 4. 三種模組
+## 4. 四種模組
 
 ### 4.1 Platform 模組
 
@@ -198,15 +198,24 @@ core 檔案的廠商詞彙數仍不得增加。新的平台或廠商名稱要寫
 安裝在 Server 上，也可以由 Platform 模組以 Job 組入，或由 OS 部署組入（Node Exporter）（見
 [software-deployment.md](software-deployment.md)）。
 
+### 4.4 Validation 模組
+
+不屬於任何 Platform、GPU 廠商或軟體的 [Validation Suite](glossaries/terms/validation-suite.md)（主機、多台之間的網路），
+以及 user-defined suite 的執行器（[decision 081](../decisions/081-validation-suites-and-runs.md)（validation suites and
+runs））。它不管理任何資源、沒有 spec，只宣告 suite、範本與判定它們的 playbook。任何一種模組都可以宣告自己領域的
+suite（例如 Slurm 模組的 `slurm-acceptance`）；行為見 [validation.md](validation.md)。
+
 ## 5. 模組契約
 
 ### 5.1 manifest
 
 每個模組以一份 manifest 宣告自己，內容包含：
 
-- 種類（Platform、Accelerator、Software）、id、版本，以及**契約版本**。
+- 種類（Platform、Accelerator、Software、Validation）、id、版本，以及**契約版本**。
 - spec schema 與功能開關。
-- Job／Task 範本。
+- Job／Task 範本（[Workflow Template](glossaries/terms/workflow-template.md)，`templates`）。
+- 模組提供的 Validation Suite（`validations`）。
+- host automation 的失敗 code 與它們的 Failure Class、remediation（`failureCodes`）。
 - 狀態規則：如何從 observed 推導 conditions 與功能狀態。
 - 需要的 provider capability。
 - 部署要取得的 artifact（`artifacts`）：帶簽章金鑰的套件來源、帶 sha256 的檔案、container image 與固定版本的 Python
@@ -220,8 +229,10 @@ manifest 是資料；core 以讀取 manifest 的方式載入模組，契約版�
 組出同一個 registry（[decision 075](../decisions/075-module-contract-v1.md)（module contract v1）；欄位與寫法見
 [module-authoring.md](module-authoring.md) §1.1）。v1 的 spec schema 是 core 與 dashboard 讀法相同的 JSON Schema 子集；
 `artifacts` 屬於 v1，不由模組擁有：兩個模組可以宣告同一個來源或檔案，宣告不一致時 registry 建立失敗，process 拒絕啟動；
-功能開關、Job／Task 範本、狀態規則與模組之間的相容宣告尚未進入 v1：目前由模組的 Go hook 產生執行計畫，宣告式的範本
-另行定義；相容關係以 core 的 port 表達。
+`templates`、`validations` 與 `failureCodes` 屬於 v1（[decision 081](../decisions/081-validation-suites-and-runs.md)）：範本
+是資料，core 把它編譯成 Workflow 的計畫，受理時與其他計畫一樣驗證；suite 與失敗 code 和 Workflow kind 一樣由一個模組
+擁有。範本目前只由 Validation Suite 使用，既有的部署組合仍由 `internal/app` 的 launcher 以 Go 產生（§3.6），之後再搬。
+功能開關、狀態規則與模組之間的相容宣告尚未進入 v1；相容關係以 core 的 port 表達。
 
 ### 5.2 host automation 內容
 

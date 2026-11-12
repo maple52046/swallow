@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+
+	"github.com/maple52046/swallow/internal/adapters/store/mongodb/mongotest"
 )
 
 // testDatabase connects to the MongoDB named by SWALLOW_TEST_MONGO_URI and returns a
@@ -19,27 +20,7 @@ import (
 // local verification set it to an ephemeral container.
 func testDatabase(t *testing.T) *mongo.Database {
 	t.Helper()
-	uri := os.Getenv("SWALLOW_TEST_MONGO_URI")
-	if uri == "" {
-		t.Skip("SWALLOW_TEST_MONGO_URI not set; skipping migration integration test")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
-	if err != nil {
-		t.Fatalf("connect mongo: %v", err)
-	}
-	if err := client.Ping(ctx, nil); err != nil {
-		t.Fatalf("ping mongo: %v", err)
-	}
-	name := fmt.Sprintf("swallow_migration_test_%d", time.Now().UnixNano())
-	db := client.Database(name)
-	t.Cleanup(func() {
-		cctx, ccancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer ccancel()
-		_ = db.Drop(cctx)
-		_ = client.Disconnect(cctx)
-	})
+	_, db := mongotest.Database(t, "migration")
 	return db
 }
 
