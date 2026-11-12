@@ -38,14 +38,17 @@ func newValidationService(deps validationDeps) (*validationapp.Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	schedules, err := validationstore.NewMongoScheduleRepo(deps.db)
+	if err != nil {
+		return nil, err
+	}
 	users := validationstore.NewMongoSuiteRepo(deps.db)
 	catalog, err := validationapp.NewCatalog(deps.modules.validations, users)
 	if err != nil {
 		return nil, err
 	}
 	return validationapp.NewService(validationapp.ServiceDeps{
-		Transactor: deps.transactor, Catalog: catalog, Users: users, Runs: runs,
-		Schedules: validationstore.NewMongoScheduleRepo(deps.db),
+		Transactor: deps.transactor, Catalog: catalog, Users: users, Runs: runs, Schedules: schedules,
 		Targets: validationTargets{servers: deps.servers, platforms: deps.platforms, lifecycle: deps.lifecycle,
 			modules: deps.modules.platforms},
 		Launcher: validationLauncher{operations: deps.operations, workflows: deps.orchestrations,

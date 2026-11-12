@@ -1,4 +1,4 @@
-import { Link as ChakraLink, Stack, Table, Text } from '@chakra-ui/react'
+import { Button, Link as ChakraLink, Stack, Table, Text } from '@chakra-ui/react'
 import { Link as RouterLink } from 'react-router-dom'
 import type { ValidationRunSummary } from '@/domain/validation/types'
 import { StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
@@ -8,43 +8,64 @@ import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { usePlatformNamesById } from '@/presentation/hooks/usePlatformNames'
 import { useServerNames } from '@/presentation/hooks/useServerNames'
 import { formatDateTime } from '@/shared/utils/time'
-import { countsLabel, runOutcome, runTriggerLabel } from './validationPresentation'
+import { countsLabel, runDuration, runOutcome, runTriggerLabel } from './validationPresentation'
 
 interface ValidationRunListProps {
   runs: readonly ValidationRunSummary[]
-  /** Accessible name of the table and of the card list, for example "Validation Runs". */
   label: string
-  /** Omits the Target column where every run has the same target (a Server's or Platform's page). */
   hideTarget?: boolean
+  /** Shows Site identity in all-Sites inventories. */
+  showSite?: boolean
 }
 
 /**
- * The one presentation of a list of Validation Runs: the Validation area's Runs list and the recent
- * runs on Server and Platform pages compose it. Each run links to its detail page (keeping the
- * Site scope) and shows its suite, target, what started it, and its outcome: the verdict of a
- * completed run, else its status, always as text with the counts of each verdict.
- *
- * Targets are shown by name (`useServerNames`, `usePlatformNamesById`); an id without a name (a
- * deleted Server) is shown as the id. Below the `md` breakpoint the same runs are cards.
+ * Responsive Validation Run inventory shared by the assurance list and resource detail pages.
+ * Every navigation affordance is a real link; failed and error outcomes receive review wording
+ * without merging their distinct domain verdicts.
  */
-export function ValidationRunList({ runs, label, hideTarget = false }: ValidationRunListProps) {
-  const { scopedHref } = useSiteScope()
+export function ValidationRunList({ runs, label, hideTarget = false, showSite = false }: ValidationRunListProps) {
+  const { scopedHref, sites } = useSiteScope()
   const serverIds = runs.flatMap((run) => (run.target.platformId ? [] : run.target.serverIds))
   const serverNames = useServerNames(serverIds)
   const platformNames = usePlatformNamesById(runs.flatMap((run) => (run.target.platformId ? [run.target.platformId] : [])))
+  const siteName = new Map(sites.map((site) => [site.id, site.name]))
   const targetLabel = (run: ValidationRunSummary) => {
     if (run.target.platformId) return `Platform ${platformNames.get(run.target.platformId) ?? run.target.platformId}`
     return run.target.serverIds.map((id) => serverNames.get(id) ?? id).join(', ')
   }
-  const suiteLink = (run: ValidationRunSummary) => (
-    <ChakraLink asChild fontWeight="medium" color="brand.fg">
-      <RouterLink to={scopedHref(`/validation/runs/${encodeURIComponent(run.id)}`)}>{run.suite.name}</RouterLink>
-    </ChakraLink>
+  const href = (run: ValidationRunSummary) => scopedHref(
+    `/validation/runs/${encodeURIComponent(run.id)}`,
+    run.siteId,
+  )
+  const identity = (run: ValidationRunSummary) => (
+    <Stack gap="0.5">
+      <ChakraLink asChild fontWeight="semibold" color="brand.fg">
+        <RouterLink to={href(run)}>{run.suite.name}</RouterLink>
+      </ChakraLink>
+      <Text className="sw-mono" fontSize="xs" color="fg.muted">{run.id}</Text>
+      <Text fontSize="xs" color="fg.muted">
+        {run.suite.source === 'user' ? `Script revision ${run.suite.revision ?? '—'}` : run.suite.version ? `Module ${run.suite.version}` : 'Module suite'}
+      </Text>
+    </Stack>
   )
   const outcome = (run: ValidationRunSummary) => {
-    const { status, label: text } = runOutcome(run)
-    return <StatusBadge status={status} label={text} />
+    const current = runOutcome(run)
+    return <StatusBadge status={current.status} label={current.label} />
   }
+  const action = (run: ValidationRunSummary) => {
+    const review = run.verdict === 'failed' || run.verdict === 'error'
+    return (
+      <Button asChild size="sm" variant={review ? 'solid' : 'outline'} colorPalette={review ? 'brand' : undefined} minW="7rem">
+        <RouterLink to={href(run)}>{review ? 'Review run' : 'View run'}</RouterLink>
+      </Button>
+    )
+  }
+  const target = (run: ValidationRunSummary) => (
+    <Stack gap="0.5">
+      <Text>{targetLabel(run)}</Text>
+      {showSite && <Text fontSize="xs" color="fg.muted">Site: {siteName.get(run.siteId) ?? run.siteId}</Text>}
+    </Stack>
+  )
 
   return (
     <ResponsiveDataView
@@ -53,26 +74,30 @@ export function ValidationRunList({ runs, label, hideTarget = false }: Validatio
           <Table.Root size="sm" aria-label={label}>
             <Table.Header>
               <Table.Row>
-                <Table.ColumnHeader>Suite</Table.ColumnHeader>
+                <Table.ColumnHeader>Validation</Table.ColumnHeader>
                 {!hideTarget && <Table.ColumnHeader>Target</Table.ColumnHeader>}
-                <Table.ColumnHeader>Started by</Table.ColumnHeader>
-                <Table.ColumnHeader>Result</Table.ColumnHeader>
-                <Table.ColumnHeader>Requested</Table.ColumnHeader>
+                <Table.ColumnHeader>Outcome</Table.ColumnHeader>
+                <Table.ColumnHeader>Findings</Table.ColumnHeader>
+                <Table.ColumnHeader>Trigger</Table.ColumnHeader>
+                <Table.ColumnHeader>Requested / duration</Table.ColumnHeader>
+                <Table.ColumnHeader>Action</Table.ColumnHeader>
               </Table.Row>
             </Table.Header>
             <Table.Body>
               {runs.map((run) => (
                 <Table.Row key={run.id}>
-                  <Table.Cell>{suiteLink(run)}</Table.Cell>
-                  {!hideTarget && <Table.Cell>{targetLabel(run)}</Table.Cell>}
+                  <Table.Cell>{identity(run)}</Table.Cell>
+                  {!hideTarget && <Table.Cell>{target(run)}</Table.Cell>}
+                  <Table.Cell>{outcome(run)}</Table.Cell>
+                  <Table.Cell><Text fontSize="sm">{countsLabel(run.counts)}</Text></Table.Cell>
                   <Table.Cell>{runTriggerLabel(run)}</Table.Cell>
                   <Table.Cell>
-                    <Stack gap="1" align="flex-start">
-                      {outcome(run)}
-                      <Text fontSize="xs" color="fg.muted">{countsLabel(run.counts)}</Text>
+                    <Stack gap="0.5">
+                      <Text>{formatDateTime(run.requestedAt)}</Text>
+                      <Text fontSize="xs" color="fg.muted">{runDuration(run.startedAt, run.finishedAt)}</Text>
                     </Stack>
                   </Table.Cell>
-                  <Table.Cell>{formatDateTime(run.requestedAt)}</Table.Cell>
+                  <Table.Cell>{action(run)}</Table.Cell>
                 </Table.Row>
               ))}
             </Table.Body>
@@ -82,11 +107,12 @@ export function ValidationRunList({ runs, label, hideTarget = false }: Validatio
       mobile={
         <div className="sw-resource-card-list" aria-label={label}>
           {runs.map((run) => (
-            <ResourceCard key={run.id} title={suiteLink(run)} status={outcome(run)}>
-              {!hideTarget && <ResourceCardField label="Target">{targetLabel(run)}</ResourceCardField>}
-              <ResourceCardField label="Started by">{runTriggerLabel(run)}</ResourceCardField>
-              <ResourceCardField label="Results">{countsLabel(run.counts)}</ResourceCardField>
+            <ResourceCard key={run.id} title={identity(run)} status={outcome(run)} actions={action(run)}>
+              {!hideTarget && <ResourceCardField label="Target">{target(run)}</ResourceCardField>}
+              <ResourceCardField label="Findings">{countsLabel(run.counts)}</ResourceCardField>
+              <ResourceCardField label="Trigger">{runTriggerLabel(run)}</ResourceCardField>
               <ResourceCardField label="Requested">{formatDateTime(run.requestedAt)}</ResourceCardField>
+              <ResourceCardField label="Duration">{runDuration(run.startedAt, run.finishedAt)}</ResourceCardField>
             </ResourceCard>
           ))}
         </div>

@@ -21,6 +21,9 @@ consumer of the provider-owned HTTP contract and binds only real API adapters.
 | `/software/settings`, `/software/:kind/settings` | Software settings such as registry credentials |
 | `/workflows`, `/workflows/:id` | Activity: durable Workflow list, events, logs, and controls |
 | `/change-plans` | Activity: Change Plans waiting for approval |
+| `/validation/runs`, `/validation/runs/:id` | Validation assurance activity and issue-first Run results |
+| `/validation/suites`, `/validation/suites/:id` | Validation capability catalog and Suite details |
+| `/validation/schedules` | Site-scoped Validation automation |
 | `/monitoring` | Health, usage charts (selected Servers, Pool, Zone, Platform), current metrics, optional Grafana, and (in development) alerts and silences |
 | `/infrastructure/*` | Sites, Integrations, Zones, Pools, the Site's Local repository, and Boot ISOs |
 | `/account/ssh-keys`, `/account/api-keys` | Your SSH keys and API keys (account menu) |

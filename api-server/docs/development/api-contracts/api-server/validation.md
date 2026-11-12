@@ -138,7 +138,8 @@ needs one of its Servers (a deployment, a Release, a software install) cancels i
 
 `GET /api/v1/validation/runs/{runId}` returns the run with its `results`; the list returns runs
 without `results`, newest first. `serverId` matches a run whose target Servers include the Server or
-whose Platform has it as a member at acceptance.
+whose Platform has it as a member at acceptance. `siteId` exact-matches the Site recorded by the run; when it is
+omitted the list spans all Sites, and an unknown Site returns an empty page with `total: 0`.
 
 - `status`: `pending` until its first check Task starts, `running`, then `completed` or `canceled`.
 - `verdict`: `null` until `completed` and for a `canceled` run; then `failed` when any result is
@@ -163,6 +164,9 @@ returns `202` with the run, which ends `canceled` once the cancel path finished;
 before stay. A run that already ended, and a gate run (cancel its deployment instead), are `409`.
 
 ## Schedules
+
+`GET /api/v1/validation/schedules` accepts an optional exact `siteId`. When omitted it returns
+schedules across all Sites; an unknown Site returns an empty list.
 
 A Validation Schedule is desired state ([desired-state-model](../../../../../docs/development/desired-state-model.md)):
 `spec` is written only by this API, `status` only by the worker's `validation-schedule` controller.
@@ -198,4 +202,4 @@ A Validation Schedule is desired state ([desired-state-model](../../../../../doc
 ## Compatibility Notes
 
 New in 2026-11-12. The Workflow kind `run-validation` joins the workflows contract's kind enum, and
-the modules contract's `kind` gains `validation`. Later the same day a suite gained `experimental`.
+the modules contract's `kind` gains `validation`. Later the same day a suite gained `experimental`; Runs and Schedules gained optional exact `siteId` list filters.

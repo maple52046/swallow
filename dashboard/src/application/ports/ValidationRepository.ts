@@ -14,6 +14,7 @@ import type {
 
 /** Which runs a list returns; every field narrows it, and an unset field does not. */
 export interface ValidationRunFilter {
+  siteId?: string
   suiteId?: string
   /** Runs whose target or member Servers include this Server. */
   serverId?: string
@@ -58,7 +59,7 @@ export interface ValidationRepository {
   cancelRun(id: string): Promise<ValidationRun>
 
   /** By name. */
-  listSchedules(): Promise<ValidationSchedule[]>
+  listSchedules(siteId?: string): Promise<ValidationSchedule[]>
   createSchedule(input: ValidationScheduleInput): Promise<ValidationSchedule>
   replaceSchedule(id: string, input: ValidationScheduleInput): Promise<ValidationSchedule>
   deleteSchedule(id: string): Promise<void>

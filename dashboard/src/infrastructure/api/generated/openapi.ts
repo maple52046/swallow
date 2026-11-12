@@ -16152,6 +16152,8 @@ export interface operations {
     listValidationRuns: {
         parameters: {
             query?: {
+                /** @description Only runs belonging to this exact Site id. An unknown id returns an empty page. */
+                siteId?: string;
                 suiteId?: string;
                 /** @description Runs whose targets include this Server, or whose Platform has it as a member. */
                 serverId?: string;
@@ -16336,7 +16338,10 @@ export interface operations {
     };
     listValidationSchedules: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Only schedules belonging to this exact Site id. An unknown id returns an empty list. */
+                siteId?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;

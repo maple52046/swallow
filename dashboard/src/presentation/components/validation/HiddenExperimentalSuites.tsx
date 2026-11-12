@@ -1,4 +1,4 @@
-import { Field } from '@chakra-ui/react'
+import { Text } from '@chakra-ui/react'
 
 /**
  * The note a suite picker shows when it leaves experimental suites out, so an admin who expects one
@@ -7,9 +7,9 @@ import { Field } from '@chakra-ui/react'
  */
 export function HiddenExperimentalSuites({ count }: { count: number }) {
   return (
-    <Field.HelperText>
+    <Text fontSize="sm" color="fg.muted">
       {count === 1 ? '1 experimental suite is hidden.' : `${count} experimental suites are hidden.`} Turn on Show experimental
       suites on the Suites page to offer them.
-    </Field.HelperText>
+    </Text>
   )
 }

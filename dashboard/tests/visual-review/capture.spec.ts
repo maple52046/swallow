@@ -60,6 +60,7 @@ const visualCases = [
   { name: 'validation-runs', path: '/validation/runs?site=site-a', heading: 'Validation', authenticated: true, representative: false },
   { name: 'validation-run-detail', path: '/validation/runs/run-failed?site=site-a', heading: 'Host baseline', authenticated: true, representative: false },
   { name: 'validation-suites', path: '/validation/suites?site=site-a', heading: 'Validation', authenticated: true, representative: false },
+  { name: 'validation-suite-detail', path: '/validation/suites/user-mounts?site=site-a', heading: 'Data mounts', authenticated: true, representative: false },
   { name: 'validation-schedules', path: '/validation/schedules?site=site-a', heading: 'Validation', authenticated: true, representative: false },
 ] as const
 
@@ -331,12 +332,14 @@ test.describe('dashboard visual review', () => {
       // and the details of a failed check on the run page.
       if (visualCase.name === 'validation-runs') {
         await page.getByRole('button', { name: 'Run a suite' }).click()
-        const dialog = page.getByRole('dialog', { name: 'Run a Validation Suite' })
-        await dialog.getByRole('combobox', { name: 'Suite' }).click()
-        await dialog.getByRole('option', { name: 'Host baseline' }).click()
+        const dialog = page.getByRole('dialog', { name: 'Run a suite' })
+        await dialog.getByRole('radio', { name: /Host baseline/ }).click()
         await dialog.getByRole('checkbox', { name: 'gpu-node-02' }).locator('..').click()
         await expect(dialog.getByRole('list', { name: 'Chosen Servers' })).toContainText('gpu-node-02')
-        await capture(page, testInfo, `${visualCase.name}-run-dialog`, false)
+        await capture(page, testInfo, `${visualCase.name}-run-dialog-targets`, false)
+        await dialog.getByRole('button', { name: 'Continue' }).click()
+        await expect(dialog.getByText('Review', { exact: true })).toBeVisible()
+        await capture(page, testInfo, `${visualCase.name}-run-dialog-review`, false)
       }
       // The catalog with its experimental suite shown: the switch on, and the suite's Experimental mark.
       if (visualCase.name === 'validation-suites') {
@@ -344,9 +347,14 @@ test.describe('dashboard visual review', () => {
         await expect(page.locator(':text-is("Experimental"):visible').first()).toBeVisible()
         await capture(page, testInfo, `${visualCase.name}-experimental`)
       }
+      if (visualCase.name === 'validation-schedules') {
+        await page.getByRole('button', { name: 'Create schedule' }).click()
+        await expect(page.getByRole('dialog', { name: 'Create schedule' })).toBeVisible()
+        await capture(page, testInfo, `${visualCase.name}-create-dialog`, false)
+      }
       if (visualCase.name === 'validation-run-detail') {
         await page.getByRole('button', { name: 'CPU count on gpu-node-02: Failed. Show details' }).first().click()
-        await expect(page.getByRole('region', { name: 'CPU count on gpu-node-02' })).toBeVisible()
+        await expect(page.getByRole('region', { name: 'CPU count on gpu-node-02' }).last()).toBeVisible()
         // A full-page capture taken scrolled down would draw the sticky shell mid-page.
         await page.evaluate(() => window.scrollTo(0, 0))
         await capture(page, testInfo, `${visualCase.name}-result`)

@@ -176,6 +176,12 @@ paths:
         Requires the `admin` role. Runs sorted by `requestedAt` descending, paged, without their
         results (read a run for them). Every filter is optional and exact-match.
       parameters:
+        - name: siteId
+          in: query
+          required: false
+          description: Only runs belonging to this exact Site id. An unknown id returns an empty page.
+          schema:
+            type: string
         - name: suiteId
           in: query
           required: false
@@ -371,6 +377,13 @@ paths:
       operationId: listValidationSchedules
       summary: List Validation Schedules.
       description: Requires the `admin` role. Ordered by name; not paginated.
+      parameters:
+        - name: siteId
+          in: query
+          required: false
+          description: Only schedules belonging to this exact Site id. An unknown id returns an empty list.
+          schema:
+            type: string
       responses:
         '200':
           description: Every schedule.

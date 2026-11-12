@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+
 	"github.com/maple52046/swallow/internal/adapters/store/mongodb/mongotest"
 	validationdomain "github.com/maple52046/swallow/internal/core/validation/domain"
 )
@@ -20,6 +23,7 @@ func TestRunRepoRoundTripAndList(t *testing.T) {
 		t.Fatalf("NewMongoRunRepo() error = %v", err)
 	}
 	ctx := context.Background()
+	requireIndex(t, ctx, repo.col, "validation_run_site_requested")
 	now := time.Date(2026, 11, 12, 3, 0, 0, 0, time.UTC)
 	run := validationdomain.Run{
 		ID: "r-1", SiteID: "site", Suite: validationdomain.RunSuite{ID: "slurm-acceptance", Source: validationdomain.SourceModule, Version: "0.1.0"},
@@ -48,6 +52,13 @@ func TestRunRepoRoundTripAndList(t *testing.T) {
 	if !reflect.DeepEqual(got, run) {
 		t.Errorf("Get() = %+v\nwant %+v", got, run)
 	}
+	scoped, total, err := repo.List(ctx, validationdomain.RunFilter{SiteID: "site"})
+	if err != nil || total != 1 || scoped[0].ID != "r-1" {
+		t.Errorf("List(site) = %v, %d, %v", scoped, total, err)
+	}
+	if _, total, err = repo.List(ctx, validationdomain.RunFilter{SiteID: "unknown"}); err != nil || total != 0 {
+		t.Errorf("List(unknown site) total = %d, %v, want 0", total, err)
+	}
 	members, total, err := repo.List(ctx, validationdomain.RunFilter{ServerID: "c-1"})
 	if err != nil || total != 1 || members[0].ID != "r-1" {
 		t.Errorf("List(member) = %v, %d, %v", members, total, err)
@@ -65,8 +76,12 @@ func TestRunRepoRoundTripAndList(t *testing.T) {
 // spec alone.
 func TestScheduleRepoSpecAndStatus(t *testing.T) {
 	_, db := mongotest.Database(t, "validation_schedules")
-	repo := NewMongoScheduleRepo(db)
+	repo, err := NewMongoScheduleRepo(db)
+	if err != nil {
+		t.Fatalf("NewMongoScheduleRepo() error = %v", err)
+	}
 	ctx := context.Background()
+	requireIndex(t, ctx, repo.col, "validation_schedule_site_name")
 	now := time.Date(2026, 11, 12, 3, 0, 0, 0, time.UTC)
 	spec := validationdomain.ScheduleSpec{Name: "nightly", SuiteID: "host-baseline", ServerIDs: []string{"s-1"},
 		Trigger: validationdomain.ScheduleTrigger{Kind: validationdomain.ScheduleCron, Cron: "0 2 * * *", Timezone: "UTC"}, Enabled: true}
@@ -87,7 +102,37 @@ func TestScheduleRepoSpecAndStatus(t *testing.T) {
 	if err != nil || got.Spec.Enabled || got.Status.LastSkipReason != "busy" || got.Generation != 2 {
 		t.Errorf("Get() = %+v, %v", got, err)
 	}
+	if err := repo.Create(ctx, validationdomain.Schedule{ID: "other", SiteID: "other-site", Generation: 1, Spec: spec, CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatalf("Create(other) error = %v", err)
+	}
+	scoped, err := repo.List(ctx, validationdomain.ScheduleFilter{SiteID: "site"})
+	if err != nil || len(scoped) != 1 || scoped[0].ID != "sch" {
+		t.Errorf("List(site) = %+v, %v, want sch", scoped, err)
+	}
+	unknown, err := repo.List(ctx, validationdomain.ScheduleFilter{SiteID: "unknown"})
+	if err != nil || len(unknown) != 0 {
+		t.Errorf("List(unknown) = %+v, %v, want empty", unknown, err)
+	}
 	if used, err := repo.UsesSuite(ctx, "host-baseline"); err != nil || !used {
 		t.Errorf("UsesSuite() = %v, %v, want true", used, err)
 	}
+}
+
+func requireIndex(t *testing.T, ctx context.Context, col *mongo.Collection, name string) {
+	t.Helper()
+	cursor, err := col.Indexes().List(ctx)
+	if err != nil {
+		t.Fatalf("list indexes: %v", err)
+	}
+	defer cursor.Close(ctx)
+	for cursor.Next(ctx) {
+		var document bson.M
+		if err := cursor.Decode(&document); err != nil {
+			t.Fatalf("decode index: %v", err)
+		}
+		if document["name"] == name {
+			return
+		}
+	}
+	t.Errorf("index %q not found", name)
 }

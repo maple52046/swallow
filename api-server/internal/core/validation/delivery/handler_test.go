@@ -170,6 +170,12 @@ func TestRunRoutes(t *testing.T) {
 	if status != http.StatusOK || len(items) != 1 || items[0].(map[string]any)["results"] != nil {
 		t.Errorf("GET /runs = %d %v, want one summary without results", status, body)
 	}
+	if status, body = do(t, app, http.MethodGet, "/runs?siteId=site-a", ""); status != http.StatusOK || body["total"] != float64(1) {
+		t.Errorf("GET /runs?siteId=site-a = %d %v, want one run", status, body)
+	}
+	if status, body = do(t, app, http.MethodGet, "/runs?siteId=unknown", ""); status != http.StatusOK || body["total"] != float64(0) {
+		t.Errorf("GET /runs?siteId=unknown = %d %v, want an empty page", status, body)
+	}
 	if status, body = do(t, app, http.MethodGet, "/runs?status=finished", ""); status != http.StatusBadRequest {
 		t.Errorf("GET /runs?status=finished = %d %v, want 400", status, body)
 	}
@@ -198,6 +204,12 @@ func TestScheduleRoutes(t *testing.T) {
 	}
 	if status, body = do(t, app, http.MethodGet, "/schedules", ""); status != http.StatusOK || len(body["items"].([]any)) != 1 {
 		t.Errorf("GET /schedules = %d %v, want one schedule", status, body)
+	}
+	if status, body = do(t, app, http.MethodGet, "/schedules?siteId=site-a", ""); status != http.StatusOK || len(body["items"].([]any)) != 1 {
+		t.Errorf("GET /schedules?siteId=site-a = %d %v, want one schedule", status, body)
+	}
+	if status, body = do(t, app, http.MethodGet, "/schedules?siteId=unknown", ""); status != http.StatusOK || len(body["items"].([]any)) != 0 {
+		t.Errorf("GET /schedules?siteId=unknown = %d %v, want an empty list", status, body)
 	}
 	replace := `{"name":"nightly","suiteId":"slurm-acceptance","platformId":"p","trigger":{"kind":"cron","cron":"0 3 * * *","timezone":"UTC"},"enabled":false,"generation":%d}`
 	if status, body = do(t, app, http.MethodPut, "/schedules/"+id, strings.Replace(replace, "%d", "1", 1)); status != http.StatusOK || body["generation"] != float64(2) {

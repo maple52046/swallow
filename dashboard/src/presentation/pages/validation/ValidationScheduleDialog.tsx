@@ -1,16 +1,20 @@
 import { useState } from 'react'
-import { Button, Field, Input, Stack, Text } from '@chakra-ui/react'
+import { Button, Field, Input, Stack, Switch, Text } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import { moduleSettingsFormValues, moduleSettingsSpec, moduleSettingsValid } from '@/domain/module/settings'
-import type { ValidationSchedule, ValidationScheduleTriggerKind, ValidationSuite } from '@/domain/validation/types'
+import type { ValidationSchedule, ValidationSuite } from '@/domain/validation/types'
 import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { ModuleSettingsFields } from '@/presentation/components/ModuleSettings'
-import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
 import { HiddenExperimentalSuites } from '@/presentation/components/validation/HiddenExperimentalSuites'
-import { offeredSuites } from '@/presentation/components/validation/validationPresentation'
+import {
+  cronForSchedulePreset,
+  offeredSuites,
+  schedulePreset,
+  type SchedulePresetKind,
+} from '@/presentation/components/validation/validationPresentation'
 import { ValidationTargetFields } from '@/presentation/components/validation/ValidationTargetFields'
 import { useShowExperimentalSuites } from '@/presentation/hooks/useShowExperimentalSuites'
 
@@ -18,42 +22,54 @@ interface ValidationScheduleDialogProps {
   open: boolean
   onClose: () => void
   suites: readonly ValidationSuite[]
-  /** The schedule to change; absent to create one. */
   schedule?: ValidationSchedule
-  /** Called with the schedule the API stored, after the dialog closes. */
+  /** Preselects a suite when creation starts from Suite detail. */
+  presetSuiteId?: string
   onSaved: (schedule: ValidationSchedule) => void
 }
 
+const WEEKDAYS = [
+  { value: '1', label: 'Monday' },
+  { value: '2', label: 'Tuesday' },
+  { value: '3', label: 'Wednesday' },
+  { value: '4', label: 'Thursday' },
+  { value: '5', label: 'Friday' },
+  { value: '6', label: 'Saturday' },
+  { value: '0', label: 'Sunday' },
+]
+
 /**
- * Creates or changes a Validation Schedule (`POST`/`PUT /api/v1/validation/schedules`): which suite
- * runs on which targets with which parameters, and when — on a five-field cron expression read in
- * an IANA time zone, or after each deployment of the target. A disabled schedule starts nothing.
- *
- * Only suites a schedule may start are offered: not retired and not `disruptive` (the API refuses
- * those, since each of their runs must be confirmed by a person), and experimental ones only when the
- * admin shows them, except the suite of the schedule being edited. A change sends the generation
- * the page read, so a schedule someone else changed meanwhile is refused (`409`) rather than
- * overwritten; the refusal is shown with its request id and the admin reloads the list. The cron
- * expression and time zone are checked by the API, whose message names the problem. The caller
- * remounts the dialog (a new `key`) for each opening.
+ * Creates or replaces a Validation Schedule with friendly deployment, daily, and weekly presets.
+ * An existing cron expression that does not match a preset stays byte-for-byte in Custom until the
+ * admin edits it. Replacements carry the generation the dialog read.
  */
-export function ValidationScheduleDialog({ open, onClose, suites, schedule, onSaved }: ValidationScheduleDialogProps) {
+export function ValidationScheduleDialog({
+  open,
+  onClose,
+  suites,
+  schedule,
+  presetSuiteId,
+  onSaved,
+}: ValidationScheduleDialogProps) {
   const { validation } = useApp()
   const [showExperimental] = useShowExperimentalSuites()
   const spec = schedule?.spec
+  const initialPreset = schedulePreset(spec?.trigger ?? { kind: 'cron', cron: '0 2 * * *', timezone: 'UTC' })
   const { offered: choices, hiddenExperimental } = offeredSuites(
-    suites, showExperimental, spec?.suiteId, (suite) => suite.impact !== 'disruptive',
+    suites, showExperimental, spec?.suiteId ?? presetSuiteId, (suite) => suite.impact !== 'disruptive',
   )
   const [name, setName] = useState(spec?.name ?? '')
-  const [suiteId, setSuiteId] = useState(spec?.suiteId ?? '')
+  const [suiteId, setSuiteId] = useState(spec?.suiteId ?? presetSuiteId ?? '')
   const [serverIds, setServerIds] = useState<string[]>(spec?.serverIds ?? [])
   const [platformId, setPlatformId] = useState(spec?.platformId ?? '')
   const suite = choices.find((item) => item.id === suiteId) ?? null
   const [parameters, setParameters] = useState<Record<string, string>>(
     suite?.parameters ? moduleSettingsFormValues(suite.parameters, spec?.parameters) : {},
   )
-  const [triggerKind, setTriggerKind] = useState<ValidationScheduleTriggerKind>(spec?.trigger.kind ?? 'cron')
-  const [cron, setCron] = useState(spec?.trigger.cron ?? '0 2 * * *')
+  const [presetKind, setPresetKind] = useState<SchedulePresetKind>(initialPreset.kind)
+  const [time, setTime] = useState(`${initialPreset.hour.padStart(2, '0')}:${initialPreset.minute.padStart(2, '0')}`)
+  const [weekday, setWeekday] = useState(initialPreset.weekday)
+  const [customCron, setCustomCron] = useState(initialPreset.cron)
   const [timezone, setTimezone] = useState(spec?.trigger.timezone ?? 'UTC')
   const [enabled, setEnabled] = useState(spec?.enabled ?? true)
   const [busy, setBusy] = useState(false)
@@ -64,28 +80,43 @@ export function ValidationScheduleDialog({ open, onClose, suites, schedule, onSa
     setParameters({})
     setFailure(null)
   }
+  const [hour, minute] = time.split(':')
+  const cron = cronForSchedulePreset({
+    kind: presetKind,
+    hour: String(Number(hour || 0)),
+    minute: String(Number(minute || 0)),
+    weekday,
+    cron: customCron,
+  })
   const targetsChosen = suite?.target === 'platform' ? platformId !== '' : serverIds.length > 0
   const parametersValid = !suite?.parameters || moduleSettingsValid(suite.parameters, parameters)
-  const ready = name.trim() !== '' && suite !== null && targetsChosen && parametersValid && (triggerKind !== 'cron' || cron.trim() !== '')
+  const scheduleValid = presetKind === 'after-deployment' || (presetKind === 'custom' ? customCron.trim() !== '' : /^\d\d:\d\d$/.test(time))
+  const ready = name.trim() !== '' && suite !== null && targetsChosen && parametersValid && scheduleValid
 
   const submit = async () => {
     if (!suite || !ready) return
     setBusy(true)
     setFailure(null)
     const input = {
-      name: name.trim(), suiteId: suite.id,
+      name: name.trim(),
+      suiteId: suite.id,
       serverIds: suite.target === 'servers' ? serverIds : undefined,
       platformId: suite.target === 'platform' ? platformId : undefined,
       parameters: suite.parameters ? moduleSettingsSpec(suite.parameters, parameters) : undefined,
-      trigger: triggerKind === 'cron' ? { kind: triggerKind, cron: cron.trim(), timezone: timezone.trim() } : { kind: triggerKind },
-      enabled, generation: schedule?.generation,
+      trigger: presetKind === 'after-deployment'
+        ? { kind: 'after-deployment' as const }
+        : { kind: 'cron' as const, cron: cron.trim(), timezone: timezone.trim() || 'UTC' },
+      enabled,
+      generation: schedule?.generation,
     }
     try {
       const saved = schedule ? await validation.replaceSchedule(schedule.id, input) : await validation.createSchedule(input)
       onClose()
       onSaved(saved)
     } catch (caught: unknown) {
-      setFailure(failureOf(caught, 'The schedule was not saved.'))
+      setFailure(failureOf(caught, schedule
+        ? 'The schedule was not saved. It may have changed; reload before trying again.'
+        : 'The schedule was not created.'))
     } finally {
       setBusy(false)
     }
@@ -95,7 +126,7 @@ export function ValidationScheduleDialog({ open, onClose, suites, schedule, onSa
     <Modal
       open={open}
       onClose={onClose}
-      title={schedule ? `Edit ${schedule.spec.name}` : 'New schedule'}
+      title={schedule ? `Edit ${schedule.spec.name}` : 'Create schedule'}
       size="lg"
       dismissDisabled={busy}
       onSubmit={(event) => {
@@ -123,9 +154,9 @@ export function ValidationScheduleDialog({ open, onClose, suites, schedule, onSa
             onChange={chooseSuite}
             placeholder="Choose a suite"
             options={choices.map((item) => ({ value: item.id, label: item.name }))}
-            disabled={busy}
+            disabled={busy || Boolean(presetSuiteId)}
           />
-          <Field.HelperText>A disruptive suite is not offered: each of its runs must be confirmed by a person.</Field.HelperText>
+          <Field.HelperText>Disruptive suites are not schedulable because each run requires confirmation.</Field.HelperText>
           {hiddenExperimental > 0 && <HiddenExperimentalSuites count={hiddenExperimental} />}
         </Field.Root>
         {suite && (
@@ -157,33 +188,51 @@ export function ValidationScheduleDialog({ open, onClose, suites, schedule, onSa
           <Select
             id="validation-schedule-trigger"
             aria-label="When"
-            value={triggerKind}
-            onChange={(value) => setTriggerKind(value === 'after-deployment' ? 'after-deployment' : 'cron')}
+            value={presetKind}
+            onChange={(value) => setPresetKind(value as SchedulePresetKind)}
             options={[
-              { value: 'cron', label: 'On a cron schedule' },
-              { value: 'after-deployment', label: 'After each deployment of the target' },
+              { value: 'after-deployment', label: 'After each deployment' },
+              { value: 'daily', label: 'Daily' },
+              { value: 'weekly', label: 'Weekly' },
+              { value: 'custom', label: 'Custom cron' },
             ]}
             disabled={busy}
           />
-          {triggerKind === 'after-deployment' && (
-            <Field.HelperText>The deployment that exists when the schedule is saved does not start a run; each later one does.</Field.HelperText>
-          )}
+          {presetKind === 'after-deployment' && <Field.HelperText>Starts after each future deployment of the target.</Field.HelperText>}
         </Field.Root>
-        {triggerKind === 'cron' && (
-          <Stack gap="4" direction={{ base: 'column', md: 'row' }}>
-            <Field.Root required>
-              <Field.Label htmlFor="validation-schedule-cron">Cron expression <Field.RequiredIndicator /></Field.Label>
-              <Input id="validation-schedule-cron" className="sw-mono" value={cron} onChange={(event) => setCron(event.target.value)} disabled={busy} />
-              <Field.HelperText>Minute, hour, day of month, month, day of week. A time missed while swallow was down runs once.</Field.HelperText>
-            </Field.Root>
+        {(presetKind === 'daily' || presetKind === 'weekly') && (
+          <Stack direction={{ base: 'column', md: 'row' }} gap="4">
+            {presetKind === 'weekly' && (
+              <Field.Root>
+                <Field.Label htmlFor="validation-schedule-weekday">Day</Field.Label>
+                <Select id="validation-schedule-weekday" aria-label="Day" value={weekday} onChange={setWeekday} options={WEEKDAYS} disabled={busy} />
+              </Field.Root>
+            )}
             <Field.Root>
-              <Field.Label htmlFor="validation-schedule-timezone">Time zone</Field.Label>
-              <Input id="validation-schedule-timezone" value={timezone} onChange={(event) => setTimezone(event.target.value)} disabled={busy} />
-              <Field.HelperText>An IANA name, such as Asia/Taipei; UTC when empty.</Field.HelperText>
+              <Field.Label htmlFor="validation-schedule-time">Time</Field.Label>
+              <Input id="validation-schedule-time" type="time" value={time} onChange={(event) => setTime(event.target.value)} disabled={busy} />
             </Field.Root>
           </Stack>
         )}
-        <Checkbox checked={enabled} onCheckedChange={setEnabled} disabled={busy}>Enabled</Checkbox>
+        {presetKind === 'custom' && (
+          <Field.Root required>
+            <Field.Label htmlFor="validation-schedule-cron">Cron expression <Field.RequiredIndicator /></Field.Label>
+            <Input id="validation-schedule-cron" className="sw-mono" value={customCron} onChange={(event) => setCustomCron(event.target.value)} disabled={busy} />
+            <Field.HelperText>Five fields: minute, hour, day of month, month, day of week.</Field.HelperText>
+          </Field.Root>
+        )}
+        {presetKind !== 'after-deployment' && (
+          <Field.Root>
+            <Field.Label htmlFor="validation-schedule-timezone">Time zone</Field.Label>
+            <Input id="validation-schedule-timezone" value={timezone} onChange={(event) => setTimezone(event.target.value)} disabled={busy} />
+            <Field.HelperText>An IANA time zone, such as Asia/Taipei. Defaults to UTC.</Field.HelperText>
+          </Field.Root>
+        )}
+        <Switch.Root checked={enabled} onCheckedChange={(details) => setEnabled(details.checked === true)} disabled={busy}>
+          <Switch.HiddenInput />
+          <Switch.Control><Switch.Thumb /></Switch.Control>
+          <Switch.Label>Enabled</Switch.Label>
+        </Switch.Root>
         {failure && <FailureMessage failure={failure} />}
       </Stack>
     </Modal>

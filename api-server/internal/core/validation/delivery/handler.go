@@ -155,7 +155,8 @@ func (h *Handler) StartRun(c *fiber.Ctx) error {
 func (h *Handler) ListRuns(c *fiber.Ctx) error {
 	page := pagination.FromQuery(c)
 	filter := validationdomain.RunFilter{
-		SuiteID: c.Query("suiteId"), ServerID: c.Query("serverId"), PlatformID: c.Query("platformId"),
+		SiteID: c.Query("siteId"), SuiteID: c.Query("suiteId"), ServerID: c.Query("serverId"),
+		PlatformID: c.Query("platformId"),
 		ScheduleID: c.Query("scheduleId"), Status: validationdomain.Status(c.Query("status")),
 		Verdict: validationdomain.Verdict(c.Query("verdict")), Trigger: validationdomain.TriggerKind(c.Query("trigger")),
 		ActiveOnly: c.Query("active") == "true", Offset: page.Offset(), Limit: page.PageSize,
@@ -221,9 +222,9 @@ func (r scheduleRequest) write() validationapp.ScheduleWrite {
 	}
 }
 
-// ListSchedules returns every schedule.
+// ListSchedules returns schedules, optionally scoped to one Site.
 func (h *Handler) ListSchedules(c *fiber.Ctx) error {
-	schedules, err := h.service.ListSchedules(c.Context())
+	schedules, err := h.service.ListSchedules(c.Context(), validationdomain.ScheduleFilter{SiteID: c.Query("siteId")})
 	if err != nil {
 		return respondError(c, err)
 	}

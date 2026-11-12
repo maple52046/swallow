@@ -27,6 +27,8 @@ swallow 的模組提供這些 suite：
 | `amd-gpu-basic`（實驗性） | Server | Workload | amdgpu driver 帶起 PCI 上的每張 AMD GPU，且每張都通過 HIP probe |
 | `kubernetes-smoke`（實驗性） | Kubernetes Platform | Observe | 節點 Ready、每台收工作的節點都能執行 pod、cluster DNS、Service 轉送 |
 
+Dashboard 的 **Validation → Suites** 是能力 catalog，依 Platform、Server 與自訂 script 分組。開啟 card 可查看 checks、parameters、impact、budget、最近 Runs 與引用它的 Schedules；直接連到實驗性 suite 仍可閱讀。
+
 實驗性 suite 是預覽：照常執行，但 check 之後可能改變。Dashboard 預設隱藏實驗性 suite，在 Validation → Suites
 頁面打開 **Show experimental suites** 才顯示；這個設定存在瀏覽器，與實驗功能的設定分開。實驗性 suite 的 run 與
 schedule 一律顯示。
@@ -43,8 +45,7 @@ script 依原樣儲存與顯示，並以所選帳號的權限在每台目標上�
 
 ## 執行 suite
 
-在 Dashboard 開啟 **Validation → Runs → Run a suite**，或在 Server 的 Summary、Platform 的 Overview 的 Validation
-區塊按 **Run a suite**。使用 CLI：
+在 Dashboard 開啟 **Validation → Runs → Run a suite**、Suite detail 的 **Run suite**，或 Server／Platform 的 Validation 區塊。共用流程先選 Suite 與 targets，再檢查 parameters、impact、budget 與最後 review。在 all-sites scope 選擇多台 Server 時，第一台會限制其餘目標必須屬於同一個 Site。使用 CLI：
 
 ```bash
 swallow validation runs start --suite host-baseline --server srv1,srv2 --wait
@@ -58,8 +59,7 @@ swallow validation runs start --suite slurm-acceptance --platform plat1 --wait
 
 ## 閱讀結果
 
-run 的頁面顯示每個 check 在每個目標上的 verdict。選擇一個 verdict 可以看到該 check 的發現：摘要、量測值與預期值，
-以及主機印出的 evidence。run 連到它的 Workflow，那裡有 Task 的 log。
+run 頁面先列出 **Failed** 與 **Error** 問題，包括 target、summary、measurements 與可展開的 evidence。Failed 表示 check 已完成判定但不符合預期；Error 表示無法完成判定。下方仍保留完整 check × target 矩陣供稽核，包含 Passed 與 Skipped；選擇 verdict 會在該 check 旁展開 inspector。run 連到它的 Workflow，那裡有 Task 的 log。
 
 完成的 run，任何 check failed 時 verdict 是 **Failed**；沒有 failed 但有無法判定的 check（主機連不上、缺少 probe）
 時是 **Error**；其餘是 **Passed**。run 預設保留 90 天。
@@ -74,7 +74,7 @@ run 的頁面顯示每個 check 在每個目標上的 verdict。選擇一個 ver
 
 ## Schedule
 
-schedule 會自己啟動 run：依某個時區的 cron expression（例如 Asia/Taipei 每晚 02:00），或在目標每次部署之後。
+schedule 會自己啟動 run：**每次部署後**、**Daily**、**Weekly**，或某個 IANA 時區下的五欄 **Custom cron**。無法識別為 Daily／Weekly 的既有 expression 會原樣保留在 Custom。
 run 在時間點到了或部署完成後的一分鐘內啟動。swallow 停機期間錯過的時間點，恢復後補跑一次。前一次 run 尚未結束時，schedule 不會再啟動新的 run；目標被佔用、
 被 lock 或沒有部署時略過這一次，並顯示原因。在 Dashboard 使用 **Validation → Schedules**；使用 CLI 時是
 `swallow validation schedules create -f schedule.yaml`。

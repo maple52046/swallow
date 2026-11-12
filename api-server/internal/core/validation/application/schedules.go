@@ -53,9 +53,9 @@ func (s *Service) GetSchedule(ctx context.Context, id string) (validationdomain.
 	return s.schedules.Get(ctx, id)
 }
 
-// ListSchedules returns every schedule by name.
-func (s *Service) ListSchedules(ctx context.Context) ([]validationdomain.Schedule, error) {
-	schedules, err := s.schedules.List(ctx)
+// ListSchedules returns the matching schedules by name.
+func (s *Service) ListSchedules(ctx context.Context, filter validationdomain.ScheduleFilter) ([]validationdomain.Schedule, error) {
+	schedules, err := s.schedules.List(ctx, filter)
 	if err != nil {
 		return nil, err
 	}

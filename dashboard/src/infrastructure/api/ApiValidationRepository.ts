@@ -61,7 +61,7 @@ export class ApiValidationRepository implements ValidationRepository {
 
   listRuns(filter: ValidationRunFilter = {}): Promise<Paginated<ValidationRunSummary>> {
     const params = new URLSearchParams()
-    for (const key of ['suiteId', 'serverId', 'platformId', 'scheduleId', 'status', 'verdict', 'trigger'] as const) {
+    for (const key of ['siteId', 'suiteId', 'serverId', 'platformId', 'scheduleId', 'status', 'verdict', 'trigger'] as const) {
       const value = filter[key]
       if (value) params.set(key, value)
     }
@@ -92,8 +92,9 @@ export class ApiValidationRepository implements ValidationRepository {
     )
   }
 
-  async listSchedules(): Promise<ValidationSchedule[]> {
-    const response = await apiRequest<JsonResponse<operations['listValidationSchedules'], 200>>('/api/v1/validation/schedules')
+  async listSchedules(siteId?: string): Promise<ValidationSchedule[]> {
+    const query = siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''
+    const response = await apiRequest<JsonResponse<operations['listValidationSchedules'], 200>>(`/api/v1/validation/schedules${query}`)
     return response.items
   }
 

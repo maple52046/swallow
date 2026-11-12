@@ -30,6 +30,8 @@ swallow's modules provide suites:
 | `amd-gpu-basic` (experimental) | Servers | Workload | The amdgpu driver brings up every AMD GPU on PCI, and the HIP probe works on each |
 | `kubernetes-smoke` (experimental) | A Kubernetes Platform | Observe | Nodes Ready, a pod runs on every node that takes workloads, cluster DNS, Service routing |
 
+In the Dashboard, **Validation → Suites** is a capability catalog grouped into Platform, Server, and custom script suites. Open a card for its checks, parameters, impact, budget, recent Runs, and Schedules. Deep links to an experimental suite remain readable.
+
 An experimental suite is a preview: it runs like any other, but its checks may
 change. The Dashboard hides experimental suites until you turn on **Show
 experimental suites** on the Validation → Suites page; the setting is kept in
@@ -54,8 +56,7 @@ privileges on every target, so never put a password or key in it.
 
 ## Run a suite
 
-In the Dashboard, open **Validation → Runs → Run a suite**, or **Run a suite** in
-the Validation section of a Server's Summary or a Platform's Overview. With the
+In the Dashboard, open **Validation → Runs → Run a suite**, **Run suite** on a Suite detail page, or **Run a suite** in the Validation section of a Server or Platform. The shared flow first chooses the Suite and targets, then shows parameters, impact, budget, and the final review. In the all-Sites scope, a multi-Server run is restricted to the Site of its first selected Server. With the
 CLI:
 
 ```bash
@@ -73,9 +74,7 @@ canceled. Cancel one yourself from its page or with
 
 ## Read the results
 
-A run's page shows each check's verdict on each target. Choose a verdict to see
-what the check found: its summary, its measurements against what was expected,
-and the evidence the host printed. The run links to its Workflow, which has the
+A run page lists **Failed** and **Error** issues first with their target, summary, measurements, and expandable evidence. Failed means the check completed and found a mismatch; Error means it could not complete a judgment. The complete check-by-target matrix remains below for audit, including Passed and Skipped results; selecting a verdict expands its inspector beside that check. The run links to its Workflow, which has the
 Task logs.
 
 A completed run's verdict is **Failed** when any check failed, **Error** when
@@ -95,8 +94,7 @@ Job reruns the whole suite after you fix the cause.
 
 ## Schedules
 
-A schedule starts runs on its own: on a cron expression in a time zone (for
-example nightly at 02:00 Asia/Taipei), or after each deployment of its target.
+A schedule starts runs on its own: **After each deployment**, **Daily**, **Weekly**, or a five-field **Custom cron**, all in an IANA time zone. Existing expressions that do not match Daily or Weekly remain unchanged in Custom.
 A run starts within a minute of its time or of the deployment. A time missed while swallow was down runs once when it is back. A schedule never
 starts a second run while its previous one is unfinished, and skips an occurrence
 whose targets are busy, locked, or not deployed; it shows the reason. In the

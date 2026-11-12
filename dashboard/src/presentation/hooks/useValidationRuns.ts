@@ -1,71 +1,117 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useApp } from '@/di/AppProvider'
 import type { Paginated } from '@/application/ports/ServerRepository'
 import type { ValidationRunFilter } from '@/application/ports/ValidationRepository'
 import { isValidationRunActive, type ValidationRunSummary } from '@/domain/validation/types'
-import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
-import { useSettlingRefresh } from '@/presentation/hooks/useSettlingRefresh'
+import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 
-/** One page of Validation Runs as a view holds it. */
+const POLL_INTERVAL_MS = 5000
+
+/** One server-paginated Validation Run working set. */
 export type ValidationRunsState =
-  | { status: 'loading' }
-  | ({ status: 'error' } & DisplayedFailure)
-  | { status: 'ready'; page: Paginated<ValidationRunSummary> }
+  | { status: 'loading'; filterKey: string }
+  | ({ status: 'error'; filterKey: string } & DisplayedFailure)
+  | {
+      status: 'ready'
+      filterKey: string
+      page: Paginated<ValidationRunSummary>
+      refreshedAt: string
+      /** A background failure keeps the last-good rows visible. */
+      refreshError?: string
+    }
 
-const LOADING: ValidationRunsState = { status: 'loading' }
+function validationFilterKey(filter: ValidationRunFilter): string {
+  return [
+    filter.siteId ?? '',
+    filter.suiteId ?? '',
+    filter.serverId ?? '',
+    filter.platformId ?? '',
+    filter.scheduleId ?? '',
+    filter.status ?? '',
+    filter.verdict ?? '',
+    filter.trigger ?? '',
+    filter.active ? 'active' : '',
+    filter.page ?? '',
+    filter.pageSize ?? '',
+  ].join('|')
+}
 
 /**
- * Reads one page of Validation Runs (newest first) for `filter` through the ValidationRepository
- * port, for the Runs list and the recent runs on Server and Platform pages.
+ * Loads one page of Validation Runs and keeps active runs current.
  *
- * - A new filter (compared by value), or `reload` after an error, reads again and shows `loading`
- *   until it answers: the stored answer belongs to the request it was read for, so an answer for
- *   an older filter is never shown as the current one.
- * - While a run on the page has not ended, the page is re-read every few seconds in place
- *   (`useSettlingRefresh`), so a run moves to its verdict without a manual reload; a failed re-read
- *   keeps what is shown. Polling stops when every run has ended or the view unmounts.
- * - Every read takes a ticket and only the newest may publish, so a slow read never overwrites a
- *   newer one. Every route requires `admin`; a non-admin sees the API's error.
+ * The API remains authoritative for filtering, pagination, and newest-first ordering. A changed
+ * filter returns loading immediately so rows from another Site or URL-owned view never flash under
+ * the new controls. Pending and running rows poll every five seconds; a transient refresh failure
+ * preserves the last successful page, surfaces a request-aware warning, and retries.
  */
-export function useValidationRuns(filter: ValidationRunFilter): { state: ValidationRunsState; reload: () => void } {
+export function useValidationRuns(filter: ValidationRunFilter): {
+  state: ValidationRunsState
+  reload: () => void
+} {
   const { validation } = useApp()
-  // Callers rebuild the filter object on every render; its value is what counts, so the filter
-  // the reads use changes only when its JSON does.
-  const filterKey = JSON.stringify(filter)
-  const stableFilter = useMemo(() => JSON.parse(filterKey) as ValidationRunFilter, [filterKey])
+  const filterKey = validationFilterKey(filter)
+  const [snapshot, setSnapshot] = useState<ValidationRunsState>({ status: 'loading', filterKey })
   const [nonce, setNonce] = useState(0)
-  const requestKey = `${filterKey}#${nonce}`
-  const [stored, setStored] = useState<{ key: string; state: ValidationRunsState }>({ key: '', state: LOADING })
-  const ticket = useRef(0)
-
-  /** Re-reads the page in place; rejects with the read's failure for the caller to handle. */
-  const refresh = useCallback(async () => {
-    const mine = ++ticket.current
-    const page = await validation.listRuns(stableFilter)
-    if (mine === ticket.current) setStored({ key: requestKey, state: { status: 'ready', page } })
-  }, [validation, stableFilter, requestKey])
-
-  // The first read of a request (a filter, or a reload). Its failure shows only while it is still
-  // the newest read; cleanup invalidates it, so an unmounted view never publishes.
-  useEffect(() => {
-    const mine = ++ticket.current
-    validation.listRuns(stableFilter).then(
-      (page) => {
-        if (mine === ticket.current) setStored({ key: requestKey, state: { status: 'ready', page } })
-      },
-      (caught: unknown) => {
-        if (mine === ticket.current) setStored({ key: requestKey, state: { status: 'error', ...failureOf(caught, 'Could not load Validation Runs.') } })
-      },
-    )
-    return () => {
-      ticket.current += 1
-    }
-  }, [validation, stableFilter, requestKey])
-
-  const state = stored.key === requestKey ? stored.state : LOADING
-  const active = state.status === 'ready' && state.page.items.some((run) => isValidationRunActive(run.status))
-  useSettlingRefresh(active, refresh)
-
+  const loadedFilter = useRef<string | undefined>(undefined)
+  const pollingFilter = useRef<string | undefined>(undefined)
+  const pollingEnabled = useRef(false)
   const reload = useCallback(() => setNonce((value) => value + 1), [])
+
+  const {
+    siteId, suiteId, serverId, platformId, scheduleId, status, verdict, trigger, active, page, pageSize,
+  } = filter
+
+  useEffect(() => {
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let shouldPoll = pollingFilter.current === filterKey && pollingEnabled.current
+    if (loadedFilter.current !== filterKey) shouldPoll = false
+
+    const scheduleNext = () => {
+      if (!cancelled && shouldPoll) timer = setTimeout(load, POLL_INTERVAL_MS)
+    }
+    const load = () => {
+      validation.listRuns({
+        siteId, suiteId, serverId, platformId, scheduleId, status, verdict, trigger, active, page, pageSize,
+      }).then((result) => {
+        if (cancelled) return
+        shouldPoll = result.items.some((run) => isValidationRunActive(run.status))
+        pollingFilter.current = filterKey
+        pollingEnabled.current = shouldPoll
+        loadedFilter.current = filterKey
+        setSnapshot({
+          status: 'ready',
+          filterKey,
+          page: result,
+          refreshedAt: new Date().toISOString(),
+        })
+        scheduleNext()
+      }).catch((caught: unknown) => {
+        if (cancelled) return
+        const failure = failureOf(caught, 'Could not load Validation Runs.')
+        if (loadedFilter.current === filterKey) {
+          setSnapshot((current) => current.status === 'ready' && current.filterKey === filterKey
+            ? { ...current, refreshError: failureText(failure) }
+            : current)
+          scheduleNext()
+          return
+        }
+        setSnapshot({ status: 'error', filterKey, ...failure })
+      })
+    }
+
+    load()
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [
+    validation, filterKey, siteId, suiteId, serverId, platformId, scheduleId, status, verdict,
+    trigger, active, page, pageSize, nonce,
+  ])
+
+  const state = snapshot.filterKey === filterKey
+    ? snapshot
+    : { status: 'loading' as const, filterKey }
   return { state, reload }
 }

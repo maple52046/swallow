@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Button, Field, Stack, Text } from '@chakra-ui/react'
+import { Badge, Box, Button, Grid, Heading, HStack, Stack, Text } from '@chakra-ui/react'
+import { ArrowLeft, ArrowRight, Check, Play } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { moduleSettingsSpec, moduleSettingsValid } from '@/domain/module/settings'
@@ -10,14 +11,12 @@ import { ModuleSettingsFields } from '@/presentation/components/ModuleSettings'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
-import { Select } from '@/presentation/components/ui/select'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useShowExperimentalSuites } from '@/presentation/hooks/useShowExperimentalSuites'
 import { HiddenExperimentalSuites } from './HiddenExperimentalSuites'
 import { IMPACT_COPY, offeredSuites } from './validationPresentation'
 import { ValidationTargetFields } from './ValidationTargetFields'
 
-/** What the dialog opens with: a suite chosen in the catalog, or a Server's or Platform's own page. */
 export interface StartRunPreset {
   suiteId?: string
   serverIds?: string[]
@@ -27,23 +26,14 @@ export interface StartRunPreset {
 interface StartValidationRunDialogProps {
   open: boolean
   onClose: () => void
-  /**
-   * The catalog to choose from; retired suites are left out, and experimental ones unless the admin
-   * shows them (the preset suite is always offered).
-   */
   suites: readonly ValidationSuite[]
   preset?: StartRunPreset
 }
 
 /**
- * Starts one report run of a Validation Suite (`POST /api/v1/validation/runs`): the admin chooses
- * the suite, its targets (`ValidationTargetFields`), and its parameters (the suite's spec schema,
- * through the generic `ModuleSettingsFields`), and confirms a `disruptive` suite's impact, which
- * the API refuses without. On acceptance the run's page opens, where it is followed to its verdict.
- *
- * The dialog keeps its own form state for one opening; the caller remounts it (a new `key`) to
- * start over with another preset. A refusal (a busy, locked, or undeployed target; automation that
- * cannot run) is shown in the dialog with its request id, and the form stays as it was.
+ * Shared two-step report-run flow. Suite, target, parameters, impact, and budget are reviewed
+ * before the API accepts durable work. A Server or Platform detail can fix the target; Suite detail
+ * can fix the suite without forking validation or payload construction.
  */
 export function StartValidationRunDialog({ open, onClose, suites, preset }: StartValidationRunDialogProps) {
   const { validation } = useApp()
@@ -52,6 +42,7 @@ export function StartValidationRunDialog({ open, onClose, suites, preset }: Star
   const { showToast } = useToast()
   const [showExperimental] = useShowExperimentalSuites()
   const { offered: choices, hiddenExperimental } = offeredSuites(suites, showExperimental, preset?.suiteId)
+  const [step, setStep] = useState<1 | 2>(1)
   const [suiteId, setSuiteId] = useState(preset?.suiteId ?? '')
   const [serverIds, setServerIds] = useState<string[]>(preset?.serverIds ?? [])
   const [platformId, setPlatformId] = useState(preset?.platformId ?? '')
@@ -60,19 +51,23 @@ export function StartValidationRunDialog({ open, onClose, suites, preset }: Star
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<DisplayedFailure | null>(null)
   const suite = choices.find((item) => item.id === suiteId) ?? null
+  const suiteFixed = Boolean(preset?.suiteId)
 
   const chooseSuite = (id: string) => {
     setSuiteId(id)
+    setServerIds(preset?.serverIds ?? [])
+    setPlatformId(preset?.platformId ?? '')
     setParameters({})
     setConfirmed(false)
     setFailure(null)
   }
   const targetsChosen = suite?.target === 'platform' ? platformId !== '' : serverIds.length > 0
   const parametersValid = !suite?.parameters || moduleSettingsValid(suite.parameters, parameters)
-  const ready = suite !== null && targetsChosen && parametersValid && (suite.impact !== 'disruptive' || confirmed)
+  const reviewReady = suite !== null && targetsChosen
+  const submitReady = reviewReady && parametersValid && (suite?.impact !== 'disruptive' || confirmed)
 
   const submit = async () => {
-    if (!suite || !ready) return
+    if (!suite || !submitReady) return
     setBusy(true)
     setFailure(null)
     try {
@@ -85,7 +80,7 @@ export function StartValidationRunDialog({ open, onClose, suites, preset }: Star
       })
       showToast({ tone: 'success', title: 'Validation Run started', description: suite.name })
       onClose()
-      navigate(scopedHref(`/validation/runs/${encodeURIComponent(run.id)}`))
+      navigate(scopedHref(`/validation/runs/${encodeURIComponent(run.id)}`, run.siteId))
     } catch (caught: unknown) {
       setFailure(failureOf(caught, 'The run was not started.'))
     } finally {
@@ -93,74 +88,161 @@ export function StartValidationRunDialog({ open, onClose, suites, preset }: Star
     }
   }
 
+  const footer = step === 1 ? (
+    <>
+      <Button variant="ghost" onClick={onClose}>Cancel</Button>
+      <Button colorPalette="brand" onClick={() => setStep(2)} disabled={!reviewReady}>
+        Continue <ArrowRight size={16} aria-hidden />
+      </Button>
+    </>
+  ) : (
+    <>
+      <Button variant="ghost" onClick={() => setStep(1)} disabled={busy}>
+        <ArrowLeft size={16} aria-hidden /> Back
+      </Button>
+      <Button colorPalette="brand" onClick={() => void submit()} loading={busy} disabled={!submitReady}>
+        <Play size={16} aria-hidden /> Start run
+      </Button>
+    </>
+  )
+
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title="Run a Validation Suite"
-      size="lg"
+      title="Run a suite"
+      description={step === 1 ? 'Choose the assurance capability and its targets.' : 'Configure the suite and review the work before it starts.'}
+      size="xl"
       dismissDisabled={busy}
-      onSubmit={(event) => {
-        event.preventDefault()
-        void submit()
-      }}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button type="submit" colorPalette="brand" loading={busy} disabled={!ready}>Start run</Button>
-        </>
-      }
+      footer={footer}
     >
       <Stack gap="5">
-        <Field.Root required>
-          <Field.Label htmlFor="validation-run-suite">Suite <Field.RequiredIndicator /></Field.Label>
-          <Select
-            id="validation-run-suite"
-            aria-label="Suite"
-            value={suiteId}
-            onChange={chooseSuite}
-            placeholder="Choose a suite"
-            options={choices.map((item) => ({ value: item.id, label: item.name }))}
-            disabled={busy}
-          />
-          {suite && (
-            <Field.HelperText>
-              {suite.experimental && 'Experimental: its checks may change. '}
-              {suite.description || `${suite.checks.length} checks`} Impact: {IMPACT_COPY[suite.impact].label} — {IMPACT_COPY[suite.impact].description}
-            </Field.HelperText>
-          )}
-          {hiddenExperimental > 0 && <HiddenExperimentalSuites count={hiddenExperimental} />}
-        </Field.Root>
-        {suite && (
-          <ValidationTargetFields
-            key={suite.id}
-            suite={suite}
-            serverIds={serverIds}
-            onServerIdsChange={setServerIds}
-            platformId={platformId}
-            onPlatformIdChange={setPlatformId}
-            idPrefix="validation-run"
-            disabled={busy}
-          />
-        )}
-        {suite?.parameters && Object.keys(suite.parameters.properties).length > 0 && (
-          <Stack gap="3">
-            <Text fontWeight="medium" fontSize="sm">Parameters</Text>
-            <ModuleSettingsFields
-              schema={suite.parameters}
-              value={(name) => parameters[name] ?? ''}
-              onChange={(name, text) => setParameters((current) => ({ ...current, [name]: text }))}
-              idPrefix={`validation-run-${suite.id}`}
-              disabled={busy}
-            />
+        <HStack gap="3" aria-label="Run steps">
+          {[
+            { value: 1, label: 'Suite & targets' },
+            { value: 2, label: 'Configuration & review' },
+          ].map((item) => (
+            <HStack key={item.value} flex="1" gap="2" color={step === item.value ? 'brand.fg' : 'fg.muted'}>
+              <Box
+                display="grid"
+                placeItems="center"
+                boxSize="7"
+                rounded="full"
+                bg={step === item.value ? 'brand.subtle' : step > item.value ? 'green.subtle' : 'bg.muted'}
+                fontWeight="bold"
+                fontSize="xs"
+              >
+                {step > item.value ? <Check size={14} aria-hidden /> : item.value}
+              </Box>
+              <Text fontSize="sm" fontWeight={step === item.value ? 'semibold' : 'medium'}>{item.label}</Text>
+            </HStack>
+          ))}
+        </HStack>
+
+        {step === 1 && (
+          <Stack gap="5">
+            {suiteFixed && suite ? (
+              <Box borderWidth="1px" borderColor="brand.muted" bg="brand.subtle" rounded="lg" p="4">
+                <HStack justify="space-between" gap="3" align="flex-start">
+                  <Stack gap="1">
+                    <Heading as="h3" size="sm">{suite.name}</Heading>
+                    <Text fontSize="sm" color="fg.muted">{suite.description}</Text>
+                  </Stack>
+                  <Badge variant="outline">{IMPACT_COPY[suite.impact].label}</Badge>
+                </HStack>
+              </Box>
+            ) : (
+              <Stack gap="2">
+                <Text fontWeight="semibold">Suite</Text>
+                <Grid templateColumns={{ base: '1fr', md: 'repeat(2, minmax(0, 1fr))' }} gap="3" role="radiogroup" aria-label="Validation Suite">
+                  {choices.map((choice) => {
+                    const selected = choice.id === suiteId
+                    return (
+                      <Button
+                        key={choice.id}
+                        variant="plain"
+                        height="auto"
+                        minH="7rem"
+                        justifyContent="stretch"
+                        textAlign="start"
+                        borderWidth="1px"
+                        borderColor={selected ? 'brand.muted' : 'border'}
+                        bg={selected ? 'brand.subtle' : 'bg.panel'}
+                        p="4"
+                        whiteSpace="normal"
+                        role="radio"
+                        aria-checked={selected}
+                        onClick={() => chooseSuite(choice.id)}
+                      >
+                        <Stack gap="1" align="stretch" width="full">
+                          <HStack justify="space-between" gap="2">
+                            <Text fontWeight="semibold">{choice.name}</Text>
+                            {choice.experimental && <Badge colorPalette="orange">Experimental</Badge>}
+                          </HStack>
+                          <Text color="fg.muted" fontSize="sm">{choice.description || `${choice.checks.length} checks`}</Text>
+                          <Text fontSize="xs">{choice.target === 'platform' ? 'Platform' : 'Servers'} · {IMPACT_COPY[choice.impact].label}</Text>
+                        </Stack>
+                      </Button>
+                    )
+                  })}
+                </Grid>
+                {hiddenExperimental > 0 && <HiddenExperimentalSuites count={hiddenExperimental} />}
+              </Stack>
+            )}
+            {suite && (
+              <ValidationTargetFields
+                key={suite.id}
+                suite={suite}
+                serverIds={serverIds}
+                onServerIdsChange={setServerIds}
+                platformId={platformId}
+                onPlatformIdChange={setPlatformId}
+                idPrefix="validation-run"
+                disabled={busy}
+              />
+            )}
+            {!reviewReady && suite && <Text color="fg.muted" fontSize="sm">Choose at least one eligible target to continue.</Text>}
           </Stack>
         )}
-        {suite?.impact === 'disruptive' && (
-          <Checkbox checked={confirmed} onCheckedChange={setConfirmed} disabled={busy}>
-            I understand this suite may interrupt service on its targets.
-          </Checkbox>
+
+        {step === 2 && suite && (
+          <Stack gap="5">
+            {suite.parameters && Object.keys(suite.parameters.properties).length > 0 ? (
+              <Stack gap="3">
+                <Heading as="h3" size="sm">Configuration</Heading>
+                <ModuleSettingsFields
+                  schema={suite.parameters}
+                  value={(name) => parameters[name] ?? ''}
+                  onChange={(name, text) => setParameters((current) => ({ ...current, [name]: text }))}
+                  idPrefix={`validation-run-${suite.id}`}
+                  disabled={busy}
+                />
+              </Stack>
+            ) : (
+              <Box borderWidth="1px" rounded="lg" p="4">
+                <Text fontWeight="semibold">No parameters required</Text>
+                <Text color="fg.muted" fontSize="sm">This suite runs with its declared checks and budget.</Text>
+              </Box>
+            )}
+            <Box borderWidth="1px" rounded="lg" p="4">
+              <Heading as="h3" size="sm" mb="3">Review</Heading>
+              <Stack gap="2" fontSize="sm">
+                <HStack justify="space-between"><Text color="fg.muted">Suite</Text><Text fontWeight="medium">{suite.name}</Text></HStack>
+                <HStack justify="space-between"><Text color="fg.muted">Targets</Text><Text fontWeight="medium">{suite.target === 'servers' ? `${serverIds.length} Servers` : '1 Platform'}</Text></HStack>
+                <HStack justify="space-between"><Text color="fg.muted">Checks</Text><Text fontWeight="medium">{suite.checks.length}</Text></HStack>
+                <HStack justify="space-between"><Text color="fg.muted">Impact</Text><Text fontWeight="medium">{IMPACT_COPY[suite.impact].label}</Text></HStack>
+                <HStack justify="space-between"><Text color="fg.muted">Budget</Text><Text fontWeight="medium">{suite.budgetSeconds} seconds</Text></HStack>
+              </Stack>
+              <Text color="fg.muted" fontSize="sm" mt="3">{IMPACT_COPY[suite.impact].description}</Text>
+            </Box>
+            {suite.impact === 'disruptive' && (
+              <Checkbox checked={confirmed} onCheckedChange={setConfirmed} disabled={busy}>
+                I understand this suite may interrupt service on its targets.
+              </Checkbox>
+            )}
+            {failure && <FailureMessage failure={failure} />}
+          </Stack>
         )}
-        {failure && <FailureMessage failure={failure} />}
       </Stack>
     </Modal>
   )

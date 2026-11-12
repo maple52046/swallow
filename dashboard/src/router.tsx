@@ -69,6 +69,7 @@ import { ValidationRedirect } from './presentation/pages/validation/ValidationRe
 import { ValidationRunsPage } from './presentation/pages/validation/ValidationRunsPage'
 import { ValidationRunDetailPage } from './presentation/pages/validation/ValidationRunDetailPage'
 import { ValidationSuitesPage } from './presentation/pages/validation/ValidationSuitesPage'
+import { ValidationSuiteDetailPage } from './presentation/pages/validation/ValidationSuiteDetailPage'
 import { ValidationSchedulesPage } from './presentation/pages/validation/ValidationSchedulesPage'
 
 /**
@@ -138,6 +139,7 @@ export const router = createBrowserRouter([
       { path: 'validation/runs', element: <ValidationRunsPage /> },
       { path: 'validation/runs/:id', element: <ValidationRunDetailPage /> },
       { path: 'validation/suites', element: <ValidationSuitesPage /> },
+      { path: 'validation/suites/:id', element: <ValidationSuiteDetailPage /> },
       { path: 'validation/schedules', element: <ValidationSchedulesPage /> },
       { path: 'workflows/:id', element: <ConsoleOperationDetailPage /> },
       { path: 'operations', element: <LegacyWorkflowRedirect /> },

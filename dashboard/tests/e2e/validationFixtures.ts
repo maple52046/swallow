@@ -174,11 +174,15 @@ export function createValidationFixtures(): { handle: (route: Route, request: Re
     }
     if (path === '/api/v1/validation/runs' && method === 'GET') {
       const filtered = runs.filter((item) =>
-        (!url.searchParams.get('serverId') || item.target.serverIds.includes(url.searchParams.get('serverId') ?? '') || item.results.some((r) => r.target.id === url.searchParams.get('serverId')))
+        (!url.searchParams.get('siteId') || item.siteId === url.searchParams.get('siteId'))
+        && (!url.searchParams.get('suiteId') || item.suite.id === url.searchParams.get('suiteId'))
+        && (!url.searchParams.get('serverId') || item.target.serverIds.includes(url.searchParams.get('serverId') ?? '') || item.results.some((r) => r.target.id === url.searchParams.get('serverId')))
         && (!url.searchParams.get('platformId') || item.target.platformId === url.searchParams.get('platformId'))
         && (!url.searchParams.get('status') || item.status === url.searchParams.get('status'))
         && (!url.searchParams.get('verdict') || item.verdict === url.searchParams.get('verdict'))
-        && (!url.searchParams.get('scheduleId') || item.trigger.scheduleId === url.searchParams.get('scheduleId')))
+        && (!url.searchParams.get('scheduleId') || item.trigger.scheduleId === url.searchParams.get('scheduleId'))
+        && (!url.searchParams.get('trigger') || item.trigger.kind === url.searchParams.get('trigger'))
+        && (url.searchParams.get('active') !== 'true' || item.status === 'pending' || item.status === 'running'))
       const pageSize = Number(url.searchParams.get('pageSize') ?? 20)
       const page = Number(url.searchParams.get('page') ?? 1)
       // The list answers summaries: every run field but its results.
@@ -212,7 +216,10 @@ export function createValidationFixtures(): { handle: (route: Route, request: Re
       runs = runs.map((item) => (item.id === found.id ? { ...item, status: 'canceled', statusReason: 'Canceled by admin.', finishedAt: now } : item))
       return json(route, found, 202)
     }
-    if (path === '/api/v1/validation/schedules' && method === 'GET') return json(route, { items: schedules })
+    if (path === '/api/v1/validation/schedules' && method === 'GET') {
+      const siteId = url.searchParams.get('siteId')
+      return json(route, { items: schedules.filter((schedule) => !siteId || schedule.siteId === siteId) })
+    }
     if (path === '/api/v1/validation/schedules' && method === 'POST') {
       const body = request.postDataJSON() as { name: string; suiteId: string; serverIds?: string[]; platformId?: string; trigger: { kind: 'cron' | 'after-deployment'; cron?: string; timezone?: string }; enabled: boolean }
       if (body.trigger.kind === 'cron' && (body.trigger.cron ?? '').split(' ').length !== 5) return failure(route, 400, 'validation_error', 'cron needs five fields')

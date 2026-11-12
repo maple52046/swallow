@@ -90,6 +90,7 @@ func NewMongoRunRepo(db *mongo.Database) (*MongoRunRepo, error) {
 	defer cancel()
 	_, err := col.Indexes().CreateMany(ctx, []mongo.IndexModel{
 		{Keys: bson.D{{Key: "requestedAt", Value: -1}}, Options: options.Index().SetName("validation_run_requested")},
+		{Keys: bson.D{{Key: "siteId", Value: 1}, {Key: "requestedAt", Value: -1}}, Options: options.Index().SetName("validation_run_site_requested")},
 		{Keys: bson.D{{Key: "target.serverIds", Value: 1}}, Options: options.Index().SetName("validation_run_servers")},
 		{Keys: bson.D{{Key: "target.memberIds", Value: 1}}, Options: options.Index().SetName("validation_run_members")},
 		{Keys: bson.D{{Key: "target.platformId", Value: 1}}, Options: options.Index().SetName("validation_run_platform")},
@@ -137,6 +138,9 @@ func (r *MongoRunRepo) Get(ctx context.Context, id string) (validationdomain.Run
 // List implements validationdomain.RunRepository. A non-positive limit returns every match.
 func (r *MongoRunRepo) List(ctx context.Context, filter validationdomain.RunFilter) ([]validationdomain.Run, int, error) {
 	query := bson.M{}
+	if filter.SiteID != "" {
+		query["siteId"] = filter.SiteID
+	}
 	if filter.SuiteID != "" {
 		query["suite.id"] = filter.SuiteID
 	}
@@ -191,9 +195,19 @@ type MongoScheduleRepo struct {
 	col *mongo.Collection
 }
 
-// NewMongoScheduleRepo returns the schedule store.
-func NewMongoScheduleRepo(db *mongo.Database) *MongoScheduleRepo {
-	return &MongoScheduleRepo{col: db.Collection("validation_schedules", options.Collection().SetRegistry(registry))}
+// NewMongoScheduleRepo returns the schedule store and ensures the Site/name list index.
+func NewMongoScheduleRepo(db *mongo.Database) (*MongoScheduleRepo, error) {
+	col := db.Collection("validation_schedules", options.Collection().SetRegistry(registry))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := col.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "siteId", Value: 1}, {Key: "spec.name", Value: 1}},
+		Options: options.Index().SetName("validation_schedule_site_name"),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("validation schedule indexes: %w", err)
+	}
+	return &MongoScheduleRepo{col: col}, nil
 }
 
 // Create implements validationdomain.ScheduleRepository.
@@ -256,8 +270,12 @@ func (r *MongoScheduleRepo) Get(ctx context.Context, id string) (validationdomai
 }
 
 // List implements validationdomain.ScheduleRepository.
-func (r *MongoScheduleRepo) List(ctx context.Context) ([]validationdomain.Schedule, error) {
-	cursor, err := r.col.Find(ctx, bson.M{}, options.Find().SetSort(bson.D{{Key: "spec.name", Value: 1}}))
+func (r *MongoScheduleRepo) List(ctx context.Context, filter validationdomain.ScheduleFilter) ([]validationdomain.Schedule, error) {
+	query := bson.M{}
+	if filter.SiteID != "" {
+		query["siteId"] = filter.SiteID
+	}
+	cursor, err := r.col.Find(ctx, query, options.Find().SetSort(bson.D{{Key: "spec.name", Value: 1}}))
 	if err != nil {
 		return nil, err
 	}

@@ -51,13 +51,15 @@ type ServerResults =
  */
 function ServerTargetField({ serverIds, onServerIdsChange, idPrefix, disabled = false }: ValidationTargetFieldsProps) {
   const { servers } = useApp()
-  const { siteId } = useSiteScope()
+  const { siteId, sites } = useSiteScope()
   const [keyword, setKeyword] = useState('')
   const searchKey = `${siteId ?? ''}|${keyword}`
   // The answer is kept with the search it answers, so a new search reads as loading until it lands.
   const [stored, setStored] = useState<{ key: string; results: ServerResults }>({ key: '', results: { status: 'loading' } })
   const results: ServerResults = stored.key === searchKey ? stored.results : { status: 'loading' }
   const names = useServerNames(serverIds)
+  const [selectionSiteId, setSelectionSiteId] = useState<string>()
+  const siteName = new Map(sites.map((site) => [site.id, site.name]))
 
   // One read per committed search; `cancelled` drops the answer of a search that was replaced.
   useEffect(() => {
@@ -78,7 +80,17 @@ function ServerTargetField({ serverIds, onServerIdsChange, idPrefix, disabled = 
   const chosen = useMemo(() => new Set(serverIds), [serverIds])
   const listed = results.status === 'ready' ? results.servers : []
   const nameOf = (id: string) => names.get(id) ?? listed.find((server) => server.id === id)?.status.hostname ?? id
-  const toggle = (id: string, on: boolean) => onServerIdsChange(on ? [...serverIds, id] : serverIds.filter((other) => other !== id))
+  const effectiveSelectionSiteId = selectionSiteId ?? listed.find((server) => serverIds.includes(server.id))?.status.source.siteId
+  const toggle = (id: string, on: boolean, targetSiteId?: string) => {
+    if (on) {
+      if (!siteId && !effectiveSelectionSiteId && targetSiteId) setSelectionSiteId(targetSiteId)
+      onServerIdsChange([...serverIds, id])
+      return
+    }
+    const next = serverIds.filter((other) => other !== id)
+    if (next.length === 0) setSelectionSiteId(undefined)
+    onServerIdsChange(next)
+  }
 
   return (
     <Fieldset.Root disabled={disabled}>
@@ -107,8 +119,13 @@ function ServerTargetField({ serverIds, onServerIdsChange, idPrefix, disabled = 
           {results.status === 'ready' && (
             <Stack gap="1">
               {listed.map((server) => (
-                <Checkbox key={server.id} checked={chosen.has(server.id)} onCheckedChange={(on) => toggle(server.id, on)} disabled={disabled}>
-                  {serverDisplayName(server)}
+                <Checkbox
+                  key={server.id}
+                  checked={chosen.has(server.id)}
+                  onCheckedChange={(on) => toggle(server.id, on, server.status.source.siteId)}
+                  disabled={disabled || Boolean(!siteId && effectiveSelectionSiteId && server.status.source.siteId !== effectiveSelectionSiteId)}
+                >
+                  {serverDisplayName(server)}{!siteId && server.status.source.siteId ? ` · ${siteName.get(server.status.source.siteId) ?? server.status.source.siteId}` : ''}
                 </Checkbox>
               ))}
               {results.total > listed.length && (

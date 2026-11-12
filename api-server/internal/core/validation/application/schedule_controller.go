@@ -81,7 +81,7 @@ func (c *ScheduleController) KeysForChange(_ context.Context, change store.Chang
 
 // Keys implements convergence.Controller.
 func (c *ScheduleController) Keys(ctx context.Context) ([]string, error) {
-	schedules, err := c.service.schedules.List(ctx)
+	schedules, err := c.service.schedules.List(ctx, validationdomain.ScheduleFilter{})
 	if err != nil {
 		return nil, err
 	}

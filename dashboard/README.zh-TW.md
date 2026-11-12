@@ -20,6 +20,9 @@
 | `/software/settings`、`/software/:kind/settings` | Software 的設定，例如 registry credential |
 | `/workflows`、`/workflows/:id` | Activity：Durable Workflow list、event、log 與 control |
 | `/change-plans` | Activity：等待核准的 Change Plan |
+| `/validation/runs`、`/validation/runs/:id` | Validation assurance activity 與問題優先的 Run 結果 |
+| `/validation/suites`、`/validation/suites/:id` | Validation 能力 catalog 與 Suite 詳情 |
+| `/validation/schedules` | 依 Site 範圍的 Validation automation |
 | `/monitoring` | Health、用量圖表（勾選 Server、Pool、Zone、Platform）、current metric、選用的 Grafana，以及（開發中的）alert 與 silence |
 | `/infrastructure/*` | Site、Integration、Zone、Pool、Site 的 Local repository，以及 Boot ISO |
 | `/account/ssh-keys`、`/account/api-keys` | 你的 SSH key 與 API key（account menu） |

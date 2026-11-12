@@ -145,3 +145,69 @@ export function resultMatrix(run: Pick<ValidationRun, 'checks' | 'results' | 'ta
   }))
   return { columns, rows }
 }
+
+
+/** Stable capability groups for the Suite catalog, derived only from domain facts. */
+export type ValidationSuiteGroup = 'platform' | 'servers' | 'custom'
+
+export function validationSuiteGroup(suite: ValidationSuite): ValidationSuiteGroup {
+  if (suite.source === 'user') return 'custom'
+  return suite.target === 'platform' ? 'platform' : 'servers'
+}
+
+/** Failed checks precede execution errors in the issue-first run view. */
+export function orderedIssues(results: readonly ValidationResult[]): ValidationResult[] {
+  return results
+    .filter((result) => result.verdict === 'failed' || result.verdict === 'error')
+    .sort((left, right) => {
+      const rank = { failed: 0, error: 1 } as const
+      return rank[left.verdict as 'failed' | 'error'] - rank[right.verdict as 'failed' | 'error']
+    })
+}
+
+/** Human duration from API timestamps, without inventing progress. */
+export function runDuration(startedAt: string | null, finishedAt: string | null): string {
+  if (!startedAt) return 'Not started'
+  const end = finishedAt ? Date.parse(finishedAt) : Date.now()
+  const seconds = Math.floor(Math.max(0, end - Date.parse(startedAt)) / 1000)
+  if (seconds < 60) return seconds + 's'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return minutes + 'm ' + (seconds % 60) + 's'
+  return Math.floor(minutes / 60) + 'h ' + (minutes % 60) + 'm'
+}
+
+export type SchedulePresetKind = 'after-deployment' | 'daily' | 'weekly' | 'custom'
+
+export interface SchedulePreset {
+  kind: SchedulePresetKind
+  minute: string
+  hour: string
+  weekday: string
+  cron: string
+}
+
+/** Recognizes friendly schedule presets without changing an unrecognized expression. */
+export function schedulePreset(trigger: ValidationScheduleTrigger): SchedulePreset {
+  if (trigger.kind === 'after-deployment') {
+    return { kind: 'after-deployment', minute: '0', hour: '2', weekday: '1', cron: '' }
+  }
+  const cron = trigger.cron ?? ''
+  const fields = cron.trim().split(/\s+/)
+  if (fields.length === 5) {
+    const [minute, hour, day, month, weekday] = fields
+    if (day === '*' && month === '*' && weekday === '*') {
+      return { kind: 'daily', minute, hour, weekday: '1', cron }
+    }
+    if (day === '*' && month === '*' && /^[0-7]$/.test(weekday)) {
+      return { kind: 'weekly', minute, hour, weekday, cron }
+    }
+  }
+  return { kind: 'custom', minute: '0', hour: '2', weekday: '1', cron }
+}
+
+/** Produces the canonical five-field expression of a friendly preset. */
+export function cronForSchedulePreset(preset: SchedulePreset): string {
+  if (preset.kind === 'daily') return preset.minute + ' ' + preset.hour + ' * * *'
+  if (preset.kind === 'weekly') return preset.minute + ' ' + preset.hour + ' * * ' + preset.weekday
+  return preset.cron
+}

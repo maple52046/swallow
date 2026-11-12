@@ -19,6 +19,7 @@ type SuiteRepository interface {
 // RunFilter selects runs; every field is optional and exact-match. ServerID matches a run whose
 // target or member Servers include it.
 type RunFilter struct {
+	SiteID     string
 	SuiteID    string
 	ServerID   string
 	PlatformID string
@@ -43,6 +44,11 @@ type RunRepository interface {
 	List(ctx context.Context, filter RunFilter) ([]Run, int, error)
 }
 
+// ScheduleFilter selects schedules; every field is optional and exact-match.
+type ScheduleFilter struct {
+	SiteID string
+}
+
 // ScheduleRepository stores Validation Schedules. WriteSpec is the API's write; WriteStatus the
 // controller's; neither changes the other's fields.
 type ScheduleRepository interface {
@@ -52,7 +58,7 @@ type ScheduleRepository interface {
 	WriteSpec(ctx context.Context, id string, expectedGeneration int64, spec ScheduleSpec, siteID string, now time.Time) (int64, error)
 	WriteStatus(ctx context.Context, id string, status ScheduleStatus) error
 	Get(ctx context.Context, id string) (Schedule, error)
-	List(ctx context.Context) ([]Schedule, error)
+	List(ctx context.Context, filter ScheduleFilter) ([]Schedule, error)
 	Delete(ctx context.Context, id string) error
 	// UsesSuite reports whether a schedule names the suite.
 	UsesSuite(ctx context.Context, suiteID string) (bool, error)

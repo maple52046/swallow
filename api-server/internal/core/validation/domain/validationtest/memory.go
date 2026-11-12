@@ -5,6 +5,7 @@ package validationtest
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -58,14 +59,43 @@ func (m *Runs) List(_ context.Context, filter validationdomain.RunFilter) ([]val
 	defer m.mu.Unlock()
 	var runs []validationdomain.Run
 	for _, run := range m.runs {
-		if filter.ActiveOnly && !run.Status.Active() || filter.Status != "" && run.Status != filter.Status ||
-			filter.ScheduleID != "" && run.Trigger.ScheduleID != filter.ScheduleID {
+		if filter.SiteID != "" && run.SiteID != filter.SiteID {
+			continue
+		}
+		if filter.SuiteID != "" && run.Suite.ID != filter.SuiteID {
+			continue
+		}
+		if filter.ServerID != "" && !slices.Contains(run.Target.ServerIDs, filter.ServerID) && !slices.Contains(run.Target.MemberIDs, filter.ServerID) {
+			continue
+		}
+		if filter.PlatformID != "" && run.Target.PlatformID != filter.PlatformID {
+			continue
+		}
+		if filter.ScheduleID != "" && run.Trigger.ScheduleID != filter.ScheduleID {
+			continue
+		}
+		if filter.Status != "" && run.Status != filter.Status {
+			continue
+		}
+		if filter.Verdict != "" && run.Verdict != filter.Verdict {
+			continue
+		}
+		if filter.Trigger != "" && run.Trigger.Kind != filter.Trigger {
+			continue
+		}
+		if filter.ActiveOnly && !run.Status.Active() {
 			continue
 		}
 		runs = append(runs, run)
 	}
 	sort.Slice(runs, func(i, j int) bool { return runs[i].RequestedAt.After(runs[j].RequestedAt) })
-	return runs, len(runs), nil
+	total := len(runs)
+	start := min(max(filter.Offset, 0), total)
+	end := total
+	if filter.Limit > 0 {
+		end = min(start+filter.Limit, total)
+	}
+	return runs[start:end], total, nil
 }
 
 // Suites is an in-memory SuiteRepository.
@@ -172,12 +202,14 @@ func (m *Schedules) Get(_ context.Context, id string) (validationdomain.Schedule
 }
 
 // List implements validationdomain.ScheduleRepository.
-func (m *Schedules) List(context.Context) ([]validationdomain.Schedule, error) {
+func (m *Schedules) List(_ context.Context, filter validationdomain.ScheduleFilter) ([]validationdomain.Schedule, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var schedules []validationdomain.Schedule
 	for _, schedule := range m.schedules {
-		schedules = append(schedules, schedule)
+		if filter.SiteID == "" || schedule.SiteID == filter.SiteID {
+			schedules = append(schedules, schedule)
+		}
 	}
 	return schedules, nil
 }
