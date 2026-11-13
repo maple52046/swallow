@@ -5,7 +5,7 @@ import { NotFoundPage } from './presentation/pages/NotFoundPage'
 import { LoginPage } from './presentation/pages/auth/LoginPage'
 import { ForbiddenPage } from './presentation/pages/errors/ForbiddenPage'
 import { UnexpectedErrorPage } from './presentation/pages/errors/UnexpectedErrorPage'
-import { ConsoleOverviewPage } from './presentation/pages/overview/ConsoleOverviewPage'
+import { HomeRoute } from './presentation/pages/overview/HomeRoute'
 import { MonitoringPage } from './presentation/pages/monitoring/MonitoringPage'
 import { ServersPage } from './presentation/pages/servers/ServersPage'
 import { ServerDetailPage } from './presentation/pages/servers/ServerDetailPage'
@@ -64,6 +64,11 @@ import { GroupingPage } from './presentation/pages/infrastructure/GroupingPage'
 import { LocalRepositoryPage } from './presentation/pages/infrastructure/LocalRepositoryPage'
 import { SSHKeysPage } from './presentation/pages/account/SSHKeysPage'
 import { ApiKeysPage } from './presentation/pages/account/ApiKeysPage'
+import { ChangePasswordPage } from './presentation/pages/account/ChangePasswordPage'
+import { AdminRoute } from './presentation/components/AdminRoute'
+import { UsersPage } from './presentation/pages/users/UsersPage'
+import { PoolsPage } from './presentation/pages/pools/PoolsPage'
+import { PoolAccessPage } from './presentation/pages/pools/PoolAccessPage'
 import { FeatureRoute } from './presentation/components/FeatureRoute'
 import { ValidationRedirect } from './presentation/pages/validation/ValidationRedirect'
 import { ValidationRunsPage } from './presentation/pages/validation/ValidationRunsPage'
@@ -87,8 +92,9 @@ export const router = createBrowserRouter([
     element: <ProtectedRoute><ConsoleLayout /></ProtectedRoute>,
     errorElement: <UnexpectedErrorPage />,
     children: [
-      { index: true, element: <ConsoleOverviewPage /> },
-      { path: 'monitoring', element: <MonitoringPage /> },
+      // The Overview for admins; everyone else lands on the Servers they may read.
+      { index: true, element: <HomeRoute /> },
+      { path: 'monitoring', element: <AdminRoute><MonitoringPage /></AdminRoute> },
       { path: 'servers', element: <ServersPage /> },
       {
         path: 'servers/:id',
@@ -149,21 +155,23 @@ export const router = createBrowserRouter([
       {
         path: 'provisioning/templates',
         element: (
-          <FeatureRoute feature="deploymentTemplates" redirectTo="/provisioning/images">
-            <DeploymentTemplatesPage />
-          </FeatureRoute>
+          <AdminRoute>
+            <FeatureRoute feature="deploymentTemplates" redirectTo="/provisioning/images">
+              <DeploymentTemplatesPage />
+            </FeatureRoute>
+          </AdminRoute>
         ),
       },
-      { path: 'provisioning/images', element: <OSImagesPage /> },
+      { path: 'provisioning/images', element: <AdminRoute><OSImagesPage /></AdminRoute> },
       { path: 'provisioning/boot-isos', element: <LegacyBootISOsRedirect /> },
-      { path: 'infrastructure', element: <InfrastructureRedirect /> },
-      { path: 'infrastructure/sites', element: <SitesPage /> },
-      { path: 'infrastructure/integrations', element: <IntegrationsPage /> },
+      { path: 'infrastructure', element: <AdminRoute><InfrastructureRedirect /></AdminRoute> },
+      { path: 'infrastructure/sites', element: <AdminRoute><SitesPage /></AdminRoute> },
+      { path: 'infrastructure/integrations', element: <AdminRoute><IntegrationsPage /></AdminRoute> },
       // One Integration's settings, a tab per route (General, Connection, Credential, and for a
       // MAAS provisioner its HTTP proxy and Subnet DNS).
       {
         path: 'infrastructure/integrations/:id',
-        element: <IntegrationSettingsPage />,
+        element: <AdminRoute><IntegrationSettingsPage /></AdminRoute>,
         children: [
           { index: true, element: <IntegrationSettingsIndexRedirect /> },
           { path: 'general', element: <IntegrationGeneralTab /> },
@@ -173,15 +181,22 @@ export const router = createBrowserRouter([
           { path: 'subnet-dns', element: <IntegrationSubnetDnsTab /> },
         ],
       },
-      { path: 'infrastructure/zones', element: <GroupingPage kind="zone" /> },
-      { path: 'infrastructure/pools', element: <GroupingPage kind="pool" /> },
+      { path: 'infrastructure/zones', element: <AdminRoute><GroupingPage kind="zone" /></AdminRoute> },
+      { path: 'infrastructure/pools', element: <AdminRoute><GroupingPage kind="pool" /></AdminRoute> },
       // One Site's Local Repository (decision 078): Site-scoped through the URL like the pages above.
-      { path: 'infrastructure/local-repository', element: <LocalRepositoryPage /> },
-      { path: 'infrastructure/boot-isos', element: <BootISOsPage /> },
-      // Account settings for the signed-in admin; not Site-scoped (SSH keys are per User).
+      { path: 'infrastructure/local-repository', element: <AdminRoute><LocalRepositoryPage /></AdminRoute> },
+      { path: 'infrastructure/boot-isos', element: <AdminRoute><BootISOsPage /></AdminRoute> },
+      // Pool access (decision 082): every user's own Pools, an admin's every Pool, and one Pool's
+      // members and Sudo Policy, which its members read and its owners and admins change.
+      { path: 'pools', element: <PoolsPage /> },
+      { path: 'pools/:id', element: <PoolAccessPage /> },
+      // Account administration (decision 082), admins only.
+      { path: 'users', element: <AdminRoute><UsersPage /></AdminRoute> },
+      // Account settings for the signed-in User; not Site-scoped (SSH keys are per User).
       { path: 'account/ssh-keys', element: <SSHKeysPage /> },
       // API Keys for non-interactive clients belong to the signed-in User (decision 042).
       { path: 'account/api-keys', element: <ApiKeysPage /> },
+      { path: 'account/password', element: <ChangePasswordPage /> },
     ],
   },
   { path: '*', element: <ProtectedRoute><NotFoundPage /></ProtectedRoute> },

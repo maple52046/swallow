@@ -20,7 +20,10 @@
   swallow process 啟動時都會檢查。
 - JWT signing secret 與 Session 效期（`accessTokenTTL` 15m、`refreshTokenTTL` 168h、`sessionMaxAge`
   720h；舊的 `jwtExpiryHours` 不再使用）。
-- Bootstrap admin username/password。
+- Bootstrap admin username/password，以及 swallow 給使用者的第一個 POSIX uid 與 gid（`posixIdStart`，預設 10000；
+  第一個帳號取得 id 之後不能改）。
+- Directory（`directory.url`、`baseDN`、`bindPasswordFile`、`caFile`、`hostURL`、`readerPasswordFile`；Compose
+  installation 會全部設定），以及 worker 是否讓 Server 一直保有 directory client（`directoryClientEnsure`，預設 true）。
 - Base64 32-byte credential-encryption key。
 - Machine bearer token。
 - Reconcile 與 inventory interval，以及 controller resync interval（`controllerResyncInterval`，預設
@@ -79,7 +82,9 @@ Compose 將它留空並使用 Vite same-origin proxy。更改 Vite environment v
 Production 透過同一個 Nginx origin 以 plain HTTP（預設 port 80）提供 Dashboard 與 API；
 MongoDB 與 Temporal 保持 internal，API、worker 與 executor 經 `egress` network 連 MAAS 與
 Server。Site 的 Local Repository 有自己給佈署出去的 Server 的 listener，`SWALLOW_PULP_PORT`（預設 8080），
-因為 container registry 必須在自己 port 的根路徑回應。Installation 開放到受信任網路之外時，請在前面終結 TLS。
+因為 container registry 必須在自己 port 的根路徑回應。Directory 在 `SWALLOW_LDAP_PORT`（預設 636）給 Server 的
+directory client 使用，只有 LDAPS，憑證由 installation CA 簽發；Server 必須連得到它。Installation 開放到受信任網路之外時，
+請在前面終結 TLS。
 
 ## CLI configuration
 
@@ -98,4 +103,6 @@ CLI resolution order：
 Compose／native assets 會定義 exact secret file contract。Secret directory 不得進
 source control；credential key 必須與 MongoDB、artifact 一起備份。Production installation
 會在 `production/secrets/` 產生所有 secrets，包含共置 MAAS 的 database password、admin
-password 與 API key，以及 Local Repository（Pulp）的 database password、admin password 與 secret key。
+password 與 API key、Local Repository（Pulp）的 database password、admin password 與 secret key，以及 Directory 的
+密碼、installation CA 與它的憑證（`ldap-tls/`，`SWALLOW_ADDRESS` 改變時重簽）。backup 包含 installation CA 與 Directory
+的密碼，因為每台 Server 的 directory client 都信任這個 CA；Directory 的資料由 MongoDB 重建。

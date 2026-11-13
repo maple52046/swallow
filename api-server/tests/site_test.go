@@ -460,13 +460,16 @@ func TestUpdateIntegration_CanPauseWithoutLosingConfig(t *testing.T) {
 	}
 }
 
-func TestSiteRoutes_NonAdminForbidden(t *testing.T) {
+// Every User may read Sites, but only an admin may change them (decision 082).
+func TestSiteRoutes_UsersReadButDoNotWrite(t *testing.T) {
 	f := setupPlatform(t)
+	user := map[string]string{"Authorization": "Bearer " + userToken(t, f.jwtSvc)}
 
-	resp := doRequest(t, f.app, "GET", "/api/v1/sites/", nil, map[string]string{
-		"Authorization": "Bearer " + userToken(t, f.jwtSvc),
-	})
+	if resp := doRequest(t, f.app, "GET", "/api/v1/sites/", nil, user); resp.StatusCode != http.StatusOK {
+		t.Fatalf("listing Sites as a user: status %d, want 200", resp.StatusCode)
+	}
+	resp := doRequest(t, f.app, "POST", "/api/v1/sites/", map[string]string{"name": "lab-2"}, user)
 	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d", resp.StatusCode)
+		t.Fatalf("creating a Site as a user: status %d, want 403", resp.StatusCode)
 	}
 }

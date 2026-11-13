@@ -2,6 +2,7 @@ package tests
 
 import (
 	"errors"
+	accessdomain "github.com/maple52046/swallow/internal/core/access/domain"
 	"net/http"
 	"reflect"
 	"testing"
@@ -301,14 +302,36 @@ func TestServers_HaveNoCreateEndpoint(t *testing.T) {
 	}
 }
 
-func TestServerRoutes_NonAdminForbidden(t *testing.T) {
+// A User that is not an admin lists only the Servers of its Pools, reads one of them, may operate
+// it only as an owner, and gets 404 for any other Server (decision 082).
+func TestServerRoutes_PoolScopedForUsers(t *testing.T) {
 	f := setupPlatform(t)
+	f.seedServer("srv-in", "node-in", "10.0.1.10", nil)
+	f.seedServer("srv-out", "node-out", "10.0.1.11", nil)
+	f.servers.servers["srv-in"].Spec.PoolID = "pool-a"
+	f.servers.servers["srv-out"].Spec.PoolID = "pool-b"
+	user := map[string]string{"Authorization": "Bearer " + userToken(t, f.jwtSvc)}
 
-	resp := doRequest(t, f.app, "GET", "/api/v1/servers/", nil, map[string]string{
-		"Authorization": "Bearer " + userToken(t, f.jwtSvc),
-	})
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	resp := doRequest(t, f.app, "GET", "/api/v1/servers/", nil, user)
+	if body := parseBody(t, resp); body["total"].(float64) != 0 {
+		t.Fatalf("a User in no Pool lists %v Servers, want none", body["total"])
+	}
+
+	f.memberships.add("pool-a", "user-1", accessdomain.RoleMember)
+	resp = doRequest(t, f.app, "GET", "/api/v1/servers/", nil, user)
+	body := parseBody(t, resp)
+	items, _ := body["items"].([]any)
+	if body["total"].(float64) != 1 || len(items) != 1 || items[0].(map[string]any)["id"] != "srv-in" {
+		t.Fatalf("a member of pool-a lists %v, want only srv-in", body)
+	}
+	if resp := doRequest(t, f.app, "GET", "/api/v1/servers/srv-in", nil, user); resp.StatusCode != http.StatusOK {
+		t.Errorf("member reading its Pool's Server: status %d, want 200", resp.StatusCode)
+	}
+	if resp := doRequest(t, f.app, "GET", "/api/v1/servers/srv-out", nil, user); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("member reading another Pool's Server: status %d, want 404", resp.StatusCode)
+	}
+	if resp := doRequest(t, f.app, "POST", "/api/v1/servers/srv-in/power-on", nil, user); resp.StatusCode != http.StatusForbidden {
+		t.Errorf("member powering on its Pool's Server: status %d, want 403", resp.StatusCode)
 	}
 }
 

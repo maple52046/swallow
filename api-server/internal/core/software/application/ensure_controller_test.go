@@ -563,3 +563,60 @@ func TestNewEnsureControllerRefusesMissingDependencies(t *testing.T) {
 		t.Error("NewEnsureController(no dependencies) error = nil, want an error")
 	}
 }
+
+// A user's uninstall opts the Server out: the controller leaves the kind absent until someone
+// installs it again, while an uninstall swallow planned does not stop it.
+func TestEnsureControllerRespectsAUsersUninstall(t *testing.T) {
+	uninstall := func(requestedBy string) *workflowdomain.Workflow {
+		finished := ensureNow.Add(-time.Hour)
+		return &workflowdomain.Workflow{
+			ID: "wf-uninstall", Kind: workflowdomain.WorkflowKind(ensureKind.UninstallWorkflowKind()),
+			Status: workflowdomain.WorkflowSucceeded, TargetServerIDs: []string{"srv-1"}, RequestedBy: requestedBy,
+			RequestedAt: finished.Add(-5 * time.Minute), UpdatedAt: finished, FinishedAt: &finished,
+		}
+	}
+	for _, tc := range []struct {
+		name     string
+		history  []*workflowdomain.Workflow
+		installs int
+	}{
+		{name: "uninstalled by a user", history: []*workflowdomain.Workflow{uninstall("alice")}, installs: 0},
+		{name: "uninstalled by swallow", history: []*workflowdomain.Workflow{uninstall("swallow:platform-controller")}, installs: 1},
+		{name: "installed again after the uninstall", history: []*workflowdomain.Workflow{
+			installWorkflow("wf-reinstall", "alice", workflowdomain.WorkflowFailed, ensureNow.Add(-30*time.Minute)), uninstall("alice"),
+		}, installs: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newEnsureFixture()
+			f.assignment = assignmentIn(softwaredomain.StateAbsent, ensureNow.Add(-time.Hour))
+			f.workflows.workflows = tc.history
+			f.reconcile(t, f.controller(t), convergence.TriggerResync)
+			if len(f.installer.inputs) != tc.installs {
+				t.Errorf("installs = %d, want %d", len(f.installer.inputs), tc.installs)
+			}
+		})
+	}
+}
+
+// fakeReadiness answers Ready with ready.
+type fakeReadiness struct{ ready bool }
+
+func (f fakeReadiness) Ready(context.Context) (bool, error) { return f.ready, nil }
+
+// While what the kind depends on is not ready, the controller starts no install; once it is, it
+// installs as usual.
+func TestEnsureControllerWaitsForReadiness(t *testing.T) {
+	for _, ready := range []bool{false, true} {
+		f := newEnsureFixture()
+		controller := f.controller(t)
+		controller.readiness = fakeReadiness{ready: ready}
+		f.reconcile(t, controller, convergence.TriggerResync)
+		want := 0
+		if ready {
+			want = 1
+		}
+		if len(f.installer.inputs) != want {
+			t.Errorf("ready %v: installs = %d, want %d", ready, len(f.installer.inputs), want)
+		}
+	}
+}

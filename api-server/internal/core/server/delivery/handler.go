@@ -5,6 +5,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	accessdelivery "github.com/maple52046/swallow/internal/core/access/delivery"
 	"github.com/maple52046/swallow/internal/core/server/application"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	"github.com/maple52046/swallow/internal/shared/apierror"
@@ -26,8 +27,14 @@ func NewServerHandler(
 	return &ServerHandler{list: list, get: get}
 }
 
+// List implements GET /api/v1/servers. A caller that is not an admin sees only the Servers placed
+// in the Pools it belongs to (servers-list.md, Authorization).
 func (h *ServerHandler) List(c *fiber.Ctx) error {
-	result, err := h.list.Execute(c.Context(), application.ListServersInput{
+	visibility, ok := accessdelivery.VisibilityFrom(c)
+	if !ok {
+		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
+	}
+	input := application.ListServersInput{
 		SiteID:            c.Query("siteId"),
 		IntegrationID:     c.Query("integrationId"),
 		ProvisioningState: c.Query("provisioningState"),
@@ -35,7 +42,11 @@ func (h *ServerHandler) List(c *fiber.Ctx) error {
 		Keyword:           c.Query("keyword"),
 		IncludeAbsent:     c.Query("includeAbsent") == "true",
 		Page:              pagination.FromQuery(c),
-	})
+	}
+	if !visibility.Admin() {
+		input.PoolIDs, input.RestrictPools = visibility.ReadablePools(), true
+	}
+	result, err := h.list.Execute(c.UserContext(), input)
 	if err != nil {
 		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
 	}

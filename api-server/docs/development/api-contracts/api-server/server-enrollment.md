@@ -54,7 +54,8 @@ GET  /downloads/swallow-enroll.sh            (no authentication)
 GET  /downloads/swallow                      (no authentication)
 ```
 
-The `/api/v1` routes require an admin bearer token; see [Downloads](#downloads) for the others.
+The `/api/v1` routes are admin ([conventions](conventions.md#authorization)); see
+[Downloads](#downloads) for the others.
 
 ## Automatic hardware inspection
 

@@ -52,6 +52,9 @@ var (
 	// ErrPlacementConflict means the Server's spec changed while a placement was being written.
 	ErrPlacementConflict = errors.New("server spec changed during the placement")
 
+	// ErrPlatformPoolMismatch means a placement would move a Platform-claimed Server out of the Pool
+	// its Platform belongs to.
+	ErrPlatformPoolMismatch = errors.New("a server claimed by a platform can be placed only in the platform's pool")
 	// ErrServerNotAdopted means the Server has no spec yet; its controller adopts it from the
 	// first observation shortly, and a placement is accepted after that.
 	ErrServerNotAdopted = errors.New("server is not adopted yet")

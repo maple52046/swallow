@@ -46,7 +46,9 @@ Bearer token, per [conventions.md](conventions.md).
 
 ## Authorization
 
-`admin` only, consistent with the servers, provisioning, and infrastructure surfaces.
+`GET /api/v1/provisioning/tags` is reference; `POST` is Pool operate on every target Server;
+`DELETE` and `PATCH /api/v1/provisioning/tags/{name}` change a tag across a Site and are admin
+([conventions](conventions.md#authorization)).
 
 ## Endpoints
 

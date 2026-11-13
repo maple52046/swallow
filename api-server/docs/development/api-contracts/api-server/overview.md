@@ -32,7 +32,7 @@ response derives facts from their owning contexts and stores no overview state.
 GET /api/v1/overview
 ```
 
-Requires the `admin` role, with either bearer credential (a Session access token or an API
+Admin ([conventions](conventions.md#authorization)), with either bearer credential (a Session access token or an API
 Key) according to [conventions](conventions.md). The wire shape is published in
 [`openapi/areas/monitoring.yaml`](../openapi/areas/monitoring.yaml) (`getOverview`).
 

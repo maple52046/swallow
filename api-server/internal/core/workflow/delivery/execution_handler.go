@@ -6,6 +6,8 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	accessdelivery "github.com/maple52046/swallow/internal/core/access/delivery"
+
 	localrepodomain "github.com/maple52046/swallow/internal/core/localrepo/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
@@ -64,12 +66,25 @@ func (h *ExecutionHandler) Create(c *fiber.Ctx) error {
 func taskParam(c *fiber.Ctx) string { return c.Params("taskId") }
 
 // List returns a page of Workflows, newest first.
+// List implements GET /api/v1/workflows. A caller that is not an admin sees only the Workflows whose
+// every target Server it may read (workflows.md, Authorization).
 func (h *ExecutionHandler) List(c *fiber.Ctx) error {
 	input := application.ListOperationsInput{
 		SiteID: c.Query("siteId"), PlatformID: c.Query("platformId"), ServerID: c.Query("serverId"),
 		Kind: c.Query("kind"), Status: c.Query("status"), Active: c.Query("active") == "true", Page: pagination.FromQuery(c),
 	}
-	items, total, err := h.orchestrations.List(c.Context(), input)
+	visibility, ok := accessdelivery.VisibilityFrom(c)
+	if !ok {
+		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
+	}
+	if !visibility.Admin() {
+		servers, err := visibility.ReadableServers(c.UserContext())
+		if err != nil {
+			return respondExecutionError(c, err)
+		}
+		input.TargetsWithin, input.RestrictTargets = servers, true
+	}
+	items, total, err := h.orchestrations.List(c.UserContext(), input)
 	if err != nil {
 		return respondExecutionError(c, err)
 	}

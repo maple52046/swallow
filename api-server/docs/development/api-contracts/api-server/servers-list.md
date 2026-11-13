@@ -49,7 +49,8 @@ Bearer token required. See [`conventions.md`](conventions.md).
 
 ## Authorization
 
-`admin` only. A non-admin authenticated caller receives `403 forbidden`.
+Pool read ([conventions](conventions.md#authorization)), filtered: a User that is not an admin sees
+only the Servers placed in Pools it belongs to, and `total` counts only those.
 
 ## Request
 

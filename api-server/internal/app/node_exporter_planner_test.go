@@ -23,7 +23,7 @@ func newNodeExporterTestPlanner(t *testing.T, deployed map[string]bool) (nodeExp
 	assignments := newFakeAssignmentRepo()
 	return nodeExporterPlanner{
 		software: softwareapp.NewSoftwareService(&storetest.Transactor{}, modules.software, modules.accelerators,
-			assignments, servers, nil),
+			assignments, servers, nil, nil),
 		operations: newTestExecutionService(servers, ntpTestAutomation{}, slurmTestCatalog{}, modules.workflowKinds),
 	}, assignments
 }

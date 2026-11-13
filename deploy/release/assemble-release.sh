@@ -7,7 +7,7 @@
 # binary in the pushed API image, which must also report this version and commit.
 #
 # Usage: assemble-release.sh COMMIT
-# Environment: RELEASE_VERSION, OUT_DIR, IMAGE_REPO, API_DIGEST, DASHBOARD_DIGEST, CLI_DIGEST,
+# Environment: RELEASE_VERSION, OUT_DIR, IMAGE_REPO, API_DIGEST, DASHBOARD_DIGEST, CLI_DIGEST, LDAP_DIGEST,
 # and the official MONGO_IMAGE, POSTGRES_IMAGE, TEMPORAL_SERVER_IMAGE, PROMETHEUS_IMAGE,
 # PROM_LABEL_PROXY_IMAGE, PULP_IMAGE, PULP_WEB_IMAGE from runtime-images.env (exact @sha256
 # references). OUT_DIR is replaced.
@@ -23,6 +23,7 @@ image_repo="${IMAGE_REPO:?set IMAGE_REPO, e.g. ghcr.io/<owner>/swallow}"
 api_image="${image_repo}@${API_DIGEST:?}"
 dashboard_image="${image_repo}@${DASHBOARD_DIGEST:?}"
 cli_image="${image_repo}@${CLI_DIGEST:?}"
+ldap_image="${image_repo}@${LDAP_DIGEST:?}"
 mongo_image="${MONGO_IMAGE:?set MONGO_IMAGE from runtime-images.env}"
 postgres_image="${POSTGRES_IMAGE:?set POSTGRES_IMAGE from runtime-images.env}"
 temporal_server_image="${TEMPORAL_SERVER_IMAGE:?set TEMPORAL_SERVER_IMAGE from runtime-images.env}"
@@ -67,6 +68,8 @@ for file in compose.yaml .env.example env.sh prepare-secrets.sh mongo-entrypoint
   cp "${root}/deploy/production/${file}" "${out}/production/"
 done
 cp -R "${root}/deploy/production/pulp" "${out}/production/"
+# prepare-secrets.sh issues the installation CA and the Directory's certificate with it.
+install -D -m 0755 "${root}/deploy/production/ldap/tls.sh" "${out}/production/ldap/tls.sh"
 for file in compose.yaml .env.example prepare.sh seed.sh README.md README.zh-TW.md; do
   cp "${root}/deploy/testing/${file}" "${out}/testing/"
 done
@@ -76,6 +79,7 @@ chmod 0755 "${out}/install.sh"
 
 jq -n --arg version "${version}" --arg commit "${commit}" \
   --arg api "${api_image}" --arg dashboard "${dashboard_image}" --arg cli "${cli_image}" \
+  --arg ldap "${ldap_image}" \
   --arg mongo "${mongo_image}" --arg postgres "${postgres_image}" \
   --arg temporalServer "${temporal_server_image}" --arg prometheus "${prometheus_image}" \
   --arg promLabelProxy "${prom_label_proxy_image}" --arg pulp "${pulp_image}" \
@@ -86,7 +90,7 @@ jq -n --arg version "${version}" --arg commit "${commit}" \
     schemaVersions:{mongo:$apiInfo.schemaVersion,playbookManifest:$playbookManifest},
     images:{api:$api,dashboard:$dashboard,cli:$cli,mongo:$mongo,
       postgres:$postgres,temporalServer:$temporalServer,prometheus:$prometheus,
-      promLabelProxy:$promLabelProxy,pulp:$pulp,pulpWeb:$pulpWeb},
+      promLabelProxy:$promLabelProxy,pulp:$pulp,pulpWeb:$pulpWeb,ldap:$ldap},
     compatibility:{host:"ubuntu-24.04-amd64",maas:"3.6",mongodb:"8.0",
       prometheus:"release-managed",dockerCE:"release-managed"},
     artifacts:{composeBundle:$compose,cliBinary:"swallow-linux-amd64",

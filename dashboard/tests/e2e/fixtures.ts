@@ -1,6 +1,7 @@
 import { expect, type Page, type Route } from 'playwright/test'
 import type { HealthState, Server, ServerHealthCounts } from '@/domain/server/types'
 import type { SoftwareAssignment, SoftwareCatalogEntry } from '@/domain/software/types'
+import { createAccessFixtures, type FixtureIdentity } from './accessFixtures'
 import { createValidationFixtures } from './validationFixtures'
 
 const now = '2026-08-27T03:00:00Z'
@@ -387,6 +388,11 @@ export interface PowerConfigurationFixture {
 
 /** Controls for large-fleet, concurrency, and failure-path browser fixtures. */
 export interface FixtureOptions {
+  /**
+   * Who the page is signed in as (auth-me.md): the installation admin (the default), alice, the
+   * owner of pool-research, or bob, its member. Only the account and Pool access routes enforce it.
+   */
+  identity?: FixtureIdentity
   /** Whether GET /api/v1/modules fails, so a generated settings form cannot load. */
   modulesUnavailable?: boolean
   /**
@@ -2577,13 +2583,15 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
   }
   // Per-page Validation Suites, Runs, and Schedules (validation.md).
   const validationApi = createValidationFixtures()
+  // Per-page Users, Pool memberships, Sudo Policy, and the signed-in identity (users.md, pool-access.md).
+  const accessApi = createAccessFixtures(options.identity)
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
     const path = url.pathname
     if (path.startsWith('/api/v1/validation/')) return validationApi.handle(route, request, url)
+    if (await accessApi.handle(route, request, url)) return
 
-    if (path === '/api/v1/auth/me') return json(route, { id: 'admin-1', username: 'admin', role: 'admin', authMethod: 'session' })
     if (path === '/api/v1/auth/login') {
       signedIn = true
       return json(route, { accessToken: 'e2e-token', accessTokenExpiresAt: '2099-01-01T00:00:00Z' })

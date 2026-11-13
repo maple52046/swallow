@@ -69,7 +69,7 @@ log 'checking the release contract and documentation'
 log 'checking that every file the modules declare answers'
 "${release_dir}/check-declared-files.sh"
 
-for component in api dashboard cli; do
+for component in api dashboard cli ldap; do
   if crane digest "${image_repo}:${component}-${version}" >/dev/null 2>&1; then
     die "${image_repo}:${component}-${version} already exists; a released version is never overwritten"
   fi
@@ -91,9 +91,9 @@ done
 # linux/amd64 manifest per component. nerdctl does not read this variable.
 export BUILDX_NO_DEFAULT_ATTESTATIONS=1
 
-declare -A dockerfiles=([api]=api-server.Dockerfile [dashboard]=dashboard.Dockerfile [cli]=cli.Dockerfile)
+declare -A dockerfiles=([api]=api-server.Dockerfile [dashboard]=dashboard.Dockerfile [cli]=cli.Dockerfile [ldap]=ldap.Dockerfile)
 declare -A digests=()
-for component in api dashboard cli; do
+for component in api dashboard cli ldap; do
   tag="${image_repo}:${component}-${version}"
   log "building ${tag}"
   docker build \
@@ -110,6 +110,7 @@ out="${root}/out/release/${version}"
 log "assembling the release in ${out}"
 RELEASE_VERSION="${version}" OUT_DIR="${out}" IMAGE_REPO="${image_repo}" \
   API_DIGEST="${digests[api]}" DASHBOARD_DIGEST="${digests[dashboard]}" CLI_DIGEST="${digests[cli]}" \
+  LDAP_DIGEST="${digests[ldap]}" \
   MONGO_IMAGE="${MONGO_IMAGE}" POSTGRES_IMAGE="${POSTGRES_IMAGE}" \
   TEMPORAL_SERVER_IMAGE="${TEMPORAL_SERVER_IMAGE}" PROMETHEUS_IMAGE="${PROMETHEUS_IMAGE}" \
   PROM_LABEL_PROXY_IMAGE="${PROM_LABEL_PROXY_IMAGE}" PULP_IMAGE="${PULP_IMAGE}" PULP_WEB_IMAGE="${PULP_WEB_IMAGE}" \

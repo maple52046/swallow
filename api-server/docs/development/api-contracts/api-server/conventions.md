@@ -59,12 +59,31 @@ Rules:
 
 ## Authorization
 
-Authorization is role-based. The roles are `admin`, `owner`, and `user`.
+Authorization combines the caller's User Role (`admin` or `user`) with its Pool Memberships (Pool
+Role `owner` or `member`); the rules are
+[identity-and-access.md](../../../../../docs/development/identity-and-access.md) §4
+([decision 082](../../../../../docs/decisions/082-accounts-pool-access-and-directory.md) (accounts, pool
+access, and directory)).
+Every request is judged against the caller's **current** role and memberships, read on that request,
+whatever the credential carries.
 
-- An endpoint contract states the required role explicitly.
-- An authenticated caller whose role is insufficient yields `403` with code
-  `forbidden`. It must never yield `404` to hide the resource unless the
-  endpoint contract says so.
+Each endpoint contract states which of these classes its routes belong to:
+
+| Class | Who may call it |
+| --- | --- |
+| Own account | Any authenticated User, acting only on its own account. |
+| Reference | Any authenticated User. |
+| Pool read | An admin, or a User with any Pool Role in the Pool the resource belongs to. |
+| Pool operate | An admin, or an `owner` of the Pool the resource belongs to. |
+| Admin | User Role `admin`. |
+
+- A Server belongs to the Pool its placement names; a Platform to the Pool every one of its nodes is
+  in; a Workflow to its targets (every target must qualify). A resource in no Pool belongs to admins
+  only.
+- A **list** returns only what the caller may read; `total` counts only those.
+- Reading a resource the caller may not read yields `404 not_found`, the same as a resource that
+  does not exist, so a caller cannot probe other Pools. A caller that may read a resource but not
+  operate it, or that calls an admin route, yields `403 forbidden`.
 
 ## Error Response
 
@@ -89,8 +108,8 @@ user correlate the failure with server logs. Consumers must treat it as opaque.
 | --- | ---: | --- |
 | `validation_error` | 400 | The request is malformed or a required field is missing or invalid. |
 | `unauthorized` | 401 | No valid credentials were presented. |
-| `forbidden` | 403 | The caller is authenticated but lacks the required role. |
-| `not_found` | 404 | The addressed resource does not exist. |
+| `forbidden` | 403 | The caller is authenticated but may not do this (its role or Pool Role is insufficient). |
+| `not_found` | 404 | The addressed resource does not exist, or the caller may not read it. |
 | `conflict` | 409 | The request violates a uniqueness or state constraint. |
 | `method_not_allowed` | 405 | The path exists, but not for the request's method. |
 | `payload_too_large` | 413 | The request body exceeds the size the route accepts. |
@@ -180,3 +199,6 @@ scraping rather than for consumers (OpenAPI area `system`):
 - Since 2026-11-05 every request body except the OS Image upload content is limited to 4 MiB
   (Request Bodies); before, the limit was the installation's image upload limit (64 GiB by
   default) on every route.
+- Since 2026-11-13 (decision 082) the User Roles are `admin` and `user`; `owner` is a Pool Role.
+  Before, every route except auth required `admin` and the role `owner` was listed but unused.
+  `BREAKING CHANGE`: the `role` enum of auth-me lost `owner`.

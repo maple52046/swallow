@@ -14,6 +14,8 @@ import { ApiDockerHostRepository } from '@/infrastructure/api/ApiDockerHostRepos
 import { ApiRegistryCredentialRepository } from '@/infrastructure/api/ApiRegistryCredentialRepository'
 import { ApiSSHKeyRepository } from '@/infrastructure/api/ApiSSHKeyRepository'
 import { ApiApiKeyRepository } from '@/infrastructure/api/ApiApiKeyRepository'
+import { ApiAccountRepository } from '@/infrastructure/api/ApiAccountRepository'
+import { ApiPoolAccessRepository } from '@/infrastructure/api/ApiPoolAccessRepository'
 import { ApiChangePlanRepository } from '@/infrastructure/api/ApiChangePlanRepository'
 import { ApiLocalRepository } from '@/infrastructure/api/ApiLocalRepository'
 import { ApiValidationRepository } from '@/infrastructure/api/ApiValidationRepository'
@@ -40,6 +42,8 @@ import type { DockerHostRepository } from '@/application/ports/DockerHostReposit
 import type { RegistryCredentialRepository } from '@/application/ports/RegistryCredentialRepository'
 import type { SSHKeyRepository } from '@/application/ports/SSHKeyRepository'
 import type { ApiKeyRepository } from '@/application/ports/ApiKeyRepository'
+import type { AccountRepository } from '@/application/ports/AccountRepository'
+import type { PoolAccessRepository } from '@/application/ports/PoolAccessRepository'
 import type { ChangePlanRepository } from '@/application/ports/ChangePlanRepository'
 import type { LocalRepositoryPort } from '@/application/ports/LocalRepositoryPort'
 import type { ValidationRepository } from '@/application/ports/ValidationRepository'
@@ -75,6 +79,10 @@ export interface AppContainer {
   sshKeys: SSHKeyRepository
   /** The signed-in user's API Keys for non-interactive clients (decision 042). */
   apiKeys: ApiKeyRepository
+  /** Account administration (admins) and the signed-in user's own password (decision 082). */
+  accounts: AccountRepository
+  /** Each Pool's memberships and Sudo Policy, readable by its members and written by its owners (decision 082). */
+  poolAccess: PoolAccessRepository
   /** Change Plans of destructive changes, which an admin approves or rejects as a whole (decision 076). */
   changePlans: ChangePlanRepository
   /** Each Site's Local Repository: its sync state, its content, and the user's sources (decision 078). */
@@ -123,6 +131,8 @@ export function createContainer(): AppContainer {
     registryCredentials: new ApiRegistryCredentialRepository(),
     sshKeys: new ApiSSHKeyRepository(),
     apiKeys: new ApiApiKeyRepository(),
+    accounts: new ApiAccountRepository(),
+    poolAccess: new ApiPoolAccessRepository(),
     changePlans: new ApiChangePlanRepository(),
     localRepository: new ApiLocalRepository(),
     validation: new ApiValidationRepository(),

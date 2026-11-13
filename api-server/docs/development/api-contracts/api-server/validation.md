@@ -78,9 +78,12 @@ DELETE /api/v1/validation/schedules/{scheduleId}
 
 ## Authentication and Authorization
 
-Every endpoint requires the `admin` role (a Session access token or an API Key), according to
-[conventions](conventions.md). A user suite runs arbitrary commands on its targets with the
-automation user's or root's rights, so creating and running one is admin-only like every route here.
+Authorization ([conventions](conventions.md#authorization)): reading the suite catalog is reference.
+Creating, replacing, and deleting a user-defined suite, and every Validation Schedule route, are admin:
+a user suite runs arbitrary commands on its targets with the automation user's or root's rights.
+Listing runs is Pool read and filtered to runs whose every target the caller may read; reading a run
+is Pool read; starting and canceling a run are Pool operate on its targets (every Server, or the
+Platform).
 
 ## Suites
 

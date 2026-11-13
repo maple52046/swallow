@@ -1422,11 +1422,18 @@ components:
         What swallow realized and judged for the spec: the generation the applied spec realized,
         the shared Conditions (`realized`, `drifted`), the applied spec, and the Workflow realizing a
         newer one.
-      required: [observedGeneration, conditions, applied, realizingWorkflowId]
+      required: [observedGeneration, conditions, applied, realizingWorkflowId, poolId]
       properties:
         observedGeneration:
           type: integer
           format: int64
+        poolId:
+          type: string
+          nullable: true
+          description: >-
+            The Pool the Platform belongs to: the Pool every member of the spec (and every Server it
+            still claims) is placed in; null when they are in different Pools or in none, and then
+            only admins may manage it (identity-and-access.md §5).
         conditions:
           type: array
           items:

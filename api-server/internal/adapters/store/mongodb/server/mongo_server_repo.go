@@ -385,6 +385,13 @@ func (r *MongoServerRepo) List(ctx context.Context, filter serverdomain.ListFilt
 	if filter.IDs != nil {
 		query["_id"] = bson.M{"$in": filter.IDs}
 	}
+	if filter.RestrictPools {
+		pools := filter.PoolIDs
+		if pools == nil {
+			pools = []string{}
+		}
+		query["spec.poolId"] = bson.M{"$in": pools}
+	}
 	if filter.SiteID != "" {
 		query["source.siteId"] = filter.SiteID
 	}

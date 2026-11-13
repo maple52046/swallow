@@ -9,6 +9,8 @@ import {
   Package,
   Server,
   ShieldCheck,
+  UserCog,
+  UsersRound,
   type LucideIcon,
 } from 'lucide-react'
 import { Fragment } from 'react'
@@ -18,6 +20,8 @@ import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useExperimentalFeatures } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import type { ExperimentalFeature } from '@/application/ports/ExperimentalFeatureSettings'
+import { isAdmin } from '@/domain/user/access'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 
 /**
  * One sidebar destination. `path` is where the link goes; `activeFor` lists the route prefixes
@@ -32,28 +36,35 @@ interface NavEntry {
   activeFor: readonly string[]
   /** In-development feature the destination belongs to; listed only while it is shown. */
   feature?: ExperimentalFeature
+  /**
+   * Whether every API the destination reads requires the `admin` User Role (identity-and-access.md
+   * §4); listed only for admins, and its route is guarded with `AdminRoute`.
+   */
+  adminOnly?: boolean
 }
 
 /**
  * Primary destinations in workflow order, in sections the sidebar separates with an unlabelled
  * rule: the Overview; the fleet and what runs on it; what happens to it; what the Site is set up
- * with, the OS images it deploys and its wiring.
+ * with, the OS images it deploys and its wiring, and who may use it.
  */
 const NAVIGATION: ReadonlyArray<readonly NavEntry[]> = [
-  [{ label: 'Overview', path: '/', icon: LayoutDashboard, activeFor: ['/'] }],
+  [{ label: 'Overview', path: '/', icon: LayoutDashboard, activeFor: ['/'], adminOnly: true }],
   [
     { label: 'Servers', path: '/servers', icon: Server, activeFor: ['/servers'] },
     { label: 'Platforms', path: '/platforms', icon: Boxes, activeFor: ['/platforms'] },
     { label: 'Software', path: '/software', icon: Package, activeFor: ['/software'] },
   ],
   [
-    { label: 'Monitoring', path: '/monitoring', icon: ChartLine, activeFor: ['/monitoring'] },
+    { label: 'Monitoring', path: '/monitoring', icon: ChartLine, activeFor: ['/monitoring'], adminOnly: true },
     { label: 'Activity', path: '/workflows', icon: Activity, activeFor: ['/workflows', '/change-plans'] },
     { label: 'Validation', path: '/validation/runs', icon: ShieldCheck, activeFor: ['/validation'] },
   ],
   [
-    { label: 'OS Images', path: '/provisioning/images', icon: Disc3, activeFor: ['/provisioning'] },
-    { label: 'Infrastructure', path: '/infrastructure/sites', icon: Network, activeFor: ['/infrastructure'] },
+    { label: 'OS Images', path: '/provisioning/images', icon: Disc3, activeFor: ['/provisioning'], adminOnly: true },
+    { label: 'Infrastructure', path: '/infrastructure/sites', icon: Network, activeFor: ['/infrastructure'], adminOnly: true },
+    { label: 'Pools', path: '/pools', icon: UsersRound, activeFor: ['/pools'] },
+    { label: 'Users', path: '/users', icon: UserCog, activeFor: ['/users'], adminOnly: true },
   ],
 ]
 
@@ -154,8 +165,9 @@ function NavLink({ entry, active, collapsed, href, onNavigate }: NavLinkProps) {
  *
  * Every destination passes through `scopedHref`, so changing areas never drops the
  * Site query parameter. The rail may collapse visually without changing link order.
- * Destinations of in-development features are omitted while they are hidden; their
- * routes are guarded separately, so this only keeps navigation honest.
+ * Destinations of in-development features are omitted while they are hidden, and admin-only
+ * destinations for every other user; their routes are guarded separately (and the API refuses
+ * what the user may not read), so this only keeps navigation honest.
  *
  * Assistive technology gets one `nav` holding one flat list: the rules between sections
  * are hidden list items, so they neither count as entries nor split the list.
@@ -164,7 +176,9 @@ export function ConsoleSideNav({ collapsed, onNavigate }: ConsoleSideNavProps) {
   const location = useLocation()
   const { scopedHref } = useSiteScope()
   const { enabled: features } = useExperimentalFeatures()
-  const shown = (entry: NavEntry) => !entry.feature || features[entry.feature]
+  const { currentUser } = useAuth()
+  const admin = isAdmin(currentUser)
+  const shown = (entry: NavEntry) => (!entry.feature || features[entry.feature]) && (admin || !entry.adminOnly)
   const sections = NAVIGATION
     .map((section) => section.filter(shown))
     .filter((section) => section.length > 0)

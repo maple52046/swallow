@@ -1,0 +1,27 @@
+---
+# sssd_client role defaults.
+#
+# sssd_client_state toggles install vs removal so one role serves deploy-sssd and uninstall-sssd.
+# The Directory settings come from swallow's trusted and secret vars (deploy-sssd.yml); the paths
+# below are where the role writes its configuration, so uninstall removes exactly them.
+sssd_client_state: present
+sssd_client_domain: swallow
+sssd_client_packages:
+  - sssd-ldap
+  - sssd-tools
+  - libnss-sss
+  - libpam-sss
+  - libsss-sudo
+sssd_client_conf: /etc/sssd/sssd.conf
+sssd_client_ca: /etc/sssd/swallow-directory-ca.crt
+sssd_client_sshd_dropin: /etc/ssh/sshd_config.d/50-swallow-directory.conf
+# How long SSSD keeps an entry before asking the Directory again, and how often it refreshes sudo
+# rules: a removed membership or sudo right stops working within about a minute.
+sssd_client_entry_cache_timeout: 60
+sssd_client_sudo_smart_refresh: 60
+sssd_client_sudo_full_refresh: 600
+# The groups swallow allocates in the Directory; a local group with one of these names would shadow
+# it (identity-and-access.md §3.2).
+sssd_client_reserved_groups:
+  - swallow-users
+  - swallow-admins

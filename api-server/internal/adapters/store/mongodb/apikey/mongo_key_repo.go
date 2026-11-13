@@ -160,3 +160,10 @@ func toKey(d *keyDoc) *apikeydomain.APIKey {
 func isDuplicate(err error, index string) bool {
 	return err != nil && mongo.IsDuplicateKeyError(err) && strings.Contains(err.Error(), index)
 }
+
+// DeleteAllForUser implements apikeydomain.Repository with one DeleteMany, so it joins the caller's
+// transaction through ctx.
+func (r *MongoKeyRepo) DeleteAllForUser(ctx context.Context, userID string) error {
+	_, err := r.col.DeleteMany(ctx, bson.M{"userId": userID})
+	return err
+}

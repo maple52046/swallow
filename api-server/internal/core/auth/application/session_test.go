@@ -33,6 +33,14 @@ func (m *memUsers) Create(context.Context, *authdomain.User) error { return nil 
 
 func (m *memUsers) ExistsByUsername(context.Context, string) (bool, error) { return false, nil }
 
+func (m *memUsers) List(context.Context) ([]*authdomain.User, error) { return nil, nil }
+
+func (m *memUsers) Update(context.Context, *authdomain.User) error { return nil }
+
+func (m *memUsers) Delete(context.Context, string) error { return nil }
+
+func (m *memUsers) CountByRole(context.Context, authdomain.Role) (int, error) { return 0, nil }
+
 // memSessions keeps the production compare-and-swap semantics of Rotate.
 type memSessions struct {
 	mu   sync.Mutex
@@ -83,6 +91,8 @@ func (m *memSessions) Rotate(_ context.Context, id, from, to string, at, exp tim
 }
 
 func (m *memSessions) Touch(context.Context, string, time.Time) error { return nil }
+
+func (m *memSessions) DeleteByUser(context.Context, string) error { return nil }
 
 func (m *memSessions) Revoke(_ context.Context, id string, at time.Time) error {
 	m.mu.Lock()

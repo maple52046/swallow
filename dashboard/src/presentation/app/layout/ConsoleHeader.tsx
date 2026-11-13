@@ -15,6 +15,7 @@ import {
   FlaskConical,
   KeyRound,
   KeySquare,
+  LockKeyhole,
   LogOut,
   MapPin,
   Menu as MenuIcon,
@@ -200,6 +201,7 @@ export function ConsoleHeader({ onToggleSidebar, onOpenMobileNav }: ConsoleHeade
               // to a fleet page lands in the same Site.
               if (details.value === 'ssh-keys') navigate(scopedHref('/account/ssh-keys'))
               if (details.value === 'api-keys') navigate(scopedHref('/account/api-keys'))
+              if (details.value === 'password') navigate(scopedHref('/account/password'))
               if (details.value === 'experimental-features') setExperimentsOpen(true)
             }}
           >
@@ -249,6 +251,10 @@ export function ConsoleHeader({ onToggleSidebar, onOpenMobileNav }: ConsoleHeade
                   <Menu.Item value="api-keys">
                     <KeySquare size={16} />
                     <Text flex="1">API keys</Text>
+                  </Menu.Item>
+                  <Menu.Item value="password">
+                    <LockKeyhole size={16} />
+                    <Text flex="1">Change password</Text>
                   </Menu.Item>
                   {experimentsAdjustable && (
                     <Menu.Item value="experimental-features">

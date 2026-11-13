@@ -16,8 +16,9 @@ component 組成的 runtime；software deployment 佈署單一軟體及其變體
 > **模組**：每個 Managed Software kind 由一個 **Software 模組**提供（[decision 070](../decisions/070-core-providers-and-extensions.md)（core providers and extensions）、
 > [decision 075](../decisions/075-module-contract-v1.md)（module contract v1），見 [core-and-extensions.md](core-and-extensions.md)）。core 不認得任何
 > kind：catalog 由各模組的 `software` hook 組成（§2）。kind 專屬的產品常數（版本、port）仍在 core，之後隨 Platform
-> 模組一起搬出。Managed Software 中只有 Node Exporter 已遷移到 [desired-state-model.md](desired-state-model.md)：
-> 它的 desired 由政策推導，由 worker 的 Node Exporter controller 收斂（§2 的 Node Exporter）。其他 kind 的 install 與
+> 模組一起搬出。Managed Software 中 Node Exporter 與 directory client（`sssd`）已遷移到
+> [desired-state-model.md](desired-state-model.md)：它們的 desired 由政策推導，由 worker 的 ensure controller 收斂（§2 的
+> Node Exporter、directory client）。其他 kind 的 install 與
 > uninstall 仍是由 user 或計畫觸發的動作，Software Assignment 記錄最後一次安裝的 spec 與結果，主機上被外部移除或
 > 停止不會被發現；新行為依該文件 §1.1 先設計成 desired 與收斂。
 
@@ -82,6 +83,7 @@ image（`cloud-user`）的機器。所有候選帳號都登不進去時（例如
 | `node-exporter` | 無 role；只有 OS 套件一種安裝路徑 | 無（版本由 OS 套件決定） | 可與 Platform 共存；OS 限 Debian／Ubuntu 與 RHEL 家族（playbook 檢查） |
 | `victoriametrics` | 無 role；只有 native 一種安裝路徑 | `listen`（`loopback` 預設／`management`）、`retention`（整數加 `d`／`w`／`M`／`y`，預設 `1M`，至多 100 年）；版本固定 `1.155.0`，assignment spec 記錄 `version` | 可與 Platform 共存；只宣告 amd64 的 release；只在 Ubuntu 24.04 驗證過，RHEL 家族未驗證 |
 | `libvirt` | 無 role；只有 OS 套件一種安裝路徑 | 無（QEMU 與 libvirt 的版本由 OS 套件決定） | 可與 Platform 共存；OS 限 Ubuntu 24.04、CPU 限有 `vmx` 或 `svm` 的 x86_64（playbook 檢查）；有 virtual machine 時拒絕 uninstall（playbook 檢查） |
+| `sssd` | 無 role；只有 OS 套件一種安裝路徑 | 無（Directory 的設定由 core 加入） | installation 沒有 Directory 時拒絕（`409`）；可與 Platform 共存；OS 限 Ubuntu（playbook 檢查）；本地帳號與 Directory 衝突時拒絕（playbook 檢查） |
 
 catalog 是 build 編進的 Software 模組，API 依 `kind` 排序回傳。擴充新 kind（未來 PostgreSQL、LDAP client）
 就是新增一個 Software 模組，前提是仍只依賴本文件的契約：
@@ -258,8 +260,9 @@ Node Exporter 是 desired state，由 worker 的 Node Exporter controller 收斂
   時發生（§6.2 的時機），每次修正都是一個看得到的 Workflow。
 - **組入照舊**：OS 部署、Platform 部署的 `ensure-os` 與保留主機的 Platform uninstall 仍組入安裝（§5），讓 Server 一部署
   好、uninstall 一結束就有 Node Exporter；controller 負責之後的變化。
-- **user 的 uninstall**：受政策涵蓋的 Server 被 uninstall 後 assignment 為 `absent`，controller 會再安裝。要讓某台
-  Server 不裝 Node Exporter，lock 它，或關閉該 Site 的 automation。
+- **user 的 uninstall 是退出**：受政策涵蓋的 Server 被 user uninstall 後 assignment 為 `absent`，controller 不再安裝，直到
+  有人再安裝；`requestedBy` 以 `swallow:` 開頭的 uninstall（swallow 自己規劃的）不算退出。判斷方式是該 Server 最近一次
+  這個 kind 的 install 或 uninstall Workflow。lock Server 或關閉該 Site 的 automation 也讓 controller 不安裝。
 - **設定**：`SWALLOW_WORKER_NODE_EXPORTER_ENSURE`（config `nodeExporterEnsure`，預設 `true`，值必須是布林，否則 process
   不啟動）。`false` 時 worker 不註冊這個 controller，只剩組入的安裝；開發環境預設關閉，因為它與 lab 共用機器。
 - **涵蓋也決定 health**：這個政策（程式中的 `EnsureCoverage`）同時是 Server health 的「受涵蓋」判斷
@@ -268,6 +271,20 @@ Node Exporter 是 desired state，由 worker 的 Node Exporter controller 收斂
 - **已知限制**：assignment 為 `pending` 或 `failed` 時 Site Prometheus 不收集它（monitoring.md §5.2）。主機當機、provisioner 卻仍
   回報開機時，再安裝的 `wait-for-ssh` 失敗，controller 取消它，assignment 轉為 `failed`，這台 Server 的 health 就從
   `down` 變成 `unknown`，直到某次重試成功。
+
+**Directory client（`sssd`）**：讓 Server 經 SSSD 從 installation 的 Directory 讀取帳號、群組、SSH 公鑰、Host Access 與
+sudo 規則（[identity-and-access.md](identity-and-access.md) §8、§9，[decision 082](../decisions/082-accounts-pool-access-and-directory.md)（accounts, pool access, and directory））。
+
+- catalog entry 標記 `DirectoryClient`：`SoftwareService` 以 port `DirectoryClientSettings` 取得 Directory 的設定，把連線設定
+  加入 trusted vars，把唯讀帳號的 bind DN 與密碼放進 `SoftwareLaunch.SecretVars`；launcher 把它們以 install Task 的 step
+  secret 封存（`StepSecretValues`），只在該次 run 交給 playbook。沒有 Directory 時 `ErrNoDirectory`（`409 conflict`）。
+- 同一個 ensure controller（`EnsureController`，名稱 `sssd`，requester `swallow:sssd-controller`）以 Node Exporter 的同一套
+  coverage 收斂，另外以 `EnsureReadiness` 等 Directory 第一次套用成功之後才安裝（安裝會從 Directory 讀一個 User）。kind
+  沒有 exporter，所以只依 assignment 動作。設定 `directoryClientEnsure`（`SWALLOW_WORKER_DIRECTORY_CLIENT_ENSURE`，預設
+  `true`），只在 installation 有 Directory 時註冊；開發環境預設關閉。
+- playbook 在 SSSD 讀得到 Directory、本地帳號檢查通過之前不改任何登入路徑；失敗碼宣告在 `module.json` 的
+  `failureCodes`（`sssd_unsupported_os`、`sssd_settings_missing`、`sssd_directory_unreachable`、`sssd_name_conflict`、
+  `sssd_id_conflict`、`sssd_sshd_config_invalid`）。
 
 **VictoriaMetrics**：一台 Server 上一個固定版本（`1.155.0`）的 single-node VictoriaMetrics，在 port `8428` 提供
 Prometheus 相容的寫入與查詢 API。依 §0 的分界，長期運作在一台主機上的 VictoriaMetrics 是 Managed Software；Slurm job
@@ -598,6 +615,7 @@ Docker Host Explorer 拉 private image 時使用 swallow 保存的
 | OS 被拿走時標 `absent`（`server-deployment-cleared` 完成行為；reconcile） | `api-server/internal/app/workflow_completions.go`（`clearSoftwareAssignments`）；`api-server/internal/core/provisioning/application/reconcile.go`（`clearStaleOSState`） |
 | Node Exporter（catalog entry、組入 OS 部署） | `api-server/modules/software/node-exporter/module.go`；組入：`api-server/internal/app/node_exporter_planner.go` |
 | Node Exporter controller（政策、退避、取消自己停住的 install；與 kind 無關的 ensure controller）與它在 worker 的組裝、Site Prometheus 的讀取 | `api-server/internal/core/software/application/ensure_controller.go`；`api-server/internal/app/node_exporter_controller.go`、`api-server/internal/app/worker.go` |
+| Directory client（kind、`DirectoryClient`；設定的 port 與它在 app 層的實作；ensure controller 的 readiness） | `api-server/modules/software/sssd/`（role `sssd_client`：`tasks/install.yml`、`conflicts.yml`、`remove.yml`，`templates/sssd.conf.j2`）；`DirectoryClientSettings` 在 `api-server/internal/core/software/application/software_service.go`，實作在 `api-server/internal/app/directory.go`；controller 的組裝在 `api-server/internal/app/node_exporter_controller.go`；內容測試 `internal/adapters/hostautomation/ansible/sssd_playbook_test.go` |
 | VictoriaMetrics（kind、固定版本、port、retention 的規則） | `api-server/modules/software/victoriametrics/module.go`；spec schema 與 release 的宣告在同目錄的 `module.json` |
 | libvirt（kind、沒有 spec） | `api-server/modules/software/libvirt/module.go`；role `libvirt` 的 `tasks/preflight.yml`（OS、架構、CPU）、`kvm.yml`（kernel 模組）、`install.yml`、`verify.yml`、`remove.yml`；內容測試 `internal/adapters/hostautomation/ansible/libvirt_playbook_test.go` |
 | Playbooks 與 roles | `api-server/modules/software/<kind>/`：`playbooks/deploy-*.yml`、`playbooks/uninstall-*.yml`；roles `docker_ce`（Engine API listener：`tasks/api.yml`）、`podman`、`nfs_server`、`nfs_client`、`prometheus`、`grafana`、`node_exporter`、`victoriametrics`、`libvirt`；共用的 `api-server/modules/shared/roles/device_metrics_exporter`（移除：`tasks/uninstall.yml`，`uninstall-slurm` 共用）、`amdgpu_loader`、`grafana_provisioning`（Grafana 的 datasource 與 dashboard bundles）與 `shared_data_dir`（Prometheus、Grafana、VictoriaMetrics 建立 data 目錄前讓 `/var/lib/swallow` 維持 root 擁有）；撰寫規則見[模組撰寫指南](module-authoring.md) |

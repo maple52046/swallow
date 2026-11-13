@@ -69,7 +69,12 @@ registering an existing platform was removed in
 Kubernetes cluster explorer routes under `/api/v1/platforms/{platformId}/kubernetes/...` are
 specified in [platforms-kubernetes.md](platforms-kubernetes.md).
 
-All endpoints require the `admin` role according to [conventions](conventions.md). The wire shape
+Authorization ([conventions](conventions.md#authorization)): a Platform belongs to the Pool every one of its nodes is placed in
+(`status.poolId`, [Platform and Pool](#platform-and-pool)). Listing is Pool read and filtered by that
+Pool; reading a Platform and its Slurm view is Pool read; creating one, `PATCH`, `PUT /spec`, `DELETE`,
+and `POST /{id}/sync` are Pool operate. `GET /deployment-requirements/slurm` and
+`GET /gpu-operator/releases` are reference; `PUT /deployment-requirements/slurm` and `POST /sync` are
+admin. The wire shape
 (paths, parameters, schemas, status codes) is specified in
 [`../openapi/areas/platforms.yaml`](../openapi/areas/platforms.yaml); this document keeps the
 behavior.
@@ -260,6 +265,21 @@ A Platform deployed before specs existed is adopted by the platform controller a
 observation: its spec is rebuilt from its latest deployment at generation 1, already applied when
 it is active. Until then `spec` is `null` and `generation` is `0`, and spec writes are
 `409 conflict`.
+
+## Platform And Pool
+
+A Platform belongs to one Pool when every Server in `spec.members`, and every Server it still claims,
+is placed in that Pool (`spec.poolId`); `status.poolId` reports it, `null` when they are in different
+Pools or in none ([identity-and-access.md](../../../../../docs/development/identity-and-access.md) §5).
+Its owners may then manage it and its members may read it; otherwise only admins may.
+
+- A caller that is not an admin may create a Platform, or write a spec that adds members, only when
+  every member is placed in one Pool and the caller is an owner of it: members in different Pools or in
+  none are `400 validation_error`, a Pool the caller does not own `403 forbidden` (`404 not_found` when
+  it cannot read a member at all). Admins are not limited, but a Platform they build across Pools
+  belongs to admins only.
+- A claimed Server can be placed only in the Platform's Pool or in no Pool ([infrastructure.md](infrastructure.md),
+  Server placement), so a Platform does not end up across two Pools by moving one of its Servers.
 
 ## Registering An Existing Platform Is Removed
 

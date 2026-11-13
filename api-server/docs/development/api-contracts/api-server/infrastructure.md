@@ -41,7 +41,9 @@ Bearer token, per [conventions.md](conventions.md).
 
 ## Authorization
 
-`admin` only, consistent with the sites, integrations, and provisioning surfaces.
+Reading Zones and Pools is reference; creating, changing, and deleting them and
+`PUT /api/v1/servers/{id}/placement` are admin ([conventions](conventions.md#authorization)). A
+Pool's members and Sudo Policy are in [pool-access.md](pool-access.md).
 
 ## Endpoints
 
@@ -159,7 +161,8 @@ The group is renamed on each provisioner afterwards, so its machines stay in it.
 
 ### Delete
 
-`DELETE /api/v1/infrastructure/zones/{id}` returns `204`. It is refused with `409 conflict` while
+`DELETE /api/v1/infrastructure/zones/{id}` (and `.../pools/{id}`) returns `204`; deleting a Pool also
+deletes its memberships and Sudo Policy ([pool-access.md](pool-access.md)). It is refused with `409 conflict` while
 a Server's placement spec names the Zone. Otherwise the group is removed from every provisioner
 that holds it, then the record; a provisioner's default group is left in place. This is the one
 request that calls the provisioners: one that refuses (for example a group still holding
@@ -180,6 +183,10 @@ addressed by its `serverId`.
   neither is `400 validation_error`.
 - A referenced Zone/Pool must exist (`404 not_found`) and belong to the same Site as the Server
   (`400 validation_error` otherwise).
+- A Server claimed by a Platform may be placed only in the Pool the Platform belongs to, or in no Pool:
+  any other Pool is `409 conflict` ([platforms.md](platforms.md#platform-and-pool)). Clearing the Pool
+  leaves the Platform in no Pool, which only admins manage; then its Servers may be placed in any Pool,
+  which is how an admin moves a Platform to another Pool.
 - The write is conditional on the Server's spec generation: `409 conflict` when the spec changed
   during the request, or when the Server is not adopted yet (a newly discovered Server is adopted
   within moments; retry).
@@ -211,7 +218,7 @@ Beyond the shared codes in [conventions.md](conventions.md):
 | --- | ---: | --- |
 | `validation_error` | 400 | The body is not valid JSON; missing/blank `siteId` or `name`, or a `name` over 100 characters; a placement field that is not a string or `null`, a placement naming neither a Zone nor a Pool, or one in another Site; a provisioner refused a delete. |
 | `not_found` | 404 | The Zone, Pool, Site, or Server does not exist. |
-| `conflict` | 409 | A Zone/Pool with this `name` already exists in the Site; a Server is still placed in the Zone/Pool being deleted; a placement raced another spec change or targeted a Server not adopted yet. |
+| `conflict` | 409 | A Zone/Pool with this `name` already exists in the Site; a Server is still placed in the Zone/Pool being deleted; a placement raced another spec change or targeted a Server not adopted yet; a placement would move a Platform-claimed Server into a Pool other than the Platform's. |
 | `provider_unavailable` | 503 | A delete could not reach a provisioner, or it has no credential. |
 
 ## Compatibility Notes
@@ -229,6 +236,11 @@ provider `400`; a delete of a group still in a Server's placement is `409`. A pl
 writes the Server's spec: `null` clears a field instead of leaving it unchanged, the response is
 `{serverId, generation, zoneId, poolId}` instead of the effective names, a provisioner without
 grouping no longer fails the request, and `409` is returned for a Server not adopted yet.
+
+Since 2026-11-13 ([decision 082](../../../../../docs/decisions/082-accounts-pool-access-and-directory.md)
+(accounts, pool access, and directory)) any authenticated User may read Zones and Pools, and a placement
+that would move a Platform-claimed Server into a Pool other than the Platform's is `409`. Deleting a Pool also
+deletes its memberships and Sudo Policy.
 Existing Zones and Pools are adopted at their first observation.
 
 ## Implementation Notes

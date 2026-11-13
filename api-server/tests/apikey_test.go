@@ -117,7 +117,7 @@ func setupAPIKeyApp(t *testing.T) (*fiber.App, *fakeUserRepo) {
 	authn := middleware.NewAuthenticator(jwtSvc, keys)
 	auth := authdelivery.NewAuthHandler(
 		authapp.NewSessionService(users, newFakeSessionRepo(), jwtSvc, authapp.SessionConfig{RefreshTokenTTL: time.Hour, MaxAge: 24 * time.Hour}),
-		authapp.NewMeUseCase(users),
+		authapp.NewMeUseCase(users, noMemberships{}),
 	)
 	handler := apikeydelivery.NewHandler(keys)
 
@@ -269,4 +269,15 @@ func decodeJSON(t *testing.T, resp *http.Response, v any) {
 	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
+}
+
+func (r *fakeAPIKeyRepo) DeleteAllForUser(_ context.Context, userID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for id, k := range r.keys {
+		if k.UserID == userID {
+			delete(r.keys, id)
+		}
+	}
+	return nil
 }

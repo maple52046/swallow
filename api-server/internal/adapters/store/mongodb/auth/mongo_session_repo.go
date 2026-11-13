@@ -172,3 +172,10 @@ func toSession(d *sessionDoc) *authdomain.Session {
 		RevokedAt:         d.RevokedAt,
 	}
 }
+
+// DeleteByUser implements authdomain.SessionRepository with one DeleteMany, so it joins the caller's
+// transaction through ctx.
+func (r *MongoSessionRepo) DeleteByUser(ctx context.Context, userID string) error {
+	_, err := r.col.DeleteMany(ctx, bson.M{"userId": userID})
+	return err
+}

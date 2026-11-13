@@ -101,6 +101,63 @@ type Manifest struct {
 	Validations []ValidationDeclaration `json:"validations,omitempty"`
 	// FailureCodes classify the failure codes of the module's host automation; codes are owned.
 	FailureCodes map[string]FailureCodeDeclaration `json:"failureCodes,omitempty"`
+	// HostAccess is a Platform module's limit on its Pool's members on the Platform's nodes
+	// (glossary Host Access); nil leaves members to the Pool's rules on every node.
+	HostAccess *HostAccessDeclaration `json:"hostAccess,omitempty"`
+}
+
+// HostAccessRule is what a Pool's members may do on one node: log in, and have sudo there when the
+// Sudo Policy gives it to them. Owners and admins are never limited.
+type HostAccessRule struct {
+	MemberLogin bool `json:"memberLogin"`
+	MemberSudo  bool `json:"memberSudo"`
+}
+
+// HostAccessDeclaration is a Platform module's Host Access limits by node role: Roles names the
+// rule of each node role it limits, and Default covers a node whose roles it does not list. A node
+// with several roles takes the most permissive of their rules, so a node that is also a login node
+// admits members.
+type HostAccessDeclaration struct {
+	Default HostAccessRule            `json:"default"`
+	Roles   map[string]HostAccessRule `json:"roles,omitempty"`
+}
+
+// RuleFor returns the rule of a node with roles.
+func (d HostAccessDeclaration) RuleFor(roles []string) HostAccessRule {
+	var rule HostAccessRule
+	matched := false
+	for _, role := range roles {
+		if r, ok := d.Roles[role]; ok {
+			matched = true
+			rule.MemberLogin = rule.MemberLogin || r.MemberLogin
+			rule.MemberSudo = rule.MemberSudo || r.MemberSudo
+		}
+	}
+	if !matched {
+		return d.Default
+	}
+	return rule
+}
+
+// validate checks that only a Platform module declares Host Access and that no rule gives members
+// sudo where they cannot log in.
+func (d *HostAccessDeclaration) validate(m Manifest) error {
+	if d == nil {
+		return nil
+	}
+	if m.Kind != KindPlatform {
+		return fmt.Errorf("%w: module %s declares hostAccess, which only a platform module may", ErrInvalidManifest, m.Ref())
+	}
+	rules := map[string]HostAccessRule{"default": d.Default}
+	for role, rule := range d.Roles {
+		rules["role "+role] = rule
+	}
+	for name, rule := range rules {
+		if rule.MemberSudo && !rule.MemberLogin {
+			return fmt.Errorf("%w: module %s hostAccess %s gives members sudo without login", ErrInvalidManifest, m.Ref(), name)
+		}
+	}
+	return nil
 }
 
 // Ref is "<kind>/<id>", the module's directory under modules/.
@@ -149,7 +206,8 @@ func ParseManifest(data []byte) (Manifest, error) {
 // ports, routes under /api/v1/, a well-formed spec schema when present, artifacts that pass
 // Artifacts.Validate (the error then wraps both ErrInvalidManifest and ErrInvalidArtifact), Workflow
 // Templates that pass Template.Validate and run only the module's playbooks, Validation Suites that
-// name one of those templates, and classified failure codes.
+// name one of those templates, classified failure codes, and Host Access declared only by a
+// Platform module.
 func (m Manifest) Validate() error {
 	if !supported(m.ContractVersion) {
 		return fmt.Errorf("%w: module %s declares contract version %d, this core loads %v",
@@ -202,6 +260,9 @@ func (m Manifest) Validate() error {
 		return err
 	}
 	if err := m.validateValidations(); err != nil {
+		return err
+	}
+	if err := m.HostAccess.validate(m); err != nil {
 		return err
 	}
 	return m.validateFailureCodes()

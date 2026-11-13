@@ -42,8 +42,7 @@ PUT    /api/v1/software/docker-ce/registry-credentials/{credentialId}
 DELETE /api/v1/software/docker-ce/registry-credentials/{credentialId}
 ```
 
-All endpoints require the `admin` role (an access token or an API Key) per
-[conventions](conventions.md).
+Every route is admin ([conventions](conventions.md#authorization)).
 
 ## Registry Credential
 

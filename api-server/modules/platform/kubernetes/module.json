@@ -31,6 +31,9 @@
       "reason": "Converts between the Platform spec and the Kubernetes deploy request (members as roleAssignments) and classifies a spec change per desired-state-model §5.2, marking what swallow cannot carry out yet."
     }
   ],
+  "hostAccess": {
+    "default": { "memberLogin": false, "memberSudo": false }
+  },
   "capabilities": [
     "host-automation",
     "os-provisioning"

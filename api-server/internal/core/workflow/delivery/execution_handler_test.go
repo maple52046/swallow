@@ -3,6 +3,8 @@ package delivery
 import (
 	"context"
 	"encoding/json"
+	accessdelivery "github.com/maple52046/swallow/internal/core/access/delivery"
+	accessdomain "github.com/maple52046/swallow/internal/core/access/domain"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -62,6 +64,7 @@ func TestPutAutomationCredential(t *testing.T) {
 			handler := NewExecutionHandler(nil, application.NewAutomationConfigurationService(repo, nil, nil, workflowdomain.WorkflowKinds{}, noDeploymentKey{}), nil)
 			app := fiber.New()
 			app.Use(apicontract.ResponseValidator(t))
+			app.Use(accessdelivery.FixedScope(accessdomain.Scope{Admin: true}))
 			app.Put("/api/v1/sites/:id/automation/credential", handler.PutAutomationCredential)
 
 			req := httptest.NewRequest(http.MethodPut, "/api/v1/sites/site-1/automation/credential", strings.NewReader(tc.body))
@@ -391,6 +394,7 @@ func newWorkflowContractApp(t *testing.T, handler *ExecutionHandler) *fiber.App 
 	t.Helper()
 	app := fiber.New()
 	app.Use(apicontract.ResponseValidator(t))
+	app.Use(accessdelivery.FixedScope(accessdomain.Scope{Admin: true}))
 
 	workflows := app.Group("/api/v1/workflows")
 	workflows.Post("/", handler.Create)
@@ -478,6 +482,7 @@ func TestPutAutomationOfAnUnknownSiteIsNotFound(t *testing.T) {
 	handler := NewExecutionHandler(nil, application.NewAutomationConfigurationService(&recordingAutomationRepo{}, noSites{}, nil, workflowdomain.WorkflowKinds{}, noDeploymentKey{}), nil)
 	app := fiber.New()
 	app.Use(apicontract.ResponseValidator(t))
+	app.Use(accessdelivery.FixedScope(accessdomain.Scope{Admin: true}))
 	app.Put("/api/v1/sites/:id/automation", handler.PutAutomation)
 
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/sites/site-x/automation", strings.NewReader(`{"enabled":false,"sshPort":22}`))

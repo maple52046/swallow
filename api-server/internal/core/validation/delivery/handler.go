@@ -12,6 +12,8 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	accessdelivery "github.com/maple52046/swallow/internal/core/access/delivery"
+
 	"github.com/maple52046/swallow/internal/core/convergence"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	validationapp "github.com/maple52046/swallow/internal/core/validation/application"
@@ -164,7 +166,18 @@ func (h *Handler) ListRuns(c *fiber.Ctx) error {
 	if err := validateRunFilter(filter); err != nil {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
 	}
-	runs, total, err := h.service.List(c.Context(), filter)
+	visibility, ok := accessdelivery.VisibilityFrom(c)
+	if !ok {
+		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
+	}
+	if !visibility.Admin() {
+		servers, err := visibility.ReadableServers(c.UserContext())
+		if err != nil {
+			return respondError(c, err)
+		}
+		filter.TargetsWithin, filter.RestrictTargets = servers, true
+	}
+	runs, total, err := h.service.List(c.UserContext(), filter)
 	if err != nil {
 		return respondError(c, err)
 	}

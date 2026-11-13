@@ -33,13 +33,17 @@ type PolicyChecker interface {
 
 // ListOperationsInput narrows an operation listing. Empty fields mean no constraint.
 type ListOperationsInput struct {
-	SiteID     string
-	PlatformID string
-	ServerID   string
-	Kind       string
-	Status     string
-	Active     bool
-	Page       pagination.Page
+	// TargetsWithin with RestrictTargets limits the list to Workflows that have target Servers, all
+	// of them in TargetsWithin: the Workflows a User that is not an admin may read (decision 082).
+	TargetsWithin   []string
+	RestrictTargets bool
+	SiteID          string
+	PlatformID      string
+	ServerID        string
+	Kind            string
+	Status          string
+	Active          bool
+	Page            pagination.Page
 }
 
 // optionalTime formats a nullable timestamp for a response, returning nil when unset so the

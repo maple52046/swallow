@@ -18,8 +18,13 @@ swallow 會登入它所佈署的 Server，以確認 SSH 就緒並執行 Ansible�
 
 ## Key 如何進到 Server
 
-swallow 會把每一把 key 註冊到能保存 SSH key 的 provisioner（MAAS：擁有該 Integration API key 的帳號），
-MAAS 佈署時再把這些 key 寫入 image 的 default user。頁面會依 provisioner 顯示每把 key 的狀態：
+有 Directory 的 installation（每個 Compose installation 都有）上，你的 access key 經由它到達你可以登入的 Server：
+裝了 directory client 的 Server 在你連線時讀取它們，所以新增或刪除 key、加入或離開 Pool，大約一分鐘內生效，不必重新
+佈署。你以 swallow 的 username 登入，home 目錄在第一次登入時建立。
+
+swallow 也把 deployment key 與 **admin** 的 access key 註冊到能保存 SSH key 的 provisioner（MAAS：擁有該 Integration
+API key 的帳號），讓 Directory 故障時 admin 仍能進入；其他 user 的 key 在那裡顯示 **Not registered**。MAAS 佈署時再把
+註冊的 key 寫入 image 的 default user。頁面會依 provisioner 顯示每把 key 的狀態：
 **Synced**、**Pending**、**Failed**（附原因）或 **Not supported**。
 
 - 每次 key 變更後、每隔幾分鐘，以及每次 OS 佈署前都會同步；**Sync to provisioners** 可立即要求同步。
@@ -27,8 +32,8 @@ MAAS 佈署時再把這些 key 寫入 image 的 default user。頁面會依 prov
   MAAS 恢復後重試即可。
 - 你自己在 MAAS 加入的 key，swallow 絕不會移除。
 
-Key 只在 Server 佈署時注入。重新產生或替換 deployment key、刪除 access key，都**不會**改變已經佈署的
-Server：它們保留佈署當時的 key。若有需要，請重新佈署（或更新它們的 `authorized_keys`）。
+provisioner 寫入的 key 只在 Server 佈署時注入。重新產生或替換 deployment key、刪除 admin 的 access key，都**不會**
+改變已經佈署的 Server 上那一份：它們保留佈署當時的 key。若有需要，請重新佈署（或更新它們的 `authorized_keys`）。
 
 ## Image default user
 

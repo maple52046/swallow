@@ -7,6 +7,8 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	accessdelivery "github.com/maple52046/swallow/internal/core/access/delivery"
+
 	localrepodomain "github.com/maple52046/swallow/internal/core/localrepo/domain"
 	"github.com/maple52046/swallow/internal/core/platform/application"
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
@@ -406,10 +408,25 @@ func DeployInputFromRequest(raw []byte) (application.DeployPlatformInput, error)
 	}, nil
 }
 
+// List implements GET /api/v1/platforms. A caller that is not an admin sees only the Platforms that
+// belong to a Pool it belongs to (platforms.md, Platform And Pool).
 func (h *PlatformHandler) List(c *fiber.Ctx) error {
-	items, err := h.platforms.List(c.Context(), c.Query("siteId"))
+	visibility, ok := accessdelivery.VisibilityFrom(c)
+	if !ok {
+		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
+	}
+	items, err := h.platforms.List(c.UserContext(), c.Query("siteId"))
 	if err != nil {
 		return respondError(c, err)
+	}
+	if !visibility.Admin() {
+		visible := items[:0]
+		for _, item := range items {
+			if item.Status.PoolID != nil && visibility.ReadsPool(*item.Status.PoolID) {
+				visible = append(visible, item)
+			}
+		}
+		items = visible
 	}
 	return c.JSON(items)
 }

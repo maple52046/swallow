@@ -61,6 +61,40 @@ func (r *fakeUserRepo) ExistsByUsername(_ context.Context, username string) (boo
 	return false, nil
 }
 
+func (r *fakeUserRepo) List(_ context.Context) ([]*authdomain.User, error) {
+	users := make([]*authdomain.User, 0, len(r.users))
+	for _, u := range r.users {
+		users = append(users, u)
+	}
+	return users, nil
+}
+
+func (r *fakeUserRepo) Update(_ context.Context, user *authdomain.User) error {
+	if _, ok := r.users[user.ID]; !ok {
+		return authdomain.ErrUserNotFound
+	}
+	r.users[user.ID] = user
+	return nil
+}
+
+func (r *fakeUserRepo) Delete(_ context.Context, id string) error {
+	if _, ok := r.users[id]; !ok {
+		return authdomain.ErrUserNotFound
+	}
+	delete(r.users, id)
+	return nil
+}
+
+func (r *fakeUserRepo) CountByRole(_ context.Context, role authdomain.Role) (int, error) {
+	count := 0
+	for _, u := range r.users {
+		if u.Role == role {
+			count++
+		}
+	}
+	return count, nil
+}
+
 // fakeSessionRepo is an in-memory SessionRepository for testing. Rotate keeps the production
 // compare-and-swap semantics so concurrent-refresh behavior is exercised faithfully.
 type fakeSessionRepo struct {
@@ -125,6 +159,17 @@ func (r *fakeSessionRepo) Touch(_ context.Context, id string, usedAt time.Time) 
 	return nil
 }
 
+func (r *fakeSessionRepo) DeleteByUser(_ context.Context, userID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for id, s := range r.sessions {
+		if s.UserID == userID {
+			delete(r.sessions, id)
+		}
+	}
+	return nil
+}
+
 func (r *fakeSessionRepo) Revoke(_ context.Context, id string, revokedAt time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -171,7 +216,7 @@ func setupAuthAppWithSessions(t *testing.T, cfg authapp.SessionConfig) (*fiber.A
 
 	handler := authdelivery.NewAuthHandler(
 		authapp.NewSessionService(repo, sessions, jwtSvc, cfg),
-		authapp.NewMeUseCase(repo),
+		authapp.NewMeUseCase(repo, noMemberships{}),
 	)
 	authn := middleware.NewAuthenticator(jwtSvc, nil)
 
@@ -317,4 +362,11 @@ func TestMe_InvalidToken(t *testing.T) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", resp.StatusCode)
 	}
+}
+
+// noMemberships reports no Pool Membership for any User.
+type noMemberships struct{}
+
+func (noMemberships) MembershipsOf(context.Context, string) ([]authapp.MembershipOfCaller, error) {
+	return nil, nil
 }

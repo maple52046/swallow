@@ -34,8 +34,24 @@ type SoftwareLaunch struct {
 	ServerIDs     []string
 	RolesByServer map[string][]softwaredomain.Role
 	TrustedVars   map[string]any
-	RequestedBy   string
+	// SecretVars are the install playbook's secret variables, sealed at rest and given only to its
+	// run (a directory client's read-only Directory password); nil for every other kind.
+	SecretVars  map[string]any
+	RequestedBy string
 }
+
+// DirectoryClientSettings supplies what a directory client install needs to reach the
+// installation's Directory (decision 082). DirectoryClient returns the swallow_-prefixed trusted
+// variables (the URI the Servers connect to, the base DN, the CA certificate, the first POSIX id,
+// and the Users' names for the host's conflict check) and the secret variables (the read-only
+// account's bind DN and password). configured is false for an installation without a Directory.
+// Implementations read installation configuration and the store; an error is a read failure.
+type DirectoryClientSettings interface {
+	DirectoryClient(ctx context.Context) (trusted, secrets map[string]any, configured bool, err error)
+}
+
+// ErrNoDirectory refuses a directory client install on an installation without a Directory.
+var ErrNoDirectory = errors.New("the installation has no Directory")
 
 // SoftwareLauncher composes the software Workflow (prepare-hosts -> configure-<kind> ->
 // record-software). It is implemented in the app layer so the software context does not import the
@@ -83,6 +99,8 @@ type SoftwareService struct {
 	servers      serverdomain.ServerRepository
 	membership   MembershipChecker
 	launcher     SoftwareLauncher
+	// directory supplies a directory client install's settings; nil means no Directory.
+	directory DirectoryClientSettings
 	// names is optional; see AttachPlatformNames.
 	names PlatformNames
 }
@@ -91,6 +109,8 @@ type SoftwareService struct {
 // install's or uninstall's Workflow and its assignment changes are written together. catalog is the
 // build's Software modules and accelerators its Accelerator modules. The launcher is attached later
 // (like the platform launcher) to keep the operation orchestration wiring in the app layer.
+// directory supplies a directory client install's settings; nil (an installation without a
+// Directory) refuses that kind's install with ErrNoDirectory.
 func NewSoftwareService(
 	transactor store.Transactor,
 	catalog *softwaredomain.Catalog,
@@ -98,10 +118,11 @@ func NewSoftwareService(
 	assignments softwaredomain.AssignmentRepository,
 	servers serverdomain.ServerRepository,
 	membership MembershipChecker,
+	directory DirectoryClientSettings,
 ) *SoftwareService {
 	return &SoftwareService{
 		transactor: transactor, catalog: catalog, accelerators: accelerators,
-		assignments: assignments, servers: servers, membership: membership,
+		assignments: assignments, servers: servers, membership: membership, directory: directory,
 	}
 }
 
@@ -187,6 +208,11 @@ func (s *SoftwareService) Install(ctx context.Context, input InstallInput) (stri
 		Kind: input.Kind, Label: plan.entry.Label, ServerIDs: plan.serverIDs, RolesByServer: plan.rolesByServer,
 		TrustedVars: buildInstallVars(plan.software, input.Kind, plan.rolesByServer, plan.spec), RequestedBy: input.RequestedBy,
 	}
+	if plan.entry.DirectoryClient {
+		if err := s.addDirectorySettings(ctx, &launch); err != nil {
+			return "", err
+		}
+	}
 	prepared, err := s.launcher.PrepareInstall(ctx, launch)
 	if err != nil {
 		return "", err
@@ -206,6 +232,26 @@ func (s *SoftwareService) Install(ctx context.Context, input InstallInput) (stri
 		return "", err
 	}
 	return workflowID, nil
+}
+
+// addDirectorySettings gives a directory client install the Directory's connection settings: the
+// trusted ones join the launch's trusted variables, the secret ones travel as its secret variables.
+func (s *SoftwareService) addDirectorySettings(ctx context.Context, launch *SoftwareLaunch) error {
+	if s.directory == nil {
+		return fmt.Errorf("%w: %s needs one", ErrNoDirectory, launch.Label)
+	}
+	trusted, secrets, configured, err := s.directory.DirectoryClient(ctx)
+	if err != nil {
+		return fmt.Errorf("read the directory client settings: %w", err)
+	}
+	if !configured {
+		return fmt.Errorf("%w: %s needs one", ErrNoDirectory, launch.Label)
+	}
+	for key, value := range trusted {
+		launch.TrustedVars[key] = value
+	}
+	launch.SecretVars = secrets
+	return nil
 }
 
 // PlanComposedInstall validates a software install that a platform deployment composes into its

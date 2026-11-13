@@ -64,3 +64,4 @@ this ADR adds the latter and the login role, and supports the two user-requested
 ## Revision history
 
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
+- 2026-11-13: a Slurm cluster's users are swallow's Users, served to every node by the Directory with one uid each (decision 082); the module's `hostAccess` lets members log in only on login nodes, without sudo. Home directories stay local.

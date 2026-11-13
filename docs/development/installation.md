@@ -77,6 +77,7 @@ decision 040、
 | `pulp-worker`（2 個 replica） | `SWALLOW_PULP_IMAGE`（command `pulp-worker`） | `control`、`egress` | 無 |
 | `pulp-web` | `SWALLOW_PULP_WEB_IMAGE` | `edge`、`control` | `${SWALLOW_PULP_PORT:-8080}` → 容器 8080（api-server 以 `http://pulp-web:8080` 呼叫） |
 | `dashboard` | `SWALLOW_DASHBOARD_IMAGE` | `edge`、`control` | `${SWALLOW_HTTP_PORT:-80}` → 容器 8080 |
+| `ldap` | `SWALLOW_LDAP_IMAGE` | `edge`、`control` | `${SWALLOW_LDAP_PORT:-636}` → 容器 636（LDAPS；worker 以 `ldaps://ldap:636` 連線） |
 
 - `control` 是 `internal` network；MongoDB 與 Temporal 只在這裡。
 - `egress` 不是 internal；只有 API、worker、Ansible executor、Prometheus 與 Pulp 的 API、content、worker 加入。
@@ -94,6 +95,12 @@ decision 040、
     Dashboard 的路徑之下。它同樣每 10 秒重新解析 `pulp-api` 與 `pulp-content`。
 - API、worker、Ansible executor 是同一個 image，以不同 command 啟動。Ansible executor 以 `init: true` 執行：
   Docker 的 init 擔任 PID 1，轉送 signal 並回收 `ansible-runner` 留下的 ssh-agent，否則每次 run 都會留下 zombie。
+- `ldap` 是 installation 的 [Directory](glossaries/terms/directory.md)（[identity-and-access.md](identity-and-access.md) §7、§10）：
+  Ubuntu 24.04 的 OpenLDAP，只聽 LDAPS 與容器內的 `ldapi` socket，hostname 是 `ldap`（伺服器憑證的名稱）。entrypoint
+  每次啟動依環境變數與掛入的 secret（`ldap-admin-password`、`ldap-reader-password`、`ldap-tls/server.crt`、
+  `ldap-tls/server.key`、`ldap-tls/ca.crt`）重建 `cn=config`，資料在 volume `ldap-data`。worker 的 Directory controller
+  是唯一的寫入者，Server 的 directory client 以 reader 帳號經 `SWALLOW_ADDRESS:${SWALLOW_LDAP_PORT}` 讀取；api-server 與
+  worker 以 `SWALLOW_API_DIRECTORY_*` 取得 URL、密碼與 installation CA。worker 等它 healthy 才啟動。
 - Temporal UI 是選用的 diagnostics service：只在 user 設定 `SWALLOW_TEMPORAL_UI_IMAGE` 後以 profile
   `diagnostics` 啟動，只聽 loopback。
 - `prometheus` 是 installation Site 的 Prometheus（[monitoring.md](monitoring.md) §5.1）：比照共置的 MAAS，隨
@@ -402,7 +409,10 @@ decision 040。每個 Site 選擇部署是否從 Local Repository 取得 artifac
    Platform 的 `platform_id` 查詢 `up`，結果成功且沒有任何 series（Prometheus 收集過 swallow-api 之後一定有 `up`）。
 8. Pulp 經 `pulp-web` 在發佈的 port 回應 `/pulp/api/v3/status/`（從主機查詢，與 Server 走同一個入口）：資料庫已連線，
    且至少各有一個 API app、content app 與 worker 在線。
-9. 僅 production：共置 MAAS 回應、有完整的 `ubuntu/noble` amd64 與 virsh SSH identity（`local-maas.sh check`）；
+9. Directory（`ldap`）回應：在它的容器內以 `ldapi` socket 執行 `ldapwhoami`。production 一律檢查；開發環境只在選用的
+   `ldap` service 執行時檢查。Directory 的內容是否已套用不在 `doctor` 內：那是 Directory controller 的狀態
+   （`GET /access/directory`）。
+10. 僅 production：共置 MAAS 回應、有完整的 `ubuntu/noble` amd64 與 virsh SSH identity（`local-maas.sh check`）；
    Control-Plane NTP Server 在 UDP 123 服務且上游為設定值（`local-ntp.sh check`，§6.1）；installation records
    存在（`bootstrap.sh verify`：admin 登入、Deployment Key、可執行的 Site automation、Site 的 metrics Integration
    指向 `http://prometheus:9090` 且 `labelProxyUrl` 為 `http://prom-label-proxy:8080`、Site 的 `repository`
@@ -442,7 +452,9 @@ decision 040。每個 Site 選擇部署是否從 Local Repository 取得 artifac
 - `backup` 在 `backups/`（`SWALLOW_BACKUP_DIR` 可改）建立 `daily-<UTC 時間戳>`，內容為 MongoDB `swallow`
   database 的 archive、job artifacts、用來解開封存 secrets 的 credential key、Pulp 的 database `pulp` 的 dump
   （`pulp.pgdump`）與 volume `pulp-certs` 的 tar（`pulp-certs.tar.gz`，不含 gpg-agent 的 socket）、有共置 MAAS 時的
-  `maasdb` dump、記錄取得時的 release 與資料庫 schema 版本的 `backup.json`，以及 `SHA256SUMS`。Pulp 的 database 只能以
+  `maasdb` dump、installation CA 與 Directory 的憑證和兩個密碼（`directory-secrets.tar.gz`；每台 Server 的 directory client
+  信任這個 CA、設定裡有 reader 的密碼）、記錄取得時的 release 與資料庫 schema 版本的 `backup.json`，以及 `SHA256SUMS`。
+  **Directory 的資料（volume `ldap-data`）不備份**：Directory controller 由 MongoDB 重建。Pulp 的 database 只能以
   `pulp-certs` 中的欄位加密金鑰讀取，所以兩者一起取得；Local Repository 之前的 installation（沒有 database `pulp`）
   兩者都沒有。MAAS boot images 不備份：restore 後從 `images.maas.io` 重新同步。**Pulp 的 artifact（volume
   `pulp-data`）不備份**：它們都來自上游，可能有數十 GiB；restore 後由 Pulp 重新取得（見下方）。**Temporal 不備份**
@@ -463,7 +475,9 @@ decision 040。每個 Site 選擇部署是否從 Local Repository 取得 artifac
   4. 停止 API、worker 與 Ansible executor：還原期間沒有任何 process 寫入資料庫。
   5. 還原 MongoDB（`--drop`）；**先清空**再還原 job artifacts；還原 credential key；備份含 Pulp 時，停止 Pulp 的
      service，刪除並重建 database `pulp`（不用 `--clean`，較新 Pulp 在備份之後加的 table 才不會留下來）再還原
-     dump，**先清空**再還原 `pulp-certs`；備份含 dump 且有共置 MAAS 時，停止 MAAS snap 並還原 `maasdb`。
+     dump，**先清空**再還原 `pulp-certs`；備份含 dump 且有共置 MAAS 時，停止 MAAS snap 並還原 `maasdb`；備份含
+     `directory-secrets.tar.gz` 時以它取代 `secrets/ldap-tls/` 與兩個密碼，執行 `prepare-secrets.sh`（這台的位址不同時以
+     同一個 CA 重簽憑證）並重建 `ldap` container。
   6. `migrate --backup-confirmed`：較舊 release 的備份升級到目前的 schema。
   7. 終止 Temporal 中所有 `swallow-operation/` 開頭、仍在執行的 run。
   8. 啟動整個 stack（`pulp-init` 把還原的 Pulp database 遷移到執行中的 Pulp，並把 admin 密碼重設為這台的 secret），
@@ -517,7 +531,7 @@ decision 040。每個 Site 選擇部署是否從 Local Repository 取得 artifac
 
 | Artifact | 內容 |
 | --- | --- |
-| `swallow-compose-<version>.tar.zst` | Compose bundle：`production/`（`compose.yaml`、`.env.example`、`env.sh`、`prepare-secrets.sh`、`mongo-entrypoint.sh`、`swallowctl`、`local-maas.sh`、`local-ntp.sh`、`bootstrap.sh`、`prometheus.yml`、`prometheus-exporters.yml.template`、`pulp/`（Pulp 的設定、`pulp-init` 的腳本、deb 簽章腳本與 `pulp-web` 的 nginx 設定）、`bin/swallow` CLI）、`testing/` 與 `release-manifest.json` |
+| `swallow-compose-<version>.tar.zst` | Compose bundle：`production/`（`compose.yaml`、`.env.example`、`env.sh`、`prepare-secrets.sh`、`mongo-entrypoint.sh`、`swallowctl`、`local-maas.sh`、`local-ntp.sh`、`bootstrap.sh`、`prometheus.yml`、`prometheus-exporters.yml.template`、`pulp/`（Pulp 的設定、`pulp-init` 的腳本、deb 簽章腳本與 `pulp-web` 的 nginx 設定）、`ldap/tls.sh`（installation CA 與 Directory 憑證）、`bin/swallow` CLI）、`testing/` 與 `release-manifest.json` |
 | `install.sh` | 一行指令的 installer 與 upgrader，預設版本就是這個 release（§5） |
 | `swallow-linux-amd64` | CLI binary，從已推送的 `cli` image 以 `crane export` 取出 |
 | `release-manifest.json` | image digest 與 release metadata（§4.3） |
@@ -532,7 +546,7 @@ decision 040。每個 Site 選擇部署是否從 Local Repository 取得 artifac
 
 | Image | 來源 | manifest 中的參照 |
 | --- | --- | --- |
-| `api`、`dashboard`、`cli` | 由本 repository 建置（linux/amd64），推送到 GHCR package `IMAGE_REPO`（預設 `ghcr.io/maple52046/swallow`），tag 為 `<component>-<version>` | `<IMAGE_REPO>@sha256:<推送後的 digest>` |
+| `api`、`dashboard`、`cli`、`ldap` | 由本 repository 建置（linux/amd64；`ldap` 是 `deploy/production/ldap.Dockerfile`），推送到 GHCR package `IMAGE_REPO`（預設 `ghcr.io/maple52046/swallow`），tag 為 `<component>-<version>` | `<IMAGE_REPO>@sha256:<推送後的 digest>` |
 | MongoDB、PostgreSQL、Temporal Server、Prometheus | Docker Hub 官方 image `docker.io/library/mongo`、`docker.io/library/postgres`、`docker.io/temporalio/auto-setup`、`docker.io/prom/prometheus`，原樣使用 | `deploy/release/runtime-images.env` 中的上游 index digest，原樣寫入 |
 | prom-label-proxy | Prometheus community 在 Quay 發佈的 `quay.io/prometheuscommunity/prom-label-proxy`，原樣使用 | 同上 |
 | Pulp | Pulp 專案在 Docker Hub 發佈的 `docker.io/pulp/pulp-minimal` 與 `docker.io/pulp/pulp-web`，原樣使用 | 同上 |
@@ -553,7 +567,7 @@ decision 040。每個 Site 選擇部署是否從 Local Repository 取得 artifac
 
 ### 4.3 Release manifest
 
-- `schemaVersion` 為 1，帶 `version` 與 `commit`。`images` 正好有十個 key：`api`、`dashboard`、`cli`、
+- `schemaVersion` 為 1，帶 `version` 與 `commit`。`images` 正好有十一個 key：`api`、`dashboard`、`cli`、`ldap`、
   `mongo`、`postgres`、`temporalServer`、`prometheus`、`promLabelProxy`、`pulp`、`pulpWeb`，全部是 digest 參照。另有 `platforms`、`schemaVersions`、
   `compatibility`（host `ubuntu-24.04-amd64`、MAAS `3.6`、MongoDB `8.0` 等）、`artifacts`（`composeBundle`、
   `cliBinary`、`thirdPartyMediaManifest`）與 `upgrade`。
@@ -824,6 +838,7 @@ lab 事故）。
 | Lifecycle 工具（install、upgrade、doctor、ensure、backup、restore、uninstall、ntp） | `deploy/production/swallowctl` |
 | `.env` 讀取（environment 優先） | `deploy/production/env.sh` |
 | Secrets 產生（只補不換） | `deploy/production/prepare-secrets.sh` |
+| Directory（OpenLDAP image、entrypoint、schema；installation CA 與憑證） | `deploy/production/ldap.Dockerfile`、`deploy/production/ldap/entrypoint.sh`、`deploy/production/ldap/schema/`、`deploy/production/ldap/tls.sh`；開發環境 `deploy/dev/ldap-secrets.sh` |
 | MongoDB replica set（keyFile、啟動、initiate 與 healthcheck） | `deploy/production/mongo-entrypoint.sh` |
 | 共置 MAAS（role／database、snap、init、admin、virsh identity、`ubuntu/noble`） | `deploy/production/local-maas.sh` |
 | Control-Plane NTP Server（install、upstream、check） | `deploy/production/local-ntp.sh` |
@@ -831,7 +846,7 @@ lab 事故）。
 | Site 的 Prometheus（主設定、exporter discovery 的範本；渲染與重啟在 `swallowctl`） | `deploy/production/prometheus.yml`、`deploy/production/prometheus-exporters.yml.template` |
 | Site 的 Pulp（設定、`pulp-init` 的金鑰／migrate／admin 密碼／signing service、deb Release 簽章、`pulp-web` 的 nginx；database、backup／restore 與 doctor 在 `swallowctl`） | `deploy/production/pulp/settings.py`、`deploy/production/pulp/init.sh`、`deploy/production/pulp/sign-deb-release.sh`、`deploy/production/pulp/nginx.sh`、`deploy/production/pulp/nginx.conf.template` |
 | Dashboard Nginx 設定 | `deploy/production/nginx.conf`（由 `deploy/production/dashboard.Dockerfile` 放入 image） |
-| Image 建置 | `deploy/production/api-server.Dockerfile`、`dashboard.Dockerfile`、`cli.Dockerfile` |
+| Image 建置 | `deploy/production/api-server.Dockerfile`、`dashboard.Dockerfile`、`cli.Dockerfile`、`ldap.Dockerfile` |
 | Native 範本（未發佈） | `deploy/production/native/` |
 | 一行指令 installer | `deploy/release/install.sh` |
 | 發佈、組裝、發佈前檢查 | `deploy/release/publish.sh`、`assemble-release.sh`、`validate.sh` |

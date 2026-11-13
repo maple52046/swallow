@@ -14,6 +14,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/maple52046/swallow/internal/adapters/keys/openssh"
+	"github.com/maple52046/swallow/internal/core/convergence/convergencetest"
 	"github.com/maple52046/swallow/internal/core/sshkey/application"
 	sshkeydomain "github.com/maple52046/swallow/internal/core/sshkey/domain"
 	"github.com/maple52046/swallow/internal/shared/apicontract"
@@ -96,6 +97,26 @@ func (m *memoryKeys) DeploymentPrivateKey(context.Context) (string, error) {
 	return "", sshkeydomain.ErrDeploymentKeyNotFound
 }
 
+func (m *memoryKeys) DeleteAllAccess(_ context.Context, owner string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	kept := m.keys[:0]
+	for _, key := range m.keys {
+		if key.OwnerUserID != owner || key.Purpose != sshkeydomain.PurposeAccess {
+			kept = append(kept, key)
+		}
+	}
+	m.keys = kept
+	return nil
+}
+
+// adminOwners treats every owner as an admin, which is what these handler tests sign in as.
+type adminOwners struct{}
+
+func (adminOwners) Administrators(context.Context) (map[string]bool, error) {
+	return map[string]bool{}, nil
+}
+
 func (m *memoryKeys) DeleteAccess(_ context.Context, owner, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -131,7 +152,13 @@ type fixture struct {
 
 func newFixture(t *testing.T) fixture {
 	t.Helper()
-	service := application.NewService(&memoryKeys{}, memorySyncs{}, openssh.NewKeyMaterial(), noProvisioners{})
+	service, err := application.NewService(application.ServiceDeps{
+		Keys: &memoryKeys{}, Syncs: memorySyncs{}, Material: openssh.NewKeyMaterial(), Provisioners: noProvisioners{},
+		Owners: adminOwners{}, Requests: &convergencetest.Requests{}, Events: &convergencetest.Events{},
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
 	if _, _, err := service.EnsureDeploymentKey(context.Background()); err != nil {
 		t.Fatalf("EnsureDeploymentKey: %v", err)
 	}

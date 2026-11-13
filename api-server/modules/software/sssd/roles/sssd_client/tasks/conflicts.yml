@@ -1,0 +1,58 @@
+---
+# Compare the host's local accounts and groups (/etc/passwd and /etc/group only) with the Directory's
+# Users and swallow's groups. The name service consults the local files first, so a local account
+# with a User's name would take the User's place, and one with a User's uid would own the User's
+# files; either stops the install before the name service reads the Directory.
+
+- name: Read the local accounts
+  ansible.builtin.getent:
+    database: passwd
+    service: files
+
+- name: Read the local groups
+  ansible.builtin.getent:
+    database: group
+    service: files
+
+- name: Read the Users' accounts from the Directory
+  ansible.builtin.command:
+    argv: "{{ ['getent', '-s', 'sss', 'passwd'] + swallow_directory_usernames }}"
+  register: sssd_client_directory_users
+  changed_when: false
+  # getent exits 2 when one of the names is not (yet) in the Directory; the others still print.
+  failed_when: sssd_client_directory_users.rc not in [0, 2]
+
+- name: Read swallow's groups from the Directory
+  ansible.builtin.command:
+    argv: "{{ ['getent', '-s', 'sss', 'group'] + sssd_client_reserved_groups }}"
+  register: sssd_client_directory_groups
+  changed_when: false
+  failed_when: sssd_client_directory_groups.rc not in [0, 2]
+
+- name: Compare them
+  ansible.builtin.set_fact:
+    sssd_client_name_conflicts: >-
+      {{ (ansible_facts['getent_passwd'].keys() | intersect(swallow_directory_usernames))
+         + (ansible_facts['getent_group'].keys() | intersect(sssd_client_reserved_groups)) }}
+    sssd_client_id_conflicts: >-
+      {{ (ansible_facts['getent_passwd'] | dict2items
+          | selectattr('value.1', 'in', sssd_client_directory_uids) | map(attribute='key') | list)
+         + (ansible_facts['getent_group'] | dict2items
+          | selectattr('value.1', 'in', sssd_client_directory_gids) | map(attribute='key') | list) }}
+  vars:
+    sssd_client_directory_uids: "{{ sssd_client_directory_users.stdout_lines | map('split', ':') | map(attribute=2) | list }}"
+    sssd_client_directory_gids: "{{ sssd_client_directory_groups.stdout_lines | map('split', ':') | map(attribute=2) | list }}"
+
+- name: Stop on a local account or group with a Directory name
+  ansible.builtin.fail:
+    msg: >-
+      [sssd_name_conflict] {{ ansible_facts['hostname'] }} has local accounts or groups named like
+      swallow's: {{ sssd_client_name_conflicts | join(', ') }}
+  when: sssd_client_name_conflicts | length > 0
+
+- name: Stop on a local account or group with a Directory id
+  ansible.builtin.fail:
+    msg: >-
+      [sssd_id_conflict] {{ ansible_facts['hostname'] }} has local accounts or groups with ids swallow
+      gave its Users and groups: {{ sssd_client_id_conflicts | join(', ') }}
+  when: sssd_client_id_conflicts | length > 0

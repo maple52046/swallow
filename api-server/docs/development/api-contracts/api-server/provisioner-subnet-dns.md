@@ -43,7 +43,7 @@ Base path, bearer authentication, error envelope, and timestamps follow
 
 ## Authentication and Authorization
 
-Bearer token; both endpoints require `admin`.
+Bearer token; both endpoints are admin ([conventions](conventions.md#authorization)).
 
 ## Endpoints
 

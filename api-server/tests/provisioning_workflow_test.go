@@ -134,8 +134,8 @@ func TestDeploymentTemplate_FiltersAndAuthorization(t *testing.T) {
 	resp = doRequest(t, f.app, "GET", "/api/v1/provisioning/templates", nil, map[string]string{
 		"Authorization": "Bearer " + userToken(t, f.jwtSvc),
 	})
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("non-admin: expected 403, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("templates are reference data every User may read (decision 082): expected 200, got %d", resp.StatusCode)
 	}
 }
 

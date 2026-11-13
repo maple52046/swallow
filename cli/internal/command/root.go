@@ -103,6 +103,8 @@ func NewRootCommand() *cobra.Command {
 		newInfrastructureCommand(),
 		newSSHKeysCommand(),
 		newAPIKeysCommand(),
+		newUsersCommand(),
+		newAccessCommand(),
 		newPlatformsCommand(),
 		newPlansCommand(),
 		newWorkflowsCommand(),

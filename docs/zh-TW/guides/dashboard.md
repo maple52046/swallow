@@ -8,7 +8,8 @@ published HTTP API，browser 內只保存 UI preference 與目前 session。
 ## 導覽
 
 側邊欄以分隔線把區域分成四段：Overview；Servers、Platforms 與 Software；
-Monitoring 與 Activity；OS Images 與 Infrastructure。用頁面頂端的按鈕可把側邊欄收合成圖示（這個瀏覽器會記住選擇）；
+Monitoring 與 Activity；OS Images、Infrastructure、Pools 與 Users。它只列出你能使用的區域：admin 看得到全部，其他
+user 看得到 Servers、Platforms、Software、Activity、Validation 與 Pools（見 [Session 與權限](#session-與權限)）。用頁面頂端的按鈕可把側邊欄收合成圖示（這個瀏覽器會記住選擇）；
 滑鼠停在圖示上或以鍵盤聚焦時會顯示名稱。手機上以選單按鈕開啟同一份側邊欄的 drawer。
 
 | 區域 | 用途 |
@@ -21,8 +22,11 @@ Monitoring 與 Activity；OS Images 與 Infrastructure。用頁面頂端的按�
 | Activity | 兩個分頁。**Workflows**：durable execution、Job、Task、event、log、cancel、rerun 與 retry。**Change Plans**：Platform 破壞性變更的計畫，包括等待核准或拒絕的 plan、已核准 plan 的紀錄，以及安全開關 |
 | OS Images | 佈署 Server 所用的 OS image：catalog、upload、deploy mode 驗證與 deployment template（分頁 **OS images** 與 **Templates**） |
 | Infrastructure | Site、Integration、Zone、Pool、credential、automation settings、Site 的 local repository（deployment 從哪裡取得 artifact、來源、同步狀態與內容，見[初始設定](initial-setup.md#4-註冊-local-repository)），以及 [Boot ISO](#boot-iso-與-server-boot-media) |
+| Pools | 你所屬的 Pool（admin 看得到每個 Pool）；每個 Pool 的成員、Pool Role，以及誰在它的 Server 上有 sudo |
+| Users（admin） | 帳號、存取設定、Directory 的狀態與最近的存取變更 |
 | SSH keys（account menu） | Deployment key、你的 access keys 及其 provisioner sync 狀態，見 [SSH key](ssh-keys.md) |
 | API keys（account menu） | 讓 script、CI 與 CLI 不需要密碼即可以你的身分呼叫 swallow 的 key，見 [API key](api-keys.md) |
+| Change password（account menu） | 你自己的 swallow 密碼：登入 swallow 用它，Server 上需要密碼的 sudo 規則也問它 |
 
 區域內的分頁保有各自的網址，因此連結與書籤仍然有效：Activity 是 `/workflows` 與 `/change-plans`，
 OS Images 是 `/provisioning/images` 與 `/provisioning/templates`。`/clusters` 與 `/operations` 下的
@@ -163,6 +167,19 @@ Script 與 CLI 可在 **Account menu → API keys** 建立 API key。Secret 只�
 
 Dashboard 透過 `/auth/me` 讀取目前的 caller，不解析 token claims。Role-gated control 只是
 presentation guidance；authorization 仍以 API 為準。
+
+誰可以做什麼：
+
+- **admin** 管理 swallow：Site、Integration、OS Image、Zone 與 Pool、Server 的 placement、使用者，以及每台 Server 與
+  每個 Platform。admin 可以登入每台 Server 並在上面使用 sudo。
+- 其他 **user** 的權限只來自 Pool Membership。Pool 的 **member** 看得到它的 Server、Platform、Workflow 與 Validation
+  Run，並以自己的 SSH key 登入它的 Server；**owner** 還能操作它們（電源、OS 佈署、軟體、Platform、Validation），並在
+  **Pools** 管理 Pool 的成員與 sudo 預設值。不在任何 Pool 的 Server 只屬於 admin。
+- 只有 admin 建立帳號（**Users → Create user**）；owner 以 username 把既有的帳號加入自己的 Pool。Pool 的
+  **Sudo defaults** 決定 member 有沒有 sudo、sudo 要不要密碼，每個 member 可以個別覆寫。owner 一律有 sudo。Platform
+  可以收窄 member 在它的節點上能做的事：在 Slurm 叢集上 member 只能登入 login node，而且沒有 sudo。
+- 不能做的動作會停用或隱藏：例如 member 看到 Server 的 **Actions** 按鈕是停用的，並附上原因。只有 admin 能用的頁面會
+  顯示 **Access denied**。
 
 ## Error 與診斷
 

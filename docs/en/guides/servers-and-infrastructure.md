@@ -410,6 +410,15 @@ Zones and Pools are swallow-owned grouping resources managed under
 provisioner realizes the grouping; a provisioner without grouping support
 reports it on the Server instead of swallow keeping a separate copy.
 
+A Pool is also who may use its Servers. Its members see them (and the Platforms,
+Workflows, and Validation Runs on them) and log in to them with their SSH keys; its
+owners operate them. Manage a Pool's members and sudo defaults under **Pools**, or
+with the **Members** action on the Pool's row under **Infrastructure → Pools**. Only
+an admin moves Servers between Pools, and all the Servers of a Platform stay in one
+Pool: a Server a Platform claims can only move into that Platform's Pool or out of
+every Pool (which leaves the Platform to admins until its Servers are in one Pool
+again). Deleting a Pool also deletes its memberships.
+
 ## Locks and destructive actions
 
 Lock a Server to exclude it from automatic or destructive management. Unlock it

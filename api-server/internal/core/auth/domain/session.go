@@ -68,6 +68,11 @@ type SessionRepository interface {
 	// Revoke marks the Session revoked at revokedAt. Revoking an already revoked or missing
 	// Session is not an error.
 	Revoke(ctx context.Context, id string, revokedAt time.Time) error
+	// DeleteByUser removes every Session of userID, so none of its refresh tokens works again. It
+	// joins the caller's transaction through ctx; a User with no Session is a success. Access
+	// tokens already issued stay valid until they expire, but every request with one re-reads the
+	// User, which no longer exists.
+	DeleteByUser(ctx context.Context, userID string) error
 }
 
 var (

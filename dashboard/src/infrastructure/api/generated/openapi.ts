@@ -4,6 +4,90 @@
  */
 
 export interface paths {
+    "/api/v1/access/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the most recent access changes, newest first.
+         * @description Requires role `admin`.
+         */
+        get: operations["listAccessAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/access/directory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return the Directory's configuration and the Directory controller's status.
+         * @description Requires role `admin`.
+         */
+        get: operations["getDirectory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/access/directory/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask the Directory controller to apply the content now.
+         * @description Requires role `admin`. Answers once the request is recorded; the worker's controller applies the content shortly after. Without a configured Directory it is `409`.
+         */
+        post: operations["syncDirectory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/access/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return the installation's access settings.
+         * @description Requires role `admin`.
+         */
+        get: operations["getAccessSettings"];
+        /**
+         * Replace the installation's access settings.
+         * @description Requires role `admin`.
+         */
+        put: operations["setAccessSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/api-keys": {
         parameters: {
             query?: never;
@@ -13,13 +97,13 @@ export interface paths {
         };
         /**
          * List the caller's API Keys.
-         * @description Requires role `admin`; a Session access token or an API Key. Returns a plain array (at most 50 keys per User) of the caller's keys ordered by `createdAt`, including expired keys.
+         * @description Any authenticated User; a Session access token or an API Key. Returns a plain array (at most 50 keys per User) of the caller's keys ordered by `createdAt`, including expired keys.
          */
         get: operations["listApiKeys"];
         put?: never;
         /**
          * Create an API Key for the caller; the secret is returned only here.
-         * @description Requires role `admin` and a Session access token: a request authenticated by an API Key is refused with `403 forbidden`, so a leaked key cannot mint replacements.
+         * @description Any authenticated User with a Session access token: a request authenticated by an API Key is refused with `403 forbidden`, so a leaked key cannot mint replacements.
          */
         post: operations["createApiKey"];
         delete?: never;
@@ -43,7 +127,7 @@ export interface paths {
         post?: never;
         /**
          * Delete one of the caller's API Keys; it stops authenticating immediately.
-         * @description Requires role `admin`; a Session access token or an API Key.
+         * @description Any authenticated User (the caller's own keys only); a Session access token or an API Key.
          */
         delete: operations["deleteApiKey"];
         options?: never;
@@ -100,10 +184,30 @@ export interface paths {
         };
         /**
          * Return the authenticated caller's identity, role, and authentication method.
-         * @description Any authenticated role (`admin`, `owner`, `user`); the response always describes the caller.
+         * @description Any authenticated User (role `admin` or `user`); the response always describes the caller.
          */
         get: operations["getCurrentUser"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/me/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change the caller's own password.
+         * @description Any authenticated User with a Session; a request authenticated by an API Key is `403`. The current password must be given. Existing Sessions stay valid.
+         */
+        put: operations["changeOwnPassword"];
         post?: never;
         delete?: never;
         options?: never;
@@ -354,6 +458,89 @@ export interface paths {
          * @description Requires role `admin`. Only present fields change, and a change increments the generation; a request that changes nothing answers the stored Pool. The catalog controller then renames the group on the Site's provisioners, so the machines in it stay there.
          */
         patch: operations["updatePool"];
+        trace?: never;
+    };
+    "/api/v1/infrastructure/pools/{id}/access-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Pool's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Return a Pool's Sudo Policy defaults.
+         * @description Requires role `admin` or any Pool Role in the Pool; any other caller gets `404`.
+         */
+        get: operations["getPoolAccessPolicy"];
+        /**
+         * Replace a Pool's Sudo Policy defaults.
+         * @description Requires role `admin` or Pool Role `owner` in the Pool.
+         */
+        put: operations["setPoolAccessPolicy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/infrastructure/pools/{id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Pool's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * List a Pool's memberships with their resolved Sudo Policy.
+         * @description Requires role `admin` or any Pool Role in the Pool; any other caller gets `404`.
+         */
+        get: operations["listPoolMembers"];
+        put?: never;
+        /**
+         * Add an existing User to a Pool.
+         * @description Requires role `admin` or Pool Role `owner` in the Pool.
+         */
+        post: operations["addPoolMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/infrastructure/pools/{id}/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Pool's id. */
+                id: string;
+                /** @description The member's User id. */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a User from a Pool.
+         * @description Requires role `admin` or Pool Role `owner` in the Pool; an owner may remove itself.
+         */
+        delete: operations["removePoolMember"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a membership's Pool Role or Sudo Policy overrides.
+         * @description Requires role `admin` or Pool Role `owner` in the Pool. An omitted field is left as it is.
+         */
+        patch: operations["updatePoolMember"];
         trace?: never;
     };
     "/api/v1/infrastructure/zones": {
@@ -3459,13 +3646,13 @@ export interface paths {
         };
         /**
          * List the Deployment Key and the caller's Access Keys.
-         * @description Requires role `admin`. Returns a plain array: the Deployment Key first (when the installation step has created it), then the caller's Access Keys ordered by `createdAt`.
+         * @description Any authenticated User. Returns a plain array: the Deployment Key first (when the installation step has created it), then the caller's Access Keys ordered by `createdAt`.
          */
         get: operations["listSshKeys"];
         put?: never;
         /**
          * Import a public key as one of the caller's Access Keys.
-         * @description Requires role `admin`. The SSH Key controller realizes the key in the background, so the response's per-provisioner conditions are still empty.
+         * @description Any authenticated User (the key becomes the caller's). The SSH Key controller realizes the key in the background, so the response's per-provisioner conditions are still empty.
          */
         post: operations["importSshKey"];
         delete?: never;
@@ -3486,14 +3673,14 @@ export interface paths {
         };
         /**
          * Read the Deployment Key or one of the caller's Access Keys.
-         * @description Requires role `admin`. Same shape as a list item; lets a client follow one key's realization without re-reading the list.
+         * @description Any authenticated User (the Deployment Key or one of the caller's own Access Keys). Same shape as a list item; lets a client follow one key's realization without re-reading the list.
          */
         get: operations["getSshKey"];
         put?: never;
         post?: never;
         /**
          * Delete one of the caller's Access Keys and remove it from provisioners.
-         * @description Requires role `admin`. The SSH Key controller removes it from the provisioners after the record is deleted, retrying an unreachable one. Already-deployed Servers keep the key.
+         * @description Any authenticated User (one of the caller's own Access Keys). The SSH Key controller removes it from the provisioners after the record is deleted, retrying an unreachable one. Already-deployed Servers keep the key.
          */
         delete: operations["deleteSshKey"];
         options?: never;
@@ -3552,7 +3739,7 @@ export interface paths {
         put?: never;
         /**
          * Generate an ed25519 Access Key pair and return its private key exactly once.
-         * @description Requires role `admin`. Only the public key is stored; swallow keeps no copy of the private key and can never return it again.
+         * @description Any authenticated User (the key becomes the caller's). Only the public key is stored; swallow keeps no copy of the private key and can never return it again.
          */
         post: operations["generateSshKey"];
         delete?: never;
@@ -3579,6 +3766,61 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List every User.
+         * @description Requires role `admin`. Ordered by username.
+         */
+        get: operations["listUsers"];
+        put?: never;
+        /**
+         * Create a User.
+         * @description Requires role `admin`. swallow allocates the User's uidNumber in the same write. The username is also the User's Linux login and follows the POSIX login-name rule.
+         */
+        post: operations["createUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The User's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Return one User.
+         * @description Requires role `admin`.
+         */
+        get: operations["getUser"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a User with its memberships, Sessions, API Keys, and Access Keys.
+         * @description Requires role `admin`. The User's uidNumber stays allocated.
+         */
+        delete: operations["deleteUser"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a User's role or reset its password.
+         * @description Requires role `admin`. An omitted field is left as it is.
+         */
+        patch: operations["updateUser"];
         trace?: never;
     };
     "/api/v1/validation/runs": {
@@ -4134,6 +4376,43 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description One recorded access change. It never carries a password. */
+        AccessAuditEntry: {
+            /** @enum {string} */
+            action: "user.created" | "user.updated" | "user.deleted" | "member.added" | "member.updated" | "member.removed" | "pool_policy.updated" | "settings.updated";
+            /** @description The username of the User who made the change. */
+            actor: string;
+            at: components["schemas"]["Timestamp"];
+            detail: string;
+            id: string;
+            /** @description The Pool of a membership or policy change, `""` otherwise. */
+            poolId: string;
+            /** @description The User or Pool the change was about. */
+            target: string;
+        };
+        AccessAuditList: {
+            items: components["schemas"]["AccessAuditEntry"][];
+        };
+        AccessSettings: {
+            /** @description Whether admins' sudo on every Server asks for no password. */
+            adminSudoPasswordless: boolean;
+            /** @description The first uidNumber and gidNumber of the installation's range; read-only. */
+            posixIdStart: number;
+            /** @description `null` while the settings have their defaults. */
+            updatedAt: components["schemas"]["Timestamp"] | null;
+            updatedBy: string;
+        };
+        AccessSettingsRequest: {
+            adminSudoPasswordless: boolean;
+        };
+        AddPoolMemberRequest: {
+            /** @enum {string} */
+            role: "owner" | "member";
+            sudo?: components["schemas"]["SudoSetting"];
+            sudoPasswordless?: components["schemas"]["SudoSetting"];
+            /** @description An existing User's username. */
+            username: string;
+        };
         /** @description What to silence and for how long. Every field is optional. */
         AlertAcknowledgement: {
             /** @description The silence comment; `Acknowledged in swallow` when omitted or empty. */
@@ -4389,6 +4668,11 @@ export interface components {
             lastErrorAt: components["schemas"]["Timestamp"] | null;
             updatedAt: components["schemas"]["Timestamp"];
         };
+        ChangePasswordRequest: {
+            currentPassword: string;
+            /** @description At least 8 characters, at most 72 bytes. */
+            newPassword: string;
+        };
         ChangePlan: {
             actions: components["schemas"]["PlannedAction"][];
             /** @description Failed preflight checks; a plan with blockers cannot be approved. */
@@ -4467,6 +4751,13 @@ export interface components {
          * @enum {string}
          */
         ContainerRuntime: "docker-ce" | "podman";
+        CreateUserRequest: {
+            /** @description At least 8 characters, at most 72 bytes. */
+            password: string;
+            /** @enum {string} */
+            role: "admin" | "user";
+            username: string;
+        };
         /** @description User intent for a single-Task Ansible Workflow. Unknown fields are ignored. */
         CreateWorkflowRequest: {
             /** @description Extra variables for the playbook. Keys starting with `swallow_` are dropped, so a client cannot forge the variables swallow sets. */
@@ -4497,12 +4788,25 @@ export interface components {
              */
             authMethod: "session" | "api_key";
             id: string;
+            /** @description The caller's Pool Memberships, for deciding which actions to offer; an admin may act in every Pool whether or not it is listed. */
+            memberships: components["schemas"]["CurrentUserMembership"][];
             /**
-             * @description Consumers must treat an unrecognised role as least-privileged.
+             * @description The User Role. Consumers must treat an unrecognised role as least-privileged (`user`).
              * @enum {string}
              */
-            role: "admin" | "owner" | "user";
+            role: "admin" | "user";
             username: string;
+        };
+        /** @description One of the caller's Pool Memberships. */
+        CurrentUserMembership: {
+            poolId: string;
+            poolName: string;
+            /**
+             * @description The Pool Role. Consumers must treat an unrecognised role as `member`.
+             * @enum {string}
+             */
+            role: "owner" | "member";
+            siteId: string;
         };
         DeploymentKeyReplaceRequest: {
             /** @description Omitted or blank keeps the current name; otherwise import's name rules. */
@@ -4600,6 +4904,23 @@ export interface components {
          * @enum {string}
          */
         DeviceMetricsExporterState: "installing" | "ready" | "failed" | "absent";
+        /** @description The installation's Directory and the Directory controller's last report. */
+        Directory: {
+            /** @description The Directory's base DN, `""` without a Directory. */
+            baseDn: string;
+            conditions: components["schemas"]["Condition"][];
+            /** @description Whether the installation has a Directory; without one nothing else is meaningful. */
+            configured: boolean;
+            groups: number;
+            /** @description The URL the Servers' directory client connects to, `""` without a Directory. */
+            hostUrl: string;
+            /** @description The distinct host names the Host Access names. */
+            hosts: number;
+            lastAppliedAt: components["schemas"]["Timestamp"] | null;
+            observedAt: components["schemas"]["Timestamp"] | null;
+            sudoRules: number;
+            users: number;
+        };
         DockerContainer: {
             command: string;
             createdAt: components["schemas"]["Timestamp"];
@@ -4800,6 +5121,12 @@ export interface components {
         };
         DockerVolumeList: {
             items: components["schemas"]["DockerVolume"][];
+        };
+        /** @description One overridable Sudo Policy value of a membership. */
+        EffectiveSudoValue: {
+            effective: boolean;
+            setting: components["schemas"]["SudoSetting"];
+            source: components["schemas"]["SudoSource"];
         };
         /** @description The error envelope every non-success response uses (conventions.md, Error Response). */
         Error: {
@@ -6107,6 +6434,8 @@ export interface components {
             conditions: components["schemas"]["Condition"][];
             /** Format: int64 */
             observedGeneration: number;
+            /** @description The Pool the Platform belongs to: the Pool every member of the spec (and every Server it still claims) is placed in; null when they are in different Pools or in none, and then only admins may manage it (identity-and-access.md §5). */
+            poolId: string | null;
             /** @description The Workflow carrying out a newer generation, until it succeeds. */
             realizingWorkflowId: string | null;
         };
@@ -6134,6 +6463,40 @@ export interface components {
             siteId: string;
             spec: components["schemas"]["GroupSpec"];
             status: components["schemas"]["GroupStatus"];
+        };
+        /** @description A Pool's Sudo Policy defaults. */
+        PoolAccessPolicy: {
+            /** @description Whether members have sudo on the Pool's Servers unless their membership overrides it. */
+            memberSudo: boolean;
+            poolId: string;
+            /** @description Whether sudo asks for no password unless a membership overrides it. */
+            sudoPasswordless: boolean;
+            /** @description `null` while the Pool has the defaults it was created with. */
+            updatedAt: components["schemas"]["Timestamp"] | null;
+            /** @description The username of the last writer, `""` while the Pool has its defaults. */
+            updatedBy: string;
+        };
+        PoolAccessPolicyRequest: {
+            memberSudo: boolean;
+            sudoPasswordless: boolean;
+        };
+        /** @description One Pool Membership with its resolved Sudo Policy. An owner always has sudo (source `role`), whatever its stored `sudo` setting. */
+        PoolMember: {
+            createdAt: components["schemas"]["Timestamp"];
+            poolId: string;
+            /**
+             * @description The Pool Role.
+             * @enum {string}
+             */
+            role: "owner" | "member";
+            sudo: components["schemas"]["EffectiveSudoValue"];
+            sudoPasswordless: components["schemas"]["EffectiveSudoValue"];
+            updatedAt: components["schemas"]["Timestamp"];
+            userId: string;
+            username: string;
+        };
+        PoolMemberList: {
+            items: components["schemas"]["PoolMember"][];
         };
         /** @description A Server's Power Configuration as read live from its provisioner; never carries the password. */
         PowerConfiguration: {
@@ -7094,6 +7457,16 @@ export interface components {
             success: true;
         };
         /**
+         * @description A member's override of one Pool default.
+         * @enum {string}
+         */
+        SudoSetting: "inherit" | "on" | "off";
+        /**
+         * @description Which layer of the Sudo Policy decided an effective value.
+         * @enum {string}
+         */
+        SudoSource: "role" | "settings" | "pool" | "member";
+        /**
          * @description What a node with an unsynchronized clock does to the install: `enforce` fails it before anything is installed, `warn` reports it and continues.
          * @enum {string}
          */
@@ -7103,6 +7476,36 @@ export interface components {
          * @description ISO 8601 in UTC (conventions.md, Timestamps).
          */
         Timestamp: string;
+        UpdatePoolMemberRequest: {
+            /** @enum {string} */
+            role?: "owner" | "member";
+            sudo?: components["schemas"]["SudoSetting"];
+            sudoPasswordless?: components["schemas"]["SudoSetting"];
+        };
+        UpdateUserRequest: {
+            /** @description A new password, at least 8 characters and at most 72 bytes. */
+            password?: string;
+            /** @enum {string} */
+            role?: "admin" | "user";
+        };
+        /** @description A User (glossary User). The password is never part of the resource. */
+        User: {
+            createdAt: components["schemas"]["Timestamp"];
+            id: string;
+            /**
+             * @description The User Role. Consumers must treat an unrecognised role as `user`.
+             * @enum {string}
+             */
+            role: "admin" | "user";
+            /** @description The User's POSIX uid; `null` until allocated (only a User from before POSIX identities). */
+            uidNumber: number | null;
+            updatedAt: components["schemas"]["Timestamp"];
+            /** @description Also the User's Linux login on the Servers the Directory reaches. */
+            username: string;
+        };
+        UserList: {
+            items: components["schemas"]["User"][];
+        };
         ValidationCheck: {
             description: string;
             /** @description Whether a deployment that composes the suite as a gate fails when this check does not pass. */
@@ -7464,7 +7867,7 @@ export interface components {
          * @description What a Workflow is for; selects its definition. Several kinds are launched only through their owning feature endpoint (for example `verify-os-image`, `inspect-hardware`) and appear here in listings. `install-exporters` and `uninstall-exporters` are no longer accepted; they appear only on Workflows created by an earlier release (the Node Exporter is Managed Software, `configure-node-exporter` and `uninstall-node-exporter`). `deploy-k8s-exporters` and `remove-k8s-exporters` are no longer accepted either; they appear only on Workflows created by an earlier release (the Kubernetes exporter DaemonSets were retired).
          * @enum {string}
          */
-        WorkflowKind: "deploy-os" | "release-os" | "recover-server" | "verify-os-image" | "inspect-hardware" | "enroll-virtual-machines" | "install-gpu-driver" | "deploy-kubernetes" | "uninstall-kubernetes" | "configure-gpu-operator" | "configure-slurm" | "uninstall-slurm" | "install-exporters" | "uninstall-exporters" | "deploy-k8s-exporters" | "remove-k8s-exporters" | "configure-docker-ce" | "uninstall-docker-ce" | "configure-podman" | "uninstall-podman" | "configure-nfs" | "uninstall-nfs" | "configure-prometheus" | "uninstall-prometheus" | "configure-grafana" | "uninstall-grafana" | "configure-omnistat" | "configure-device-metrics-exporter" | "uninstall-device-metrics-exporter" | "configure-node-exporter" | "uninstall-node-exporter" | "configure-victoriametrics" | "uninstall-victoriametrics" | "configure-libvirt" | "uninstall-libvirt" | "configure-ntp" | "run-validation" | "custom";
+        WorkflowKind: "deploy-os" | "release-os" | "recover-server" | "verify-os-image" | "inspect-hardware" | "enroll-virtual-machines" | "install-gpu-driver" | "deploy-kubernetes" | "uninstall-kubernetes" | "configure-gpu-operator" | "configure-slurm" | "uninstall-slurm" | "install-exporters" | "uninstall-exporters" | "deploy-k8s-exporters" | "remove-k8s-exporters" | "configure-docker-ce" | "uninstall-docker-ce" | "configure-podman" | "uninstall-podman" | "configure-nfs" | "uninstall-nfs" | "configure-prometheus" | "uninstall-prometheus" | "configure-grafana" | "uninstall-grafana" | "configure-omnistat" | "configure-device-metrics-exporter" | "uninstall-device-metrics-exporter" | "configure-node-exporter" | "uninstall-node-exporter" | "configure-victoriametrics" | "uninstall-victoriametrics" | "configure-libvirt" | "uninstall-libvirt" | "configure-sssd" | "uninstall-sssd" | "configure-ntp" | "run-validation" | "custom";
         /** @description The pagination envelope (conventions.md, Pagination) over Workflows. */
         WorkflowPage: {
             items: components["schemas"]["Workflow"][];
@@ -7940,6 +8343,137 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listAccessAudit: {
+        parameters: {
+            query?: {
+                /** @description How many entries to return; 100 when omitted, at most 500. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The most recent entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessAuditList"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getDirectory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Directory. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Directory"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    syncDirectory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The request was recorded. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `conflict`: the installation has no Directory configured. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getAccessSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The access settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessSettings"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    setAccessSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccessSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description The stored access settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessSettings"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     listApiKeys: {
         parameters: {
             query?: never;
@@ -7996,7 +8530,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Error"];
-            /** @description `forbidden`: the caller is not `admin`, or the request was authenticated with an API Key. */
+            /** @description `forbidden`: the request was authenticated with an API Key. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8154,6 +8688,48 @@ export interface operations {
             401: components["responses"]["Error"];
             /** @description `not_found`: the credential is valid but its User no longer exists. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    changeOwnPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description The password was changed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `validation_error`: a field is missing, the current password is wrong, or the new one is shorter than 8 characters or longer than 72 bytes. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Error"];
+            /** @description `forbidden`: the request was authenticated with an API Key. */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8772,6 +9348,216 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            default: components["responses"]["Error"];
+        };
+    };
+    getPoolAccessPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Pool's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Pool's defaults. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolAccessPolicy"];
+                };
+            };
+            401: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    setPoolAccessPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Pool's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolAccessPolicyRequest"];
+            };
+        };
+        responses: {
+            /** @description The stored defaults. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolAccessPolicy"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listPoolMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Pool's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Pool's memberships. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolMemberList"];
+                };
+            };
+            401: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    addPoolMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Pool's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddPoolMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description The membership was created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolMember"];
+                };
+            };
+            /** @description `validation_error`: the role or a sudo setting is invalid. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `not_found`: the Pool is not visible to the caller, or no User has the username. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `conflict`: the User already belongs to the Pool. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    removePoolMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Pool's id. */
+                id: string;
+                /** @description The member's User id. */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The membership was removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    updatePoolMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Pool's id. */
+                id: string;
+                /** @description The member's User id. */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePoolMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description The changed membership. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolMember"];
+                };
+            };
+            /** @description `validation_error`: the role or a sudo setting is invalid. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };
@@ -16146,6 +16932,184 @@ export interface operations {
             };
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listUsers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every User. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserList"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    createUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateUserRequest"];
+            };
+        };
+        responses: {
+            /** @description The User was created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description `validation_error`: the username breaks the login-name rule or is reserved, the password is shorter than 8 characters or longer than 72 bytes, or the role is not `admin` or `user`. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `conflict`: another User has the username. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The User's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The User. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The User's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The User was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            /** @description `conflict`: the caller tried to delete its own account, or the last admin. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    updateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The User's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateUserRequest"];
+            };
+        };
+        responses: {
+            /** @description The changed User. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description `validation_error`: the role or the password is invalid. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            /** @description `conflict`: the change would demote the last admin. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             default: components["responses"]["Error"];
         };
     };

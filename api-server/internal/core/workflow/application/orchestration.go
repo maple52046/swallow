@@ -466,6 +466,7 @@ func (s *WorkflowService) List(ctx context.Context, input ListOperationsInput) (
 		SiteID: input.SiteID, PlatformID: input.PlatformID, ServerID: input.ServerID,
 		Kind: workflowdomain.WorkflowKind(input.Kind), Status: workflowdomain.WorkflowStatus(input.Status),
 		ActiveOnly: input.Active, Offset: input.Page.Offset(), Limit: input.Page.PageSize,
+		TargetsWithin: input.TargetsWithin, RestrictTargets: input.RestrictTargets,
 	})
 	if err != nil {
 		return nil, 0, err

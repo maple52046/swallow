@@ -32,8 +32,10 @@ their own view, so a Workflow kind or completion type one process knows can be m
    content type plus a reference, which the core compiles into a Workflow plan), the Validation Suites
    it offers (`validations`, each naming its template), and the failure codes of its host automation
    (`failureCodes`, each with a Failure Class and a remediation) ([decision 081](081-validation-suites-and-runs.md)
-   (validation suites and runs)); suites and failure codes are owned like Workflow kinds. Adding an
-   optional field like these keeps the contract at v1.
+   (validation suites and runs)); suites and failure codes are owned like Workflow kinds. A Platform
+   module may declare the Host Access limits it puts on its Pool's members by node role
+   (`hostAccess`, [decision 082](082-accounts-pool-access-and-directory.md) (accounts, pool access, and
+   directory)). Adding an optional field like these keeps the contract at v1.
 2. **A module with Go code has one root Go package in its directory** that embeds its `module.json`
    and returns the module: the manifest plus its hook implementations. Hook interfaces are ports in
    the core context that calls them (the software context for Software modules, the platform context
@@ -88,3 +90,4 @@ their own view, so a Workflow kind or completion type one process knows can be m
 - 2026-11-06: added the optional `artifacts` field, so a module declares what deployment fetches and the Site's Local Repository can serve it without the internet; the contract version stays 1.
 - 2026-11-06: a module-declared deb source carries the `signingKey` that verifies it, because a Site that does not use its Local Repository fetches it from its upstream (decision 078); the contract version stays 1.
 - 2026-11-12: added the `validation` kind and the optional `templates`, `validations`, and `failureCodes` fields (decision 081); the contract version stays 1.
+- 2026-11-13: added the optional `hostAccess` field for Platform modules (decision 082); the contract version stays 1.

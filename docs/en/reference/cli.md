@@ -57,8 +57,9 @@ This index names the available verbs without duplicating their flags or payload
 examples. Run `swallow <group> --help` for the installed binary's exact surface,
 and follow each link into the complete usage manual.
 
-- [`login`, `logout`, `auth me`](../../../cli/docs/usage.md#auth--session) —
-  create, inspect, renew, and end a password Session or save an API key profile.
+- [`login`, `logout`, `auth me`, `auth password`](../../../cli/docs/usage.md#auth--session) —
+  create, inspect, renew, and end a password Session or save an API key profile;
+  change your own password.
 - [`api-keys`](../../../cli/docs/usage.md#api-keys) — `list`, `create`, and
   `delete` (`revoke` alias) non-interactive credentials.
 - [`overview`](../../../cli/docs/usage.md#overview) — read the swallow-wide or
@@ -82,8 +83,14 @@ and follow each link into the complete usage manual.
 - [`ssh-keys`](../../../cli/docs/usage.md#ssh-keys) — `list`, `get`, `import`,
   `generate`, `delete`, and `sync` Access Keys; show, regenerate, or replace the
   installation Deployment Key.
+- [`users`](../../../cli/docs/usage.md#users) — `list`, `get`, `create`,
+  `update`, and `delete` Users (admin).
+- [`access`](../../../cli/docs/usage.md#access) — `settings get|set`, `audit`,
+  and `directory get|sync` (admin).
 - [`infrastructure`](../../../cli/docs/usage.md#infrastructure-zones-and-pools)
-  — `zones` and `pools` expose `list`, `get`, `create`, `update`, and `delete`.
+  — `zones` and `pools` expose `list`, `get`, `create`, `update`, and `delete`;
+  `pools members` and `pools access-policy` manage a Pool's members and sudo
+  defaults.
 - [`platforms`](../../../cli/docs/usage.md#platforms) — `list`, `get`, `create`,
   `set-spec`, `update`, `delete`, `sync`, and `sync-all`; read live Slurm
   (`slurm`), manage `slurm-requirements`, `gpu-operator`, and Omnistat's

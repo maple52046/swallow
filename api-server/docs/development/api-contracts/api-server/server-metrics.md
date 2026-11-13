@@ -47,8 +47,10 @@ GET /api/v1/monitoring/metrics/range
 GET /api/v1/monitoring/metrics/names
 ```
 
-All endpoints require the `admin` role, with either bearer credential (a Session access token
-or an API Key) according to [conventions](conventions.md). The wire shape is published in
+Authorization ([conventions](conventions.md#authorization)), with either bearer credential: a query of Servers is Pool read on every
+Server it names, a Pool query Pool read on that Pool, and a Platform query Pool read on the Platform;
+a Zone query, and a query that names no scope, are admin. `GET /monitoring/metrics/names` is
+reference. The wire shape is published in
 [`openapi/areas/monitoring.yaml`](../openapi/areas/monitoring.yaml) (`getMetricValues`,
 `getMetricRange`, `listMetricNames`).
 

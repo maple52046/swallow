@@ -32,6 +32,8 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import type { ProvisionerCapabilities, Server } from '@/domain/server/types'
+import { canOperatePool, isAdmin } from '@/domain/user/access'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import {
   SERVER_ACTION_GROUPS,
   platformClaimNote,
@@ -118,9 +120,16 @@ export function ServerActionMenuRow({
  */
 export type ServerTakeActionTrigger = 'take-action' | 'actions'
 
+/** Why the trigger is disabled for a user who may read but not operate a target (decision 082). */
+const READ_ONLY_REASON = 'Only an owner of the Server’s Pool or an admin can act on it.'
+
 /**
  * Nested Take-action surface shared by list and detail.
  *
+ * - The signed-in user's Pool Roles decide what is offered: unless the user may operate every target
+ *   (an admin, or an owner of each target's Pool), the trigger is disabled with the reason as its
+ *   title and accessible description; Delete is offered to admins only. The API judges every
+ *   request regardless, so this only avoids offering what would be refused.
  * - Detail passes `capabilities` so unsupported groups hide; list omits it and shows every
  *   catalogue group (backend refuses per Server).
  * - `includeSingleOnly` keeps actions marked `bulk: false` on single-Server menus and out of bulk.
@@ -179,15 +188,18 @@ export function ServerTakeActionMenu({
   onInstallSoftware?: () => void
   onQueryPower?: () => void
 }) {
+  const { currentUser } = useAuth()
+  const operable = targets.every((server) => canOperatePool(currentUser, server.spec.poolId))
+  const offered = (entry: ServerActionDef) =>
+    (includeSingleOnly || entry.bulk !== false) && (entry.action !== 'delete' || isAdmin(currentUser))
   const groups = SERVER_ACTION_GROUPS.filter((group) => {
     if (filterByCapabilities && group.capability !== null && !capabilities?.[group.capability]) {
       return false
     }
-    const actions = group.actions.filter((entry) => includeSingleOnly || entry.bulk !== false)
-    return actions.length > 0
+    return group.actions.some(offered)
   }).map((group) => ({
     ...group,
-    actions: group.actions.filter((entry) => includeSingleOnly || entry.bulk !== false),
+    actions: group.actions.filter(offered),
   }))
   const operationGroups = groups.filter((group) => group.label !== 'Lifecycle' && group.label !== 'Removal')
   const lifecycleActions = groups
@@ -218,6 +230,23 @@ export function ServerTakeActionMenu({
       >
         <ServerActionMenuRow icon={Icon} label={entry.label} reason={reason} />
       </Menu.Item>
+    )
+  }
+
+  if (!operable) {
+    return (
+      <Button
+        className={trigger === 'actions' ? 'sw-server-actions-trigger' : undefined}
+        variant={trigger === 'actions' ? 'outline' : 'solid'}
+        colorPalette={trigger === 'actions' ? undefined : 'brand'}
+        size={trigger === 'actions' ? size ?? 'sm' : size}
+        disabled
+        title={READ_ONLY_REASON}
+        aria-label={`${trigger === 'actions' ? 'Actions' : 'Take action'}${targetName ? ` for ${targetName}` : ''}: ${READ_ONLY_REASON}`}
+      >
+        {trigger === 'actions' ? 'Actions' : 'Take action'}
+        <ChevronDown size={16} aria-hidden />
+      </Button>
     )
   }
 

@@ -115,7 +115,11 @@ Add the spec of each area the task touches:
  belongs to one family, adding or changing a profile for a new BMC): `docs/development/bmc-profiles.md`.
  Boot Media behavior a user sees stays in the Server Enrollment spec above.
 - SSH keys (the Deployment Key, Access Keys), the automation login user, the Server Default User, Site
-  automation credentials, authentication sessions, API keys: `docs/development/access-and-credentials.md`.
+ automation credentials, authentication sessions, API keys: `docs/development/access-and-credentials.md`.
+- Users and User Roles, Pool Memberships and Pool Roles, API authorization (who may call a route, list
+ filtering), the Directory (the bundled LDAP swallow writes), Host Access and Sudo Policy, the `sssd`
+ directory client: `docs/development/identity-and-access.md`. Applying an existing authorization class to
+ a new route needs only its §4.
 - The installation topology, `swallowctl`, release artifacts, the control-plane NTP service and
   post-provision time synchronization: `docs/development/installation.md`.
 - Validation (Validation Suites declared by modules or written by users as scripts, running and recording

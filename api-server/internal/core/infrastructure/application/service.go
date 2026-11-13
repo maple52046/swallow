@@ -22,6 +22,7 @@ import (
 	infradomain "github.com/maple52046/swallow/internal/core/infrastructure/domain"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
+	"github.com/maple52046/swallow/internal/core/store"
 	"github.com/maple52046/swallow/internal/shared/wire"
 )
 
@@ -33,6 +34,9 @@ type GroupingService struct {
 	placements infradomain.ServerPlacements
 	references infradomain.PlacementReferences
 	providers  provisioningdomain.ProviderFactory
+	platforms  infradomain.PlatformPools
+	access     infradomain.PoolAccessCleaner
+	tx         store.Transactor
 	now        func() time.Time
 	newID      func() string
 }
@@ -40,6 +44,10 @@ type GroupingService struct {
 // NewGroupingService wires the grouping use cases. The provider factory is used only to delete a
 // group from the provisioners that hold it. now and newID are injected so tests get a
 // deterministic clock and id; production uses UTC wall-clock time and a random UUID.
+//
+// platforms keeps a Platform-claimed Server in its Platform's Pool, and access removes a deleted
+// Pool's memberships and Sudo Policy in the transaction tx runs with the Pool's deletion
+// (decision 082).
 func NewGroupingService(
 	zones infradomain.ZoneRepository,
 	pools infradomain.PoolRepository,
@@ -47,6 +55,9 @@ func NewGroupingService(
 	placements infradomain.ServerPlacements,
 	references infradomain.PlacementReferences,
 	providers provisioningdomain.ProviderFactory,
+	platforms infradomain.PlatformPools,
+	access infradomain.PoolAccessCleaner,
+	tx store.Transactor,
 ) *GroupingService {
 	return &GroupingService{
 		zones:      zones,
@@ -55,6 +66,9 @@ func NewGroupingService(
 		placements: placements,
 		references: references,
 		providers:  providers,
+		platforms:  platforms,
+		access:     access,
+		tx:         tx,
 		now:        func() time.Time { return time.Now().UTC() },
 		newID:      uuid.NewString,
 	}
@@ -279,7 +293,12 @@ func (s *GroupingService) DeletePool(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	return s.pools.Delete(ctx, id)
+	return s.tx.InTransaction(ctx, func(ctx context.Context) error {
+		if err := s.access.DeletePool(ctx, id); err != nil {
+			return err
+		}
+		return s.pools.Delete(ctx, id)
+	})
 }
 
 // --- Placement ---
@@ -310,7 +329,11 @@ type PlacementResult struct {
 // AssignServer writes a Server's placement spec; the Server controller moves the machine
 // afterwards. A referenced Zone or Pool must belong to the Server's Site
 // (ErrGroupingSiteMismatch). A Server that is not adopted yet is ErrServerNotAdopted, and a
-// concurrent spec change ErrPlacementConflict.
+// concurrent spec change ErrPlacementConflict. A Platform-claimed Server may change Pool only into
+// the Pool its Platform belongs to, or out of every Pool (ErrPlatformPoolMismatch otherwise), so a
+// Platform never ends up across two Pools. Clearing a node's Pool leaves the Platform in no Pool,
+// which only admins manage; a Platform in no Pool may have its Servers moved, which is how an admin
+// moves a Platform to another Pool: out of the old one, then into the new one.
 func (s *GroupingService) AssignServer(ctx context.Context, input AssignServerInput) (*PlacementResult, error) {
 	if !input.Zone.Set && !input.Pool.Set {
 		return nil, infradomain.ErrNothingToAssign
@@ -346,6 +369,15 @@ func (s *GroupingService) AssignServer(ctx context.Context, input AssignServerIn
 			}
 		}
 		poolID = input.Pool.ID
+	}
+	if poolID != current.PoolID && poolID != "" && current.PlatformID != "" {
+		platformPool, found, err := s.platforms.PoolOf(ctx, current.PlatformID)
+		if err != nil {
+			return nil, err
+		}
+		if found && platformPool != "" && platformPool != poolID {
+			return nil, infradomain.ErrPlatformPoolMismatch
+		}
 	}
 	generation, err := s.placements.Write(ctx, input.ServerID, current.Generation, zoneID, poolID)
 	if err != nil {

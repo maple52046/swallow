@@ -48,8 +48,11 @@ GET  /api/v1/workflows/{workflowId}/tasks/{taskId}/events
 GET  /api/v1/workflows/{workflowId}/tasks/{taskId}/artifacts
 ```
 
-All endpoints require the `admin` role (an access token or an API Key, per
-[conventions](conventions.md)).
+Authorization ([conventions](conventions.md#authorization)): a Workflow belongs to its targets. Listing is Pool read and filtered: a
+Workflow is listed only when the caller may read every Server and Platform it targets, and one
+without targets only for admins. Reading a Workflow, its timeline, and a Task's logs, stderr, events,
+and artifacts is Pool read; `cancel`, `rerun`, and Task retry are Pool operate on every target.
+`POST /api/v1/workflows` is admin. A caller that may not read a Workflow gets `404 not_found`.
 
 The wire shape (paths, parameters, request and response schemas, status codes) is authoritative
 in the OpenAPI document [`../openapi/openapi.yaml`](../openapi/openapi.yaml), tag `workflows`
@@ -281,7 +284,8 @@ header values, credential key-value pairs (`password=`, `token:`, `"secret": ...
 PEM private key blocks, each replaced by `[REDACTED]` (a private key by `[REDACTED PRIVATE KEY]`);
 the surrounding text is kept. `endpoint` additionally never carries userinfo, query values (each
 replaced by `[REDACTED]`, keys kept), or a fragment. Redaction is by shape: a client must still treat
-diagnostic text as admin-only detail, and every Workflow route requires the `admin` role.
+diagnostic text as detail for the people who operate the targets, who are the only callers besides
+admins that may read a Workflow.
 
 The diagnostic is durable: it is stored with the Task and served on every read of the Workflow. The
 Task keeps only its latest error; the timeline keeps each earlier attempt's (see below).

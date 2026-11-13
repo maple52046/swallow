@@ -54,7 +54,10 @@ first, see [auth-refresh.md](auth-refresh.md)).
 
 ## Authorization
 
-`admin` only. A non-admin authenticated caller receives `403 forbidden`.
+Pool read ([conventions](conventions.md#authorization)), filtered: a User that is not an admin
+receives events only for Servers placed in Pools it belongs to. Its memberships are read when the
+stream opens; a change to them takes effect when the client reconnects. A Server moved out of those
+Pools is sent as a `removed` event; a Server it never saw is never mentioned.
 
 ## Request
 

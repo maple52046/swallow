@@ -28,6 +28,7 @@ import (
 	nodeexporter "github.com/maple52046/swallow/modules/software/node-exporter"
 	"github.com/maple52046/swallow/modules/software/podman"
 	"github.com/maple52046/swallow/modules/software/prometheus"
+	"github.com/maple52046/swallow/modules/software/sssd"
 	"github.com/maple52046/swallow/modules/software/victoriametrics"
 	validationhost "github.com/maple52046/swallow/modules/validation/host"
 	validationnetwork "github.com/maple52046/swallow/modules/validation/network"
@@ -38,7 +39,7 @@ import (
 var compiledModules = []func() (moduledomain.Module, error){
 	kubernetes.Module, slurm.Module, amd.Module,
 	dockerce.Module, podman.Module, nfs.Module, prometheus.Module, grafana.Module, devicemetricsexporter.Module,
-	nodeexporter.Module, victoriametrics.Module, libvirt.Module,
+	nodeexporter.Module, victoriametrics.Module, libvirt.Module, sssd.Module,
 	validationhost.Module, validationnetwork.Module, validationscript.Module,
 }
 

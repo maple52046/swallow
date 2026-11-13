@@ -55,8 +55,8 @@ automation scope 不清楚。
 `swallow <group> --help` 查看已安裝 binary 的精確 surface，並從各項連結進入完整
 usage manual。
 
-- [`login`、`logout`、`auth me`](../../../cli/docs/usage.zh-TW.md#authsession)：
-  建立、檢查、自動換發與結束 password Session，或保存 API key profile。
+- [`login`、`logout`、`auth me`、`auth password`](../../../cli/docs/usage.zh-TW.md#authsession)：
+  建立、檢查、自動換發與結束 password Session，或保存 API key profile；變更自己的密碼。
 - [`api-keys`](../../../cli/docs/usage.zh-TW.md#api-keys)：以 `list`、`create` 與
   `delete`（alias `revoke`）管理 non-interactive credential。
 - [`overview`](../../../cli/docs/usage.zh-TW.md#overview)：讀取 swallow-wide 或
@@ -80,8 +80,13 @@ usage manual。
 - [`ssh-keys`](../../../cli/docs/usage.zh-TW.md#ssh-keys)：以 `list`、`get`、
   `import`、`generate`、`delete`、`sync` 管理 Access Key，並 show、regenerate
   或 replace installation Deployment Key。
+- [`users`](../../../cli/docs/usage.zh-TW.md#users)：以 `list`、`get`、`create`、
+  `update`、`delete` 管理 User（admin）。
+- [`access`](../../../cli/docs/usage.zh-TW.md#access)：`settings get|set`、`audit`
+  與 `directory get|sync`（admin）。
 - [`infrastructure`](../../../cli/docs/usage.zh-TW.md#infrastructurezones-與-pools)：
-  `zones` 與 `pools` 都提供 `list`、`get`、`create`、`update`、`delete`。
+  `zones` 與 `pools` 都提供 `list`、`get`、`create`、`update`、`delete`；
+  `pools members` 與 `pools access-policy` 管理 Pool 的成員與 sudo 預設值。
 - [`platforms`](../../../cli/docs/usage.zh-TW.md#platforms)：提供 `list`、`get`、
   `create`、`set-spec`、`update`、`delete`、`sync`、`sync-all`；讀取 live
   Slurm（`slurm`）、管理 `slurm-requirements`、`gpu-operator` 與 Omnistat 的 `hardware-counters`，並以 nested `kubernetes`

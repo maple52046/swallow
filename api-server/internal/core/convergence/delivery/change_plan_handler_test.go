@@ -104,7 +104,7 @@ func TestChangePlanRoutesFollowTheContract(t *testing.T) {
 	app := fiber.New()
 	app.Use(requestid.New())
 	app.Use(apicontract.ResponseValidator(t))
-	NewChangePlanHandler(service).RegisterRoutes(app.Group("/api/v1/change-plans"))
+	NewChangePlanHandler(service, allowAll{}).RegisterRoutes(app.Group("/api/v1/change-plans"))
 
 	for _, tc := range []struct {
 		method, path string
@@ -147,7 +147,7 @@ func TestChangePlanPolicyRoutesFollowTheContract(t *testing.T) {
 	app := fiber.New()
 	app.Use(requestid.New())
 	app.Use(apicontract.ResponseValidator(t))
-	NewChangePlanHandler(service).RegisterPolicyRoutes(app.Group("/api/v1/change-plan-policy", middleware.Auth(jwtSvc), middleware.AdminOnly()))
+	NewChangePlanHandler(service, allowAll{}).RegisterPolicyRoutes(app.Group("/api/v1/change-plan-policy", middleware.Auth(jwtSvc), middleware.AdminOnly()))
 
 	call := func(method, body string) (int, ChangePlanPolicyResponse) {
 		t.Helper()
@@ -184,3 +184,9 @@ func TestChangePlanPolicyRoutesFollowTheContract(t *testing.T) {
 		t.Errorf("GET after the refused writes = %d %+v, want the switch still on", status, policy)
 	}
 }
+
+// allowAll lets every caller reach every plan; these tests sign in as an admin.
+type allowAll struct{}
+
+func (allowAll) CanRead(*fiber.Ctx, convergence.ResourceRef) (bool, error)   { return true, nil }
+func (allowAll) CanDecide(*fiber.Ctx, convergence.ResourceRef) (bool, error) { return true, nil }

@@ -30,7 +30,9 @@ every deployment target is an internal datacenter host.
     needs it to start. Its private key is sealed with the installation's credential key and never
     returned by any API. It can be replaced or regenerated, never deleted. Deploying an OS and every
     action that logs in to hosts require it and are refused at acceptance while it is missing.
-  - **Access Keys** belong to a User (today the admin) and are public-key only.
+  - **Access Keys** belong to a User and are public-key only. Users reach Servers with them through
+    the installation's Directory ([decision 082](082-accounts-pool-access-and-directory.md) (accounts,
+    pool access, and directory)), where they take effect without a new deployment.
 - **The Deployment Key is the only automation key.** Every automation SSH login uses it: SSH
   readiness, the login-user probe, every Ansible run, and the Server Default User verification. The
   Site credential holds only the write-only become password; a request carrying `sshPrivateKey` is
@@ -40,8 +42,10 @@ every deployment target is an internal datacenter host.
 - **Keys reach hosts through the provisioner.** SSH Keys are desired state
   ([decision 069](069-swallow-owns-desired-state.md) (swallow owns desired state),
   [decision 071](071-provisioner-realized-desired-state.md) (provisioner-realized desired state)).
-  The SSH Key controller registers every key's public key on each provisioner that can hold SSH
-  keys, and the provisioner writes them into the image's default user at deploy. swallow adopts
+  The SSH Key controller registers the Deployment Key and the admins' Access Keys on each
+  provisioner that can hold SSH keys, and the provisioner writes them into the image's default user
+  at deploy; the admins' keys there are the way in when the Directory is down. Other Users' Access
+  Keys are not registered (`not_registered`). swallow adopts
   identical key material, adds what is missing, puts back keys deleted in the provisioner, and
   removes only keys it registered or adopted; keys a person added in the provisioner are never
   touched. Every OS deployment first ensures the Deployment Key on its provisioner. A provisioner
@@ -117,3 +121,4 @@ every deployment target is an internal datacenter host.
 - 2026-10-02: decision 039 removed the Site private-key override, so every automation login uses the Deployment Key and the Site credential holds only the become password.
 - 2026-10-02: decision 039 added the Server Default User, which takes precedence over the OS Image default user, is verified with a Deployment Key login before it is saved, and is granted the `docker` group by Docker CE.
 - 2026-11-02: merged decision 039 into this ADR; the body states the current decision.
+- 2026-11-13: decision 082 registers only the Deployment Key and the admins' Access Keys on the provisioner; other Users' Access Keys reach Servers through the Directory.

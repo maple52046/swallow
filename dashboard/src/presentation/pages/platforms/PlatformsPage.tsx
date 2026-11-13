@@ -25,6 +25,8 @@ import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatRelative } from '@/shared/utils/time'
+import { isAdmin, ownsAnyPool } from '@/domain/user/access'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { PlatformBulkDeleteDialog } from './PlatformBulkDeleteDialog'
 import { PlatformBulkUninstallDialog } from './PlatformBulkUninstallDialog'
 import type { PlatformBulkOutcome } from './usePlatformBulkActions'
@@ -309,6 +311,7 @@ export function PlatformsPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { siteId, scopedHref } = useSiteScope()
+  const { currentUser } = useAuth()
   const { state, reload } = usePlatforms(siteId)
   const [selectionState, setSelectionState] = useState<PlatformSelectionState>({
     filterKey: '',
@@ -415,6 +418,11 @@ export function PlatformsPage() {
     onBulkDone(accepted.map((outcome) => outcome.platformId))
   }
 
+  // Deploying needs Servers the user operates (an admin, or an owner of a Pool), and the deploy
+  // settings are admin-only; the API refuses the rest regardless.
+  const admin = isAdmin(currentUser)
+  const canDeploy = ownsAnyPool(currentUser)
+
   return (
     <div className="console-page sw-platforms-page">
       <PageHeader
@@ -423,14 +431,18 @@ export function PlatformsPage() {
         stackActionsOnMobile
         actions={
           <>
-            <Button variant="outline" onClick={() => navigate(scopedHref('/platforms/settings'))}>
-              <Settings size={16} />
-              Settings
-            </Button>
-            <Button colorPalette="brand" onClick={() => navigate(scopedHref('/platforms/deploy'))}>
-              <Plus size={16} />
-              Deploy platform
-            </Button>
+            {admin && (
+              <Button variant="outline" onClick={() => navigate(scopedHref('/platforms/settings'))}>
+                <Settings size={16} />
+                Settings
+              </Button>
+            )}
+            {canDeploy && (
+              <Button colorPalette="brand" onClick={() => navigate(scopedHref('/platforms/deploy'))}>
+                <Plus size={16} />
+                Deploy platform
+              </Button>
+            )}
           </>
         }
       />
@@ -440,8 +452,8 @@ export function PlatformsPage() {
       {state.status === 'ready' && allPlatforms.length === 0 && (
         <EmptyState
           title="No platforms"
-          message="Deploy Kubernetes or Slurm to create the first runtime in this Site."
-          action={{ label: 'Deploy platform', onClick: () => navigate(scopedHref('/platforms/deploy')) }}
+          message={canDeploy ? 'Deploy Kubernetes or Slurm to create the first runtime in this Site.' : 'No Platform runs on the Servers of your Pools yet.'}
+          action={canDeploy ? { label: 'Deploy platform', onClick: () => navigate(scopedHref('/platforms/deploy')) } : undefined}
         />
       )}
       {state.status === 'ready' && allPlatforms.length > 0 && (

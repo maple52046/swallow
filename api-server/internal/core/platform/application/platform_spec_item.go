@@ -71,7 +71,10 @@ type PlatformRemovalItem struct {
 // PlatformStatusItem is what swallow realized and judged for the spec: the generation the applied
 // spec realized, the shared conditions, the applied spec, and the Workflow realizing a newer one.
 type PlatformStatusItem struct {
-	ObservedGeneration  int64                       `json:"observedGeneration"`
+	ObservedGeneration int64 `json:"observedGeneration"`
+	// PoolID is the Pool the Platform belongs to (identity-and-access.md §5), derived from where its
+	// members are placed; nil when they are in different Pools or in none.
+	PoolID              *string                     `json:"poolId"`
 	Conditions          []convergence.ConditionItem `json:"conditions"`
 	Applied             *PlatformSpecItem           `json:"applied"`
 	RealizingWorkflowID *string                     `json:"realizingWorkflowId"`

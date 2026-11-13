@@ -46,7 +46,8 @@ Bearer credential required: a Session access token or an API Key. See
 
 ## Authorization
 
-The `admin` role, like the rest of the API.
+Reference: any authenticated User ([conventions](conventions.md#authorization)); a client needs the
+modules to render any Platform or Software screen.
 
 ## Request
 

@@ -165,6 +165,14 @@ services:
       # Server Enrollment (decision 053) serves the CLI at /downloads/swallow. Build it into
       # ./bin first: `cd cli && CGO_ENABLED=0 go build -o ../deploy/dev/bin/swallow ./cmd/swallow`.
       SWALLOW_API_CLI_BINARY: "/usr/local/share/swallow/bin/swallow"
+      # The Directory (decision 082), off unless .env sets SWALLOW_API_DIRECTORY_URL=ldaps://ldap:636
+      # and SWALLOW_API_DIRECTORY_HOST_URL=ldaps://<this host's LAN address>:636 after
+      # ./ldap-secrets.sh, with `docker compose --profile directory up -d`.
+      SWALLOW_API_DIRECTORY_URL: "${SWALLOW_API_DIRECTORY_URL:-}"
+      SWALLOW_API_DIRECTORY_HOST_URL: "${SWALLOW_API_DIRECTORY_HOST_URL:-}"
+      SWALLOW_API_DIRECTORY_BIND_PASSWORD_FILE: "/run/swallow/ldap/admin-password"
+      SWALLOW_API_DIRECTORY_READER_PASSWORD_FILE: "/run/swallow/ldap/reader-password"
+      SWALLOW_API_DIRECTORY_CA_FILE: "/run/swallow/ldap/ca.crt"
     ports:
       - "${API_HTTP_PORT:-30051}:30051"
       # Many BMCs mount only http:// on port 80, so the API is also published where BMCs reach it.
@@ -175,6 +183,7 @@ services:
       - ./boot-media:/var/lib/swallow/boot-media
       - ./bin:/usr/local/share/swallow/bin:ro
       - ./air.toml:/etc/swallow/air.toml:ro
+      - ./ldap:/run/swallow/ldap:ro
       - job-artifacts:/var/lib/swallow/jobs
       - go-mod-cache:/go/pkg/mod
       - go-build-cache:/go/cache
@@ -235,9 +244,21 @@ services:
       # with automation enabled (software-deployment.md, Node Exporter). The dev stack shares lab
       # machines, so it is off unless .env turns it on.
       SWALLOW_WORKER_NODE_EXPORTER_ENSURE: "${SWALLOW_WORKER_NODE_EXPORTER_ENSURE:-false}"
+      # With a Directory, the directory client controller installs SSSD on every deployed lab Server
+      # swallow automates; off unless .env turns it on, so a drill installs it on chosen Servers.
+      SWALLOW_WORKER_DIRECTORY_CLIENT_ENSURE: "${SWALLOW_WORKER_DIRECTORY_CLIENT_ENSURE:-false}"
+      # The Directory (decision 082), off unless .env sets SWALLOW_API_DIRECTORY_URL=ldaps://ldap:636
+      # and SWALLOW_API_DIRECTORY_HOST_URL=ldaps://<this host's LAN address>:636 after
+      # ./ldap-secrets.sh, with `docker compose --profile directory up -d`.
+      SWALLOW_API_DIRECTORY_URL: "${SWALLOW_API_DIRECTORY_URL:-}"
+      SWALLOW_API_DIRECTORY_HOST_URL: "${SWALLOW_API_DIRECTORY_HOST_URL:-}"
+      SWALLOW_API_DIRECTORY_BIND_PASSWORD_FILE: "/run/swallow/ldap/admin-password"
+      SWALLOW_API_DIRECTORY_READER_PASSWORD_FILE: "/run/swallow/ldap/reader-password"
+      SWALLOW_API_DIRECTORY_CA_FILE: "/run/swallow/ldap/ca.crt"
     volumes:
       - ../../api-server:/app
       - ./air-worker.toml:/etc/swallow/air.toml:ro
+      - ./ldap:/run/swallow/ldap:ro
       - ./boot-media:/var/lib/swallow/boot-media:ro
       - go-mod-cache:/go/pkg/mod
       - go-build-cache:/go/cache
@@ -414,6 +435,35 @@ services:
     ports:
       - "${PULP_HTTP_PORT:-8080}:8080"
 
+  # The dev Directory (decision 082): the same OpenLDAP image a production installation runs, on
+  # LDAPS only. Optional: run ./ldap-secrets.sh, then start it with the `directory` profile. Lab
+  # Servers reach it at this host's port 636 (LDAP_PUBLISH).
+  ldap:
+    profiles: [directory]
+    build:
+      context: ../..
+      dockerfile: deploy/production/ldap.Dockerfile
+    restart: unless-stopped
+    # The certificate names `ldap`, the name the worker connects to.
+    hostname: ldap
+    environment:
+      LDAP_BASE_DN: "dc=swallow,dc=internal"
+      LDAP_ADMIN_PASSWORD_FILE: /run/swallow/ldap/admin-password
+      LDAP_READER_PASSWORD_FILE: /run/swallow/ldap/reader-password
+      LDAP_TLS_CERT_FILE: /run/swallow/ldap/server.crt
+      LDAP_TLS_KEY_FILE: /run/swallow/ldap/server.key
+      LDAP_TLS_CA_FILE: /run/swallow/ldap/ca.crt
+    volumes:
+      - ./ldap:/run/swallow/ldap:ro
+      - ldap-data:/var/lib/ldap
+    ports:
+      - "${LDAP_PUBLISH:-636}:636"
+    healthcheck:
+      test: ["CMD", "ldapwhoami", "-Q", "-Y", "EXTERNAL", "-H", "ldapi:///"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
   dashboard:
     build:
       context: .
@@ -451,3 +501,4 @@ volumes:
   temporal-postgres-data:
   pulp-certs:
   pulp-data:
+  ldap-data:

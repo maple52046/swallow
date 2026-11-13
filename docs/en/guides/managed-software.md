@@ -24,6 +24,10 @@ deployed Servers. It is intentionally separate from Platform deployment.
   metrics store that Prometheus-compatible clients write to and Grafana reads; see below.
 - **libvirt (QEMU/KVM):** turns a Server into a KVM hypervisor whose virtual machines
   swallow can list and enroll; see below.
+- **Directory client (SSSD):** lets a Server read swallow's users, their SSH keys, and
+  their sudo rules from the installation's Directory, so people log in with their own
+  accounts. swallow installs it automatically on every deployed Server it automates;
+  see below.
 
 The shipped automation manifest is the allowlist. If a software kind or variant
 does not appear in the active API contract and manifest, it is not supported.
@@ -109,11 +113,27 @@ every deployed, unlocked Server of a Site whose automation is enabled, including
 did not deploy: it installs it where it is missing, retries a failed install, and installs it
 again when the Site's Prometheus stops scraping it (see
 [Monitoring](monitoring.md#the-node-exporter-is-kept-installed)). You rarely install it here;
-an uninstall on such a Server is undone at the next check, so lock the Server to keep the
-Node Exporter off it. A member of any Platform accepts it like any other deployed Server. Installing it first
+uninstalling it from a Server keeps it off that Server until someone installs it again (locking
+the Server does too). A member of any Platform accepts it like any other deployed Server. Installing it first
 removes swallow's older containerised node-exporter
 (`swallow-node-exporter.service`) if the host still runs it; Docker and any RDC
 exporter container are left alone.
+
+## Directory client (SSSD)
+
+The directory client makes a Server read its accounts, groups, SSH keys, and sudo rules
+from the installation's Directory over LDAPS, verified with the installation's CA. People
+then log in with their swallow username and their own SSH keys on the Servers their Pools
+allow, and get the sudo their Pool gives them; nothing is written to the Server's
+`/etc/passwd`, `authorized_keys`, or sudoers files, and local accounts keep working.
+Membership, key, and sudo changes reach the Server within about a minute.
+
+swallow installs it automatically, like the Node Exporter, on every deployed, unlocked
+Server of a Site whose automation is enabled, once the Directory holds the users. It runs
+on Ubuntu. The install stops, without changing how anyone logs in, when the Server cannot
+reach the Directory on port 636 or when a local account has the name or id of a swallow
+user. It has no settings. Uninstalling it keeps it off that Server until someone installs
+it again.
 
 ## VictoriaMetrics
 

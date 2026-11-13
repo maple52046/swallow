@@ -1,13 +1,13 @@
 import type { ReactNode } from 'react'
 import { IconButton } from '@chakra-ui/react'
-import { KeyRound, Pencil, Trash2 } from 'lucide-react'
+import { KeyRound, Pencil, Trash2, UsersRound } from 'lucide-react'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 
 /**
  * The kind of a row action. The kind — not the caller — decides the icon and whether the action is
  * destructive, so the same concept looks identical on every Infrastructure page.
  */
-export type ResourceRowActionKind = 'edit' | 'credential' | 'delete'
+export type ResourceRowActionKind = 'edit' | 'credential' | 'members' | 'delete'
 
 /** One icon action in a resource row. */
 export interface ResourceRowAction {
@@ -26,11 +26,13 @@ export interface ResourceRowAction {
 const ACTION_ICONS: Record<ResourceRowActionKind, ReactNode> = {
   edit: <Pencil size={18} />,
   credential: <KeyRound size={18} />,
+  members: <UsersRound size={18} />,
   delete: <Trash2 size={18} />,
 }
 const DESTRUCTIVE_KINDS: Record<ResourceRowActionKind, boolean> = {
   edit: false,
   credential: false,
+  members: false,
   delete: true,
 }
 

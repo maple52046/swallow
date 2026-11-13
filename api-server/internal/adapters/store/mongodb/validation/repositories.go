@@ -138,6 +138,17 @@ func (r *MongoRunRepo) Get(ctx context.Context, id string) (validationdomain.Run
 // List implements validationdomain.RunRepository. A non-positive limit returns every match.
 func (r *MongoRunRepo) List(ctx context.Context, filter validationdomain.RunFilter) ([]validationdomain.Run, int, error) {
 	query := bson.M{}
+	if filter.RestrictTargets {
+		within := filter.TargetsWithin
+		if within == nil {
+			within = []string{}
+		}
+		query["$and"] = bson.A{
+			bson.M{"$or": bson.A{bson.M{"target.serverIds.0": bson.M{"$exists": true}}, bson.M{"target.memberIds.0": bson.M{"$exists": true}}}},
+			bson.M{"target.serverIds": bson.M{"$not": bson.M{"$elemMatch": bson.M{"$nin": within}}}},
+			bson.M{"target.memberIds": bson.M{"$not": bson.M{"$elemMatch": bson.M{"$nin": within}}}},
+		}
+	}
 	if filter.SiteID != "" {
 		query["siteId"] = filter.SiteID
 	}

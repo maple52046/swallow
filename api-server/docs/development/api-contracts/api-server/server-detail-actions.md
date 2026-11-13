@@ -46,8 +46,13 @@ POST /api/v1/servers/{id}/redfish/probe
 GET  /boot-media/ipxe/{id}/swallow-ipxe.iso
 ```
 
-All routes require an admin bearer token, except `GET /boot-media/ipxe/{id}/swallow-ipxe.iso`, which
-is deliberately unauthenticated (see [Boot Media](#boot-media)).
+Authorization ([conventions](conventions.md#authorization)): reading a Server (`GET /servers/{id}`, `events`, `network`,
+`provisioning-tasks`, `power-state`) is Pool read. Its actions — `refresh`, `power-on`, `power-off`,
+`inspect`, `test`, `abort`, `override-failed-testing`, `lock`, `unlock`, `mark-broken`, `mark-fixed`,
+`rescue-mode`, `exit-rescue-mode`, the Server Default User, network links, and `provisioner-detail` —
+are Pool operate. `DELETE /servers/{id}`, Boot Media and the Redfish probe, and the Power
+Configuration (read and write) are admin. `GET /boot-media/ipxe/{id}/swallow-ipxe.iso` is
+deliberately unauthenticated (see [Boot Media](#boot-media)).
 
 The wire shape of the `/api/v1/servers/{id}` routes — paths, parameters, bodies, status codes, and
 every response field with its nullability — is the OpenAPI contract

@@ -202,11 +202,12 @@ func newLogoutCommand() *cobra.Command {
 func newAuthCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "auth",
-		Short: "Inspect the current credential",
+		Short: "Inspect the current credential or change your password",
 	}
+	cmd.AddCommand(newPasswordCommand())
 	cmd.AddCommand(&cobra.Command{
 		Use:   "me",
-		Short: "Show the authenticated caller's identity, role, and how it authenticated",
+		Short: "Show the authenticated caller's identity, role, Pool Memberships, and how it authenticated",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return getJSON(cmd, "auth/me", nil)
 		},

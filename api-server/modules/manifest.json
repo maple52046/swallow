@@ -52,6 +52,15 @@
       "path": "software/node-exporter/playbooks/uninstall-node-exporter.yml"
     },
     {
+      "name": "deploy-sssd",
+      "path": "software/sssd/playbooks/deploy-sssd.yml",
+      "fetchesArtifacts": true
+    },
+    {
+      "name": "uninstall-sssd",
+      "path": "software/sssd/playbooks/uninstall-sssd.yml"
+    },
+    {
       "name": "deploy-docker-ce",
       "path": "software/docker-ce/playbooks/deploy-docker-ce.yml",
       "fetchesArtifacts": true

@@ -32,7 +32,7 @@ var coreVendorTermsBaseline = filepath.Join("testdata", "core_vendor_terms.json"
 var coreVendorTerms = []string{
 	"maas", "ansible", "temporal", "bson", "mongo", "prometheus", "promql", "alertmanager", "redfish",
 	"libvirt", "virsh", "qemu", "ipxe", "grub", "k0s", "kubernetes", "kubectl", "helm", "slurm",
-	"rocm", "amdgpu", "nvidia", "dcgm", "docker", "podman", "grafana", "omnistat",
+	"rocm", "amdgpu", "nvidia", "dcgm", "docker", "podman", "grafana", "omnistat", "ldap", "sssd",
 }
 
 // countVendorTerms returns how many identifiers, string literals, and struct tags in file name a

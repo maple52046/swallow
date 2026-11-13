@@ -61,6 +61,24 @@ type ProvisionerKeys interface {
 	Registrar(ctx context.Context, integrationID string) (KeyRegistrar, bool, error)
 }
 
+// ReasonNotRegistered is the realized condition's reason, on one provisioner, for an Access Key
+// whose owner is not an admin: only the Deployment Key and admins' Access Keys are registered with
+// provisioners (decision 082), so the key reaches Servers through the Directory instead. It is not
+// a failure, and a key with this reason on every provisioner is realized.
+const ReasonNotRegistered = "not_registered"
+
+// KeyOwners tells the SSH Key service which Users' Access Keys it registers with provisioners.
+//
+// Administrators returns the ids of every User whose User Role is admin. Provisioners inject the
+// keys they hold into the automation account of every Server they deploy, so registering a
+// non-admin's key would hand that person the automation account and its sudo; the answer must
+// therefore be read fresh on every realization pass, so a demoted admin's keys leave the
+// provisioners at the next pass. An error is an infrastructure failure: the pass is retried and
+// no key is removed on its account.
+type KeyOwners interface {
+	Administrators(ctx context.Context) (map[string]bool, error)
+}
+
 // SyncRepository persists ProviderSync records, keyed by (KeyID, IntegrationID).
 //
 // Upsert replaces the record for its key pair. Delete of a missing record is not an error. List
@@ -100,4 +118,7 @@ type KeyRepository interface {
 	DeploymentPrivateKey(ctx context.Context) (string, error)
 	// DeleteAccess removes one of ownerUserID's Access Keys, or returns ErrKeyNotFound.
 	DeleteAccess(ctx context.Context, ownerUserID, id string) error
+	// DeleteAllAccess removes every Access Key ownerUserID owns; owning none is a success. User
+	// deletion calls it inside the transaction that deletes the User.
+	DeleteAllAccess(ctx context.Context, ownerUserID string) error
 }

@@ -1231,8 +1231,13 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   各 1 rank，要求同一 PMIx namespace、barrier 通過，並確認失敗 rank 讓 step 失敗。關閉時移除 `oci.conf` 與 bundle，crun 套件保留（Podman 也依賴它）。
 - **非目標（後續）**：SlurmDBD/accounting、RSMI GPU accounting、production 等級/外部 HA controller-state
   filesystem（controller state 目前為 lab 等級 managed NFS）、非 NFS 的 workload 儲存型別、多個
-  workload filesystem、使用者/UID-GID 佈建（swallow 只提供 mount,不管身分）、`auth/slurm`、部署後單獨
+  workload filesystem、使用者的家目錄與共享儲存、`pam_slurm_adopt`、`auth/slurm`、部署後單獨
   開關 Omnistat（它的 hardware counters 可以開關）、部署後關閉 Platform Grafana、經 `scrun` 的 Podman、cluster-wide `MpiDefault`（job 以 `--mpi=pmix_v5` 明確要求）。
+- **使用者與 Host Access**：Slurm 的使用者是 swallow 的 User（[identity-and-access.md](identity-and-access.md)）：裝了
+  directory client 的節點從 Directory 取得相同的帳號與 uid，所以 job 在每個節點以同一個身分執行。模組在 `module.json`
+  宣告 `hostAccess`：Pool 的 member 只能登入 `login` 節點、在任何 Slurm 節點都沒有 `sudo`（有 root 的人能讀 MUNGE key），
+  經 `srun`／`sbatch` 在 compute 節點執行 job；owner 與 admin 不受限制。家目錄不共享：節點在第一次登入時建立本地家目錄，
+  job 在沒有家目錄的節點會切到 `/tmp`。
 - **設計理由**：per-daemon 角色、套件由 image 提供、選用的 slurmrestd credential 見 decision 019；swallow 供給 HA state
   與 primary 先啟動見 decision 023；login 與 workload storage 見 decision 024；GRES、driver options、Omnistat 與
   Grafana 組入見 decision 063，Site 的 Prometheus 與 Platform Grafana 的閘道見 decision 003；dispatcher、共用節點、DME、OCI、PMIx 見 decision 066。各 ADR 保留完整的

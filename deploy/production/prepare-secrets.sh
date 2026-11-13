@@ -35,5 +35,15 @@ write_secret maas-admin-password "$(openssl rand -hex 18)"
 write_secret pulp-db-password "$(openssl rand -hex 24)"
 write_secret pulp-admin-password "$(openssl rand -hex 18)"
 write_secret pulp-secret-key "$(openssl rand -hex 32)"
-chmod 0444 "${secrets_dir}"/*
+# The Directory (decision 082): the password swallow's worker writes it with, and the password of
+# the read-only account every Server's directory client binds as.
+write_secret ldap-admin-password "$(openssl rand -hex 24)"
+write_secret ldap-reader-password "$(openssl rand -hex 24)"
+# The installation CA and the Directory's server certificate, which names `ldap` (the worker's
+# address for it) and SWALLOW_ADDRESS (the Servers'). The CA key stays in ldap-tls/ and is never
+# mounted into a container; a changed address reissues the certificate under the same CA.
+"${script_dir}/ldap/tls.sh" "${secrets_dir}/ldap-tls" "${SWALLOW_ADDRESS:-}" >/dev/null
+find "${secrets_dir}" -maxdepth 1 -type f -exec chmod 0444 {} +
+chmod 0444 "${secrets_dir}"/ldap-tls/{ca.crt,server.crt,server.key}
+chmod 0400 "${secrets_dir}"/ldap-tls/ca.key
 printf 'secrets prepared in %s\n' "${secrets_dir}"

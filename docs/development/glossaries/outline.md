@@ -32,7 +32,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 ### Core and Extensions
 
-- [Provider Interface](terms/provider-interface.md): A core-defined port, in core vocabulary, for one kind of external system (OS provisioning, Workflow executor, host automation, store, metrics and alerts, BMC and hypervisor, Local Repository).
+- [Provider Interface](terms/provider-interface.md): A core-defined port, in core vocabulary, for one kind of external system (OS provisioning, Workflow executor, host automation, store, metrics and alerts, BMC and hypervisor, Local Repository, Directory).
 - [Provider Adapter](terms/provider-adapter.md): The replaceable implementation of a Provider Interface for one system (MAAS, Temporal, Ansible, MongoDB, Pulp, …), translating its vocabulary; never part of the core.
 - [Extension Module](terms/extension-module.md): A unit adding something swallow manages — a Platform Module, Accelerator Module, Software Module, or Validation Module — through the module contract; also called a plugin.
 - [Platform Module](terms/platform-module.md): The module that makes one kind of Platform runtime manageable (Kubernetes, Slurm).
@@ -137,6 +137,13 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 ### Access
 
+- [User](terms/user.md): A person's swallow account and Linux login on the managed Servers — username, User Role, POSIX identity, Pool Memberships; Sessions, API Keys, and Access Keys belong to it.
+- [User Role](terms/user-role.md): A User's installation-wide role — `admin | user`.
+- [Pool Membership](terms/pool-membership.md): One User's membership in one Pool, with a Pool Role and Sudo Policy overrides.
+- [Pool Role](terms/pool-role.md): What a Pool Membership allows — `owner | member`.
+- [Sudo Policy](terms/sudo-policy.md): Who may use `sudo` on a Server and whether it asks for a password — admin setting, Pool defaults, member overrides `inherit | on | off`, Platform limits.
+- [Host Access](terms/host-access.md): Which Users may log in to a Server and with which `sudo`, derived from placement, memberships, Sudo Policy, and Platform limits.
+- [Directory](terms/directory.md): The installation's account directory (bundled LDAP) swallow projects Users, keys, Host Access, and `sudo` rules into; the Servers' directory client reads it.
 - [SSH Key](terms/ssh-key.md): A public key realized into key-capable provisioners, purpose `deployment` (the Deployment Key) or `access` (a User's public-key-only Access Key).
 - [Session](terms/session.md): One password sign-in of a User, held by a short-lived access token and a rotating refresh token; ends at logout, idle expiry, or maximum age.
 - [API Key](terms/api-key.md): A named, long-lived secret a User creates so non-interactive clients (CLI, scripts) call the API as that User; shown once, kept only as a hash, optional expiry, revoked by deletion.
@@ -219,9 +226,8 @@ Two names that look related are not: the schema-v2 Operation records were retire
 
 ### Ownership and Access
 
-- `Owner` — Server 的擁有關係（team 或 user）。由 `Server` 的 ownership 規則引用。
+- `Owner` — Server 的擁有關係（team 或 user）。由 `Server` 的 ownership 規則引用。與 [Pool Role](terms/pool-role.md) 的 `owner` 不同：後者是 User 在某個 Pool 的角色。
 - `Team` — Server 的可能擁有者之一。
-- `User` — swallow 身分；現有用法包含 `admin | owner | user` 三種角色，角色語意尚未定義。Session、API Key 與 Access Key 都屬於某個 User（目前只有 bootstrap admin）。
 - `SSH Connection` — Server 的遠端存取路徑（`SSH Key` 已定義於上方 Access；`BMC` 已定義於上方 Compute Resource）。
 
 ### Physical Topology

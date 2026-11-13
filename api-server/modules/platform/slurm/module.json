@@ -37,6 +37,12 @@
       "reason": "Converts between the Platform spec and the Slurm deploy request (members as nodeAssignments) and classifies a spec change per desired-state-model §5.2, marking what swallow cannot carry out yet."
     }
   ],
+  "hostAccess": {
+    "default": { "memberLogin": false, "memberSudo": false },
+    "roles": {
+      "login": { "memberLogin": true, "memberSudo": false }
+    }
+  },
   "capabilities": [
     "host-automation",
     "os-provisioning"

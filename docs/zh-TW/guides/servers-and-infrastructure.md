@@ -346,6 +346,12 @@ Zone／Pool 是在 **Infrastructure** 管理的 swallow-owned grouping resource�
 透過 Server placement action 指派。Provisioner 有能力時會 realize grouping；不支援時 Server 上會回報這件事，
 swallow 不另存一份。
 
+Pool 也決定誰可以使用它的 Server。它的 member 看得到這些 Server（以及上面的 Platform、Workflow 與 Validation Run），並以
+自己的 SSH key 登入；它的 owner 可以操作它們。在 **Pools**，或 **Infrastructure → Pools** 中 Pool 那一列的 **Members**
+動作，管理 Pool 的成員與 sudo 預設值。只有 admin 能在 Pool 之間移動 Server，而且一個 Platform 的所有 Server 都在同一個
+Pool：被 Platform claim 的 Server 只能移進那個 Platform 的 Pool，或移出所有 Pool（之後在它的 Server 重新都在同一個
+Pool 之前，Platform 只有 admin 能管理）。刪除 Pool 會一併刪除它的成員資格。
+
 ## Lock 與 destructive action
 
 Lock 會排除 Server 的自動或 destructive management。解除前先確認沒有 Workflow

@@ -63,6 +63,16 @@ func Validate(cfg *Config) error {
 	if cfg.API.ControllerResyncInterval <= 0 {
 		return fmt.Errorf("api.controllerResyncInterval must be > 0")
 	}
+	// The range must sit above the local accounts an OS creates (1000 up) only by convention, so
+	// any start from 1000 is accepted; below it would collide with system accounts.
+	if cfg.API.POSIXIDStart < 1000 || cfg.API.POSIXIDStart > 2000000000 {
+		return fmt.Errorf("api.posixIdStart must be between 1000 and 2000000000")
+	}
+	if d := cfg.API.Directory; d.Configured() {
+		if d.BaseDN == "" || d.BindPasswordFile == "" || d.CAFile == "" || d.HostURL == "" || d.ReaderPasswordFile == "" {
+			return fmt.Errorf("api.directory: url is set, so baseDN, bindPasswordFile, caFile, hostURL, and readerPasswordFile are required")
+		}
+	}
 	if cfg.API.ChangePlanTTL <= 0 {
 		return fmt.Errorf("api.changePlanTTL must be > 0")
 	}

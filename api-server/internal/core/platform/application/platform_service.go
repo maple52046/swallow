@@ -354,6 +354,9 @@ func (s *PlatformService) Create(ctx context.Context, input CreatePlatformInput)
 		return nil, err
 	}
 	item := toPlatformItem(platform, registeredLifecycle())
+	if err := s.attachPool(ctx, platform, &item); err != nil {
+		return nil, err
+	}
 	return &item, nil
 }
 
@@ -403,7 +406,11 @@ func (s *PlatformService) List(ctx context.Context, siteID string) ([]PlatformIt
 
 	items := make([]PlatformItem, 0, len(platforms))
 	for _, platform := range platforms {
-		items = append(items, toPlatformItem(platform, lifecycles[platform.ID]))
+		item := toPlatformItem(platform, lifecycles[platform.ID])
+		if err := s.attachPool(ctx, platform, &item); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
 	}
 	return items, nil
 }
@@ -419,7 +426,26 @@ func (s *PlatformService) Get(ctx context.Context, id string) (*PlatformItem, er
 		return nil, err
 	}
 	item := toPlatformItem(platform, lifecycle)
+	if err := s.attachPool(ctx, platform, &item); err != nil {
+		return nil, err
+	}
 	return &item, nil
+}
+
+// PoolOf returns the Pool a Platform belongs to ("" for none) and whether the Platform exists, for
+// authorization (identity-and-access.md §5).
+func (s *PlatformService) PoolOf(ctx context.Context, platformID string) (string, bool, error) {
+	return NewPoolResolver(s.platforms, s.claims, s.servers).PoolOf(ctx, platformID)
+}
+
+// attachPool sets the item's derived status.poolId.
+func (s *PlatformService) attachPool(ctx context.Context, platform *platformdomain.Platform, item *PlatformItem) error {
+	pool, err := NewPoolResolver(s.platforms, s.claims, s.servers).Pool(ctx, platform)
+	if err != nil {
+		return err
+	}
+	item.Status.PoolID = wire.String(pool)
+	return nil
 }
 
 // UpdatePlatformInput contains the mutable policy fields. It intentionally excludes the
@@ -481,6 +507,9 @@ func (s *PlatformService) Update(ctx context.Context, id string, input UpdatePla
 		return nil, err
 	}
 	item := toPlatformItem(platform, lifecycle)
+	if err := s.attachPool(ctx, platform, &item); err != nil {
+		return nil, err
+	}
 	return &item, nil
 }
 

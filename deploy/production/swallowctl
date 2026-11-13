@@ -28,18 +28,19 @@ maas_marker="${script_dir}/state/local-maas"
 default_manifest="${script_dir}/../release-manifest.json"
 required_images=(SWALLOW_API_IMAGE SWALLOW_DASHBOARD_IMAGE SWALLOW_MONGO_IMAGE
   SWALLOW_POSTGRES_IMAGE SWALLOW_TEMPORAL_SERVER_IMAGE SWALLOW_PROMETHEUS_IMAGE
-  SWALLOW_PROM_LABEL_PROXY_IMAGE SWALLOW_PULP_IMAGE SWALLOW_PULP_WEB_IMAGE)
+  SWALLOW_PROM_LABEL_PROXY_IMAGE SWALLOW_PULP_IMAGE SWALLOW_PULP_WEB_IMAGE SWALLOW_LDAP_IMAGE)
 managed_env_keys=(SWALLOW_RELEASE_VERSION "${required_images[@]}")
 required_secrets=(mongo-root-username mongo-root-password mongo-keyfile mongo-uri temporal-db-password
   jwt-secret bootstrap-admin-password credential-key machine-token maas-db-password maas-admin-password
-  pulp-db-password pulp-admin-password pulp-secret-key)
+  pulp-db-password pulp-admin-password pulp-secret-key ldap-admin-password ldap-reader-password
+  ldap-tls/ca.crt ldap-tls/ca.key ldap-tls/server.crt ldap-tls/server.key)
 # installed_marker records the release of the last install or upgrade that passed doctor;
 # install.sh upgrades only an installation that has one.
 installed_marker="${script_dir}/state/installed"
 # User settings that install and upgrade copy from the environment into .env.
 # SWALLOW_SSH_KNOWN_HOSTS is left out: it may span lines, which .env cannot hold.
 setting_keys=(SWALLOW_ADDRESS SWALLOW_MAAS_URL SWALLOW_BOOT_MEDIA_BASE_URL SWALLOW_HTTP_PORT
-  SWALLOW_PULP_PORT SWALLOW_POSTGRES_HOST_PORT SWALLOW_MAAS_IMAGE_TIMEOUT SWALLOW_SITE_NAME
+  SWALLOW_PULP_PORT SWALLOW_LDAP_PORT SWALLOW_POSTGRES_HOST_PORT SWALLOW_MAAS_IMAGE_TIMEOUT SWALLOW_SITE_NAME
   SWALLOW_TEMPORAL_UI_IMAGE SWALLOW_TEMPORAL_UI_PORT SWALLOW_NTP_UPSTREAM SWALLOW_NTP_ALLOW
   SWALLOW_PROMETHEUS_RETENTION)
 # The Site Prometheus loads every *.yml in prometheus_site_dir (see prometheus.yml). swallowctl
@@ -78,7 +79,7 @@ write_env_from_manifest() {
   [[ -f "${manifest}" ]] || die "release manifest not found: ${manifest}"
   jq -e '.version and .images.api and .images.dashboard and .images.mongo and
     .images.postgres and .images.temporalServer and .images.prometheus and .images.promLabelProxy and
-    .images.pulp and .images.pulpWeb' \
+    .images.pulp and .images.pulpWeb and .images.ldap' \
     "${manifest}" >/dev/null ||
     die "not a swallow release manifest: ${manifest}"
   tmp="$(mktemp "${script_dir}/.env.XXXXXX")"
@@ -94,7 +95,8 @@ write_env_from_manifest() {
     "SWALLOW_PROMETHEUS_IMAGE=\(.images.prometheus)",
     "SWALLOW_PROM_LABEL_PROXY_IMAGE=\(.images.promLabelProxy)",
     "SWALLOW_PULP_IMAGE=\(.images.pulp)",
-    "SWALLOW_PULP_WEB_IMAGE=\(.images.pulpWeb)"' \
+    "SWALLOW_PULP_WEB_IMAGE=\(.images.pulpWeb)",
+    "SWALLOW_LDAP_IMAGE=\(.images.ldap)"' \
     "${manifest}" >>"${tmp}"
   chmod 0600 "${tmp}"
   mv -- "${tmp}" "${env_file}"
@@ -380,6 +382,14 @@ take_backup() {
   "${compose[@]}" run --rm --no-deps --entrypoint tar api-server \
     -C /var/lib/swallow/jobs -czf - . >"${target}/job-artifacts.tar.gz"
   install -m 0600 "${script_dir}/secrets/credential-key" "${target}/credential-key"
+  # The installation CA every Server's directory client trusts, the Directory's certificate, and its
+  # passwords (the reader's is in every Server's directory client configuration). The Directory's
+  # database itself is rebuilt from MongoDB.
+  if [[ -d "${script_dir}/secrets/ldap-tls" ]]; then
+    tar -C "${script_dir}/secrets" -czf "${target}/directory-secrets.tar.gz" \
+      ldap-tls ldap-admin-password ldap-reader-password
+    files+=(directory-secrets.tar.gz)
+  fi
   if pulp_database_exists; then
     "${compose[@]}" exec -T postgres pg_dump -U temporal -Fc pulp >"${target}/pulp.pgdump"
     # gpg-agent leaves its sockets in the GPG home; tar cannot archive them.
@@ -722,8 +732,8 @@ restore() {
   if [[ "${confirmed}" != true ]]; then
     cat >&2 <<EOF
 [swallowctl] restore replaces this installation's MongoDB database, job artifacts, credential key,
-[swallowctl] and (when the backup has them) the Local Repository's Pulp database and keys and the
-[swallowctl] co-located MAAS database with those of
+[swallowctl] and (when the backup has them) the installation CA and Directory secrets, the Local
+[swallowctl] Repository's Pulp database and keys, and the co-located MAAS database with those of
 [swallowctl]   ${source}
 [swallowctl] and terminates every swallow run in Temporal. Work recorded after the backup is lost,
 [swallowctl] and Tasks that finished after it run again. Rerun with --yes to proceed.
@@ -744,6 +754,14 @@ EOF
   # Same mode prepare-secrets.sh uses: containers read secrets as non-root, and the 0700
   # secrets directory keeps other host users out.
   install -m 0444 "${source}/credential-key" "${script_dir}/secrets/credential-key"
+  if [[ -f "${source}/directory-secrets.tar.gz" ]]; then
+    log "restoring the installation CA and the Directory's certificate and passwords"
+    rm -rf "${script_dir}/secrets/ldap-tls"
+    tar -C "${script_dir}/secrets" -xzf "${source}/directory-secrets.tar.gz"
+    # Reissues the certificate if this host's address differs from the backed-up one.
+    "${script_dir}/prepare-secrets.sh" >/dev/null
+    "${compose[@]}" up -d --force-recreate ldap
+  fi
   if [[ -f "${source}/pulp.pgdump" ]]; then
     restore_pulp "${source}"
   fi
@@ -897,6 +915,18 @@ pulp_ready() {
   return 1
 }
 
+# directory_ready proves the Directory (decision 082) answers: slapd is up and its database is
+# open, asked over its local socket so no password is needed.
+directory_ready() {
+  "${compose[@]}" exec -T ldap ldapwhoami -Q -Y EXTERNAL -H ldapi:/// >/dev/null
+}
+
+# directory_expected tells whether this stack runs a Directory: always in production; in the dev
+# stack only when its optional `ldap` service runs (compose profile `directory`).
+directory_expected() {
+  [[ "${profile}" == production ]] || [[ -n "$("${compose[@]}" ps -q ldap 2>/dev/null)" ]]
+}
+
 # mongo_replica_set_ready proves the store topology swallow requires (decision 069): MongoDB runs
 # as the replica set rs0 and this member is its writable primary. Every swallow process refuses to
 # start otherwise.
@@ -1040,6 +1070,9 @@ doctor() {
   check 'Prometheus runs the swallow-exporters job' prometheus_scrapes_exporters || failed=1
   check 'prom-label-proxy confines queries to a platform_id' label_proxy_confines_queries || failed=1
   check "Pulp answers through pulp-web on port $(pulp_port)" pulp_ready || failed=1
+  if directory_expected; then
+    check 'the Directory (LDAP) answers' directory_ready || failed=1
+  fi
   if [[ "${profile}" == production ]]; then
     "${script_dir}/local-maas.sh" check || failed=1
     "${script_dir}/local-ntp.sh" check || failed=1
@@ -1214,6 +1247,9 @@ ensure() {
   converge 'Prometheus is ready' prometheus_ready prometheus || true
   converge 'prom-label-proxy confines queries to a platform_id' label_proxy_confines_queries prom-label-proxy || true
   converge "Pulp answers through pulp-web on port $(pulp_port)" pulp_ready pulp-api pulp-content pulp-worker pulp-web || true
+  if directory_expected; then
+    converge 'the Directory (LDAP) answers' directory_ready ldap || true
+  fi
   if [[ "${profile}" == production ]]; then
     if [[ -f "${maas_marker}" ]]; then
       converge_local_maas || printf 'FAIL  co-located MAAS did not converge\n'

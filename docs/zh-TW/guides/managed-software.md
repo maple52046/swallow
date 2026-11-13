@@ -22,6 +22,8 @@ Managed Software 會在已 deployed 的 Server 安裝或移除一個 host-level 
   一個讓 Prometheus 相容 client 寫入、讓 Grafana 讀取的 metrics store；見下文。
 - **libvirt (QEMU/KVM)：** 讓 Server 成為 KVM hypervisor，swallow 可以列出並 enroll 它上面的
   virtual machine；見下文。
+- **Directory client（SSSD）：** 讓 Server 從 installation 的 Directory 讀取 swallow 的使用者、他們的 SSH key 與 sudo
+  規則，讓人以自己的帳號登入。swallow 會自動在它自動化的每台已佈署 Server 上安裝；見下文。
 
 Shipped automation manifest 是 allowlist。Software kind／variant 沒有出現在 active
 API contract 與 manifest 時，就不是 supported capability。
@@ -92,12 +94,22 @@ container runtime，也沒有可設定的選項。
 每次 OS 佈署都會在佈署的 Server 上安裝它，而且 swallow 會讓每個啟用 automation 的 Site 中每台已佈署、
 未 lock 的 Server 一直保有它，包括不是由 swallow 佈署的 Server：缺少時安裝、失敗時重試，Site 的
 Prometheus 收集不到時再安裝一次（見 [Monitoring](monitoring.md#node-exporter-會一直保持安裝)）。所以很少
-需要在這裡安裝；在這種 Server 上 uninstall 會在下一次檢查時被補回，要讓某台 Server 不裝 Node Exporter，
-請 lock 它。任何 Platform 的成員都與其他已佈署的 Server 一樣可以安裝。
+需要在這裡安裝；在某台 Server 上 uninstall 它，swallow 就不再在那台安裝，直到有人再安裝（lock Server 也一樣）。任何 Platform 的成員都與其他已佈署的 Server 一樣可以安裝。
 安裝前會先移除主機上仍在執行的 swallow 舊版 containerised node-exporter
 （`swallow-node-exporter.service`）；Docker 與 RDC exporter container 不受影響。
 
-## VictoriaMetrics
+## Directory client（SSSD）
+
+Directory client 讓 Server 經 LDAPS 從 installation 的 Directory 讀取帳號、群組、SSH key 與 sudo 規則，並以
+installation 的 CA 驗證。之後人以自己的 swallow username 與 SSH key 登入所屬 Pool 允許的 Server，得到 Pool 給他們的
+sudo；Server 的 `/etc/passwd`、`authorized_keys` 與 sudoers 檔案都不會被寫入，本地帳號照常可用。成員資格、key 與 sudo
+的變更大約一分鐘內到達 Server。
+
+swallow 像 Node Exporter 一樣自動安裝它：在啟用 automation 的 Site 中，每台已佈署、未 lock 的 Server，在 Directory
+已經有使用者之後。它只支援 Ubuntu。Server 連不到 Directory 的 port 636，或本地帳號與 swallow 的使用者同名或同 id 時，
+安裝會停下，而且不改變任何人的登入方式。它沒有設定。在某台 Server 上 uninstall 它，swallow 就不再在那台安裝，直到有人
+再安裝。
+
 
 VictoriaMetrics 安裝 VictoriaMetrics 1.155.0（single-node）的官方 release binary，swallow 從 Site
 選擇的來源取得並驗證。它不需要 container runtime，只支援 amd64 的 Server，目前只在 Ubuntu 24.04 驗證過，

@@ -21,9 +21,9 @@ jq -e --argjson current "${current_schema}" --argjson oldest "${oldest_schema}" 
   { printf 'release-manifest.example.json: schemaVersions and upgrade must match schema %s upgrading from %s (%s)\n' \
       "${current_schema}" "${oldest_schema}" "${migration_go}" >&2; exit 1; }
 jq -e '.upgrade.downgradeSupported == false and
-  (.images | keys) == ["api", "cli", "dashboard", "mongo", "postgres", "promLabelProxy", "prometheus", "pulp", "pulpWeb", "temporalServer"] and
+  (.images | keys) == ["api", "cli", "dashboard", "ldap", "mongo", "postgres", "promLabelProxy", "prometheus", "pulp", "pulpWeb", "temporalServer"] and
   (.artifacts.cliBinary | type == "string") and
-  ([.images.api, .images.dashboard, .images.cli] | map(startswith("ghcr.io/maple52046/swallow@sha256:")) | all) and
+  ([.images.api, .images.dashboard, .images.cli, .images.ldap] | map(startswith("ghcr.io/maple52046/swallow@sha256:")) | all) and
   ([.images.mongo, .images.postgres, .images.temporalServer, .images.prometheus, .images.pulp, .images.pulpWeb] |
     map(test("^docker\\.io/[^@]+@sha256:")) | all) and
   (.images.promLabelProxy | test("^quay\\.io/[^@]+@sha256:"))' \

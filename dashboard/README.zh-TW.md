@@ -25,7 +25,9 @@
 | `/validation/schedules` | 依 Site 範圍的 Validation automation |
 | `/monitoring` | Health、用量圖表（勾選 Server、Pool、Zone、Platform）、current metric、選用的 Grafana，以及（開發中的）alert 與 silence |
 | `/infrastructure/*` | Site、Integration、Zone、Pool、Site 的 Local repository，以及 Boot ISO |
-| `/account/ssh-keys`、`/account/api-keys` | 你的 SSH key 與 API key（account menu） |
+| `/account/ssh-keys`、`/account/api-keys`、`/account/password` | 你的 SSH key、API key 與密碼（account menu） |
+| `/pools`、`/pools/:id` | 你的 Pool（admin 是每個 Pool）；單一 Pool 的成員與 sudo 預設值 |
+| `/users` | 帳號、存取設定、Directory 與最近的存取變更（admin） |
 
 `/clusters`、`/operations`、已退役的 `/provisioning/deploy` 頁面，以及
 `/provisioning/boot-isos`（現為 `/infrastructure/boot-isos`）是 compatibility redirect。

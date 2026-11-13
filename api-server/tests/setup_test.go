@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 
@@ -14,6 +15,10 @@ import (
 	"github.com/maple52046/swallow/internal/adapters/localrepo/pulp"
 	"github.com/maple52046/swallow/internal/adapters/metrics/promstack"
 	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
+	accessapp "github.com/maple52046/swallow/internal/core/access/application"
+	accessdelivery "github.com/maple52046/swallow/internal/core/access/delivery"
+	accessdomain "github.com/maple52046/swallow/internal/core/access/domain"
+	authdomain "github.com/maple52046/swallow/internal/core/auth/domain"
 	"github.com/maple52046/swallow/internal/core/convergence"
 	"github.com/maple52046/swallow/internal/core/convergence/convergencetest"
 	discoveryapp "github.com/maple52046/swallow/internal/core/discovery/application"
@@ -89,6 +94,9 @@ type platformFixture struct {
 	integrationDeps   *fakeIntegrationDependents
 	exporters         *fakeExporterInventory
 	imageUploads      *fakeOSImageUploadRepo
+	// users and memberships decide what userToken's alice may reach (decision 082).
+	users       *fakeUserRepo
+	memberships *fakeMemberships
 }
 
 // testImageUploadMaxBytes is the installation upload limit the HTTP tests run with; small, so a
@@ -263,111 +271,158 @@ func setupPlatform(t *testing.T) *platformFixture {
 	platformHandler.AttachSpecService(platformapp.NewPlatformSpecService(&storetest.Transactor{}, platformRepo, platformRepo, claims,
 		deployService, platformService, changePlans, nil, platformModules))
 
+	// Access (decision 082): admin-1 is an admin and user-1 (alice) a user with no Pool Membership
+	// until a test gives her one through f.memberships.
+	users := newFakeUserRepo()
+	users.users["admin-1"] = &authdomain.User{ID: "admin-1", Username: "admin", Role: authdomain.RoleAdmin, UIDNumber: 10000}
+	users.users["user-1"] = &authdomain.User{ID: "user-1", Username: "alice", Role: authdomain.RoleUser, UIDNumber: 10001}
+	memberships := newFakeMemberships()
+	authorizer, err := accessapp.NewAuthorizer(accessapp.AuthorizerDeps{
+		Users: users, Memberships: memberships, Servers: fakeServerPools{servers: servers},
+		Platforms: platformapp.NewPoolResolver(platformRepo, claims, servers), Workflows: noWorkflowTargets{},
+	})
+	if err != nil {
+		t.Fatalf("NewAuthorizer() error = %v", err)
+	}
+	g := accessdelivery.NewGuard(authorizer)
+
 	app := fiber.New()
 	app.Use(apicontract.ResponseValidator(t))
-	admin := []fiber.Handler{middleware.Auth(jwtSvc), middleware.AdminOnly()}
+	authed := []fiber.Handler{middleware.Auth(jwtSvc), g.Scope()}
+	with := func(extra ...fiber.Handler) []fiber.Handler { return append(slices.Clone(authed), extra...) }
+	admin := with(g.Admin())
+	route := func(h fiber.Handler, extra ...fiber.Handler) []fiber.Handler { return append(with(extra...), h) }
+	adminRoute := func(h fiber.Handler) []fiber.Handler { return append(slices.Clone(admin), h) }
+	serverRead := g.Server(accessdomain.Read, "id")
+	serverOperate := g.Server(accessdomain.Operate, "id")
+	platformRead := g.Platform(accessdomain.Read, "id")
+	platformOperate := g.Platform(accessdomain.Operate, "id")
+	bodyServers := g.ServersInBody(accessdomain.Operate, func(body []byte) []string {
+		var request struct {
+			ServerIDs []string `json:"serverIds"`
+		}
+		_ = json.Unmarshal(body, &request)
+		return request.ServerIDs
+	})
+	platformMembers := g.PlatformMembersInBody(func(body []byte) []string {
+		var request struct {
+			Spec struct {
+				Members []struct {
+					ServerID string `json:"serverId"`
+				} `json:"members"`
+			} `json:"spec"`
+		}
+		_ = json.Unmarshal(body, &request)
+		var ids []string
+		for _, member := range request.Spec.Members {
+			ids = append(ids, member.ServerID)
+		}
+		return ids
+	})
 	v1 := app.Group("/api/v1")
 
-	siteGroup := v1.Group("/sites", admin...)
-	siteGroup.Post("/", siteHandler.CreateSite)
-	siteGroup.Get("/", siteHandler.ListSites)
-	siteGroup.Get("/:id", siteHandler.GetSite)
-	siteGroup.Patch("/:id", siteHandler.UpdateSite)
-	siteGroup.Delete("/:id", siteHandler.DeleteSite)
+	siteGroup := v1.Group("/sites")
+	siteGroup.Post("/", adminRoute(siteHandler.CreateSite)...)
+	siteGroup.Get("/", route(siteHandler.ListSites)...)
+	siteGroup.Get("/:id", route(siteHandler.GetSite)...)
+	siteGroup.Patch("/:id", adminRoute(siteHandler.UpdateSite)...)
+	siteGroup.Delete("/:id", adminRoute(siteHandler.DeleteSite)...)
 
-	integrationGroup := v1.Group("/integrations", admin...)
-	integrationGroup.Post("/", siteHandler.CreateIntegration)
-	integrationGroup.Get("/", siteHandler.ListIntegrations)
-	integrationGroup.Get("/:id", siteHandler.GetIntegration)
-	integrationGroup.Patch("/:id", siteHandler.UpdateIntegration)
-	integrationGroup.Put("/:id/credential", siteHandler.ReplaceCredential)
-	integrationGroup.Delete("/:id", siteHandler.DeleteIntegration)
+	integrationGroup := v1.Group("/integrations")
+	integrationGroup.Post("/", adminRoute(siteHandler.CreateIntegration)...)
+	integrationGroup.Get("/", adminRoute(siteHandler.ListIntegrations)...)
+	integrationGroup.Get("/:id", adminRoute(siteHandler.GetIntegration)...)
+	integrationGroup.Patch("/:id", adminRoute(siteHandler.UpdateIntegration)...)
+	integrationGroup.Put("/:id/credential", adminRoute(siteHandler.ReplaceCredential)...)
+	integrationGroup.Delete("/:id", adminRoute(siteHandler.DeleteIntegration)...)
 
-	serverGroup := v1.Group("/servers", admin...)
-	serverGroup.Get("/", serverHandler.List)
-	serverGroup.Get("/:id", serverHandler.Get)
-	serverGroup.Post("/:id/refresh", provisioningHandler.RefreshServer)
-	serverGroup.Delete("/:id", provisioningHandler.DeleteServer)
-	serverGroup.Get("/:id/provisioner-detail", provisioningHandler.ProvisionerDetail)
-	serverGroup.Get("/:id/events", provisioningHandler.ProviderEvents)
-	serverGroup.Post("/:id/power-on", provisioningHandler.PowerOn)
-	serverGroup.Post("/:id/power-off", provisioningHandler.PowerOff)
-	serverGroup.Get("/:id/power-state", provisioningHandler.PowerState)
-	serverGroup.Post("/:id/inspect", provisioningHandler.Inspect)
-	serverGroup.Post("/:id/test", provisioningHandler.Test)
-	serverGroup.Post("/:id/abort", provisioningHandler.Abort)
-	serverGroup.Post("/:id/override-failed-testing", provisioningHandler.OverrideFailedTesting)
-	serverGroup.Post("/:id/lock", provisioningHandler.Lock)
-	serverGroup.Post("/:id/unlock", provisioningHandler.Unlock)
-	serverGroup.Post("/:id/mark-broken", provisioningHandler.MarkBroken)
-	serverGroup.Post("/:id/mark-fixed", provisioningHandler.MarkFixed)
-	serverGroup.Post("/:id/rescue-mode", provisioningHandler.RescueMode)
-	serverGroup.Post("/:id/exit-rescue-mode", provisioningHandler.ExitRescueMode)
+	serverGroup := v1.Group("/servers")
+	serverGroup.Get("/", route(serverHandler.List)...)
+	serverGroup.Get("/:id", route(serverHandler.Get, serverRead)...)
+	serverGroup.Post("/:id/refresh", route(provisioningHandler.RefreshServer, serverOperate)...)
+	serverGroup.Delete("/:id", adminRoute(provisioningHandler.DeleteServer)...)
+	serverGroup.Get("/:id/provisioner-detail", route(provisioningHandler.ProvisionerDetail, serverOperate)...)
+	serverGroup.Get("/:id/events", route(provisioningHandler.ProviderEvents, serverRead)...)
+	serverGroup.Post("/:id/power-on", route(provisioningHandler.PowerOn, serverOperate)...)
+	serverGroup.Post("/:id/power-off", route(provisioningHandler.PowerOff, serverOperate)...)
+	serverGroup.Get("/:id/power-state", route(provisioningHandler.PowerState, serverRead)...)
+	serverGroup.Post("/:id/inspect", route(provisioningHandler.Inspect, serverOperate)...)
+	serverGroup.Post("/:id/test", route(provisioningHandler.Test, serverOperate)...)
+	serverGroup.Post("/:id/abort", route(provisioningHandler.Abort, serverOperate)...)
+	serverGroup.Post("/:id/override-failed-testing", route(provisioningHandler.OverrideFailedTesting, serverOperate)...)
+	serverGroup.Post("/:id/lock", route(provisioningHandler.Lock, serverOperate)...)
+	serverGroup.Post("/:id/unlock", route(provisioningHandler.Unlock, serverOperate)...)
+	serverGroup.Post("/:id/mark-broken", route(provisioningHandler.MarkBroken, serverOperate)...)
+	serverGroup.Post("/:id/mark-fixed", route(provisioningHandler.MarkFixed, serverOperate)...)
+	serverGroup.Post("/:id/rescue-mode", route(provisioningHandler.RescueMode, serverOperate)...)
+	serverGroup.Post("/:id/exit-rescue-mode", route(provisioningHandler.ExitRescueMode, serverOperate)...)
 
-	provisioningGroup := v1.Group("/provisioning", admin...)
-	provisioningGroup.Get("/images", provisioningHandler.ListImages)
-	provisioningGroup.Delete("/images", provisioningHandler.DeleteImage)
-	provisioningGroup.Post("/image-uploads", provisioningHandler.CreateImageUpload)
-	provisioningGroup.Put("/image-uploads/:id/content", provisioningHandler.SendImageUploadContent)
-	provisioningGroup.Put("/images/metadata", provisioningHandler.SetImageMetadata)
-	provisioningGroup.Delete("/images/metadata", provisioningHandler.ClearImageMetadata)
-	provisioningGroup.Get("/tags", provisioningHandler.ListServerTags)
-	provisioningGroup.Post("/tags", provisioningHandler.EditServerTags)
-	provisioningGroup.Delete("/tags/:name", provisioningHandler.DeleteServerTag)
-	provisioningGroup.Patch("/tags/:name", provisioningHandler.RenameServerTag)
-	provisioningGroup.Get("/templates", provisioningHandler.ListTemplates)
-	provisioningGroup.Post("/templates", provisioningHandler.CreateTemplate)
-	provisioningGroup.Get("/templates/:id", provisioningHandler.GetTemplate)
-	provisioningGroup.Patch("/templates/:id", provisioningHandler.UpdateTemplate)
-	provisioningGroup.Delete("/templates/:id", provisioningHandler.DeleteTemplate)
-	provisioningGroup.Put("/templates/:id/user-data", provisioningHandler.ReplaceTemplateUserData)
-	provisioningGroup.Delete("/templates/:id/user-data", provisioningHandler.ClearTemplateUserData)
-	provisioningGroup.Post("/deployments/preflight", provisioningHandler.PreflightDeployServers)
-	provisioningGroup.Post("/deployment-operations", provisioningHandler.CreateDeploymentOperation)
-	provisioningGroup.Post("/release-operations", provisioningHandler.CreateReleaseOperation)
-	provisioningGroup.Post("/reconcile", provisioningHandler.ReconcileAll)
-	provisioningGroup.Post("/integrations/:id/reconcile", provisioningHandler.Reconcile)
+	provisioningGroup := v1.Group("/provisioning")
+	provisioningGroup.Get("/images", route(provisioningHandler.ListImages)...)
+	provisioningGroup.Delete("/images", adminRoute(provisioningHandler.DeleteImage)...)
+	provisioningGroup.Post("/image-uploads", adminRoute(provisioningHandler.CreateImageUpload)...)
+	provisioningGroup.Put("/image-uploads/:id/content", adminRoute(provisioningHandler.SendImageUploadContent)...)
+	provisioningGroup.Put("/images/metadata", adminRoute(provisioningHandler.SetImageMetadata)...)
+	provisioningGroup.Delete("/images/metadata", adminRoute(provisioningHandler.ClearImageMetadata)...)
+	provisioningGroup.Get("/tags", route(provisioningHandler.ListServerTags)...)
+	provisioningGroup.Post("/tags", route(provisioningHandler.EditServerTags, bodyServers)...)
+	provisioningGroup.Delete("/tags/:name", adminRoute(provisioningHandler.DeleteServerTag)...)
+	provisioningGroup.Patch("/tags/:name", adminRoute(provisioningHandler.RenameServerTag)...)
+	provisioningGroup.Get("/templates", route(provisioningHandler.ListTemplates)...)
+	provisioningGroup.Post("/templates", adminRoute(provisioningHandler.CreateTemplate)...)
+	provisioningGroup.Get("/templates/:id", route(provisioningHandler.GetTemplate)...)
+	provisioningGroup.Patch("/templates/:id", adminRoute(provisioningHandler.UpdateTemplate)...)
+	provisioningGroup.Delete("/templates/:id", adminRoute(provisioningHandler.DeleteTemplate)...)
+	provisioningGroup.Put("/templates/:id/user-data", adminRoute(provisioningHandler.ReplaceTemplateUserData)...)
+	provisioningGroup.Delete("/templates/:id/user-data", adminRoute(provisioningHandler.ClearTemplateUserData)...)
+	provisioningGroup.Post("/deployments/preflight", route(provisioningHandler.PreflightDeployServers, bodyServers)...)
+	provisioningGroup.Post("/deployment-operations", route(provisioningHandler.CreateDeploymentOperation, bodyServers)...)
+	provisioningGroup.Post("/release-operations", route(provisioningHandler.CreateReleaseOperation, bodyServers)...)
+	provisioningGroup.Post("/reconcile", adminRoute(provisioningHandler.ReconcileAll)...)
+	provisioningGroup.Post("/integrations/:id/reconcile", adminRoute(provisioningHandler.Reconcile)...)
 
-	platformGroup := v1.Group("/platforms", admin...)
-	platformGroup.Get("/deployment-requirements/slurm", platformHandler.GetSlurmDeploymentRequirement)
-	platformGroup.Put("/deployment-requirements/slurm", platformHandler.PutSlurmDeploymentRequirement)
-	platformGroup.Get("/", platformHandler.List)
-	platformGroup.Post("/", platformHandler.Create)
-	platformGroup.Post("/sync", platformHandler.SyncAllMembership)
-	platformGroup.Get("/:id", platformHandler.Get)
-	platformGroup.Patch("/:id", platformHandler.Update)
-	platformGroup.Put("/:id/spec", platformHandler.PutSpec)
-	platformGroup.Delete("/:id", platformHandler.Delete)
-	platformGroup.Post("/:id/sync", platformHandler.SyncMembership)
-	platformGroup.Get("/:id/slurm", platformHandler.GetSlurmCluster)
-	platformGroup.Get("/:id/kubernetes", platformHandler.GetKubernetesCluster)
-	platformGroup.Get("/:id/kubernetes/nodes", platformHandler.ListKubernetesNodes)
-	platformGroup.Post("/:id/kubernetes/nodes/:node/cordon", platformHandler.CordonKubernetesNode)
-	platformGroup.Post("/:id/kubernetes/nodes/:node/uncordon", platformHandler.UncordonKubernetesNode)
-	platformGroup.Get("/:id/kubernetes/namespaces", platformHandler.ListKubernetesNamespaces)
-	platformGroup.Post("/:id/kubernetes/namespaces", platformHandler.CreateKubernetesNamespace)
-	platformGroup.Delete("/:id/kubernetes/namespaces/:namespace", platformHandler.DeleteKubernetesNamespace)
-	platformGroup.Get("/:id/kubernetes/applications", platformHandler.ListKubernetesApplications)
-	platformGroup.Get("/:id/kubernetes/applications/:namespace/:kind/:name", platformHandler.GetKubernetesApplication)
-	platformGroup.Delete("/:id/kubernetes/applications/:namespace/:kind/:name", platformHandler.DeleteKubernetesApplication)
-	platformGroup.Post("/:id/kubernetes/applications/:namespace/:kind/:name/scale", platformHandler.ScaleKubernetesApplication)
-	platformGroup.Post("/:id/kubernetes/applications/:namespace/:kind/:name/restart", platformHandler.RestartKubernetesApplication)
-	platformGroup.Get("/:id/kubernetes/pods", platformHandler.ListKubernetesPods)
-	platformGroup.Get("/:id/kubernetes/pods/:namespace/:name/logs", platformHandler.GetKubernetesPodLogs)
-	platformGroup.Delete("/:id/kubernetes/pods/:namespace/:name", platformHandler.DeleteKubernetesPod)
-	platformGroup.Get("/:id/kubernetes/services", platformHandler.ListKubernetesServices)
-	platformGroup.Get("/:id/kubernetes/ingresses", platformHandler.ListKubernetesIngresses)
-	platformGroup.Get("/:id/kubernetes/configmaps", platformHandler.ListKubernetesConfigMaps)
-	platformGroup.Get("/:id/kubernetes/secrets", platformHandler.ListKubernetesSecrets)
-	platformGroup.Get("/:id/kubernetes/persistentvolumeclaims", platformHandler.ListKubernetesPersistentVolumeClaims)
-	platformGroup.Post("/:id/kubernetes/apply", platformHandler.ApplyKubernetesManifest)
+	platformGroup := v1.Group("/platforms")
+	platformGroup.Get("/deployment-requirements/slurm", route(platformHandler.GetSlurmDeploymentRequirement)...)
+	platformGroup.Put("/deployment-requirements/slurm", adminRoute(platformHandler.PutSlurmDeploymentRequirement)...)
+	platformGroup.Get("/", route(platformHandler.List)...)
+	platformGroup.Post("/", route(platformHandler.Create, platformMembers)...)
+	platformGroup.Post("/sync", adminRoute(platformHandler.SyncAllMembership)...)
+	platformGroup.Get("/:id", route(platformHandler.Get, platformRead)...)
+	platformGroup.Patch("/:id", route(platformHandler.Update, platformOperate)...)
+	platformGroup.Put("/:id/spec", route(platformHandler.PutSpec, platformOperate, platformMembers)...)
+	platformGroup.Delete("/:id", route(platformHandler.Delete, platformOperate)...)
+	platformGroup.Post("/:id/sync", route(platformHandler.SyncMembership, platformOperate)...)
+	platformGroup.Get("/:id/slurm", route(platformHandler.GetSlurmCluster, platformRead)...)
+	explorer := with(platformOperate)
+	k8s := func(h fiber.Handler) []fiber.Handler { return append(slices.Clone(explorer), h) }
+	platformGroup.Get("/:id/kubernetes", k8s(platformHandler.GetKubernetesCluster)...)
+	platformGroup.Get("/:id/kubernetes/nodes", k8s(platformHandler.ListKubernetesNodes)...)
+	platformGroup.Post("/:id/kubernetes/nodes/:node/cordon", k8s(platformHandler.CordonKubernetesNode)...)
+	platformGroup.Post("/:id/kubernetes/nodes/:node/uncordon", k8s(platformHandler.UncordonKubernetesNode)...)
+	platformGroup.Get("/:id/kubernetes/namespaces", k8s(platformHandler.ListKubernetesNamespaces)...)
+	platformGroup.Post("/:id/kubernetes/namespaces", k8s(platformHandler.CreateKubernetesNamespace)...)
+	platformGroup.Delete("/:id/kubernetes/namespaces/:namespace", k8s(platformHandler.DeleteKubernetesNamespace)...)
+	platformGroup.Get("/:id/kubernetes/applications", k8s(platformHandler.ListKubernetesApplications)...)
+	platformGroup.Get("/:id/kubernetes/applications/:namespace/:kind/:name", k8s(platformHandler.GetKubernetesApplication)...)
+	platformGroup.Delete("/:id/kubernetes/applications/:namespace/:kind/:name", k8s(platformHandler.DeleteKubernetesApplication)...)
+	platformGroup.Post("/:id/kubernetes/applications/:namespace/:kind/:name/scale", k8s(platformHandler.ScaleKubernetesApplication)...)
+	platformGroup.Post("/:id/kubernetes/applications/:namespace/:kind/:name/restart", k8s(platformHandler.RestartKubernetesApplication)...)
+	platformGroup.Get("/:id/kubernetes/pods", k8s(platformHandler.ListKubernetesPods)...)
+	platformGroup.Get("/:id/kubernetes/pods/:namespace/:name/logs", k8s(platformHandler.GetKubernetesPodLogs)...)
+	platformGroup.Delete("/:id/kubernetes/pods/:namespace/:name", k8s(platformHandler.DeleteKubernetesPod)...)
+	platformGroup.Get("/:id/kubernetes/services", k8s(platformHandler.ListKubernetesServices)...)
+	platformGroup.Get("/:id/kubernetes/ingresses", k8s(platformHandler.ListKubernetesIngresses)...)
+	platformGroup.Get("/:id/kubernetes/configmaps", k8s(platformHandler.ListKubernetesConfigMaps)...)
+	platformGroup.Get("/:id/kubernetes/secrets", k8s(platformHandler.ListKubernetesSecrets)...)
+	platformGroup.Get("/:id/kubernetes/persistentvolumeclaims", k8s(platformHandler.ListKubernetesPersistentVolumeClaims)...)
+	platformGroup.Post("/:id/kubernetes/apply", k8s(platformHandler.ApplyKubernetesManifest)...)
 
-	monitoringGroup := v1.Group("/monitoring", admin...)
-	monitoringGroup.Get("/alerts", monitoringHandler.ListAlerts)
-	monitoringGroup.Post("/alerts/:fingerprint/acknowledge", monitoringHandler.Acknowledge)
-	monitoringGroup.Get("/metrics", monitoringHandler.ServerMetrics)
-	monitoringGroup.Get("/metrics/range", monitoringHandler.MetricRange)
-	monitoringGroup.Get("/metrics/names", monitoringHandler.MetricNames)
+	monitoringGroup := v1.Group("/monitoring")
+	monitoringGroup.Get("/alerts", adminRoute(monitoringHandler.ListAlerts)...)
+	monitoringGroup.Post("/alerts/:fingerprint/acknowledge", adminRoute(monitoringHandler.Acknowledge)...)
+	monitoringGroup.Get("/metrics", adminRoute(monitoringHandler.ServerMetrics)...)
+	monitoringGroup.Get("/metrics/range", adminRoute(monitoringHandler.MetricRange)...)
+	monitoringGroup.Get("/metrics/names", route(monitoringHandler.MetricNames)...)
 
 	machine := middleware.MachineAuth(jwtSvc, testMachineToken)
 
@@ -399,6 +454,8 @@ func setupPlatform(t *testing.T) *platformFixture {
 		integrationDeps:   integrationDeps,
 		platformLifecycle: lifecycle,
 		uninstallLauncher: uninstallLauncher,
+		users:             users,
+		memberships:       memberships,
 	}
 }
 

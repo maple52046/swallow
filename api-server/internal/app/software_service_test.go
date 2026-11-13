@@ -157,7 +157,7 @@ func testAccelerators() platformdomain.Accelerators {
 
 func newTestService(servers map[string]*serverdomain.Server, membership map[string]bool) (*softwareapp.SoftwareService, *fakeAssignmentRepo, *fakeLauncher) {
 	repo := newFakeAssignmentRepo()
-	service := softwareapp.NewSoftwareService(&storetest.Transactor{}, testSoftwareCatalog(), testAccelerators(), repo, &fakeServerRepo{servers: servers}, fakeMembership{kubernetes: membership})
+	service := softwareapp.NewSoftwareService(&storetest.Transactor{}, testSoftwareCatalog(), testAccelerators(), repo, &fakeServerRepo{servers: servers}, fakeMembership{kubernetes: membership}, nil)
 	launcher := &fakeLauncher{}
 	service.AttachLauncher(launcher)
 	return service, repo, launcher
@@ -574,7 +574,7 @@ func TestUninstallRejectsMissingAssignment(t *testing.T) {
 func TestInstallWritesTheWorkflowAndAssignmentsInOneTransaction(t *testing.T) {
 	repo, launcher, tx := newFakeAssignmentRepo(), &fakeLauncher{}, &storetest.Transactor{}
 	service := softwareapp.NewSoftwareService(tx, testSoftwareCatalog(), testAccelerators(), repo,
-		&fakeServerRepo{servers: map[string]*serverdomain.Server{"a": deployedServer("a")}}, fakeMembership{})
+		&fakeServerRepo{servers: map[string]*serverdomain.Server{"a": deployedServer("a")}}, fakeMembership{}, nil)
 	service.AttachLauncher(launcher)
 
 	workflowID, err := service.Install(context.Background(), softwareapp.InstallInput{

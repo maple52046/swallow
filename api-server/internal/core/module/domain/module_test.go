@@ -95,3 +95,38 @@ func TestNewRegistryRequiresHooksToMatchTheManifest(t *testing.T) {
 		t.Error("ForCompletion(nfs-state) found no module")
 	}
 }
+
+func TestHostAccessDeclaration(t *testing.T) {
+	declaration := HostAccessDeclaration{
+		Default: HostAccessRule{},
+		Roles:   map[string]HostAccessRule{"login": {MemberLogin: true}, "workstation": {MemberLogin: true, MemberSudo: true}},
+	}
+	for _, tc := range []struct {
+		roles []string
+		want  HostAccessRule
+	}{
+		{roles: []string{"compute"}, want: HostAccessRule{}},
+		{roles: []string{"compute", "login"}, want: HostAccessRule{MemberLogin: true}},
+		{roles: []string{"login", "workstation"}, want: HostAccessRule{MemberLogin: true, MemberSudo: true}},
+		{roles: nil, want: HostAccessRule{}},
+	} {
+		if got := declaration.RuleFor(tc.roles); got != tc.want {
+			t.Errorf("RuleFor(%v) = %+v, want %+v", tc.roles, got, tc.want)
+		}
+	}
+
+	software := validManifest(KindSoftware, "podman")
+	software.HostAccess = &HostAccessDeclaration{}
+	if err := software.Validate(); !errors.Is(err, ErrInvalidManifest) {
+		t.Errorf("software module with hostAccess: err = %v, want ErrInvalidManifest", err)
+	}
+	platform := validManifest(KindPlatform, "slurm")
+	platform.HostAccess = &HostAccessDeclaration{Roles: map[string]HostAccessRule{"compute": {MemberSudo: true}}}
+	if err := platform.Validate(); !errors.Is(err, ErrInvalidManifest) {
+		t.Errorf("sudo without login: err = %v, want ErrInvalidManifest", err)
+	}
+	platform.HostAccess = &declaration
+	if err := platform.Validate(); err != nil {
+		t.Errorf("valid platform hostAccess: %v", err)
+	}
+}

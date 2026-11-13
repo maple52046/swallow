@@ -6,8 +6,9 @@
 // asks it to converge at once through the store.
 //
 // The service depends only on domain ports, so it runs without MongoDB, HTTP, an SSH library, or a
-// live provisioner. Authorization is the caller's job: delivery admits only admins and passes the
-// caller's user id, which scopes every Access Key operation. Private key material flows through
+// live provisioner. Authorization is the caller's job: delivery admits any signed-in User to their
+// own Access Keys and only admins to the Deployment Key, and passes the caller's user id, which
+// scopes every Access Key operation. Private key material flows through
 // here only as opaque strings handed straight to the repository or returned once to the caller of
 // GenerateAccessKey; it is never logged or kept.
 package application
@@ -38,6 +39,7 @@ type Service struct {
 	syncs        sshkeydomain.SyncRepository
 	material     sshkeydomain.KeyMaterial
 	provisioners sshkeydomain.ProvisionerKeys
+	owners       sshkeydomain.KeyOwners
 	requests     convergence.Requester
 	events       convergence.EventRecorder
 	now          func() time.Time
@@ -46,34 +48,39 @@ type Service struct {
 	syncMu sync.Mutex
 }
 
-// NewService wires the SSH Key use cases. now and newID are replaceable in tests; production uses
-// UTC wall-clock time and random UUIDs.
-func NewService(
-	keys sshkeydomain.KeyRepository,
-	syncs sshkeydomain.SyncRepository,
-	material sshkeydomain.KeyMaterial,
-	provisioners sshkeydomain.ProvisionerKeys,
-) *Service {
+// ServiceDeps are the SSH Key service's dependencies. Every field is required, in every process
+// that builds the service: the requester lets RequestConvergence reach the worker's controller, the
+// recorder writes the realization timeline, and Owners decides which Access Keys reach the
+// provisioners, which is a security boundary (decision 082).
+type ServiceDeps struct {
+	Keys         sshkeydomain.KeyRepository
+	Syncs        sshkeydomain.SyncRepository
+	Material     sshkeydomain.KeyMaterial
+	Provisioners sshkeydomain.ProvisionerKeys
+	Owners       sshkeydomain.KeyOwners
+	Requests     convergence.Requester
+	Events       convergence.EventRecorder
+}
+
+// NewService wires the SSH Key use cases, refusing a missing dependency so a process that forgot
+// one fails at start rather than silently skipping a realization step. now and newID are
+// replaceable in tests; production uses UTC wall-clock time and random UUIDs.
+func NewService(deps ServiceDeps) (*Service, error) {
+	if deps.Keys == nil || deps.Syncs == nil || deps.Material == nil || deps.Provisioners == nil ||
+		deps.Owners == nil || deps.Requests == nil || deps.Events == nil {
+		return nil, errors.New("ssh key service: every dependency is required")
+	}
 	return &Service{
-		keys:         keys,
-		syncs:        syncs,
-		material:     material,
-		provisioners: provisioners,
+		keys:         deps.Keys,
+		syncs:        deps.Syncs,
+		material:     deps.Material,
+		provisioners: deps.Provisioners,
+		owners:       deps.Owners,
+		requests:     deps.Requests,
+		events:       deps.Events,
 		now:          func() time.Time { return time.Now().UTC() },
 		newID:        uuid.NewString,
-	}
-}
-
-// AttachRequester lets RequestConvergence reach the SSH Key controller in the worker. Without one,
-// RequestConvergence does nothing and keys converge on the change feed and the resync alone.
-func (s *Service) AttachRequester(requests convergence.Requester) {
-	s.requests = requests
-}
-
-// AttachEvents records realization changes (a key realized, or added back after it went missing)
-// on the convergence timeline. The worker attaches it; without one, nothing is recorded.
-func (s *Service) AttachEvents(events convergence.EventRecorder) {
-	s.events = events
+	}, nil
 }
 
 // ControllerName is the SSH Key controller's name, which a convergence request addresses.
@@ -342,9 +349,6 @@ func (s *Service) HasDeploymentKey(ctx context.Context) (bool, error) {
 // RequestConvergence asks the SSH Key controller to realize every key in every provisioner now,
 // rather than at its next resync, by writing a request to the store.
 func (s *Service) RequestConvergence(ctx context.Context) error {
-	if s.requests == nil {
-		return nil
-	}
 	return s.requests.Request(ctx, ControllerName)
 }
 
@@ -381,12 +385,15 @@ func (s *Service) item(ctx context.Context, key *sshkeydomain.SSHKey) (*KeyItem,
 // current material; a record left from replaced Deployment Key material has no conditions to show.
 // The aggregate conditions are derived here from the per-provisioner ones: realized only when every
 // provisioner realized the current generation (and for an installation with no provisioner, which
-// has nothing to realize), otherwise carrying the first unrealized provisioner's reason.
+// has nothing to realize), otherwise carrying the first unrealized provisioner's reason. A
+// provisioner that does not register the key on purpose (ReasonNotRegistered: its owner is not an
+// admin) is not a target of it and does not count against the aggregate.
 func keyItem(key *sshkeydomain.SSHKey, provisioners []sshkeydomain.Provisioner, index map[string]sshkeydomain.ProviderSync) KeyItem {
 	realizations := make([]KeyRealizationItem, 0, len(provisioners))
 	realized, reason, message := true, convergence.ReasonConverged, ""
 	observed := key.Generation
 	transition := key.UpdatedAt
+	targets := 0
 	for _, provisioner := range provisioners {
 		entry := KeyRealizationItem{IntegrationID: provisioner.IntegrationID, SiteID: provisioner.SiteID, Conditions: []convergence.ConditionItem{}}
 		var status convergence.TargetStatus
@@ -402,6 +409,11 @@ func keyItem(key *sshkeydomain.SSHKey, provisioners []sshkeydomain.Provisioner, 
 		if ok && condition.LastTransitionTime.After(transition) {
 			transition = condition.LastTransitionTime
 		}
+		if ok && condition.Reason == sshkeydomain.ReasonNotRegistered {
+			realizations = append(realizations, entry)
+			continue
+		}
+		targets++
 		if status.ObservedGeneration < observed {
 			observed = status.ObservedGeneration
 		}
@@ -419,8 +431,11 @@ func keyItem(key *sshkeydomain.SSHKey, provisioners []sshkeydomain.Provisioner, 
 	}
 	if realized {
 		aggregate.Status = convergence.ConditionTrue
-		if len(provisioners) == 0 {
+		switch {
+		case len(provisioners) == 0:
 			aggregate.Message = "No provisioner holds SSH keys."
+		case targets == 0:
+			aggregate.Message = "Only admins' Access Keys are registered with provisioners; this key reaches Servers through the Directory."
 		}
 	}
 	return KeyItem{

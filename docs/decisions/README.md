@@ -147,6 +147,7 @@ ADR 只記錄會約束未來工作的決策。符合以下任一條件才寫：
 | [079](079-release-built-host-artifacts.md) | 沒有上游發佈的主機 binary（第一個是 Omnistat 的 rocprof extension）由 swallow 的 release 工具建置：每個 ROCm minor 在 glibc 最低的 builder 建一次、只建 CPython 3.12，通過 glibc 與 import 的檢查才以獨立的 tag 發佈，再宣告成 file artifact；先上傳、後宣告，發佈 release 前確認每個宣告的檔案都取得到 | — |
 | [080](080-host-toolchains-probe-first.md) | 主機的工具鏈是需求：任何 CPython 3.12（OS 套件）與任何 uv（缺少時由 file artifact 提供）；元件先探測、不能用才安裝，安裝內容仍以 hash lock 固定；swallow 使用、不覆寫預先烘進 image 的版面；主機經 `artifact_sources` 寫的節點設定（`/etc/uv/uv.toml`）取得 Site 選擇的來源，其他 role 不設 index | — |
 | [081](081-validation-suites-and-runs.md) | Validation：模組宣告的 Validation Suite 以範本編譯成 Workflow；單獨、定時與部署後的 run 是 unattended、有預算、可被取代的 report；部署以 Job 組入 suite 作為閘門；user-defined suite 是資料，由唯一一支 allowlisted playbook 執行，以 exit code 判定 | — |
+| [082](082-accounts-pool-access-and-directory.md) | 帳號與 Pool 範圍的存取：User Role 為 `admin`／`user`，Pool Role 為 `owner`／`member`；User 是受管 Server 上的 Linux 帳號（swallow 分配、不重用的 uid，共用主要群組）；swallow 唯一寫入的 Directory（目前是內建的 LDAP）提供帳號、SSH key、Host Access 與 `sudo` 規則，主機以 SSSD 讀取，只接受 key 登入；provisioner 只收到 Deployment Key 與 admin 的 Access Key | — |
 
 ### 已併入的編號
 

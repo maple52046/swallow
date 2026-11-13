@@ -209,13 +209,13 @@ func TestServerLock_RequiresAdmin(t *testing.T) {
 				t.Fatalf("%s without token: got %d, want 401", path, response.StatusCode)
 			}
 		})
-		t.Run(path+" non-admin", func(t *testing.T) {
+		t.Run(path+" outside the Server's Pool", func(t *testing.T) {
 			response := doRequest(t, f.app, http.MethodPost,
 				"/api/v1/servers/"+serverID+"/"+path, nil, map[string]string{
 					"Authorization": "Bearer " + userToken(t, f.jwtSvc),
 				})
-			if response.StatusCode != http.StatusForbidden {
-				t.Fatalf("%s as non-admin: got %d, want 403", path, response.StatusCode)
+			if response.StatusCode != http.StatusNotFound {
+				t.Fatalf("%s by a User outside the Server's Pool: got %d, want 404", path, response.StatusCode)
 			}
 		})
 	}

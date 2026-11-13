@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,6 +39,10 @@ const ensureRunHorizon = 48 * time.Hour
 // Server every pass, so without the pause each pass would repeat the refused acceptance. It only
 // throttles; the periodic resync always tries again, and a restarted worker simply tries once more.
 const ensureRefusalPause = 10 * time.Minute
+
+// ensureHistoryScan is how many of a Server's newest Workflows the controller reads to find the
+// latest install or uninstall of its kind; an opt-out older than that many Workflows is forgotten.
+const ensureHistoryScan = 50
 
 // powerStateOff is the provisioning axis's power state of a host its provisioner reports powered
 // off. Its exporter is down because the host is, which no install can change.
@@ -111,7 +116,16 @@ type ExporterScrapes interface {
 	Scrapes(ctx context.Context, siteID, exporter, serverID string, window time.Duration) (ScrapeObservation, error)
 }
 
-// EnsureControllerDeps are the EnsureController's dependencies. Every field is required.
+// EnsureReadiness tells whether what the kind depends on outside the Server is ready, so an install
+// now can succeed (the directory client needs a Directory that already holds the Users). While it
+// is not, the controller starts no install and tries again at the next resync; an error is a read
+// failure.
+type EnsureReadiness interface {
+	Ready(ctx context.Context) (bool, error)
+}
+
+// EnsureControllerDeps are the EnsureController's dependencies. Every field is required except
+// Readiness.
 type EnsureControllerDeps struct {
 	// Entry is the catalog entry of the kind the controller keeps installed. Its Exporter, when it
 	// declares one, is what the controller observes; without one it acts on the assignment alone.
@@ -123,6 +137,9 @@ type EnsureControllerDeps struct {
 	Workflows   WorkflowLister
 	Canceler    WorkflowCanceler
 	Scrapes     ExporterScrapes
+	// Readiness gates every install on what the kind depends on outside the Server; nil means the
+	// kind depends on nothing else.
+	Readiness EnsureReadiness
 }
 
 // EnsureController keeps one Managed Software kind installed on every Server its policy covers
@@ -158,6 +175,7 @@ type EnsureController struct {
 	workflows   WorkflowLister
 	canceler    WorkflowCanceler
 	scrapes     ExporterScrapes
+	readiness   EnsureReadiness
 	now         func() time.Time
 
 	// refusedMu guards refused, the time each Server's last install was refused at acceptance
@@ -176,7 +194,7 @@ func NewEnsureController(deps EnsureControllerDeps) (*EnsureController, error) {
 		kind: deps.Entry.Kind, label: deps.Entry.Label, requester: EnsureRequester(deps.Entry.Kind),
 		installer: deps.Installer, servers: deps.Servers, assignments: deps.Assignments,
 		coverage: NewEnsureCoverage(deps.Automation), workflows: deps.Workflows, canceler: deps.Canceler, scrapes: deps.Scrapes,
-		now: time.Now, refused: map[string]time.Time{},
+		readiness: deps.Readiness, now: time.Now, refused: map[string]time.Time{},
 	}
 	if deps.Entry.Exporter != nil {
 		controller.exporter = deps.Entry.Exporter.Name
@@ -277,6 +295,12 @@ func (c *EnsureController) Reconcile(ctx context.Context, request convergence.Re
 	if len(active) > 0 {
 		return nil
 	}
+	if c.readiness != nil {
+		ready, err := c.readiness.Ready(ctx)
+		if err != nil || !ready {
+			return err
+		}
+	}
 	return c.install(ctx, server, reason)
 }
 
@@ -329,7 +353,13 @@ func (c *EnsureController) ownInstall(workflow *workflowdomain.Workflow) bool {
 // one whose exporter is down (at resync).
 func (c *EnsureController) installReason(ctx context.Context, server *serverdomain.Server, assignment *softwaredomain.Assignment, resync bool) (string, error) {
 	switch assignmentState(assignment) {
-	case "", softwaredomain.StateAbsent:
+	case "":
+		return "not installed", nil
+	case softwaredomain.StateAbsent:
+		optedOut, err := c.uninstalledByUser(ctx, server)
+		if err != nil || optedOut {
+			return "", err
+		}
 		return "not installed", nil
 	case softwaredomain.StateFailed:
 		if !resync {
@@ -341,6 +371,27 @@ func (c *EnsureController) installReason(ctx context.Context, server *serverdoma
 	default:
 		return "", nil
 	}
+}
+
+// uninstalledByUser reports whether the newest install or uninstall of the kind on the Server was an
+// uninstall someone other than the controller asked for. That uninstall opts the Server out: the
+// controller leaves the kind absent until anyone installs it again, instead of undoing the
+// uninstall. An uninstall swallow itself planned (a sweep, a Platform's)
+// does not opt out.
+func (c *EnsureController) uninstalledByUser(ctx context.Context, server *serverdomain.Server) (bool, error) {
+	history, _, err := c.workflows.List(ctx, workflowdomain.WorkflowFilter{ServerID: server.ID, Limit: ensureHistoryScan})
+	if err != nil {
+		return false, err
+	}
+	for _, workflow := range history {
+		switch string(workflow.Kind) {
+		case c.kind.InstallWorkflowKind():
+			return false, nil
+		case c.kind.UninstallWorkflowKind():
+			return workflow.RequestedBy != c.requester && !strings.HasPrefix(workflow.RequestedBy, "swallow:"), nil
+		}
+	}
+	return false, nil
 }
 
 // retryReason retries a failed install once the backoff since the assignment failed has elapsed.

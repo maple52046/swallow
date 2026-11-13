@@ -1,0 +1,36 @@
+---
+# Install the directory client (SSSD) as Managed Software (docs/development/identity-and-access.md
+# §8, docs/development/software-deployment.md): the Server then reads its Users, groups, SSH public
+# keys, Host Access, and sudo rules from the installation's Directory over LDAPS. Idempotent: a
+# converged host reruns with no changes.
+#
+# Trusted vars: swallow_directory_uri, swallow_directory_base_dn, swallow_directory_ca_pem,
+# swallow_directory_id_start, swallow_directory_usernames. Secret vars (sealed, given only to this
+# run): swallow_directory_bind_dn, swallow_directory_bind_password.
+
+- name: Hold the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: package_maintenance_hold
+
+- name: Point every target at the run's artifact sources
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: artifact_sources
+
+- name: Install the directory client
+  hosts: all
+  gather_facts: true
+  roles:
+    - role: sssd_client
+
+- name: Release the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Release the package maintenance hold
+      ansible.builtin.include_role:
+        name: package_maintenance_hold
+        tasks_from: release

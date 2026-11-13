@@ -13,7 +13,7 @@ contract before implementing or integrating against it.
 
 | Document | Status | Purpose |
 | --- | --- | --- |
-| [conventions.md](conventions.md) | Active | Base path, authentication scheme, role model, error envelope and code-to-status map, timestamp format, pagination envelope, and the operational endpoints (`/livez`, `/readyz`, `/healthz`, `/metrics`). Every HTTP contract below references it instead of repeating these rules. |
+| [conventions.md](conventions.md) | Active | Base path, authentication scheme, authorization classes (User Role and Pool Role), error envelope and code-to-status map, timestamp format, pagination envelope, and the operational endpoints (`/livez`, `/readyz`, `/healthz`, `/metrics`). Every HTTP contract below references it instead of repeating these rules. |
 | [../openapi/](../openapi) | Active | The OpenAPI 3.0.3 description of every route below: the authoritative wire shape, split into `common.yaml` and `areas/*.yaml` and bundled into `openapi.yaml` (see [../README.md](../README.md)). |
 
 ## HTTP REST API
@@ -27,7 +27,10 @@ lists the components that call it today.
 | [auth-login.md](auth-login.md) | Active | `POST /api/v1/auth/login` | Exchange username and password for a Session: a short-lived access token and a refresh token (cookie for browsers, body for the CLI). |
 | [auth-refresh.md](auth-refresh.md) | Active | `POST /api/v1/auth/refresh` | Exchange a refresh token for a new access token, rotating the refresh token (30-second grace; reuse revokes the Session). |
 | [auth-logout.md](auth-logout.md) | Active | `POST /api/v1/auth/logout` | End a Session so its refresh token stops working; idempotent. |
-| [auth-me.md](auth-me.md) | Active | `GET /api/v1/auth/me` | Return the authenticated caller's identity, role, and authentication method. |
+| [auth-me.md](auth-me.md) | Active | `GET /api/v1/auth/me`, `PUT /api/v1/auth/me/password` | Return the authenticated caller's identity, User Role, Pool Memberships, and authentication method, and change the caller's own password. |
+| [users.md](users.md) | Active | `/api/v1/users` | An admin's management of Users: create, change the role of, reset the password of, and delete; the username is also the User's Linux login. |
+| [pool-access.md](pool-access.md) | Active | `/api/v1/infrastructure/pools/{id}/members`, `/api/v1/infrastructure/pools/{id}/access-policy` | A Pool's Memberships (Pool Role `owner` or `member`, sudo overrides) and its Sudo Policy defaults. |
+| [access.md](access.md) | Active | `/api/v1/access/settings`, `/api/v1/access/audit`, `/api/v1/access/directory` | The installation's access settings, the audit log of access changes, and the Directory's configuration and status. |
 | [api-keys.md](api-keys.md) | Active | `/api/v1/api-keys` | Create, list, and delete the caller's API Keys for non-interactive clients (secret shown once, optional expiry). |
 | [modules.md](modules.md) | Active | `GET /api/v1/modules` | List the Extension Modules compiled into the build with the spec schema each declares, from which a client renders generic settings forms and details; a Software module's install spec is checked against its schema. |
 | [change-plans.md](change-plans.md) | Active | `/api/v1/change-plans`, `/api/v1/change-plan-policy` | Read, approve, and reject the Change Plans of destructive changes, and the policy for approving them with their submission; the resource's controller applies an approved plan as a Workflow ([decision 076](../../../../../docs/decisions/076-change-plans.md) (change plans)). |
@@ -81,7 +84,6 @@ contract**. The resource groups below are described there but have no registered
 routes and no active contract:
 
 - Teams
-- Users (management)
 - Topology: Datacenter, Room, Rack
 - GPU Observability
 

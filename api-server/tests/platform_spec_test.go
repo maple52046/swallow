@@ -207,8 +207,8 @@ func TestDeletePlatformWhoseDeploymentStarted(t *testing.T) {
 	}
 }
 
-// DELETE /platforms/{id} proposes the uninstall with the removal choices as a Change Plan; only an
-// admin may ask; recordOnly=true removes only the record.
+// DELETE /platforms/{id} proposes the uninstall with the removal choices as a Change Plan; a User
+// who cannot see the Platform gets 404 (decision 082); recordOnly=true removes only the record.
 func TestDeletePlatformProposesItsUninstall(t *testing.T) {
 	f := setupPlatform(t)
 	f.seedServer("srv-1", "node-1", "10.0.1.10", nil)
@@ -216,8 +216,8 @@ func TestDeletePlatformProposesItsUninstall(t *testing.T) {
 
 	resp := doRequest(t, f.app, "DELETE", "/api/v1/platforms/platform-1", map[string]any{"releaseServers": true},
 		map[string]string{"Authorization": "Bearer " + userToken(t, f.jwtSvc)})
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("non-admin status = %d, want 403", resp.StatusCode)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status for a User outside the Platform's Pool = %d, want 404", resp.StatusCode)
 	}
 	resp = doRequest(t, f.app, "DELETE", "/api/v1/platforms/platform-1", map[string]any{
 		"releaseServers": true, "releaseOptions": map[string]any{"erase": true},

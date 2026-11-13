@@ -8,7 +8,12 @@ import (
 // ListFilter narrows a server listing. Zero values mean no constraint.
 type ListFilter struct {
 	// IDs restricts the result to these Server ids; nil means no constraint.
-	IDs           []string
+	IDs []string
+	// PoolIDs, when RestrictPools is set, restricts the result to Servers whose placement spec names
+	// one of these Pools; an empty list then matches nothing. It is how a list shows a User only
+	// the Servers of the Pools it belongs to (decision 082).
+	PoolIDs       []string
+	RestrictPools bool
 	SiteID        string
 	IntegrationID string
 	// ProvisioningState filters on the provisioning axis.

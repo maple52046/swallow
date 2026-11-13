@@ -69,6 +69,26 @@ func applyEnv(cfg *Config) error {
 		cfg.API.BootstrapAdminPassword = v
 	}
 
+	if v := os.Getenv("SWALLOW_API_POSIX_ID_START"); v != "" {
+		start, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil {
+			return fmt.Errorf("SWALLOW_API_POSIX_ID_START must be an integer, got %q", v)
+		}
+		cfg.API.POSIXIDStart = start
+	}
+	for name, field := range map[string]*string{
+		"SWALLOW_API_DIRECTORY_URL":                  &cfg.API.Directory.URL,
+		"SWALLOW_API_DIRECTORY_BASE_DN":              &cfg.API.Directory.BaseDN,
+		"SWALLOW_API_DIRECTORY_BIND_PASSWORD_FILE":   &cfg.API.Directory.BindPasswordFile,
+		"SWALLOW_API_DIRECTORY_CA_FILE":              &cfg.API.Directory.CAFile,
+		"SWALLOW_API_DIRECTORY_HOST_URL":             &cfg.API.Directory.HostURL,
+		"SWALLOW_API_DIRECTORY_READER_PASSWORD_FILE": &cfg.API.Directory.ReaderPasswordFile,
+	} {
+		if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+			*field = v
+		}
+	}
+
 	if v := getSecretEnv("SWALLOW_API_CREDENTIAL_KEY", ""); v != "" {
 		cfg.API.CredentialKey = v
 	}
@@ -106,6 +126,13 @@ func applyEnv(cfg *Config) error {
 			return fmt.Errorf("SWALLOW_WORKER_NODE_EXPORTER_ENSURE must be true or false, got %q", v)
 		}
 		cfg.API.NodeExporterEnsure = enabled
+	}
+	if v := os.Getenv("SWALLOW_WORKER_DIRECTORY_CLIENT_ENSURE"); v != "" {
+		enabled, err := strconv.ParseBool(strings.TrimSpace(v))
+		if err != nil {
+			return fmt.Errorf("SWALLOW_WORKER_DIRECTORY_CLIENT_ENSURE must be true or false, got %q", v)
+		}
+		cfg.API.DirectoryClientEnsure = enabled
 	}
 
 	if v := os.Getenv("SWALLOW_API_OPERATION_MAX_PARALLELISM"); v != "" {

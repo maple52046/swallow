@@ -1,0 +1,169 @@
+---
+# Install and configure the directory client. SSSD is started and must read the Directory before the
+# name service, sudo, or sshd use it, and the host's local accounts are checked against the
+# Directory first, so a host that cannot reach it, or whose local accounts would collide with it,
+# stops with a [code] before any login path changes.
+
+- name: Refuse an OS without a supported directory client
+  ansible.builtin.fail:
+    msg: >-
+      [sssd_unsupported_os] swallow installs the directory client on Ubuntu; this host reports
+      {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}.
+  when: ansible_facts['distribution'] != 'Ubuntu'
+
+- name: Refuse an install without the Directory settings
+  ansible.builtin.fail:
+    msg: "[sssd_settings_missing] the install did not receive the Directory settings from swallow"
+  when: >-
+    (swallow_directory_uri | default('')) == '' or (swallow_directory_base_dn | default('')) == '' or
+    (swallow_directory_ca_pem | default('')) == '' or (swallow_directory_bind_dn | default('')) == '' or
+    (swallow_directory_bind_password | default('')) == '' or (swallow_directory_usernames | default([])) | length == 0
+  no_log: true
+
+- name: Install the directory client packages
+  become: true
+  ansible.builtin.apt:
+    name: "{{ sssd_client_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    install_recommends: false
+  register: sssd_client_apt
+  until: sssd_client_apt is succeeded
+  retries: 5
+  delay: 10
+
+- name: Install the installation CA the Directory's certificate is verified with
+  become: true
+  ansible.builtin.copy:
+    content: "{{ swallow_directory_ca_pem }}"
+    dest: "{{ sssd_client_ca }}"
+    owner: root
+    group: root
+    mode: "0644"
+  register: sssd_client_ca_file
+
+- name: Write the SSSD configuration
+  become: true
+  ansible.builtin.template:
+    src: sssd.conf.j2
+    dest: "{{ sssd_client_conf }}"
+    owner: root
+    group: root
+    mode: "0600"
+  register: sssd_client_conf_file
+  # The file holds the read-only account's password.
+  no_log: true
+
+- name: Restart SSSD after a configuration change
+  become: true
+  ansible.builtin.systemd:
+    name: sssd
+    state: restarted
+    enabled: true
+  when: sssd_client_conf_file.changed or sssd_client_ca_file.changed
+
+- name: Start SSSD
+  become: true
+  ansible.builtin.systemd:
+    name: sssd
+    state: started
+    enabled: true
+
+- name: Read the first User from the Directory
+  ansible.builtin.command:
+    argv: [getent, -s, sss, passwd, "{{ swallow_directory_usernames | first }}"]
+  register: sssd_client_probe
+  changed_when: false
+  failed_when: false
+  until: sssd_client_probe.rc == 0
+  retries: 6
+  delay: 5
+
+- name: Stop a host that cannot read the Directory
+  ansible.builtin.fail:
+    msg: >-
+      [sssd_directory_unreachable] SSSD on {{ ansible_facts['hostname'] }} could not read
+      {{ swallow_directory_usernames | first }} from {{ swallow_directory_uri }}; check that the host
+      reaches it on port 636 and that its clock is synchronized
+  when: sssd_client_probe.rc != 0
+
+- name: Check the host's local accounts against the Directory
+  ansible.builtin.include_tasks: conflicts.yml
+
+- name: Look up accounts and groups in the Directory after the local files
+  become: true
+  ansible.builtin.replace:
+    path: /etc/nsswitch.conf
+    regexp: '^({{ item }}:(?!.*\bsss\b).*?)\s*$'
+    replace: '\1 sss'
+  loop: [passwd, group]
+
+- name: Read sudo rules from the local files, then the Directory
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/nsswitch.conf
+    regexp: "^sudoers:"
+    line: "sudoers:        files sss"
+
+- name: Check whether PAM creates home directories
+  ansible.builtin.command:
+    argv: [grep, -q, pam_mkhomedir, /etc/pam.d/common-session]
+  register: sssd_client_mkhomedir_present
+  changed_when: false
+  failed_when: false
+
+- name: Enable home directory creation in PAM
+  become: true
+  ansible.builtin.command:
+    argv: [pam-auth-update, --enable, mkhomedir]
+  changed_when: true
+  when: sssd_client_mkhomedir_present.rc != 0
+
+- name: Let sshd read a User's Access Keys from the Directory
+  become: true
+  ansible.builtin.copy:
+    dest: "{{ sssd_client_sshd_dropin }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Written by swallow (directory client): Access Keys come from the Directory through SSSD.
+      AuthorizedKeysCommand /usr/bin/sss_ssh_authorizedkeys %u
+      AuthorizedKeysCommandUser nobody
+  register: sssd_client_dropin
+
+- name: Check the sshd configuration with the drop-in
+  become: true
+  ansible.builtin.command:
+    argv: [sshd, -t]
+  register: sssd_client_sshd_test
+  changed_when: false
+  failed_when: false
+
+- name: Back out a drop-in sshd refuses
+  when: sssd_client_sshd_test.rc != 0
+  become: true
+  block:
+    - name: Remove the drop-in
+      ansible.builtin.file:
+        path: "{{ sssd_client_sshd_dropin }}"
+        state: absent
+
+    - name: Stop with sshd's reason
+      ansible.builtin.fail:
+        msg: "[sssd_sshd_config_invalid] sshd -t refused the configuration: {{ sssd_client_sshd_test.stderr | default('') | trim }}"
+
+- name: Reload sshd to use the drop-in
+  become: true
+  ansible.builtin.systemd:
+    name: ssh
+    state: reloaded
+  when: sssd_client_dropin.changed
+
+- name: Drop SSSD's cached entries after a configuration change
+  become: true
+  ansible.builtin.command:
+    argv: [sss_cache, -E]
+  changed_when: true
+  when: sssd_client_conf_file.changed or sssd_client_ca_file.changed

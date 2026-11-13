@@ -34,7 +34,10 @@ Templates, and submit one OS deployment configuration to one or more eligible Se
 
 ## Authentication and Authorization
 
-Every endpoint requires an admin bearer token. Shared error envelopes, codes,
+Reading OS Images and Deployment Templates (`GET /images`, `GET /templates`,
+`GET /templates/{id}`) is reference; `POST /deployments/preflight`, `POST /deployment-operations`,
+`POST /release-operations`, and `POST /recover-operations` are Pool operate on every target Server;
+every other endpoint is admin ([conventions](conventions.md#authorization)). Shared error envelopes, codes,
 timestamps, and authentication behavior follow [conventions.md](conventions.md).
 
 ## Endpoints

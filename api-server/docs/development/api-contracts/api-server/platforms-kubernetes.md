@@ -67,7 +67,7 @@ GET    /api/v1/platforms/{platformId}/kubernetes/persistentvolumeclaims
 POST   /api/v1/platforms/{platformId}/kubernetes/apply
 ```
 
-All endpoints require the `admin` role per [conventions](conventions.md). All list responses are
+Every route, the reads included, is Pool operate on the Platform ([conventions](conventions.md#authorization)). All list responses are
 plain objects with an `items` array (bounded per namespace, so not paginated). The wire shape
 (paths, parameters, schemas, status codes) is specified in
 [`../openapi/areas/platforms.yaml`](../openapi/areas/platforms.yaml); this document keeps the
@@ -105,8 +105,8 @@ accepts or answers. A Platform deployed since 2026-11-05 has two, from two Servi
 - The **operator credential** (`swallow-operator`, bound to `cluster-admin` because `apply` accepts
   RBAC objects) is used only by the routes that change the cluster — cordon and uncordon, namespace
   create and delete, Application delete, scale, and restart, Pod delete, and `apply`, a dry run
-  included — and by the Secret list. Every explorer route requires the `admin` role, so it is used
-  only on an admin's request; no background work uses it.
+  included — and by the Secret list. Every explorer route is Pool operate, so it is used only on the
+  request of an admin or an owner of the Platform's Pool; no background work uses it.
 
 A Platform deployed before 2026-11-05 has only the one credential its deployment recorded, which
 that deployment bound to `cluster-admin`; the routes above use it in place of the operator

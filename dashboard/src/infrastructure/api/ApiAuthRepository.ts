@@ -1,23 +1,31 @@
 import type { AuthRepository } from '@/application/ports/AuthRepository'
-import type { User, UserRole } from '@/domain/user/types'
+import type { PoolMembership, User } from '@/domain/user/types'
 import * as authApi from './authApi'
 import { ApiRequestError } from './client'
 import { clearTokens, currentAccessToken, discardLegacyToken, onSessionEnded, refreshSession } from './session'
 import type { CurrentUser } from './authApi'
 
-const USER_ROLES: readonly string[] = ['admin', 'owner', 'user'] satisfies readonly UserRole[]
-
-function isUserRole(role: string): role is UserRole {
-  return USER_ROLES.includes(role)
-}
-
-/** The contract's role; one this dashboard does not know is least-privileged (auth-me.md), never failing open. */
-function mapRole(role: CurrentUser['role']): UserRole {
-  return isUserRole(role) ? role : 'user'
-}
-
+/**
+ * Maps `GET /api/v1/auth/me` onto the domain User. The roles are compared one by one rather than
+ * passed through, so a role a newer API adds is read as the least privileged (auth-me.md): `user`
+ * for the User Role and `member` for a Pool Role. The result only decides what the dashboard offers;
+ * the server authorizes every request itself.
+ */
 function toUser(response: CurrentUser): User {
-  return { id: response.id, username: response.username, displayName: response.username, role: mapRole(response.role), status: 'active' }
+  const memberships: PoolMembership[] = response.memberships.map((membership) => ({
+    poolId: membership.poolId,
+    poolName: membership.poolName,
+    siteId: membership.siteId,
+    role: membership.role === 'owner' ? 'owner' : 'member',
+  }))
+  return {
+    id: response.id,
+    username: response.username,
+    displayName: response.username,
+    role: response.role === 'admin' ? 'admin' : 'user',
+    status: 'active',
+    memberships,
+  }
 }
 
 /**

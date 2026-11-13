@@ -271,6 +271,9 @@ func respondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, infradomain.ErrServerNotAdopted):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
 			"The server is still being adopted; try again in a moment."))
+	case errors.Is(err, infradomain.ErrPlatformPoolMismatch):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
+			"A platform claims this server; it can be placed only in the platform's pool or in no pool. To move the platform to another pool, take all its servers out of the pool first."))
 
 	case errors.Is(err, provisioningdomain.ErrMachineNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound,

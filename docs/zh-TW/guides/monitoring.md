@@ -68,7 +68,7 @@ swallow 讓每個啟用 automation 的 Site 中，每台已佈署、未 lock 的
 swallow 佈署的 Server。worker 大約每十分鐘檢查每台 Server 一次，Server 或它的 Node Exporter 紀錄改變時則
 立即檢查：
 
-- Server 沒有 Node Exporter，或它被 uninstall 時，swallow 安裝它。
+- Server 沒有 Node Exporter 時，swallow 安裝它。有人在那台 Server 上 uninstall 它時，swallow 不再安裝，直到有人再安裝。
 - 安裝失敗時，swallow 在 15 分鐘、1 小時、6 小時後再試，之後每天一次，所以 OS 沒有這個套件的 Server 不會
   陷入安裝迴圈。
 - Site 的 Prometheus 連續 10 分鐘都收集不到它（例如套件被移除或 service 停止）時，swallow 再安裝一次。
@@ -78,7 +78,7 @@ swallow 佈署的 Server。worker 大約每十分鐘檢查每台 Server 一次�
 其中一個失敗時，swallow 會以「The Node Exporter install failed; swallow retries it later.」為原因取消它，讓
 Server 可以做其他工作；它從不取消別人啟動的 Workflow，有其他工作佔用 Server 時則等待。swallow 從不自行移除
 Node Exporter。locked Server 維持原狀：swallow 不在上面安裝也不移除任何東西。要讓某台 Server 不裝 Node
-Exporter，請 lock 它；在 swallow 會保持安裝的 Server 上 uninstall，只會維持到下一次檢查。
+Exporter，在那台 uninstall 它（或 lock 它）。
 
 安裝進行中或失敗之後，這台 Server 不會被收集，所以它的 health 顯示為 Unknown，而不是 Down。
 

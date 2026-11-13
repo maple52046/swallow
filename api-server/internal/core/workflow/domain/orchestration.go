@@ -241,6 +241,10 @@ var (
 
 // WorkflowFilter narrows v3 Operation listings.
 type WorkflowFilter struct {
+	// TargetsWithin with RestrictTargets keeps only Workflows that have target Servers, every one of
+	// them in TargetsWithin (an empty list then matches nothing).
+	TargetsWithin                []string
+	RestrictTargets              bool
 	SiteID, PlatformID, ServerID string
 	PlatformIDs                  []string
 	Kind                         WorkflowKind

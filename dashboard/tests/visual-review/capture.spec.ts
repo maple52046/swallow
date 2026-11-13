@@ -62,6 +62,11 @@ const visualCases = [
   { name: 'validation-suites', path: '/validation/suites?site=site-a', heading: 'Validation', authenticated: true, representative: false },
   { name: 'validation-suite-detail', path: '/validation/suites/user-mounts?site=site-a', heading: 'Data mounts', authenticated: true, representative: false },
   { name: 'validation-schedules', path: '/validation/schedules?site=site-a', heading: 'Validation', authenticated: true, representative: false },
+  { name: 'users', path: '/users?site=site-a', heading: 'Users', authenticated: true, representative: false },
+  { name: 'pools', path: '/pools?site=site-a', heading: 'Pools', authenticated: true, representative: false },
+  { name: 'pool-access', path: '/pools/pool-research?site=site-a', heading: 'research', authenticated: true, representative: false },
+  { name: 'pool-access-member', path: '/pools/pool-research?site=site-a', heading: 'research', authenticated: true, representative: false },
+  { name: 'account-password', path: '/account/password?site=site-a', heading: 'Change password', authenticated: true, representative: false },
 ] as const
 
 /** Cases whose header carries tabs (an area's or a detail page's); see the phone `-top` capture. */
@@ -155,6 +160,8 @@ test.describe('dashboard visual review', () => {
 
       await installApiFixtures(page, {
         signedIn: visualCase.authenticated,
+        // A Pool member sees the Pool's access page read-only (decision 082).
+        ...(visualCase.name === 'pool-access-member' ? { identity: 'member' as const } : {}),
         // One Server in each health state: srv-1 N/A, srv-2 up, srv-3 unknown, srv-4 down.
         ...(visualCase.name === 'servers'
           ? {

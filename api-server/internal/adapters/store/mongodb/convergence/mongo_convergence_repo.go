@@ -99,6 +99,14 @@ func NewMongoEventRecorder(ctx context.Context, db *mongo.Database) (*MongoEvent
 	return &MongoEventRecorder{col: col}, nil
 }
 
+// OpenMongoEventRecorder returns the recorder without creating its indexes, for assembly code that
+// has no context to create them with. The api and worker processes create them at start through
+// NewMongoEventRecorder; until they exist, appending still works and the timeline read is only
+// slower, and the retention TTL starts with the index.
+func OpenMongoEventRecorder(db *mongo.Database) *MongoEventRecorder {
+	return &MongoEventRecorder{col: db.Collection("convergence_events")}
+}
+
 // Record implements convergence.EventRecorder; an event without an id or time gets one.
 func (r *MongoEventRecorder) Record(ctx context.Context, event convergence.Event) error {
 	if event.ID == "" {

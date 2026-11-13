@@ -493,6 +493,8 @@ test('a Software kind without dashboard presentation is listed and installs', as
   await expect(card).toContainText('Install Example Agent on deployed Servers and remove it again.')
   await card.click()
   await expect(page).toHaveURL('/software/example-agent?site=site-a')
+  // The URL changes before the detail page replaces the catalog, which also says "Other software".
+  await expect(page.getByRole('button', { name: 'Install software', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Example Agent', exact: true }).first()).toBeVisible()
   await expect(page.getByText('Other software', { exact: true })).toBeVisible()
 

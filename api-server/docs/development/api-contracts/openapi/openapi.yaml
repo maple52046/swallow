@@ -10,6 +10,8 @@ servers:
 security:
   - bearerAuth: []
 tags:
+  - description: Users and their User Roles, Pool Memberships with their Pool Roles and Sudo Policy, the installation's access settings and audit log, and the Directory swallow projects them into.
+    name: access
   - description: Sessions and the caller's identity, the caller's API Keys for non-interactive clients, and swallow-owned SSH Keys (the Deployment Key and the caller's Access Keys).
     name: auth
   - description: Preview, approve, or reject what realizing a destructive spec change will do, and read or replace the policy that decides whether a change approved with its submission is approved at once.
@@ -37,9 +39,129 @@ tags:
   - description: Durable Workflows (a DAG of Tasks run by Runners), their timeline and per-Task diagnostics.
     name: workflows
 paths:
+  /api/v1/access/audit:
+    get:
+      description: Requires role `admin`.
+      operationId: listAccessAudit
+      parameters:
+        - description: How many entries to return; 100 when omitted, at most 500.
+          in: query
+          name: limit
+          required: false
+          schema:
+            maximum: 500
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessAuditList'
+          description: The most recent entries.
+        "400":
+          $ref: '#/components/responses/Error'
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: List the most recent access changes, newest first.
+      tags:
+        - access
+  /api/v1/access/directory:
+    get:
+      description: Requires role `admin`.
+      operationId: getDirectory
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Directory'
+          description: The Directory.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Return the Directory's configuration and the Directory controller's status.
+      tags:
+        - access
+  /api/v1/access/directory/sync:
+    post:
+      description: Requires role `admin`. Answers once the request is recorded; the worker's controller applies the content shortly after. Without a configured Directory it is `409`.
+      operationId: syncDirectory
+      responses:
+        "202":
+          description: The request was recorded.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`conflict`: the installation has no Directory configured.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Ask the Directory controller to apply the content now.
+      tags:
+        - access
+  /api/v1/access/settings:
+    get:
+      description: Requires role `admin`.
+      operationId: getAccessSettings
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessSettings'
+          description: The access settings.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Return the installation's access settings.
+      tags:
+        - access
+    put:
+      description: Requires role `admin`.
+      operationId: setAccessSettings
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccessSettingsRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessSettings'
+          description: The stored access settings.
+        "400":
+          $ref: '#/components/responses/Error'
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Replace the installation's access settings.
+      tags:
+        - access
   /api/v1/api-keys:
     get:
-      description: Requires role `admin`; a Session access token or an API Key. Returns a plain array (at most 50 keys per User) of the caller's keys ordered by `createdAt`, including expired keys.
+      description: Any authenticated User; a Session access token or an API Key. Returns a plain array (at most 50 keys per User) of the caller's keys ordered by `createdAt`, including expired keys.
       operationId: listApiKeys
       responses:
         "200":
@@ -60,7 +182,7 @@ paths:
       tags:
         - auth
     post:
-      description: 'Requires role `admin` and a Session access token: a request authenticated by an API Key is refused with `403 forbidden`, so a leaked key cannot mint replacements.'
+      description: 'Any authenticated User with a Session access token: a request authenticated by an API Key is refused with `403 forbidden`, so a leaked key cannot mint replacements.'
       operationId: createApiKey
       requestBody:
         content:
@@ -91,7 +213,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`forbidden`: the caller is not `admin`, or the request was authenticated with an API Key.'
+          description: '`forbidden`: the request was authenticated with an API Key.'
         "409":
           content:
             application/json:
@@ -105,7 +227,7 @@ paths:
         - auth
   /api/v1/api-keys/{keyId}:
     delete:
-      description: Requires role `admin`; a Session access token or an API Key.
+      description: Any authenticated User (the caller's own keys only); a Session access token or an API Key.
       operationId: deleteApiKey
       responses:
         "204":
@@ -210,7 +332,7 @@ paths:
         - auth
   /api/v1/auth/me:
     get:
-      description: Any authenticated role (`admin`, `owner`, `user`); the response always describes the caller.
+      description: Any authenticated User (role `admin` or `user`); the response always describes the caller.
       operationId: getCurrentUser
       responses:
         "200":
@@ -230,6 +352,38 @@ paths:
         default:
           $ref: '#/components/responses/Error'
       summary: Return the authenticated caller's identity, role, and authentication method.
+      tags:
+        - auth
+  /api/v1/auth/me/password:
+    put:
+      description: Any authenticated User with a Session; a request authenticated by an API Key is `403`. The current password must be given. Existing Sessions stay valid.
+      operationId: changeOwnPassword
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+        required: true
+      responses:
+        "204":
+          description: The password was changed.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`validation_error`: a field is missing, the current password is wrong, or the new one is shorter than 8 characters or longer than 72 bytes.'
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`forbidden`: the request was authenticated with an API Key.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Change the caller's own password.
       tags:
         - auth
   /api/v1/auth/refresh:
@@ -801,6 +955,196 @@ paths:
       summary: Rename a Pool or change its description.
       tags:
         - sites
+  /api/v1/infrastructure/pools/{id}/access-policy:
+    get:
+      description: Requires role `admin` or any Pool Role in the Pool; any other caller gets `404`.
+      operationId: getPoolAccessPolicy
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PoolAccessPolicy'
+          description: The Pool's defaults.
+        "401":
+          $ref: '#/components/responses/Error'
+        "404":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Return a Pool's Sudo Policy defaults.
+      tags:
+        - access
+    parameters:
+      - description: The Pool's id.
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+    put:
+      description: Requires role `admin` or Pool Role `owner` in the Pool.
+      operationId: setPoolAccessPolicy
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PoolAccessPolicyRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PoolAccessPolicy'
+          description: The stored defaults.
+        "400":
+          $ref: '#/components/responses/Error'
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Replace a Pool's Sudo Policy defaults.
+      tags:
+        - access
+  /api/v1/infrastructure/pools/{id}/members:
+    get:
+      description: Requires role `admin` or any Pool Role in the Pool; any other caller gets `404`.
+      operationId: listPoolMembers
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PoolMemberList'
+          description: The Pool's memberships.
+        "401":
+          $ref: '#/components/responses/Error'
+        "404":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: List a Pool's memberships with their resolved Sudo Policy.
+      tags:
+        - access
+    parameters:
+      - description: The Pool's id.
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+    post:
+      description: Requires role `admin` or Pool Role `owner` in the Pool.
+      operationId: addPoolMember
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddPoolMemberRequest'
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PoolMember'
+          description: The membership was created.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`validation_error`: the role or a sudo setting is invalid.'
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`not_found`: the Pool is not visible to the caller, or no User has the username.'
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`conflict`: the User already belongs to the Pool.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Add an existing User to a Pool.
+      tags:
+        - access
+  /api/v1/infrastructure/pools/{id}/members/{userId}:
+    delete:
+      description: Requires role `admin` or Pool Role `owner` in the Pool; an owner may remove itself.
+      operationId: removePoolMember
+      responses:
+        "204":
+          description: The membership was removed.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Remove a User from a Pool.
+      tags:
+        - access
+    parameters:
+      - description: The Pool's id.
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - description: The member's User id.
+        in: path
+        name: userId
+        required: true
+        schema:
+          type: string
+    patch:
+      description: Requires role `admin` or Pool Role `owner` in the Pool. An omitted field is left as it is.
+      operationId: updatePoolMember
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePoolMemberRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PoolMember'
+          description: The changed membership.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`validation_error`: the role or a sudo setting is invalid.'
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Change a membership's Pool Role or Sudo Policy overrides.
+      tags:
+        - access
   /api/v1/infrastructure/zones:
     get:
       description: Requires role `admin`. Returns a plain array ordered by `name` (small and bounded).
@@ -7398,7 +7742,7 @@ paths:
         - software
   /api/v1/ssh-keys:
     get:
-      description: 'Requires role `admin`. Returns a plain array: the Deployment Key first (when the installation step has created it), then the caller''s Access Keys ordered by `createdAt`.'
+      description: 'Any authenticated User. Returns a plain array: the Deployment Key first (when the installation step has created it), then the caller''s Access Keys ordered by `createdAt`.'
       operationId: listSshKeys
       responses:
         "200":
@@ -7419,7 +7763,7 @@ paths:
       tags:
         - auth
     post:
-      description: Requires role `admin`. The SSH Key controller realizes the key in the background, so the response's per-provisioner conditions are still empty.
+      description: Any authenticated User (the key becomes the caller's). The SSH Key controller realizes the key in the background, so the response's per-provisioner conditions are still empty.
       operationId: importSshKey
       requestBody:
         content:
@@ -7457,7 +7801,7 @@ paths:
         - auth
   /api/v1/ssh-keys/{keyId}:
     delete:
-      description: Requires role `admin`. The SSH Key controller removes it from the provisioners after the record is deleted, retrying an unreachable one. Already-deployed Servers keep the key.
+      description: Any authenticated User (one of the caller's own Access Keys). The SSH Key controller removes it from the provisioners after the record is deleted, retrying an unreachable one. Already-deployed Servers keep the key.
       operationId: deleteSshKey
       responses:
         "204":
@@ -7484,7 +7828,7 @@ paths:
       tags:
         - auth
     get:
-      description: Requires role `admin`. Same shape as a list item; lets a client follow one key's realization without re-reading the list.
+      description: Any authenticated User (the Deployment Key or one of the caller's own Access Keys). Same shape as a list item; lets a client follow one key's realization without re-reading the list.
       operationId: getSshKey
       responses:
         "200":
@@ -7587,7 +7931,7 @@ paths:
         - auth
   /api/v1/ssh-keys/generate:
     post:
-      description: Requires role `admin`. Only the public key is stored; swallow keeps no copy of the private key and can never return it again.
+      description: Any authenticated User (the key becomes the caller's). Only the public key is stored; swallow keeps no copy of the private key and can never return it again.
       operationId: generateSshKey
       requestBody:
         content:
@@ -7646,6 +7990,154 @@ paths:
       summary: Request an immediate realization pass over every provisioner Integration.
       tags:
         - auth
+  /api/v1/users:
+    get:
+      description: Requires role `admin`. Ordered by username.
+      operationId: listUsers
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserList'
+          description: Every User.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: List every User.
+      tags:
+        - access
+    post:
+      description: Requires role `admin`. swallow allocates the User's uidNumber in the same write. The username is also the User's Linux login and follows the POSIX login-name rule.
+      operationId: createUser
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: The User was created.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`validation_error`: the username breaks the login-name rule or is reserved, the password is shorter than 8 characters or longer than 72 bytes, or the role is not `admin` or `user`.'
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`conflict`: another User has the username.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Create a User.
+      tags:
+        - access
+  /api/v1/users/{id}:
+    delete:
+      description: Requires role `admin`. The User's uidNumber stays allocated.
+      operationId: deleteUser
+      responses:
+        "204":
+          description: The User was deleted.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          $ref: '#/components/responses/Error'
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`conflict`: the caller tried to delete its own account, or the last admin.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Delete a User with its memberships, Sessions, API Keys, and Access Keys.
+      tags:
+        - access
+    get:
+      description: Requires role `admin`.
+      operationId: getUser
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: The User.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Return one User.
+      tags:
+        - access
+    parameters:
+      - description: The User's id.
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+    patch:
+      description: Requires role `admin`. An omitted field is left as it is.
+      operationId: updateUser
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: The changed User.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`validation_error`: the role or the password is invalid.'
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          $ref: '#/components/responses/Error'
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`conflict`: the change would demote the last admin.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Change a User's role or reset its password.
+      tags:
+        - access
   /api/v1/validation/runs:
     get:
       description: Requires the `admin` role. Runs sorted by `requestedAt` descending, paged, without their results (read a run for them). Every filter is optional and exact-match.
@@ -8993,6 +9485,101 @@ components:
             $ref: '#/components/schemas/Error'
       description: The Task is not `failed` or `requires_attention` with a retryable error, or the Workflow's execution no longer exists and cannot receive the retry (`conflict`).
   schemas:
+    AccessAuditEntry:
+      description: One recorded access change. It never carries a password.
+      properties:
+        action:
+          enum:
+            - user.created
+            - user.updated
+            - user.deleted
+            - member.added
+            - member.updated
+            - member.removed
+            - pool_policy.updated
+            - settings.updated
+          type: string
+        actor:
+          description: The username of the User who made the change.
+          type: string
+        at:
+          $ref: '#/components/schemas/Timestamp'
+        detail:
+          type: string
+        id:
+          type: string
+        poolId:
+          description: The Pool of a membership or policy change, `""` otherwise.
+          type: string
+        target:
+          description: The User or Pool the change was about.
+          type: string
+      required:
+        - id
+        - at
+        - actor
+        - action
+        - target
+        - poolId
+        - detail
+      type: object
+    AccessAuditList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/AccessAuditEntry'
+          type: array
+      required:
+        - items
+      type: object
+    AccessSettings:
+      properties:
+        adminSudoPasswordless:
+          description: Whether admins' sudo on every Server asks for no password.
+          type: boolean
+        posixIdStart:
+          description: The first uidNumber and gidNumber of the installation's range; read-only.
+          type: integer
+        updatedAt:
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          description: '`null` while the settings have their defaults.'
+          nullable: true
+        updatedBy:
+          type: string
+      required:
+        - adminSudoPasswordless
+        - posixIdStart
+        - updatedAt
+        - updatedBy
+      type: object
+    AccessSettingsRequest:
+      additionalProperties: false
+      properties:
+        adminSudoPasswordless:
+          type: boolean
+      required:
+        - adminSudoPasswordless
+      type: object
+    AddPoolMemberRequest:
+      additionalProperties: false
+      properties:
+        role:
+          enum:
+            - owner
+            - member
+          type: string
+        sudo:
+          $ref: '#/components/schemas/SudoSetting'
+        sudoPasswordless:
+          $ref: '#/components/schemas/SudoSetting'
+        username:
+          description: An existing User's username.
+          type: string
+      required:
+        - username
+        - role
+      type: object
     AlertAcknowledgement:
       description: What to silence and for how long. Every field is optional.
       properties:
@@ -9580,6 +10167,18 @@ components:
         - lastAppliedAt
         - lastErrorAt
       type: object
+    ChangePasswordRequest:
+      additionalProperties: false
+      properties:
+        currentPassword:
+          type: string
+        newPassword:
+          description: At least 8 characters, at most 72 bytes.
+          type: string
+      required:
+        - currentPassword
+        - newPassword
+      type: object
     ChangePlan:
       additionalProperties: false
       properties:
@@ -9735,6 +10334,24 @@ components:
         - docker-ce
         - podman
       type: string
+    CreateUserRequest:
+      additionalProperties: false
+      properties:
+        password:
+          description: At least 8 characters, at most 72 bytes.
+          type: string
+        role:
+          enum:
+            - admin
+            - user
+          type: string
+        username:
+          type: string
+      required:
+        - username
+        - password
+        - role
+      type: object
     CreateWorkflowRequest:
       description: User intent for a single-Task Ansible Workflow. Unknown fields are ignored.
       properties:
@@ -9788,11 +10405,15 @@ components:
           type: string
         id:
           type: string
+        memberships:
+          description: The caller's Pool Memberships, for deciding which actions to offer; an admin may act in every Pool whether or not it is listed.
+          items:
+            $ref: '#/components/schemas/CurrentUserMembership'
+          type: array
         role:
-          description: Consumers must treat an unrecognised role as least-privileged.
+          description: The User Role. Consumers must treat an unrecognised role as least-privileged (`user`).
           enum:
             - admin
-            - owner
             - user
           type: string
         username:
@@ -9802,6 +10423,28 @@ components:
         - username
         - role
         - authMethod
+        - memberships
+      type: object
+    CurrentUserMembership:
+      description: One of the caller's Pool Memberships.
+      properties:
+        poolId:
+          type: string
+        poolName:
+          type: string
+        role:
+          description: The Pool Role. Consumers must treat an unrecognised role as `member`.
+          enum:
+            - owner
+            - member
+          type: string
+        siteId:
+          type: string
+      required:
+        - poolId
+        - poolName
+        - siteId
+        - role
       type: object
     DeploymentKeyReplaceRequest:
       properties:
@@ -10006,6 +10649,51 @@ components:
         - failed
         - absent
       type: string
+    Directory:
+      description: The installation's Directory and the Directory controller's last report.
+      properties:
+        baseDn:
+          description: The Directory's base DN, `""` without a Directory.
+          type: string
+        conditions:
+          items:
+            $ref: '#/components/schemas/Condition'
+          type: array
+        configured:
+          description: Whether the installation has a Directory; without one nothing else is meaningful.
+          type: boolean
+        groups:
+          type: integer
+        hostUrl:
+          description: The URL the Servers' directory client connects to, `""` without a Directory.
+          type: string
+        hosts:
+          description: The distinct host names the Host Access names.
+          type: integer
+        lastAppliedAt:
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        observedAt:
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        sudoRules:
+          type: integer
+        users:
+          type: integer
+      required:
+        - configured
+        - hostUrl
+        - baseDn
+        - conditions
+        - lastAppliedAt
+        - observedAt
+        - users
+        - groups
+        - sudoRules
+        - hosts
+      type: object
     DockerContainer:
       properties:
         command:
@@ -10458,6 +11146,20 @@ components:
           type: array
       required:
         - items
+      type: object
+    EffectiveSudoValue:
+      description: One overridable Sudo Policy value of a membership.
+      properties:
+        effective:
+          type: boolean
+        setting:
+          $ref: '#/components/schemas/SudoSetting'
+        source:
+          $ref: '#/components/schemas/SudoSource'
+      required:
+        - setting
+        - effective
+        - source
       type: object
     Error:
       description: The error envelope every non-success response uses (conventions.md, Error Response).
@@ -13443,6 +14145,10 @@ components:
         observedGeneration:
           format: int64
           type: integer
+        poolId:
+          description: 'The Pool the Platform belongs to: the Pool every member of the spec (and every Server it still claims) is placed in; null when they are in different Pools or in none, and then only admins may manage it (identity-and-access.md §5).'
+          nullable: true
+          type: string
         realizingWorkflowId:
           description: The Workflow carrying out a newer generation, until it succeeds.
           nullable: true
@@ -13452,6 +14158,7 @@ components:
         - conditions
         - applied
         - realizingWorkflowId
+        - poolId
       type: object
     PlatformType:
       description: The kind of Platform.
@@ -13495,6 +14202,85 @@ components:
         - generation
         - spec
         - status
+      type: object
+    PoolAccessPolicy:
+      description: A Pool's Sudo Policy defaults.
+      properties:
+        memberSudo:
+          description: Whether members have sudo on the Pool's Servers unless their membership overrides it.
+          type: boolean
+        poolId:
+          type: string
+        sudoPasswordless:
+          description: Whether sudo asks for no password unless a membership overrides it.
+          type: boolean
+        updatedAt:
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          description: '`null` while the Pool has the defaults it was created with.'
+          nullable: true
+        updatedBy:
+          description: The username of the last writer, `""` while the Pool has its defaults.
+          type: string
+      required:
+        - poolId
+        - memberSudo
+        - sudoPasswordless
+        - updatedAt
+        - updatedBy
+      type: object
+    PoolAccessPolicyRequest:
+      additionalProperties: false
+      properties:
+        memberSudo:
+          type: boolean
+        sudoPasswordless:
+          type: boolean
+      required:
+        - memberSudo
+        - sudoPasswordless
+      type: object
+    PoolMember:
+      description: One Pool Membership with its resolved Sudo Policy. An owner always has sudo (source `role`), whatever its stored `sudo` setting.
+      properties:
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        poolId:
+          type: string
+        role:
+          description: The Pool Role.
+          enum:
+            - owner
+            - member
+          type: string
+        sudo:
+          $ref: '#/components/schemas/EffectiveSudoValue'
+        sudoPasswordless:
+          $ref: '#/components/schemas/EffectiveSudoValue'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+        userId:
+          type: string
+        username:
+          type: string
+      required:
+        - userId
+        - username
+        - poolId
+        - role
+        - sudo
+        - sudoPasswordless
+        - createdAt
+        - updatedAt
+      type: object
+    PoolMemberList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/PoolMember'
+          type: array
+      required:
+        - items
       type: object
     PowerConfiguration:
       description: A Server's Power Configuration as read live from its provisioner; never carries the password.
@@ -15560,6 +16346,21 @@ components:
       required:
         - success
       type: object
+    SudoSetting:
+      description: A member's override of one Pool default.
+      enum:
+        - inherit
+        - "on"
+        - "off"
+      type: string
+    SudoSource:
+      description: Which layer of the Sudo Policy decided an effective value.
+      enum:
+        - role
+        - settings
+        - pool
+        - member
+      type: string
     TimeSyncCheck:
       description: 'What a node with an unsynchronized clock does to the install: `enforce` fails it before anything is installed, `warn` reports it and continues.'
       enum:
@@ -15570,6 +16371,70 @@ components:
       description: ISO 8601 in UTC (conventions.md, Timestamps).
       format: date-time
       type: string
+    UpdatePoolMemberRequest:
+      additionalProperties: false
+      properties:
+        role:
+          enum:
+            - owner
+            - member
+          type: string
+        sudo:
+          $ref: '#/components/schemas/SudoSetting'
+        sudoPasswordless:
+          $ref: '#/components/schemas/SudoSetting'
+      type: object
+    UpdateUserRequest:
+      additionalProperties: false
+      properties:
+        password:
+          description: A new password, at least 8 characters and at most 72 bytes.
+          type: string
+        role:
+          enum:
+            - admin
+            - user
+          type: string
+      type: object
+    User:
+      description: A User (glossary User). The password is never part of the resource.
+      properties:
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        id:
+          type: string
+        role:
+          description: The User Role. Consumers must treat an unrecognised role as `user`.
+          enum:
+            - admin
+            - user
+          type: string
+        uidNumber:
+          description: The User's POSIX uid; `null` until allocated (only a User from before POSIX identities).
+          nullable: true
+          type: integer
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+        username:
+          description: Also the User's Linux login on the Servers the Directory reaches.
+          type: string
+      required:
+        - id
+        - username
+        - role
+        - uidNumber
+        - createdAt
+        - updatedAt
+      type: object
+    UserList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/User'
+          type: array
+      required:
+        - items
+      type: object
     ValidationCheck:
       properties:
         description:
@@ -16533,6 +17398,8 @@ components:
         - uninstall-victoriametrics
         - configure-libvirt
         - uninstall-libvirt
+        - configure-sssd
+        - uninstall-sssd
         - configure-ntp
         - run-validation
         - custom

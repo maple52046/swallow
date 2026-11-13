@@ -83,6 +83,11 @@ api-server/modules/
   用到其他關鍵字時拒絕啟動。屬性的順序就是通用表單的欄位順序。Software 模組的屬性必須剛好是 catalog entry 的
   `SpecFields`，core 在 hook 的 `ValidateSpec` 之前以 schema 檢查型別與未知欄位，所以 hook 只需要寫跨欄位或依 role 的規則。
   dashboard 對有 schema 而沒有專屬畫面的模組產生通用的表單與詳情（目前是 NFS 與 VictoriaMetrics）。
+- `hostAccess`（只有 Platform 模組）是 Platform 對它的 Pool 的 member 在節點上的限制（glossary
+  [Host Access](glossaries/terms/host-access.md)）：`default` 與依 Node Role 的 `roles`，每條規則是 `memberLogin`、
+  `memberSudo`（給 `sudo` 必須同時允許登入）。節點有多個角色時取最寬的規則；不宣告就不限制。Directory 依它決定 member 在
+  每個節點能不能登入、能不能 `sudo`（[identity-and-access.md](identity-and-access.md) §8.2）。例子見
+  `platform/slurm/module.json`。
 - `artifacts` 是模組的 host automation 要取得的全部內容。部署時由 Site 選擇的來源提供：Site 的 Local Repository，或這裡
   宣告的上游（[local-repository.md](local-repository.md) §2.1）。型別與檢查在 `internal/core/module/domain` 的 `Artifacts`：
   - `sources`：上游套件來源，Site 使用 Local Repository 時由它鏡像，否則主機直接使用。`name` 是 kebab-case，在 Site 內

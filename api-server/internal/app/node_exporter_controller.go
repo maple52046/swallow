@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"time"
 
+	accessdomain "github.com/maple52046/swallow/internal/core/access/domain"
+	"github.com/maple52046/swallow/internal/core/convergence"
 	monitoringdomain "github.com/maple52046/swallow/internal/core/monitoring/domain"
 	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
 	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 	nodeexporter "github.com/maple52046/swallow/modules/software/node-exporter"
+	"github.com/maple52046/swallow/modules/software/sssd"
 )
 
 // nodeExporterControllerDeps are what the worker already has that the Node Exporter controller
@@ -43,6 +46,40 @@ func newNodeExporterController(deps nodeExporterControllerDeps) (*softwareapp.En
 		Automation: deps.automation, Workflows: deps.workflows, Canceler: deps.canceler,
 		Scrapes: exporterScrapes{factory: deps.metrics},
 	})
+}
+
+// newDirectoryClientController composes the directory client's EnsureController (decision 082): the
+// same policy and install path as the Node Exporter's, for the kind the Directory is read through.
+// The kind runs no exporter, so the controller acts on its Software Assignments alone.
+func newDirectoryClientController(deps nodeExporterControllerDeps, statuses accessdomain.DirectoryStatusRepository) (*softwareapp.EnsureController, error) {
+	software, ok := deps.catalog.Lookup(sssd.Kind)
+	if !ok {
+		return nil, fmt.Errorf("compose the directory client controller: the build has no %s module", sssd.Kind)
+	}
+	return softwareapp.NewEnsureController(softwareapp.EnsureControllerDeps{
+		Entry: software.Entry(), Installer: deps.software, Servers: deps.servers, Assignments: deps.assignments,
+		Automation: deps.automation, Workflows: deps.workflows, Canceler: deps.canceler,
+		Scrapes: exporterScrapes{factory: deps.metrics}, Readiness: directoryReadiness{statuses: statuses},
+	})
+}
+
+// directoryReadiness is ready once the Directory controller applied the Directory and its last pass
+// succeeded: the directory client's install reads a User from the Directory, which fails before.
+type directoryReadiness struct {
+	statuses accessdomain.DirectoryStatusRepository
+}
+
+// Ready implements softwareapp.EnsureReadiness.
+func (r directoryReadiness) Ready(ctx context.Context) (bool, error) {
+	status, err := r.statuses.Find(ctx)
+	if err != nil {
+		return false, err
+	}
+	if status.LastAppliedAt == nil {
+		return false, nil
+	}
+	realized, ok := convergence.FindCondition(status.Conditions, convergence.ConditionRealized)
+	return ok && realized.Status == convergence.ConditionTrue, nil
 }
 
 // exporterScrapes implements softwareapp.ExporterScrapes over the monitoring context's per-Site

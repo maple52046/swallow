@@ -117,6 +117,7 @@ flowchart LR
   - [`workflow-execution.md`](workflow-execution.md) — durable Workflow 的跨功能執行語意：啟動、資源所有權、Task 重試、rerun、取消、取代佔用的工作、即時事件與 Job label。
   - [`validation.md`](validation.md) — Validation：模組宣告與 user-defined 的 Validation Suite、Validation Run 的受理、結果與 verdict、組入部署的閘門、Validation Schedule。
   - [`access-and-credentials.md`](access-and-credentials.md) — 憑證（Deployment Key、Access Key、Server Default User、Site automation credential）與認證概要。
+  - [`identity-and-access.md`](identity-and-access.md) — 帳號與存取：User 與 User Role、Pool Membership 與 Pool Role、API 授權、Directory（內建的 LDAP）、Host Access 與 Sudo Policy、directory client。
   - [`installation.md`](installation.md) — 支援的安裝拓樸、`swallowctl` 生命週期保證、發佈產物與時間同步。
   - [`commit-spec.md`](commit-spec.md) — commit message 規範。
   - [`glossaries/`](glossaries) — 跨 component 共通的 domain glossary，定義 swallow 的 ubiquitous language。

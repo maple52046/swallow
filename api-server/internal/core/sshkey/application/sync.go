@@ -44,7 +44,11 @@ func (s *Service) ReconcileProvisioner(ctx context.Context, integrationID string
 	if err != nil {
 		return fmt.Errorf("list ssh keys: %w", err)
 	}
-	_, err = s.syncProvisioner(ctx, provisioners[index], keys, recordsFor(records, integrationID))
+	admins, err := s.owners.Administrators(ctx)
+	if err != nil {
+		return fmt.Errorf("list administrators: %w", err)
+	}
+	_, err = s.syncProvisioner(ctx, provisioners[index], keys, admins, recordsFor(records, integrationID))
 	return err
 }
 
@@ -101,7 +105,11 @@ func (s *Service) EnsureRegistered(ctx context.Context, integrationID string) er
 	if err != nil {
 		return fmt.Errorf("list ssh key syncs: %w", err)
 	}
-	results, _ := s.syncProvisioner(ctx, provisioners[index], keys, recordsFor(records, integrationID))
+	admins, err := s.owners.Administrators(ctx)
+	if err != nil {
+		return fmt.Errorf("list administrators: %w", err)
+	}
+	results, _ := s.syncProvisioner(ctx, provisioners[index], keys, admins, recordsFor(records, integrationID))
 
 	for _, key := range keys {
 		if key.Purpose != sshkeydomain.PurposeDeployment {
@@ -129,14 +137,36 @@ func (s *Service) EnsureRegistered(ctx context.Context, integrationID string) er
 // Removal is conservative: swallow removes only provider key ids it recorded as registered or
 // adopted, only when no desired key claims the same provider key in this pass, and only when the
 // provider still lists it. User-added provider keys are never candidates.
+//
+// Only the Deployment Key and the Access Keys of admins (owners in admins) are registered: a
+// provisioner puts its keys on the automation account of every Server it deploys (decision 082).
+// Every other Access Key is recorded as not registered, and a provider key swallow registered for it
+// earlier (its owner was demoted) is retired, so it is removed in this pass.
 func (s *Service) syncProvisioner(
 	ctx context.Context,
 	provisioner sshkeydomain.Provisioner,
-	keys []*sshkeydomain.SSHKey,
+	allKeys []*sshkeydomain.SSHKey,
+	admins map[string]bool,
 	records map[string]sshkeydomain.ProviderSync,
 ) (map[string]sshkeydomain.ProviderSync, error) {
 	now := s.now()
-	results := make(map[string]sshkeydomain.ProviderSync, len(keys))
+	results := make(map[string]sshkeydomain.ProviderSync, len(allKeys))
+	keys := make([]*sshkeydomain.SSHKey, 0, len(allKeys))
+	for _, key := range allKeys {
+		if key.Purpose == sshkeydomain.PurposeDeployment || admins[key.OwnerUserID] {
+			keys = append(keys, key)
+			continue
+		}
+		record := prepareRecord(records[key.ID], key, provisioner)
+		if record.ProviderKeyID != "" {
+			record.RetiredProviderKeyIDs = append(slices.Clone(record.RetiredProviderKeyIDs), record.ProviderKeyID)
+			record.ProviderKeyID = ""
+		}
+		record.Status = judged(record.Status, key, now, convergence.ConditionFalse, sshkeydomain.ReasonNotRegistered,
+			"Only admins' Access Keys are registered with provisioners; this key reaches Servers through the Directory.")
+		record.UpdatedAt = now
+		results[key.ID] = record
+	}
 
 	registrar, capable, err := s.provisioners.Registrar(ctx, provisioner.IntegrationID)
 	var remote []sshkeydomain.RegisteredKey
@@ -147,6 +177,10 @@ func (s *Service) syncProvisioner(
 		reason, message := convergence.ReasonCapabilityMissing, "The provisioner cannot hold SSH keys."
 		if err != nil {
 			reason, message = convergence.ReasonProviderUnreachable, err.Error()
+		}
+		// Unregistered keys keep any provider key to retire for a pass that can reach the provider.
+		for _, record := range results {
+			s.persist(ctx, record)
 		}
 		for _, key := range keys {
 			record := prepareRecord(records[key.ID], key, provisioner)
@@ -285,9 +319,6 @@ func judged(status convergence.TargetStatus, key *sshkeydomain.SSHKey, now time.
 // record appends a timeline event for one key on one provisioner. A failure to record never fails
 // the pass, because the event describes a change already made.
 func (s *Service) record(ctx context.Context, key *sshkeydomain.SSHKey, provisioner sshkeydomain.Provisioner, eventType convergence.EventType, message string) {
-	if s.events == nil {
-		return
-	}
 	_ = s.events.Record(ctx, convergence.Event{
 		ResourceKind: "ssh-key", ResourceID: key.ID, Type: eventType, Fields: []string{provisioner.IntegrationID},
 		Message: message, Generation: key.Generation, At: s.now(),

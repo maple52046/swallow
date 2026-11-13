@@ -52,11 +52,13 @@ Request file 刻意直接跟隨 API contract，不維護 copied CLI struct。
 
 - `auth`、`login`、`logout` — session 或已保存的 API key。
 - `api-keys` — 供非互動使用的 API key。
+- `users` — 建立、變更與刪除 User（admin）；`auth password` 變更自己的密碼。
+- `access` — 存取設定、存取稽核與 Directory（admin）。
 - `overview` — Site-scoped operational summary。
 - `sites`、`integrations` — infrastructure identity 與 Site automation。
 - `servers` — inventory、stream、detail、protection、provider action。
 - `provisioning` — image、verification、template、tag、deploy/release/recovery。
-- `infrastructure` — Zone／Pool。
+- `infrastructure` — Zone／Pool，以及每個 Pool 的成員與 sudo 預設值。
 - `platforms` — Kubernetes／Slurm deployment、lifecycle、settings、live view。
 - `workflows` — durable Workflow observation／control。
 - `validation` — Validation Suite（含 script suite）、run（可加 `--wait`）與 schedule。

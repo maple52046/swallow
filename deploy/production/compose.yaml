@@ -174,12 +174,23 @@ services:
       # Server Enrollment (decision 053): hosts that keep their OS download the bundled CLI from
       # /downloads/swallow, so the bundle's bin/ is mounted read-only.
       SWALLOW_API_CLI_BINARY: /usr/local/share/swallow/bin/swallow
+      # The Directory (decision 082): the worker writes accounts, keys, and sudo rules to the bundled
+      # LDAP server; the Servers' directory client reads them at SWALLOW_ADDRESS:636 over LDAPS,
+      # verified with the installation CA.
+      SWALLOW_API_DIRECTORY_URL: ldaps://ldap:636
+      SWALLOW_API_DIRECTORY_HOST_URL: ldaps://${SWALLOW_ADDRESS:?set SWALLOW_ADDRESS}:${SWALLOW_LDAP_PORT:-636}
+      SWALLOW_API_DIRECTORY_BIND_PASSWORD_FILE: /run/secrets/ldap_admin_password
+      SWALLOW_API_DIRECTORY_READER_PASSWORD_FILE: /run/secrets/ldap_reader_password
+      SWALLOW_API_DIRECTORY_CA_FILE: /run/secrets/installation_ca
     secrets:
       - mongo_uri
       - jwt_secret
       - bootstrap_admin_password
       - credential_key
       - machine_token
+      - ldap_admin_password
+      - ldap_reader_password
+      - installation_ca
     volumes:
       - job-artifacts:/var/lib/swallow/jobs
       - boot-media:/var/lib/swallow/boot-media
@@ -207,6 +218,8 @@ services:
         condition: service_healthy
       temporal:
         condition: service_healthy
+      ldap:
+        condition: service_healthy
     environment:
       SWALLOW_API_ADDR: ":30051"
       SWALLOW_API_RELEASE_VERSION: ${SWALLOW_RELEASE_VERSION:?set promoted SemVer}
@@ -233,12 +246,23 @@ services:
       # (monitoring.md §6.2, §7). Both are planned into Platform deployments.
       SWALLOW_API_PUBLIC_URL: ${SWALLOW_ADDRESS:+http://${SWALLOW_ADDRESS}:${SWALLOW_HTTP_PORT:-80}}
       SWALLOW_API_MONITORING_SCRAPE_ADDRESSES: ${SWALLOW_ADDRESS:-}
+      # The Directory (decision 082): the worker writes accounts, keys, and sudo rules to the bundled
+      # LDAP server; the Servers' directory client reads them at SWALLOW_ADDRESS:636 over LDAPS,
+      # verified with the installation CA.
+      SWALLOW_API_DIRECTORY_URL: ldaps://ldap:636
+      SWALLOW_API_DIRECTORY_HOST_URL: ldaps://${SWALLOW_ADDRESS:?set SWALLOW_ADDRESS}:${SWALLOW_LDAP_PORT:-636}
+      SWALLOW_API_DIRECTORY_BIND_PASSWORD_FILE: /run/secrets/ldap_admin_password
+      SWALLOW_API_DIRECTORY_READER_PASSWORD_FILE: /run/secrets/ldap_reader_password
+      SWALLOW_API_DIRECTORY_CA_FILE: /run/secrets/installation_ca
     secrets:
       - mongo_uri
       - jwt_secret
       - bootstrap_admin_password
       - credential_key
       - machine_token
+      - ldap_admin_password
+      - ldap_reader_password
+      - installation_ca
     volumes:
       - boot-media:/var/lib/swallow/boot-media:ro
     tmpfs:
@@ -445,6 +469,39 @@ services:
       retries: 12
     security_opt: [no-new-privileges:true]
 
+  # The installation's Directory (decision 082): OpenLDAP on LDAPS only, written by the worker and
+  # read by every Server's directory client. Its database is rebuilt from MongoDB by the Directory
+  # controller, so ldap-data is outside the backup scope; the CA and passwords are backed up.
+  ldap:
+    image: ${SWALLOW_LDAP_IMAGE:?set a digest-pinned SWALLOW_LDAP_IMAGE}
+    restart: unless-stopped
+    # The server certificate names `ldap`, the address the worker connects to.
+    hostname: ldap
+    environment:
+      LDAP_BASE_DN: dc=swallow,dc=internal
+      LDAP_ADMIN_PASSWORD_FILE: /run/secrets/ldap_admin_password
+      LDAP_READER_PASSWORD_FILE: /run/secrets/ldap_reader_password
+      LDAP_TLS_CERT_FILE: /run/secrets/ldap_tls_cert
+      LDAP_TLS_KEY_FILE: /run/secrets/ldap_tls_key
+      LDAP_TLS_CA_FILE: /run/secrets/installation_ca
+    secrets:
+      - ldap_admin_password
+      - ldap_reader_password
+      - ldap_tls_cert
+      - ldap_tls_key
+      - installation_ca
+    volumes:
+      - ldap-data:/var/lib/ldap
+    ports:
+      - "${SWALLOW_LDAP_PORT:-636}:636"
+    networks: [edge, control]
+    healthcheck:
+      test: ["CMD", "ldapwhoami", "-Q", "-Y", "EXTERNAL", "-H", "ldapi:///"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    security_opt: [no-new-privileges:true]
+
   dashboard:
     image: ${SWALLOW_DASHBOARD_IMAGE:?set a digest-pinned SWALLOW_DASHBOARD_IMAGE}
     restart: unless-stopped
@@ -481,6 +538,9 @@ volumes:
   pulp-certs:
   # Pulp's artifacts, outside the backup scope: restore has Pulp fetch missing ones from upstream.
   pulp-data:
+  # The Directory's database, outside the backup scope: the Directory controller rewrites it from
+  # MongoDB.
+  ldap-data:
 
 secrets:
   mongo_root_username:
@@ -507,3 +567,13 @@ secrets:
     file: ./secrets/pulp-admin-password
   pulp_secret_key:
     file: ./secrets/pulp-secret-key
+  ldap_admin_password:
+    file: ./secrets/ldap-admin-password
+  ldap_reader_password:
+    file: ./secrets/ldap-reader-password
+  ldap_tls_cert:
+    file: ./secrets/ldap-tls/server.crt
+  ldap_tls_key:
+    file: ./secrets/ldap-tls/server.key
+  installation_ca:
+    file: ./secrets/ldap-tls/ca.crt

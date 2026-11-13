@@ -67,7 +67,7 @@ Bearer token (a Session access token or an API Key), as in [conventions](convent
 
 ## Authorization
 
-Every route requires the `admin` role.
+Every route is admin ([conventions](conventions.md#authorization)).
 
 ## Read A Site's Local Repository
 

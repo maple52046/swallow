@@ -1,0 +1,13 @@
+---
+# Install or remove the directory client: SSSD reading the installation's Directory over LDAPS for
+# the name service (accounts and groups), PAM (Host Access, and the password a password-protected
+# sudo rule asks for), sshd's AuthorizedKeysCommand (Access Keys), and sudo (sudo rules). Nothing
+# is written to /etc/passwd, authorized_keys, or /etc/sudoers.d.
+
+- name: Install the directory client
+  ansible.builtin.include_tasks: install.yml
+  when: sssd_client_state == 'present'
+
+- name: Remove the directory client
+  ansible.builtin.include_tasks: remove.yml
+  when: sssd_client_state == 'absent'

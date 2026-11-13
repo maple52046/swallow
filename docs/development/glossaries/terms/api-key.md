@@ -4,8 +4,8 @@
 - Definition: A named, long-lived secret that a swallow User creates so a non-interactive
   client (the `swallow` CLI, a script, CI) can call the swallow API as that User without a
   password login.
-- Allowed meaning: Owned by exactly one User and acting with that User's current role (today
-  always admin). swallow shows the secret exactly once, at creation, and afterwards keeps only
+- Allowed meaning: Owned by exactly one User and acting with that User's current User Role and
+  Pool Memberships, read on every request. swallow shows the secret exactly once, at creation, and afterwards keeps only
   a one-way hash and a short display prefix, so a lost secret is replaced, never recovered. It
   may carry an expiry; deleting it revokes it immediately. swallow records when it was last
   used. A request authenticated by an API Key cannot create API Keys.
@@ -21,7 +21,10 @@
   `swk_…` secret in the pipeline's secret store." / "Deleting the `laptop` API Key makes the
   next CLI call with it fail with `401`." / "An API Key cannot be used to create another API
   Key; that needs a password login."
-- Related terms: User, Session, SSH Key.
+- Related terms: User, User Role, Pool Membership, Session, SSH Key.
 - Change note: Added for CLI authentication by API key
   ([decision 042](../../../decisions/042-authentication-sessions-and-api-keys.md) (authentication sessions and api keys)). Ownership is
-  by User so keys survive the planned multi-user work; today only the bootstrap admin exists.
+  by User so keys survive the planned multi-user work. On 2026-11-13
+  ([decision 082](../../../decisions/082-accounts-pool-access-and-directory.md) (accounts, pool
+  access, and directory)) any User can hold API Keys, which act with the owner's role and Pool
+  Memberships.

@@ -242,3 +242,14 @@ func TestDelete_IsScopedToOwner(t *testing.T) {
 		t.Error("a deleted key still authenticates")
 	}
 }
+
+func (m *memKeys) DeleteAllForUser(_ context.Context, userID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, k := range m.keys {
+		if k.UserID == userID {
+			delete(m.keys, id)
+		}
+	}
+	return nil
+}

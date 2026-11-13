@@ -55,11 +55,13 @@ Request files intentionally track the API contract without copied CLI structs.
 
 - `auth`, `login`, `logout` — session or stored API key.
 - `api-keys` — API keys for non-interactive use.
+- `users` — create, change, and delete Users (admin); `auth password` changes your own.
+- `access` — access settings, the access audit, and the Directory (admin).
 - `overview` — Site-scoped operational summary.
 - `sites`, `integrations` — infrastructure identity and Site automation.
 - `servers` — inventory, stream, detail, protection, provider actions.
 - `provisioning` — images, verification, templates, tags, deploy/release/recovery.
-- `infrastructure` — Zones and Pools.
+- `infrastructure` — Zones and Pools, with each Pool's members and sudo defaults.
 - `platforms` — Kubernetes/Slurm deployment, lifecycle, settings, and live views.
 - `workflows` — durable Workflow observation and control.
 - `validation` — Validation Suites (including script suites), runs with `--wait`, and schedules.

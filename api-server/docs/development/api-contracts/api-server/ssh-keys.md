@@ -34,7 +34,12 @@ Base path, bearer authentication, error envelope, and timestamps follow
 
 ## Authentication and Authorization
 
-Bearer token; every endpoint requires `admin`. Access Keys are scoped to the caller: list
+Bearer token. The Access Key routes are own account: any authenticated User manages its own Access
+Keys ([conventions](conventions.md#authorization)); the list and `GET /{keyId}` also return the
+Deployment Key, which is public. `PUT /deployment`, `POST /deployment/regenerate`, and `POST /sync` are
+admin. Only admins' Access Keys are registered with provisioners; every Access Key reaches Servers
+through the Directory ([identity-and-access.md](../../../../../docs/development/identity-and-access.md)
+§9). Access Keys are scoped to the caller: list
 returns only the caller's Access Keys, and delete refuses another user's key with
 `404 not_found`.
 

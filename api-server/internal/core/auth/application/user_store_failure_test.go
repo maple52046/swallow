@@ -35,11 +35,18 @@ func TestUserStoreFailureIsNotAMissingUser(t *testing.T) {
 	if !errors.Is(err, errStoreDown) || errors.Is(err, authdomain.ErrInvalidCredentials) {
 		t.Errorf("Login() error = %v, want the store failure, not invalid credentials", err)
 	}
-	_, err = NewMeUseCase(users).Execute(context.Background(), "u1")
+	_, err = NewMeUseCase(users, noMemberships{}).Execute(context.Background(), "u1")
 	if !errors.Is(err, errStoreDown) || errors.Is(err, authdomain.ErrUserNotFound) {
 		t.Errorf("Me() error = %v, want the store failure, not a missing user", err)
 	}
-	if _, err := NewMeUseCase(&memUsers{users: map[string]*authdomain.User{}}).Execute(context.Background(), "gone"); !errors.Is(err, authdomain.ErrUserNotFound) {
+	if _, err := NewMeUseCase(&memUsers{users: map[string]*authdomain.User{}}, noMemberships{}).Execute(context.Background(), "gone"); !errors.Is(err, authdomain.ErrUserNotFound) {
 		t.Errorf("Me() of a deleted user error = %v, want ErrUserNotFound", err)
 	}
+}
+
+// noMemberships reports no Pool Membership for any User.
+type noMemberships struct{}
+
+func (noMemberships) MembershipsOf(context.Context, string) ([]MembershipOfCaller, error) {
+	return nil, nil
 }

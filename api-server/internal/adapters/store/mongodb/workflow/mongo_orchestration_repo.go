@@ -75,6 +75,16 @@ func (r *MongoWorkflowRepo) FindByID(ctx context.Context, id string) (*workflowd
 
 func (r *MongoWorkflowRepo) List(ctx context.Context, filter workflowdomain.WorkflowFilter) ([]*workflowdomain.Workflow, int, error) {
 	query := bson.M{"schemaVersion": 4}
+	if filter.RestrictTargets {
+		within := filter.TargetsWithin
+		if within == nil {
+			within = []string{}
+		}
+		query["$and"] = bson.A{
+			bson.M{"targetServerIds.0": bson.M{"$exists": true}},
+			bson.M{"targetServerIds": bson.M{"$not": bson.M{"$elemMatch": bson.M{"$nin": within}}}},
+		}
+	}
 	if filter.SiteID != "" {
 		query["siteId"] = filter.SiteID
 	}

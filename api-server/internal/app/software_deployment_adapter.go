@@ -176,6 +176,12 @@ func (l softwareDeploymentLauncher) prepare(
 		},
 	}
 
+	// A kind's secret variables (the directory client's read-only Directory password) are sealed
+	// with the Workflow and reach only its playbook's run.
+	var stepSecrets map[string]map[string]any
+	if len(launch.SecretVars) > 0 {
+		stepSecrets = map[string]map[string]any{softwareInstallStepID: launch.SecretVars}
+	}
 	return &preparedSoftwareWorkflow{workflow: workflowapp.CreateWorkflowInput{
 		ID: operationID, Kind: mapping.workflowKind,
 		IntentSummary:  summary,
@@ -184,6 +190,7 @@ func (l softwareDeploymentLauncher) prepare(
 		SiteID:          prepared.SiteID,
 		TargetServerIDs: launch.ServerIDs,
 		Steps:           steps, Jobs: softwareJobs(steps, launch.Kind, summary), RequestedBy: launch.RequestedBy,
+		StepSecretValues: stepSecrets,
 	}}, nil
 }
 

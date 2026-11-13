@@ -26,7 +26,9 @@ consumer of the provider-owned HTTP contract and binds only real API adapters.
 | `/validation/schedules` | Site-scoped Validation automation |
 | `/monitoring` | Health, usage charts (selected Servers, Pool, Zone, Platform), current metrics, optional Grafana, and (in development) alerts and silences |
 | `/infrastructure/*` | Sites, Integrations, Zones, Pools, the Site's Local repository, and Boot ISOs |
-| `/account/ssh-keys`, `/account/api-keys` | Your SSH keys and API keys (account menu) |
+| `/account/ssh-keys`, `/account/api-keys`, `/account/password` | Your SSH keys, API keys, and password (account menu) |
+| `/pools`, `/pools/:id` | Your Pools (an admin's: every Pool); one Pool's members and sudo defaults |
+| `/users` | Accounts, access settings, the Directory, and recent access changes (admins) |
 
 `/clusters`, `/operations`, the retired `/provisioning/deploy` page, and
 `/provisioning/boot-isos` (now `/infrastructure/boot-isos`) are compatibility

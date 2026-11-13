@@ -1,0 +1,54 @@
+---
+# Remove the directory client: sshd, the name service, and sudo stop using the Directory first, then
+# SSSD and its packages go. Local accounts, and the home directories Users left, are kept; PAM keeps
+# creating home directories, which only matters to accounts that log in.
+
+- name: Stop sshd from asking SSSD for keys
+  become: true
+  ansible.builtin.file:
+    path: "{{ sssd_client_sshd_dropin }}"
+    state: absent
+  register: sssd_client_dropin_removed
+
+- name: Reload sshd without the drop-in
+  become: true
+  ansible.builtin.systemd:
+    name: ssh
+    state: reloaded
+  when: sssd_client_dropin_removed.changed
+
+- name: Stop looking up accounts and groups in the Directory
+  become: true
+  ansible.builtin.replace:
+    path: /etc/nsswitch.conf
+    regexp: '^((?:passwd|group|shadow|sudoers):.*?)\s+sss\b(.*)$'
+    replace: '\1\2'
+
+- name: Stop SSSD
+  become: true
+  ansible.builtin.systemd:
+    name: sssd
+    state: stopped
+    enabled: false
+  # A host without SSSD has nothing to stop.
+  failed_when: false
+
+- name: Remove swallow's SSSD configuration and CA
+  become: true
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ sssd_client_conf }}"
+    - "{{ sssd_client_ca }}"
+
+- name: Remove the directory client packages
+  become: true
+  ansible.builtin.apt:
+    name: "{{ sssd_client_packages + ['sssd-common'] }}"
+    state: absent
+    purge: true
+  register: sssd_client_apt_remove
+  until: sssd_client_apt_remove is succeeded
+  retries: 5
+  delay: 10

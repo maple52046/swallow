@@ -33,8 +33,7 @@ PUT /api/v1/sites/{id}/automation
 PUT /api/v1/sites/{id}/automation/credential
 ```
 
-`{id}` is the Site's `siteId`. All endpoints require role `admin` according to
-[conventions](conventions.md).
+`{id}` is the Site's `siteId`. Every route is admin ([conventions](conventions.md#authorization)).
 
 ## Configuration Request
 

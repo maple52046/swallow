@@ -48,6 +48,14 @@ type APIConfig struct {
 	BootstrapAdminUsername string `yaml:"bootstrapAdminUsername"`
 	// BootstrapAdminPassword is the password for the bootstrap admin. Never log this.
 	BootstrapAdminPassword string `yaml:"bootstrapAdminPassword"`
+	// POSIXIDStart is the first uidNumber and gidNumber swallow allocates (decision 082). It takes
+	// effect only until the first allocation, which records it in the store; changing it later
+	// changes nothing, because numbers already on the Servers must never move. Default 10000, above
+	// the local accounts an OS creates. Env: SWALLOW_API_POSIX_ID_START.
+	POSIXIDStart int `yaml:"posixIdStart"`
+	// Directory locates the installation's Directory (identity-and-access.md §10). An empty URL
+	// means there is none: no Directory controller runs and the directory client covers no Server.
+	Directory DirectoryConfig `yaml:"directory"`
 	// CredentialKey is a base64-encoded 32-byte key used to seal integration
 	// credentials at rest. Required: an integration cannot be registered without
 	// it, and starting without it would defer that failure to the first user
@@ -83,6 +91,13 @@ type APIConfig struct {
 	// uninstalls install the Node Exporter. Env: SWALLOW_WORKER_NODE_EXPORTER_ENSURE, whose
 	// value must parse as a boolean, so a typo never leaves the controller on by accident.
 	NodeExporterEnsure bool `yaml:"nodeExporterEnsure"`
+	// DirectoryClientEnsure runs the worker's directory client controller (identity-and-access.md
+	// §8) on an installation with a Directory: it installs the directory client on every deployed,
+	// unlocked Server of a Site with automation enabled, so Users log in with their Access Keys
+	// and get their sudo there. On by default; the development stack, which shares the lab, turns
+	// it off and installs the client on chosen Servers only. Env:
+	// SWALLOW_WORKER_DIRECTORY_CLIENT_ENSURE, which must parse as a boolean.
+	DirectoryClientEnsure bool `yaml:"directoryClientEnsure"`
 	// OperationMaxParallelism bounds how many Steps a durable Operation runs at once,
 	// protecting the provider, PXE, image mirror, and Temporal history from unbounded
 	// fan-out. It is a per-Operation ceiling, not a global worker limit.
@@ -197,4 +212,35 @@ type BootMediaConfig struct {
 	// genfsimg script, and a VERSION file. The api-server image installs them; a missing file
 	// only makes the builder unavailable with a reason.
 	IPXEDir string `yaml:"ipxeDir"`
+}
+
+// DirectoryConfig is how swallow reaches its Directory (decision 082): the LDAP server bundled with
+// the installation, written by the worker's Directory controller and read by every Server's
+// directory client. Every connection uses TLS, verified against CAFile.
+type DirectoryConfig struct {
+	// URL is the LDAPS URL the Directory controller connects to from inside the installation
+	// (ldaps://ldap:636). Empty means no Directory. Env: SWALLOW_API_DIRECTORY_URL.
+	URL string `yaml:"url"`
+	// BaseDN is the Directory's base DN (default dc=swallow,dc=internal). Env:
+	// SWALLOW_API_DIRECTORY_BASE_DN.
+	BaseDN string `yaml:"baseDN"`
+	// BindPasswordFile holds the password of cn=admin,<BaseDN>, the only account that writes the
+	// Directory. Read at start; never logged. Env: SWALLOW_API_DIRECTORY_BIND_PASSWORD_FILE.
+	BindPasswordFile string `yaml:"bindPasswordFile"`
+	// CAFile is the installation CA that signed the Directory's certificate: the controller verifies
+	// the server with it and the directory client installs it on every Server. Env:
+	// SWALLOW_API_DIRECTORY_CA_FILE.
+	CAFile string `yaml:"caFile"`
+	// HostURL is the LDAPS URL the Servers connect to (ldaps://<installation address>:636). Env:
+	// SWALLOW_API_DIRECTORY_HOST_URL.
+	HostURL string `yaml:"hostURL"`
+	// ReaderPasswordFile holds the password of the read-only account the Servers' directory client
+	// binds as; it reaches the Servers only as a Task secret. Env:
+	// SWALLOW_API_DIRECTORY_READER_PASSWORD_FILE.
+	ReaderPasswordFile string `yaml:"readerPasswordFile"`
+}
+
+// Configured reports whether the installation has a Directory.
+func (d DirectoryConfig) Configured() bool {
+	return d.URL != ""
 }

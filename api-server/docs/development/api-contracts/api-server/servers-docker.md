@@ -63,8 +63,8 @@ POST   /api/v1/servers/{serverId}/docker/networks
 DELETE /api/v1/servers/{serverId}/docker/networks/{networkId}
 ```
 
-All endpoints require the `admin` role (an access token or an API Key) per
-[conventions](conventions.md). List responses are plain objects with an `items` array; one host's Docker objects are a bounded set, so lists are not
+Every route, the reads included, is Pool operate on the Server ([conventions](conventions.md#authorization)): the explorer controls the
+host's Docker Engine. List responses are plain objects with an `items` array; one host's Docker objects are a bounded set, so lists are not
 paginated. Path identifiers are the Engine's ids or names and must be URL-encoded (image ids
 contain `:`).
 

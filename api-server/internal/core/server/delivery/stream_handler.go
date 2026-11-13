@@ -4,13 +4,16 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 
+	accessdelivery "github.com/maple52046/swallow/internal/core/access/delivery"
 	"github.com/maple52046/swallow/internal/core/server/application"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	"github.com/maple52046/swallow/internal/shared/apierror"
 )
 
 // serverStreamHeartbeat keeps intermediaries from closing an idle stream and gives the
@@ -44,8 +47,16 @@ type serverStreamMessage struct {
 // subscription is bound to the request and closed when the client disconnects (detected by a
 // failed flush) or when the broker drops a lagging subscriber (its channel closes); the
 // client then reconnects and reloads once to resync any events missed while away.
+//
+// Access: a caller that is not an admin receives only the Servers placed in the Pools it belonged to
+// when the stream opened (servers-stream.md, Authorization). A visible Server that moves out of those
+// Pools is sent as removed; a Server that was never visible is never mentioned.
 func (h *ServerStreamHandler) Stream(c *fiber.Ctx) error {
 	siteID := c.Query("siteId")
+	filter, err := newStreamFilter(c)
+	if err != nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
+	}
 
 	c.Set("Content-Type", "text/event-stream")
 	c.Set("Cache-Control", "no-cache")
@@ -76,6 +87,10 @@ func (h *ServerStreamHandler) Stream(c *fiber.Ctx) error {
 				if !ok {
 					return
 				}
+				event, send := filter.admit(event)
+				if !send {
+					continue
+				}
 				frame, err := encodeServerEventFrame(event)
 				if err != nil {
 					continue
@@ -91,6 +106,64 @@ func (h *ServerStreamHandler) Stream(c *fiber.Ctx) error {
 		}
 	})
 	return nil
+}
+
+// streamFilter decides which events a stream's caller may receive. An admin's filter admits every
+// event; any other caller's admits upserts of Servers in its readable Pools, and turns the upsert of
+// a Server it could see into a removal once the Server leaves those Pools. It is used by one stream's
+// writer goroutine only.
+type streamFilter struct {
+	all     bool
+	pools   map[string]bool
+	visible map[string]bool
+}
+
+// newStreamFilter builds the filter from the request's Visibility, preloading the Servers the caller
+// can see now so that one moving out of its Pools is removed from the client's list.
+func newStreamFilter(c *fiber.Ctx) (*streamFilter, error) {
+	visibility, ok := accessdelivery.VisibilityFrom(c)
+	if !ok {
+		return nil, errors.New("server stream has no access scope")
+	}
+	if visibility.Admin() {
+		return &streamFilter{all: true}, nil
+	}
+	filter := &streamFilter{pools: map[string]bool{}, visible: map[string]bool{}}
+	for _, pool := range visibility.ReadablePools() {
+		filter.pools[pool] = true
+	}
+	servers, err := visibility.ReadableServers(c.UserContext())
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range servers {
+		filter.visible[id] = true
+	}
+	return filter, nil
+}
+
+// admit returns the event to send, if any.
+func (f *streamFilter) admit(event serverdomain.ServerEvent) (serverdomain.ServerEvent, bool) {
+	if f.all {
+		return event, true
+	}
+	switch event.Kind {
+	case serverdomain.ServerUpserted:
+		if event.Server != nil && f.pools[event.Server.Spec.PoolID] {
+			f.visible[event.ServerID] = true
+			return event, true
+		}
+		if f.visible[event.ServerID] {
+			delete(f.visible, event.ServerID)
+			return serverdomain.ServerEvent{Kind: serverdomain.ServerRemoved, ServerID: event.ServerID}, true
+		}
+	case serverdomain.ServerRemoved:
+		if f.visible[event.ServerID] {
+			delete(f.visible, event.ServerID)
+			return event, true
+		}
+	}
+	return serverdomain.ServerEvent{}, false
 }
 
 // writeAndFlush reports whether the write reached the client. A write or flush error on a

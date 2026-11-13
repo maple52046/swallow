@@ -200,7 +200,7 @@ func TestComposedContainerRuntime(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			launcher := platformDeploymentLauncher{software: softwareapp.NewSoftwareService(&storetest.Transactor{}, testModules(t).software, testModules(t).accelerators, tc.assignments, nil, nil)}
+			launcher := platformDeploymentLauncher{software: softwareapp.NewSoftwareService(&storetest.Transactor{}, testModules(t).software, testModules(t).accelerators, tc.assignments, nil, nil, nil)}
 			kind, servers, err := launcher.composedContainerRuntime(context.Background(), tc.launch)
 			if err != nil {
 				t.Fatalf("composedContainerRuntime() error = %v", err)
@@ -328,7 +328,7 @@ func slurmCompositionLauncher(t *testing.T, gpus map[string]bool) platformDeploy
 	servers := slurmTestServers{gpus: gpus}
 	return platformDeploymentLauncher{
 		operations: newTestExecutionService(servers, ntpTestAutomation{}, slurmTestCatalog{}, testModules(t).workflowKinds),
-		software:   softwareapp.NewSoftwareService(&storetest.Transactor{}, testModules(t).software, testModules(t).accelerators, assignmentList{}, servers, nil),
+		software:   softwareapp.NewSoftwareService(&storetest.Transactor{}, testModules(t).software, testModules(t).accelerators, assignmentList{}, servers, nil, nil),
 		monitoring: platformMonitoringAccess{publicURL: "http://10.170.168.20", scrapeAddresses: []string{"10.170.168.20", "192.168.100.1"}},
 	}
 }

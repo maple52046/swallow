@@ -41,8 +41,9 @@ release build 中隱藏。
 | Prometheus 的 service discovery | 無 | `discovery.go` | `discovery-prometheus.md` | — |
 | Overview | 有 | `overview.go` | `overview.md` | — |
 | 登入、API Key | 有 | `auth.go`、`apikeys.go` | `auth-*.md`、`api-keys.md` | [access-and-credentials.md](access-and-credentials.md) |
+| 使用者、Pool 成員與 sudo、Directory | 有（Users、Pools） | `users.go`、`access.go`、`infrastructure.go`（`pools members`、`pools access-policy`） | `users.md`、`pool-access.md`、`access.md`、`auth-me.md` | [identity-and-access.md](identity-and-access.md) |
 
-Teams、使用者管理、機房拓樸與 GPU observability 只有 Planned 的契約（`planned-surface.md`），沒有實作。
+Teams、機房拓樸與 GPU observability 只有 Planned 的契約（`planned-surface.md`），沒有實作。
 
 ## 2. Runtime 拓樸
 
@@ -73,6 +74,8 @@ flowchart LR
     worker --> repo["Local Repository (Pulp)"]
     api --> repo
     hosts -->|"packages, images, files"| repo
+    worker --> ldap["Directory (LDAP)"]
+    hosts -->|"accounts, keys, sudo rules"| ldap
 ```
 
 - **api**：HTTP API；Workflow 只寫入 intent 與命令，不連 Temporal。不執行任何背景迴圈；按需的即時讀取（例如 refresh
@@ -89,7 +92,11 @@ flowchart LR
   Server 都有運作中的 Node Exporter，以 `configure-node-exporter` Workflow 安裝，[software-deployment.md](software-deployment.md)
   的 Node Exporter；`SWALLOW_WORKER_NODE_EXPORTER_ENSURE=false` 時不註冊，開發環境預設如此）、`local-repository`
     （Site 使用 Local Repository 時，把模組宣告的 artifact 與 Site 的來源收斂到它，並讀回同步狀態，[local-repository.md](local-repository.md) §7），
-  以及 `validation-schedule`（到期或部署成功時受理 Validation Schedule 的 run，[validation.md](validation.md) §6）。
+  `validation-schedule`（到期或部署成功時受理 Validation Schedule 的 run，[validation.md](validation.md) §6），以及只在
+  installation 有 Directory 時註冊的 `directory`（把 User、Pool Membership、Sudo Policy 與 Access Key 算成 Directory 的
+  帳號、群組與 sudo 規則並套用）與 `sssd`（讓受政策涵蓋的 Server 都裝 directory client；
+  `SWALLOW_WORKER_DIRECTORY_CLIENT_ENSURE=false` 時不註冊，開發環境預設如此），見
+  [identity-and-access.md](identity-and-access.md) §7、§9。
   定期 resync 的間隔：`workflow-dispatch` 30 秒、`validation-schedule` 1 分鐘、`change-plan-expiry` 5 分鐘，其他 10 分鐘
   （`controllerResyncInterval`）。規則見 [desired-state-model.md](desired-state-model.md) §7。
 
@@ -172,14 +179,16 @@ sequenceDiagram
 
 資料庫的狀態都在 MongoDB（single-node replica set；規則見 [desired-state-model.md](desired-state-model.md) §10）。另有
 兩類檔案在 volume 上：Ansible run 的 job artifacts（`job-artifacts`，ansible-executor 寫入並依 retention 刪除，api
-讀取）與 Boot ISO 檔案（`boot-media`，api 建置）。backup 涵蓋 MongoDB 與 job artifacts
+讀取）與 Boot ISO 檔案（`boot-media`，api 建置）。Directory（LDAP）的內容由 MongoDB 推導，可以重建。backup 涵蓋 MongoDB 與 job artifacts
 （[installation.md](installation.md) §3.6）。同一個
 collection 可能由多個 process 寫入，但每個欄位只有一個寫入者（desired-state-model §7.4）。repository 在
 `api-server/internal/adapters/store/mongodb/<context>/`。
 
 | context | collection | 內容 | 寫入者 |
 | --- | --- | --- | --- |
-| auth、apikey | `users`、`auth_sessions`、`api_keys` | 使用者、session、API Key | api |
+| auth、apikey | `users`、`auth_sessions`、`api_keys` | 使用者（含 `uidNumber`）、session、API Key | api |
+| access | `pool_memberships`、`pool_access_policies`、`access_settings`、`access_audit` | Pool Membership 與 sudo 覆寫、Pool 的 Sudo Policy 預設值、access settings、存取變更的稽核（保留一年） | api |
+| access | `posix_ids`、`directory_status` | POSIX ID 的計數與起點、群組的 `gidNumber` 分配；Directory controller 的狀態 | api（User 的 uid）；worker（群組的 gid、狀態） |
 | site | `sites`、`integrations` | Site；provider 的 Integration 與封存的 credential | api；worker（reconcile 記錄同步狀態）；ansible-executor 在部署完成時建立 Platform 的 Integration |
 | server | `servers` | Server 的投影、spec 與 conditions、Platform Claim、deployment 結果、membership | api（spec 寫入、按需 refresh）；worker（reconcile、inventory、membership 的 pass，Server controller、deployment 投影）；ansible-executor（membership） |
 | provisioning | `deployment_templates`、`os_image_metadata`、`boot_isos` | Deployment Template、OS Image metadata、Boot ISO | api |
@@ -188,7 +197,7 @@ collection 可能由多個 process 寫入，但每個欄位只有一個寫入者
 | provisioning | `provisioner_http_proxies`、`provisioner_subnet_dns` | HTTP Proxy 與 Subnet DNS 的 spec 與 status | api（spec）；worker（controller） |
 | infrastructure | `zones`、`pools` | Zone、Pool 的 spec 與 status | api（spec）；worker（catalog controller） |
 | platform | `platforms`、`platform_deployment_requirements` | Platform 的 spec、status 與功能狀態；Slurm 部署需求 | api（spec、按需同步）；worker（membership 的同步狀態、controller、投影）；ansible-executor（credential 與功能結果） |
-| software | `software_assignments`、`software_registry_credentials` | 哪台 Server 裝了什麼；registry 的封存密碼 | api（受理時的 `pending`、`uninstalling`）；worker（Node Exporter controller 與 platform controller 受理安裝時的 `pending`；reconcile 觀察到機器沒有 OS 時標 `absent`）；worker 與 ansible-executor（Task 的記錄與失敗標記、拿走 OS 的 Task 標 `absent`） |
+| software | `software_assignments`、`software_registry_credentials` | 哪台 Server 裝了什麼；registry 的封存密碼 | api（受理時的 `pending`、`uninstalling`）；worker（Node Exporter、directory client 的 controller 與 platform controller 受理安裝時的 `pending`；reconcile 觀察到機器沒有 OS 時標 `absent`）；worker 與 ansible-executor（Task 的記錄與失敗標記、拿走 OS 的 Task 標 `absent`） |
 | sshkey | `ssh_keys`、`ssh_key_provider_syncs` | Deployment Key 與 Access Key；各 provisioner 的同步紀錄 | api（金鑰）；worker（同步） |
 | localrepo | `local_repositories` | 每個 Site 的 Local Repository：spec（user 來源與 `mode`），與每個來源、檔案、image 的同步狀態（含來源是否提供中）（artifact 本身在 provider，不存在 swallow） | api（spec）；worker（controller） |
 | workflow | `workflows`、`workflow_events`、`workflow_secrets` | Workflow 的計畫與執行狀態、timeline、封存的 secret | api（受理、命令）；worker 與 ansible-executor（經 Workflow service 的狀態轉換） |
@@ -239,6 +248,7 @@ architecture spec。找東西時：
 | 每個 context 的 domain、use case、HTTP handler | `api-server/internal/core/<context>/` |
 | 外部系統的 adapter | `api-server/internal/adapters/<port>/<adapter>/` |
 | Local Repository（port、controller、Pulp adapter、共用 role `artifact_sources`） | `api-server/internal/core/localrepo/`、`api-server/internal/adapters/localrepo/pulp/`、`api-server/modules/shared/roles/artifact_sources/` |
+| 授權（每個路由的 Guard、Pool 範圍的過濾）、使用者與成員管理、Directory（controller、LDAP adapter、directory client） | `api-server/internal/core/access/`、`api-server/internal/app/access.go`、`api-server/internal/app/directory.go`、`api-server/internal/adapters/directory/ldap/`、`api-server/modules/software/sssd/` |
 | MongoDB 的 repository（列表的篩選與搜尋在這裡） | `api-server/internal/adapters/store/mongodb/<context>/` |
 | 模組（module.json、hook、playbook、role） | `api-server/modules/<種類>/<id>/` |
 | Validation（受理、結果、schedule、範本的 compiler） | `api-server/internal/core/validation/`、`api-server/internal/core/workflow/domain/template.go`、`api-server/internal/app/validation_launcher.go` |

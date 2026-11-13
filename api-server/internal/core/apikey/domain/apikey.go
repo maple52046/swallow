@@ -82,6 +82,9 @@ type Repository interface {
 	// TouchLastUsed sets LastUsedAt to at unless it was already set within LastUsedResolution
 	// before at; skipping is not an error.
 	TouchLastUsed(ctx context.Context, id string, at time.Time) error
+	// DeleteAllForUser removes every key userID holds; holding none is a success. User deletion
+	// calls it inside the transaction that deletes the User (decision 082).
+	DeleteAllForUser(ctx context.Context, userID string) error
 }
 
 // Owner is the identity an API Key acts as.

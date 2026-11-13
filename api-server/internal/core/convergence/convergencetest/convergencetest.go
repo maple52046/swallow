@@ -48,3 +48,57 @@ func (p *Policies) RequireSeparateApproval() {
 	defer p.mu.Unlock()
 	p.policy = &convergence.ChangePlanPolicy{ApproveOnSubmit: false}
 }
+
+// Requests is an in-memory convergence.Requester that records every controller asked to converge,
+// in order. It is safe for concurrent use.
+type Requests struct {
+	mu        sync.Mutex
+	requested []string
+}
+
+var _ convergence.Requester = (*Requests)(nil)
+
+// Request implements convergence.Requester.
+func (r *Requests) Request(_ context.Context, controller string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.requested = append(r.requested, controller)
+	return nil
+}
+
+// Requested returns the controllers asked so far.
+func (r *Requests) Requested() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.requested...)
+}
+
+// Events is an in-memory convergence.EventRecorder that keeps every recorded event. It is safe for
+// concurrent use.
+type Events struct {
+	mu     sync.Mutex
+	events []convergence.Event
+}
+
+var _ convergence.EventRecorder = (*Events)(nil)
+
+// Record implements convergence.EventRecorder.
+func (e *Events) Record(_ context.Context, event convergence.Event) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.events = append(e.events, event)
+	return nil
+}
+
+// List implements convergence.EventRecorder, newest first.
+func (e *Events) List(_ context.Context, resourceKind, resourceID string, limit int) ([]convergence.Event, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var out []convergence.Event
+	for i := len(e.events) - 1; i >= 0 && (limit <= 0 || len(out) < limit); i-- {
+		if e.events[i].ResourceKind == resourceKind && e.events[i].ResourceID == resourceID {
+			out = append(out, e.events[i])
+		}
+	}
+	return out, nil
+}

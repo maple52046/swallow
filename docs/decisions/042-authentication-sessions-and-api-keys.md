@@ -38,10 +38,12 @@ its SHA-256 hash.
 
 **API keys for non-interactive clients.** A User creates named API keys
 (`swk_` + 32 random bytes). swallow shows the secret once and stores only its SHA-256 hash
-plus a display prefix. A key acts with its owner's current role (today admin), may carry an
-expiry, and is revoked by deleting it. It is sent like any bearer value
+plus a display prefix. A key acts with its owner's current User Role and Pool Memberships, read
+from the store on every request ([decision 082](082-accounts-pool-access-and-directory.md)
+(accounts, pool access, and directory)), may carry an expiry, and is revoked by deleting it. It is sent like any bearer value
 (`Authorization: Bearer swk_…`). A request authenticated by an API key cannot create API
-keys, so a leaked key cannot mint replacements. Scopes are deferred to the multi-user work.
+keys, so a leaked key cannot mint replacements. Scopes narrower than the owner's access are
+deferred.
 
 **One verifier.** The API's auth middleware accepts either an access token or an API key and
 produces one principal (user, role, authentication method). The SSE query-parameter token
@@ -84,3 +86,4 @@ upgrade.
 ## Revision history
 
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
+- 2026-11-13: with decision 082's multi-user model, a Session or API key acts with its owner's current User Role and Pool Memberships; key scopes remain deferred.

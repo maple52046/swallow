@@ -30,7 +30,7 @@ GET  /api/v1/monitoring/alerts?siteId=<optional>&serverId=<optional>&severity=<o
 POST /api/v1/monitoring/alerts/{fingerprint}/acknowledge?siteId=<optional>
 ```
 
-Both routes require the `admin` role, with either bearer credential (a Session access token or
+Both routes are admin ([conventions](conventions.md#authorization)), with either bearer credential (a Session access token or
 an API Key) according to [conventions](conventions.md). The wire shape is published in
 [`openapi/areas/monitoring.yaml`](../openapi/areas/monitoring.yaml) (`listAlerts`,
 `acknowledgeAlert`).

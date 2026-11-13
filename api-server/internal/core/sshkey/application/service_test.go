@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/maple52046/swallow/internal/core/convergence"
+	"github.com/maple52046/swallow/internal/core/convergence/convergencetest"
 	sshkeydomain "github.com/maple52046/swallow/internal/core/sshkey/domain"
 )
 
@@ -152,6 +153,17 @@ func (r *fakeKeyRepo) DeploymentPrivateKey(context.Context) (string, error) {
 		return "", sshkeydomain.ErrDeploymentKeyNotFound
 	}
 	return r.privateKey, nil
+}
+
+func (r *fakeKeyRepo) DeleteAllAccess(_ context.Context, owner string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for id, key := range r.keys {
+		if key.Purpose == sshkeydomain.PurposeAccess && key.OwnerUserID == owner {
+			delete(r.keys, id)
+		}
+	}
+	return nil
 }
 
 func (r *fakeKeyRepo) DeleteAccess(_ context.Context, owner, id string) error {
@@ -329,6 +341,19 @@ type fixture struct {
 	syncs        *fakeSyncRepo
 	provisioners *fakeProvisioners
 	maas         *fakeRegistrar
+	owners       *fakeOwners
+	requests     *convergencetest.Requests
+}
+
+// fakeOwners is the KeyOwners port over a fixed set of admin user ids.
+type fakeOwners struct{ admins map[string]bool }
+
+func (o *fakeOwners) Administrators(context.Context) (map[string]bool, error) {
+	out := make(map[string]bool, len(o.admins))
+	for id, admin := range o.admins {
+		out[id] = admin
+	}
+	return out, nil
 }
 
 // newFixture builds a service with one key-capable provisioner "maas-1" (site "site-1").
@@ -341,7 +366,16 @@ func newFixture(t *testing.T) *fixture {
 		buildErr:     map[string]error{},
 	}
 	f := &fixture{keys: newFakeKeyRepo(), syncs: newFakeSyncRepo(), provisioners: provisioners, maas: maas}
-	f.service = NewService(f.keys, f.syncs, &fakeMaterial{}, provisioners)
+	f.owners = &fakeOwners{admins: map[string]bool{"admin": true}}
+	f.requests = &convergencetest.Requests{}
+	service, err := NewService(ServiceDeps{
+		Keys: f.keys, Syncs: f.syncs, Material: &fakeMaterial{}, Provisioners: provisioners,
+		Owners: f.owners, Requests: f.requests, Events: &convergencetest.Events{},
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	f.service = service
 	ids := 0
 	f.service.newID = func() string { ids++; return fmt.Sprintf("key-%d", ids) }
 	f.service.now = func() time.Time { return time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC) }
@@ -658,20 +692,14 @@ func TestEnsureRegistered_FailsWithoutDeploymentKey(t *testing.T) {
 	}
 }
 
-// The sync endpoint asks the SSH Key controller through the store; without a requester it does
-// nothing.
+// The sync endpoint asks the SSH Key controller through the store.
 func TestRequestConvergence_WritesARequest(t *testing.T) {
 	f := newFixture(t)
 	if err := f.service.RequestConvergence(context.Background()); err != nil {
-		t.Fatalf("RequestConvergence without a requester: %v", err)
-	}
-	requests := &fakeRequester{}
-	f.service.AttachRequester(requests)
-	if err := f.service.RequestConvergence(context.Background()); err != nil {
 		t.Fatalf("RequestConvergence: %v", err)
 	}
-	if len(requests.controllers) != 1 || requests.controllers[0] != ControllerName {
-		t.Errorf("requests = %v, want one for %s", requests.controllers, ControllerName)
+	if requested := f.requests.Requested(); len(requested) != 1 || requested[0] != ControllerName {
+		t.Errorf("requests = %v, want one for %s", requested, ControllerName)
 	}
 }
 
@@ -696,9 +724,47 @@ func TestReconcileProvisioner_DropsRecordsOfAGoneProvisioner(t *testing.T) {
 	}
 }
 
-type fakeRequester struct{ controllers []string }
+// Only admins' Access Keys reach a provisioner (decision 082): a provisioner puts its keys on the
+// automation account of every Server it deploys. Another User's key is recorded as not registered,
+// counts as realized, and a key registered while its owner was an admin is removed once demoted.
+func TestSync_RegistersOnlyAdminsAccessKeys(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.deployment(t)
+	alice, err := f.service.ImportAccessKey(ctx, "alice", "laptop", "ssh-ed25519 ALICE alice@laptop")
+	if err != nil {
+		t.Fatalf("ImportAccessKey: %v", err)
+	}
+	if err := f.syncAll(t); err != nil {
+		t.Fatalf("syncAll: %v", err)
+	}
+	if f.maas.holds("ssh-ed25519 ALICE") {
+		t.Fatal("a non-admin's Access Key was registered with the provisioner")
+	}
+	item, err := f.service.Get(ctx, "alice", alice.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if reason := item.Status.Provisioners[0].Conditions[0].Reason; reason != sshkeydomain.ReasonNotRegistered {
+		t.Errorf("provisioner reason = %q, want %q", reason, sshkeydomain.ReasonNotRegistered)
+	}
+	if status := item.Status.Conditions[0].Status; status != "true" {
+		t.Errorf("aggregate realized = %q, want true for a key no provisioner should hold", status)
+	}
 
-func (r *fakeRequester) Request(_ context.Context, controller string) error {
-	r.controllers = append(r.controllers, controller)
-	return nil
+	f.owners.admins["alice"] = true
+	if err := f.syncAll(t); err != nil {
+		t.Fatalf("syncAll after promotion: %v", err)
+	}
+	if !f.maas.holds("ssh-ed25519 ALICE") {
+		t.Fatal("an admin's Access Key was not registered")
+	}
+
+	delete(f.owners.admins, "alice")
+	if err := f.syncAll(t); err != nil {
+		t.Fatalf("syncAll after demotion: %v", err)
+	}
+	if f.maas.holds("ssh-ed25519 ALICE") {
+		t.Error("a demoted admin's Access Key stayed registered with the provisioner")
+	}
 }

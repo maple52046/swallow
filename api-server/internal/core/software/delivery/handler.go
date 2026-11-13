@@ -10,6 +10,8 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	accessdelivery "github.com/maple52046/swallow/internal/core/access/delivery"
+
 	localrepodomain "github.com/maple52046/swallow/internal/core/localrepo/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
@@ -92,12 +94,30 @@ func (h *SoftwareHandler) ListAssignments(c *fiber.Ctx) error {
 		Kind:          softwaredomain.Kind(c.Query("kind")),
 		IncludeAbsent: c.Query("includeAbsent") == "true",
 	}
-	assignments, err := h.software.ListAssignments(c.Context(), filter)
+	visibility, ok := accessdelivery.VisibilityFrom(c)
+	if !ok {
+		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
+	}
+	assignments, err := h.software.ListAssignments(c.UserContext(), filter)
 	if err != nil {
 		return respondError(c, err)
 	}
+	var readable map[string]bool
+	if !visibility.Admin() {
+		servers, err := visibility.ReadableServers(c.UserContext())
+		if err != nil {
+			return respondError(c, err)
+		}
+		readable = make(map[string]bool, len(servers))
+		for _, id := range servers {
+			readable[id] = true
+		}
+	}
 	items := make([]assignmentResponse, 0, len(assignments))
 	for _, assignment := range assignments {
+		if readable != nil && !readable[assignment.ServerID] {
+			continue
+		}
 		items = append(items, toAssignmentResponse(assignment))
 	}
 	return c.JSON(fiber.Map{"items": items})
@@ -234,6 +254,7 @@ func respondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, workflowdomain.ErrTargetStateInvalid),
 		// The Site's Local Repository serves deployments and is not ready for the kind's playbook.
 		errors.Is(err, localrepodomain.ErrLocalRepositoryUnavailable),
+		errors.Is(err, softwareapp.ErrNoDirectory),
 		errors.Is(err, serverdomain.ErrServerLocked):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
 

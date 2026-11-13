@@ -1,0 +1,57 @@
+{
+  "contractVersion": 1,
+  "kind": "software",
+  "id": "sssd",
+  "version": "0.1.0",
+  "playbooks": [
+    "deploy-sssd",
+    "uninstall-sssd"
+  ],
+  "workflowKinds": [
+    "configure-sssd",
+    "uninstall-sssd"
+  ],
+  "taskKinds": [],
+  "completions": [],
+  "hooks": [
+    {
+      "name": "software",
+      "reason": "Refuses every spec field and marks the kind as the Servers' directory client, whose install receives the installation's Directory settings from the core; the catalog entry travels with it."
+    }
+  ],
+  "capabilities": [
+    "host-automation"
+  ],
+  "routes": [],
+  "failureCodes": {
+    "sssd_unsupported_os": {
+      "failureClass": "permanent",
+      "remediation": "The directory client is supported on Ubuntu only; Servers with another OS keep local accounts and the provisioner's keys.",
+      "retryable": false
+    },
+    "sssd_settings_missing": {
+      "failureClass": "permanent",
+      "remediation": "The install did not receive the Directory settings; check that the installation has a Directory configured and install again.",
+      "retryable": false
+    },
+    "sssd_id_conflict": {
+      "failureClass": "permanent",
+      "remediation": "A local account or group on the Server uses an id in swallow's POSIX range; remove or renumber it, then install again.",
+      "retryable": false
+    },
+    "sssd_name_conflict": {
+      "failureClass": "permanent",
+      "remediation": "A local account or group on the Server has the name of a swallow User or group; remove or rename it, then install again.",
+      "retryable": false
+    },
+    "sssd_sshd_config_invalid": {
+      "failureClass": "permanent",
+      "remediation": "sshd refused its configuration with swallow's drop-in; the drop-in was removed, so fix the Server's sshd configuration and install again.",
+      "retryable": false
+    },
+    "sssd_directory_unreachable": {
+      "failureClass": "transient",
+      "remediation": "The Server could not read the Directory: check that it reaches the installation address on port 636 and that its clock is synchronized, then retry."
+    }
+  }
+}

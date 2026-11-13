@@ -1,0 +1,40 @@
+# Written by swallow (directory client); changes are overwritten by the next install.
+[sssd]
+config_file_version = 2
+services = nss, pam, ssh, sudo
+domains = {{ sssd_client_domain }}
+
+[nss]
+# Local system accounts are never looked up in the Directory.
+filter_users = root
+filter_groups = root
+
+[domain/{{ sssd_client_domain }}]
+id_provider = ldap
+auth_provider = ldap
+access_provider = ldap
+sudo_provider = ldap
+chpass_provider = none
+ldap_uri = {{ swallow_directory_uri }}
+ldap_schema = rfc2307
+ldap_search_base = {{ swallow_directory_base_dn }}
+ldap_user_search_base = ou=people,{{ swallow_directory_base_dn }}
+ldap_group_search_base = ou=groups,{{ swallow_directory_base_dn }}
+ldap_sudo_search_base = ou=sudoers,{{ swallow_directory_base_dn }}
+ldap_default_bind_dn = {{ swallow_directory_bind_dn }}
+ldap_default_authtok_type = password
+ldap_default_authtok = {{ swallow_directory_bind_password }}
+ldap_tls_cacert = {{ sssd_client_ca }}
+ldap_tls_reqcert = demand
+ldap_id_use_start_tls = false
+# Host Access: an account may log in only where its host attribute names this host ("*" for every
+# host, which only admins get).
+ldap_access_order = host
+ldap_user_authorized_host = host
+ldap_user_ssh_public_key = sshPublicKey
+min_id = {{ swallow_directory_id_start }}
+enumerate = false
+cache_credentials = false
+entry_cache_timeout = {{ sssd_client_entry_cache_timeout }}
+ldap_sudo_smart_refresh_interval = {{ sssd_client_sudo_smart_refresh }}
+ldap_sudo_full_refresh_interval = {{ sssd_client_sudo_full_refresh }}

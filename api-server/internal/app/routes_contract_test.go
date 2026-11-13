@@ -8,6 +8,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	accessdelivery "github.com/maple52046/swallow/internal/core/access/delivery"
 	provisioningdelivery "github.com/maple52046/swallow/internal/core/provisioning/delivery"
 	"github.com/maple52046/swallow/internal/shared/apicontract"
 )
@@ -28,6 +29,7 @@ func TestRegisteredRoutesMatchTheContract(t *testing.T) {
 		bootMediaISO: noop,
 		cliBinary:    noop,
 		bootISOs:     &provisioningdelivery.BootISOHandler{},
+		access:       &accessAPI{guard: accessdelivery.NewGuard(nil), handler: &accessdelivery.Handler{}},
 	})
 
 	registered := map[string]bool{}

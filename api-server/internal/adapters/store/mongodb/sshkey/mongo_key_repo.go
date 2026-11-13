@@ -232,6 +232,16 @@ func (r *MongoKeyRepo) DeleteAccess(ctx context.Context, ownerUserID, id string)
 	return nil
 }
 
+// DeleteAllAccess implements sshkeydomain.KeyRepository with one DeleteMany, so it joins the
+// caller's transaction through ctx; the Deployment Key has no owner and is never matched.
+func (r *MongoKeyRepo) DeleteAllAccess(ctx context.Context, ownerUserID string) error {
+	if ownerUserID == "" {
+		return nil
+	}
+	_, err := r.col.DeleteMany(ctx, bson.M{"purpose": string(sshkeydomain.PurposeAccess), "ownerUserId": ownerUserID})
+	return err
+}
+
 // duplicateKeyError maps a unique-index violation onto the invariant it protects. The driver
 // reports the violated index only in the server message, so the index name is matched there.
 func duplicateKeyError(err error) error {

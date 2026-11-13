@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
 	"sync/atomic"
 	"syscall"
@@ -43,7 +44,9 @@ import (
 	serverstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/server"
 	sitestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/site"
 	softwarestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/software"
+	sshkeystore "github.com/maple52046/swallow/internal/adapters/store/mongodb/sshkey"
 	workflowstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/workflow"
+	accessdomain "github.com/maple52046/swallow/internal/core/access/domain"
 	apikeyapp "github.com/maple52046/swallow/internal/core/apikey/application"
 	apikeydelivery "github.com/maple52046/swallow/internal/core/apikey/delivery"
 	authapp "github.com/maple52046/swallow/internal/core/auth/application"
@@ -213,6 +216,13 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 	// receives it through its constructor (decision 069).
 	transactor := storemongo.NewTransactor(client)
 	userRepo := authstore.NewMongoUserRepo(db)
+	if err := authstore.EnsureUserIndexes(ctx, db); err != nil {
+		return nil, err
+	}
+	accessRepos, err := newAccessStores(ctx, db, cfg.POSIXIDStart)
+	if err != nil {
+		return nil, fmt.Errorf("access stores init: %w", err)
+	}
 	siteRepo, err := sitestore.NewMongoSiteRepo(db)
 	if err != nil {
 		return nil, fmt.Errorf("site repo init: %w", err)
@@ -272,7 +282,7 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 	}
 
 	if err := bootstrap.EnsureAdminUser(
-		ctx, userRepo,
+		ctx, transactor, userRepo, accessRepos.posixIDs,
 		cfg.BootstrapAdminUsername, cfg.BootstrapAdminPassword,
 	); err != nil {
 		return nil, fmt.Errorf("bootstrap admin: %w", err)
@@ -287,13 +297,6 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 	if err != nil {
 		return nil, fmt.Errorf("session repo init: %w", err)
 	}
-	authHandler := authdelivery.NewAuthHandler(
-		authapp.NewSessionService(userRepo, sessionRepo, jwtSvc, authapp.SessionConfig{
-			RefreshTokenTTL: cfg.RefreshTokenTTL,
-			MaxAge:          cfg.SessionMaxAge,
-		}),
-		authapp.NewMeUseCase(userRepo),
-	)
 	apiKeyRepo, err := apikeystore.NewMongoKeyRepo(db)
 	if err != nil {
 		return nil, fmt.Errorf("api key repo init: %w", err)
@@ -323,7 +326,6 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 	if err != nil {
 		return nil, err
 	}
-	sshKeyService.AttachRequester(convergencestore.NewMongoRequester(db))
 	sshKeyHandler := sshkeydelivery.NewSSHKeyHandler(sshKeyService)
 	deploymentKeys := deploymentKeySource{keys: sshKeyService}
 	activeWork := activeServerWorkReader{orchestrations: orchestrationRepo}
@@ -383,6 +385,33 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 	if err != nil {
 		return nil, fmt.Errorf("pool repo init: %w", err)
 	}
+	platformRepo, err := platformstore.NewMongoPlatformRepo(db, sealer)
+	if err != nil {
+		return nil, fmt.Errorf("platform repo init: %w", err)
+	}
+	// Access (decision 082): the Authorizer every route below is checked with, Users, Pool
+	// Memberships, and the Directory's status. A Platform's Pool is derived by one resolver, which the
+	// Platform responses, authorization, and the placement guard share.
+	platformPools := platformapp.NewPoolResolver(platformRepo, serverRepo, serverRepo)
+	sshKeyRepo, err := sshkeystore.NewMongoKeyRepo(db, sealer)
+	if err != nil {
+		return nil, fmt.Errorf("ssh key repo init: %w", err)
+	}
+	access, err := newAccessAPI(ctx, accessAPIDeps{
+		cfg: cfg, db: db, transactor: transactor, stores: accessRepos, users: userRepo, sessions: sessionRepo,
+		apiKeys: apiKeyRepo, sshKeys: sshKeyRepo, servers: serverRepo, pools: poolRepo, platforms: platformPools,
+		orchestrator: orchestrationRepo,
+	})
+	if err != nil {
+		return nil, err
+	}
+	authHandler := authdelivery.NewAuthHandler(
+		authapp.NewSessionService(userRepo, sessionRepo, jwtSvc, authapp.SessionConfig{
+			RefreshTokenTTL: cfg.RefreshTokenTTL,
+			MaxAge:          cfg.SessionMaxAge,
+		}),
+		authapp.NewMeUseCase(userRepo, meMemberships{memberships: access.memberships}),
+	)
 	infrastructureHandler := infrastructuredelivery.NewInfrastructureHandler(
 		infrastructureapp.NewGroupingService(
 			zoneRepo,
@@ -391,13 +420,11 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 			serverPlacements{servers: serverRepo, specs: serverRepo},
 			placementReferences{specs: serverRepo},
 			providerFactory,
+			platformPools,
+			access.memberships,
+			transactor,
 		),
 	)
-
-	platformRepo, err := platformstore.NewMongoPlatformRepo(db, sealer)
-	if err != nil {
-		return nil, fmt.Errorf("platform repo init: %w", err)
-	}
 	platformNames := platformNameReader{platforms: platformRepo}
 	deleteServerUC.AttachPlatformNames(platformNames)
 
@@ -524,6 +551,7 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 	softwareService := softwareapp.NewSoftwareService(
 		transactor, modules.software, modules.accelerators, softwareAssignmentRepo, serverRepo,
 		kubernetesMembershipChecker{servers: serverRepo, platforms: platformRepo},
+		newDirectoryClientSettings(cfg, db, accessRepos),
 	)
 	softwareService.AttachLauncher(softwareDeploymentLauncher{
 		operations: operationService, orchestrations: orchestrationService, modules: modules.registry,
@@ -711,10 +739,12 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 		discovery:       discoveryHandler,
 		sshKeys:         sshKeyHandler,
 		apiKeys:         apiKeyHandler,
-		changePlans:     convergencedelivery.NewChangePlanHandler(changePlans),
+		changePlans:     convergencedelivery.NewChangePlanHandler(changePlans, changePlanAccess{}),
+		access:          access,
 		moduleList:      moduledelivery.NewModuleHandler(modules.registry),
 		localRepository: localRepositoryHandler,
 		validation:      validationdelivery.NewHandler(validationService),
+		validationRuns:  validationRunAccess{runs: validationService},
 		releaseVersion:  releaseVersion,
 		readiness: func(ctx context.Context) error {
 			if err := client.Ping(ctx, nil); err != nil {
@@ -769,25 +799,41 @@ type routeDeps struct {
 	// localRepository serves each Site's Local Repository (contract local-repository.md).
 	localRepository *localrepodelivery.Handler
 	// validation serves Validation Suites, Runs, and Schedules (contract validation.md).
-	validation     *validationdelivery.Handler
+	validation *validationdelivery.Handler
+	// access is the authorization every route is checked with, and the users, pool-access, and
+	// access contracts' handler (decision 082).
+	access *accessAPI
+	// validationRuns finds a Validation Run's targets for the run routes' access checks.
+	validationRuns validationRunAccess
 	readiness      func(context.Context) error
 	releaseVersion string
 }
 
+// platformGuards are the handler chains the Platform routes run before their handler
+// (platforms.md, Authorization): reading a Platform needs any role in its Pool, changing it an owner
+// of that Pool, and creating one or writing its spec also that every member is placed in one Pool the
+// caller owns.
+type platformGuards struct {
+	authed, admin, read, operate, create, spec []fiber.Handler
+}
+
 // registerPlatformRoutes registers the Platform routes on routes.
-func registerPlatformRoutes(routes fiber.Router, handler *platformdelivery.PlatformHandler) {
+func registerPlatformRoutes(routes fiber.Router, handler *platformdelivery.PlatformHandler, guards platformGuards) {
+	chain := func(guard []fiber.Handler, h fiber.Handler) []fiber.Handler { return append(slices.Clone(guard), h) }
 	// A Platform is created from its spec, and its install waits on a Change Plan (decision 076);
 	// registering an existing one was removed (decision 032).
-	routes.Get("/", handler.List)
-	routes.Post("/", handler.Create)
-	routes.Post("/sync", handler.SyncAllMembership)
-	routes.Get("/:id", handler.Get)
-	routes.Patch("/:id", handler.Update)
-	routes.Put("/:id/spec", handler.PutSpec)
-	routes.Delete("/:id", handler.Delete)
-	routes.Post("/:id/sync", handler.SyncMembership)
-	routes.Get("/:id/slurm", handler.GetSlurmCluster)
-	registerKubernetesExplorerRoutes(routes, handler)
+	routes.Get("/", chain(guards.authed, handler.List)...)
+	routes.Post("/", chain(guards.create, handler.Create)...)
+	routes.Post("/sync", chain(guards.admin, handler.SyncAllMembership)...)
+	routes.Get("/:id", chain(guards.read, handler.Get)...)
+	routes.Patch("/:id", chain(guards.operate, handler.Update)...)
+	routes.Put("/:id/spec", chain(guards.spec, handler.PutSpec)...)
+	routes.Delete("/:id", chain(guards.operate, handler.Delete)...)
+	routes.Post("/:id/sync", chain(guards.operate, handler.SyncMembership)...)
+	routes.Get("/:id/slurm", chain(guards.read, handler.GetSlurmCluster)...)
+	// The live Kubernetes explorer acts on the cluster with swallow's credentials, so even its reads
+	// need an owner of the Platform's Pool.
+	registerKubernetesExplorerRoutes(guardedRouter{Router: routes, handlers: guards.operate}, handler)
 }
 
 // registerKubernetesExplorerRoutes mounts the live Kubernetes cluster explorer under a
@@ -821,6 +867,42 @@ func registerKubernetesExplorerRoutes(routes fiber.Router, handler *platformdeli
 	routes.Get("/:id/kubernetes/persistentvolumeclaims", handler.ListKubernetesPersistentVolumeClaims)
 
 	routes.Post("/:id/kubernetes/apply", handler.ApplyKubernetesManifest)
+}
+
+// guardedRouter prepends handlers to every route registered through it, so a feature's
+// RegisterRoutes helper gets the authorization its routes need without knowing about it.
+type guardedRouter struct {
+	fiber.Router
+	handlers []fiber.Handler
+}
+
+func (r guardedRouter) chain(h []fiber.Handler) []fiber.Handler {
+	return append(slices.Clone(r.handlers), h...)
+}
+
+// Get implements fiber.Router with the guard prepended.
+func (r guardedRouter) Get(path string, h ...fiber.Handler) fiber.Router {
+	return r.Router.Get(path, r.chain(h)...)
+}
+
+// Post implements fiber.Router with the guard prepended.
+func (r guardedRouter) Post(path string, h ...fiber.Handler) fiber.Router {
+	return r.Router.Post(path, r.chain(h)...)
+}
+
+// Put implements fiber.Router with the guard prepended.
+func (r guardedRouter) Put(path string, h ...fiber.Handler) fiber.Router {
+	return r.Router.Put(path, r.chain(h)...)
+}
+
+// Patch implements fiber.Router with the guard prepended.
+func (r guardedRouter) Patch(path string, h ...fiber.Handler) fiber.Router {
+	return r.Router.Patch(path, r.chain(h)...)
+}
+
+// Delete implements fiber.Router with the guard prepended.
+func (r guardedRouter) Delete(path string, h ...fiber.Handler) fiber.Router {
+	return r.Router.Delete(path, r.chain(h)...)
 }
 
 func registerRoutes(app *fiber.App, deps routeDeps) {
@@ -861,40 +943,66 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	}
 
 	v1 := app.Group("/api/v1")
+	g := deps.access.guard
+	// authed authenticates the caller and computes its Scope from its current User Role and Pool
+	// Memberships (decision 082); every authorization check below reads that Scope. admin adds the
+	// User Role check. Groups carry no middleware of their own: Fiber applies a group's middleware to
+	// every route under its prefix, so each route lists what it needs.
+	authed := []fiber.Handler{deps.authenticator.Require(), g.Scope()}
+	admin := append(slices.Clone(authed), g.Admin())
+	with := func(extra ...fiber.Handler) []fiber.Handler { return append(slices.Clone(authed), extra...) }
+	route := func(h fiber.Handler, extra ...fiber.Handler) []fiber.Handler { return append(with(extra...), h) }
+	adminRoute := func(h fiber.Handler) []fiber.Handler { return append(slices.Clone(admin), h) }
+	serverRead := g.Server(accessdomain.Read, "id")
+	serverOperate := g.Server(accessdomain.Operate, "id")
+	platformRead := g.Platform(accessdomain.Read, "id")
+	platformOperate := g.Platform(accessdomain.Operate, "id")
+	workflowRead := g.Workflow(accessdomain.Read, "id")
+	workflowOperate := g.Workflow(accessdomain.Operate, "id")
 
 	auth := v1.Group("/auth")
 	auth.Post("/login", deps.auth.Login)
 	auth.Post("/refresh", deps.auth.Refresh)
 	auth.Post("/logout", deps.authenticator.Optional(), deps.auth.Logout)
 	auth.Get("/me", deps.authenticator.Require(), deps.auth.Me)
+	auth.Put("/me/password", append(with(middleware.SessionOnly()), deps.access.handler.ChangeOwnPassword)...)
 
-	admin := []fiber.Handler{deps.authenticator.Require(), middleware.AdminOnly()}
+	v1.Get("/overview", adminRoute(deps.overview.Get)...)
+	v1.Get("/modules", route(deps.moduleList.List)...)
 
-	overview := v1.Group("/overview", admin...)
-	overview.Get("/", deps.overview.Get)
-
-	moduleList := v1.Group("/modules", admin...)
-	moduleList.Get("/", deps.moduleList.List)
-
-	sites := v1.Group("/sites", admin...)
-	sites.Post("/", deps.sites.CreateSite)
-	sites.Get("/", deps.sites.ListSites)
-	sites.Get("/:id", deps.sites.GetSite)
-	sites.Patch("/:id", deps.sites.UpdateSite)
-	sites.Delete("/:id", deps.sites.DeleteSite)
-	sites.Get("/:id/automation", deps.operations.GetAutomation)
-	sites.Put("/:id/automation", deps.operations.PutAutomation)
-	sites.Put("/:id/automation/credential", deps.operations.PutAutomationCredential)
+	sites := v1.Group("/sites")
+	sites.Post("/", adminRoute(deps.sites.CreateSite)...)
+	sites.Get("/", route(deps.sites.ListSites)...)
+	sites.Get("/:id", route(deps.sites.GetSite)...)
+	sites.Patch("/:id", adminRoute(deps.sites.UpdateSite)...)
+	sites.Delete("/:id", adminRoute(deps.sites.DeleteSite)...)
+	sites.Get("/:id/automation", adminRoute(deps.operations.GetAutomation)...)
+	sites.Put("/:id/automation", adminRoute(deps.operations.PutAutomation)...)
+	sites.Put("/:id/automation/credential", adminRoute(deps.operations.PutAutomationCredential)...)
 	// A Site's Local Repository (contract local-repository.md): the source its deployments fetch
 	// every artifact from, converged by the worker's local-repository controller.
-	deps.localRepository.RegisterRoutes(sites)
-	integrations := v1.Group("/integrations", admin...)
-	integrations.Post("/", deps.sites.CreateIntegration)
-	integrations.Get("/", deps.sites.ListIntegrations)
-	integrations.Get("/:id", deps.sites.GetIntegration)
-	integrations.Patch("/:id", deps.sites.UpdateIntegration)
-	integrations.Put("/:id/credential", deps.sites.ReplaceCredential)
-	integrations.Delete("/:id", deps.sites.DeleteIntegration)
+	deps.localRepository.RegisterRoutes(guardedRouter{Router: sites, handlers: admin})
+	integrations := v1.Group("/integrations")
+	integrations.Post("/", adminRoute(deps.sites.CreateIntegration)...)
+	integrations.Get("/", adminRoute(deps.sites.ListIntegrations)...)
+	integrations.Get("/:id", adminRoute(deps.sites.GetIntegration)...)
+	integrations.Patch("/:id", adminRoute(deps.sites.UpdateIntegration)...)
+	integrations.Put("/:id/credential", adminRoute(deps.sites.ReplaceCredential)...)
+	integrations.Delete("/:id", adminRoute(deps.sites.DeleteIntegration)...)
+
+	// Users and access (contracts users.md, access.md; decision 082).
+	users := v1.Group("/users")
+	users.Get("/", adminRoute(deps.access.handler.ListUsers)...)
+	users.Post("/", adminRoute(deps.access.handler.CreateUser)...)
+	users.Get("/:id", adminRoute(deps.access.handler.GetUser)...)
+	users.Patch("/:id", adminRoute(deps.access.handler.UpdateUser)...)
+	users.Delete("/:id", adminRoute(deps.access.handler.DeleteUser)...)
+	accessRoutes := v1.Group("/access")
+	accessRoutes.Get("/settings", adminRoute(deps.access.handler.GetAccessSettings)...)
+	accessRoutes.Put("/settings", adminRoute(deps.access.handler.SetAccessSettings)...)
+	accessRoutes.Get("/audit", adminRoute(deps.access.handler.ListAccessAudit)...)
+	accessRoutes.Get("/directory", adminRoute(deps.access.handler.GetDirectory)...)
+	accessRoutes.Post("/directory/sync", adminRoute(deps.access.handler.SyncDirectory)...)
 
 	// Servers cannot be created directly: reconciliation projects provisioner inventory.
 	// Explicit deletion is provider-backed so the next pass cannot recreate the record.
@@ -906,200 +1014,230 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	v1.Get("/servers/stream",
 		middleware.BearerTokenFromQuery("access_token"),
 		deps.authenticator.Require(),
-		middleware.AdminOnly(),
+		g.Scope(),
 		deps.serverStream.Stream)
 
-	servers := v1.Group("/servers", admin...)
-	servers.Get("/", deps.servers.List)
-	servers.Get("/:id", deps.servers.Get)
-	servers.Post("/:id/refresh", deps.provisioning.RefreshServer)
-	servers.Delete("/:id", deps.provisioning.DeleteServer)
-	servers.Put("/:id/default-user", deps.defaultUsers.Set)
-	servers.Delete("/:id/default-user", deps.defaultUsers.Clear)
-	servers.Get("/:id/boot-media", deps.bootMedia.Get)
-	servers.Put("/:id/boot-media", deps.bootMedia.Set)
-	servers.Post("/:id/redfish/probe", deps.bootMedia.Probe)
-	servers.Get("/:id/virtual-machines", deps.virtualMachines.List)
+	servers := v1.Group("/servers")
+	servers.Get("/", route(deps.servers.List)...)
+	servers.Get("/:id", route(deps.servers.Get, serverRead)...)
+	servers.Post("/:id/refresh", route(deps.provisioning.RefreshServer, serverOperate)...)
+	servers.Delete("/:id", adminRoute(deps.provisioning.DeleteServer)...)
+	servers.Put("/:id/default-user", route(deps.defaultUsers.Set, serverOperate)...)
+	servers.Delete("/:id/default-user", route(deps.defaultUsers.Clear, serverOperate)...)
+	servers.Get("/:id/boot-media", adminRoute(deps.bootMedia.Get)...)
+	servers.Put("/:id/boot-media", adminRoute(deps.bootMedia.Set)...)
+	servers.Post("/:id/redfish/probe", adminRoute(deps.bootMedia.Probe)...)
+	servers.Get("/:id/virtual-machines", adminRoute(deps.virtualMachines.List)...)
 	// The provisioner detail is a live proxy read one machine at a time, distinct from
 	// the mirrored projection the list and get return.
-	servers.Get("/:id/provisioner-detail", deps.provisioning.ProvisionerDetail)
-	servers.Get("/:id/events", deps.provisioning.ProviderEvents)
-	servers.Get("/:id/network", deps.provisioning.GetNetwork)
-	servers.Post("/:id/network/interfaces/:interfaceId/links", deps.provisioning.CreateNetworkLink)
-	servers.Put("/:id/network/interfaces/:interfaceId/links/:linkId", deps.provisioning.ReplaceNetworkLink)
-	servers.Delete("/:id/network/interfaces/:interfaceId/links/:linkId", deps.provisioning.DeleteNetworkLink)
-	servers.Get("/:id/provisioning-tasks", deps.provisioning.ListProvisioningTasks)
+	servers.Get("/:id/provisioner-detail", route(deps.provisioning.ProvisionerDetail, serverOperate)...)
+	servers.Get("/:id/events", route(deps.provisioning.ProviderEvents, serverRead)...)
+	servers.Get("/:id/network", route(deps.provisioning.GetNetwork, serverRead)...)
+	servers.Post("/:id/network/interfaces/:interfaceId/links", route(deps.provisioning.CreateNetworkLink, serverOperate)...)
+	servers.Put("/:id/network/interfaces/:interfaceId/links/:linkId", route(deps.provisioning.ReplaceNetworkLink, serverOperate)...)
+	servers.Delete("/:id/network/interfaces/:interfaceId/links/:linkId", route(deps.provisioning.DeleteNetworkLink, serverOperate)...)
+	servers.Get("/:id/provisioning-tasks", route(deps.provisioning.ListProvisioningTasks, serverRead)...)
 	// Power, hardware validation, and state actions are the provisioner actions beyond
 	// deploy and release. Each is refused by a provisioner that does not offer it.
-	servers.Post("/:id/power-on", deps.provisioning.PowerOn)
-	servers.Post("/:id/power-off", deps.provisioning.PowerOff)
-	servers.Get("/:id/power-state", deps.provisioning.PowerState)
+	servers.Post("/:id/power-on", route(deps.provisioning.PowerOn, serverOperate)...)
+	servers.Post("/:id/power-off", route(deps.provisioning.PowerOff, serverOperate)...)
+	servers.Get("/:id/power-state", route(deps.provisioning.PowerState, serverRead)...)
 	// The provisioner-owned Power Configuration (decision 054), read live and written through.
-	servers.Get("/:id/power-configuration", deps.provisioning.GetPowerConfiguration)
-	servers.Put("/:id/power-configuration", deps.provisioning.SetPowerConfiguration)
-	servers.Post("/:id/inspect", deps.provisioning.Inspect)
-	servers.Post("/:id/test", deps.provisioning.Test)
-	servers.Post("/:id/abort", deps.provisioning.Abort)
-	servers.Post("/:id/override-failed-testing", deps.provisioning.OverrideFailedTesting)
-	servers.Post("/:id/lock", deps.provisioning.Lock)
-	servers.Post("/:id/unlock", deps.provisioning.Unlock)
-	servers.Post("/:id/mark-broken", deps.provisioning.MarkBroken)
-	servers.Post("/:id/mark-fixed", deps.provisioning.MarkFixed)
-	servers.Post("/:id/rescue-mode", deps.provisioning.RescueMode)
-	servers.Post("/:id/exit-rescue-mode", deps.provisioning.ExitRescueMode)
+	servers.Get("/:id/power-configuration", adminRoute(deps.provisioning.GetPowerConfiguration)...)
+	servers.Put("/:id/power-configuration", adminRoute(deps.provisioning.SetPowerConfiguration)...)
+	servers.Post("/:id/inspect", route(deps.provisioning.Inspect, serverOperate)...)
+	servers.Post("/:id/test", route(deps.provisioning.Test, serverOperate)...)
+	servers.Post("/:id/abort", route(deps.provisioning.Abort, serverOperate)...)
+	servers.Post("/:id/override-failed-testing", route(deps.provisioning.OverrideFailedTesting, serverOperate)...)
+	servers.Post("/:id/lock", route(deps.provisioning.Lock, serverOperate)...)
+	servers.Post("/:id/unlock", route(deps.provisioning.Unlock, serverOperate)...)
+	servers.Post("/:id/mark-broken", route(deps.provisioning.MarkBroken, serverOperate)...)
+	servers.Post("/:id/mark-fixed", route(deps.provisioning.MarkFixed, serverOperate)...)
+	servers.Post("/:id/rescue-mode", route(deps.provisioning.RescueMode, serverOperate)...)
+	servers.Post("/:id/exit-rescue-mode", route(deps.provisioning.ExitRescueMode, serverOperate)...)
 	// Placement assigns a Server to a swallow-owned Zone and/or Pool, realized in the
 	// provisioner (decision 071). Mounted here because clients address a Server, but handled by
 	// the infrastructure feature that owns the Zone/Pool catalog.
-	servers.Put("/:id/placement", deps.infrastructure.AssignServerPlacement)
-	explorerhttp.RegisterRoutes(servers, deps.docker)
+	servers.Put("/:id/placement", adminRoute(deps.infrastructure.AssignServerPlacement)...)
+	// The Docker Host Explorer controls a host's Docker Engine, so even its reads need an owner.
+	explorerhttp.RegisterRoutes(guardedRouter{Router: servers, handlers: with(serverOperate)}, deps.docker)
 
-	provisioning := v1.Group("/provisioning", admin...)
-	provisioning.Get("/images", deps.provisioning.ListImages)
-	provisioning.Delete("/images", deps.provisioning.DeleteImage)
+	provisioning := v1.Group("/provisioning")
+	provisioning.Get("/images", route(deps.provisioning.ListImages)...)
+	provisioning.Delete("/images", adminRoute(deps.provisioning.DeleteImage)...)
 	// OS image upload (decision 027): record the intent, then stream the raw content, which the
 	// handler forwards to the provider as it arrives; the provider decides whether the result is a
 	// custom image.
-	provisioning.Post("/image-uploads", deps.provisioning.CreateImageUpload)
-	provisioning.Put("/image-uploads/:id/content", deps.provisioning.SendImageUploadContent)
+	provisioning.Post("/image-uploads", adminRoute(deps.provisioning.CreateImageUpload)...)
+	provisioning.Put("/image-uploads/:id/content", adminRoute(deps.provisioning.SendImageUploadContent)...)
 	// OS Image metadata: replace or clear the swallow-owned name, OS, release, tags, and default
 	// user of one image. Same query-parameter identity as DELETE /images (decision 071).
-	provisioning.Put("/images/metadata", deps.provisioning.SetImageMetadata)
-	provisioning.Delete("/images/metadata", deps.provisioning.ClearImageMetadata)
+	provisioning.Put("/images/metadata", adminRoute(deps.provisioning.SetImageMetadata)...)
+	provisioning.Delete("/images/metadata", adminRoute(deps.provisioning.ClearImageMetadata)...)
 	// Server tags: list the Site's known tags for the editor and the tag manager, apply a tri-state
 	// add/remove edit to one or more Servers' spec, and delete or rename a tag across a Site
 	// (decision 071). Under /provisioning to avoid the GET /servers/:id route collision.
-	provisioning.Get("/tags", deps.provisioning.ListServerTags)
-	provisioning.Post("/tags", deps.provisioning.EditServerTags)
-	provisioning.Delete("/tags/:name", deps.provisioning.DeleteServerTag)
-	provisioning.Patch("/tags/:name", deps.provisioning.RenameServerTag)
-	provisioning.Get("/templates", deps.provisioning.ListTemplates)
-	provisioning.Post("/templates", deps.provisioning.CreateTemplate)
-	provisioning.Get("/templates/:id", deps.provisioning.GetTemplate)
-	provisioning.Patch("/templates/:id", deps.provisioning.UpdateTemplate)
-	provisioning.Delete("/templates/:id", deps.provisioning.DeleteTemplate)
-	provisioning.Put("/templates/:id/user-data", deps.provisioning.ReplaceTemplateUserData)
-	provisioning.Delete("/templates/:id/user-data", deps.provisioning.ClearTemplateUserData)
-	provisioning.Post("/deployments/preflight", deps.provisioning.PreflightDeployServers)
-	provisioning.Post("/deployment-operations", deps.provisioning.CreateDeploymentOperation)
-	provisioning.Post("/release-operations", deps.provisioning.CreateReleaseOperation)
+	provisioning.Get("/tags", route(deps.provisioning.ListServerTags)...)
+	provisioning.Post("/tags", route(deps.provisioning.EditServerTags, g.ServersInBody(accessdomain.Operate, serverIDsField))...)
+	provisioning.Delete("/tags/:name", adminRoute(deps.provisioning.DeleteServerTag)...)
+	provisioning.Patch("/tags/:name", adminRoute(deps.provisioning.RenameServerTag)...)
+	provisioning.Get("/templates", route(deps.provisioning.ListTemplates)...)
+	provisioning.Post("/templates", adminRoute(deps.provisioning.CreateTemplate)...)
+	provisioning.Get("/templates/:id", route(deps.provisioning.GetTemplate)...)
+	provisioning.Patch("/templates/:id", adminRoute(deps.provisioning.UpdateTemplate)...)
+	provisioning.Delete("/templates/:id", adminRoute(deps.provisioning.DeleteTemplate)...)
+	provisioning.Put("/templates/:id/user-data", adminRoute(deps.provisioning.ReplaceTemplateUserData)...)
+	provisioning.Delete("/templates/:id/user-data", adminRoute(deps.provisioning.ClearTemplateUserData)...)
+	bodyServers := g.ServersInBody(accessdomain.Operate, serverIDsField)
+	provisioning.Post("/deployments/preflight", route(deps.provisioning.PreflightDeployServers, bodyServers)...)
+	provisioning.Post("/deployment-operations", route(deps.provisioning.CreateDeploymentOperation, bodyServers)...)
+	provisioning.Post("/release-operations", route(deps.provisioning.CreateReleaseOperation, bodyServers)...)
 	// Prove a custom OS Image works for a deploy target by deploying it on a chosen ready Server,
 	// recording the swallow-owned verification, and auto-releasing the Server (docs/decisions/035).
-	provisioning.Post("/image-verifications", deps.provisioning.CreateImageVerification)
-	provisioning.Post("/recover-operations", deps.provisioning.CreateRecoverOperation)
-	provisioning.Post("/networks/inspect", deps.provisioning.InspectNetworks)
-	provisioning.Get("/tasks/:id", deps.provisioning.GetProvisioningTask)
-	provisioning.Post("/tasks/:id/retry", deps.provisioning.RetryProvisioningTask)
-	provisioning.Post("/reconcile", deps.provisioning.ReconcileAll)
-	provisioning.Post("/integrations/:id/reconcile", deps.provisioning.Reconcile)
-	provisioning.Post("/integrations/:id/enroll-bundle", deps.provisioning.EnrollBundle)
+	provisioning.Post("/image-verifications", adminRoute(deps.provisioning.CreateImageVerification)...)
+	provisioning.Post("/recover-operations", route(deps.provisioning.CreateRecoverOperation, bodyServers)...)
+	provisioning.Post("/networks/inspect", route(deps.provisioning.InspectNetworks, bodyServers)...)
+	provisioning.Get("/tasks/:id", adminRoute(deps.provisioning.GetProvisioningTask)...)
+	provisioning.Post("/tasks/:id/retry", adminRoute(deps.provisioning.RetryProvisioningTask)...)
+	provisioning.Post("/reconcile", adminRoute(deps.provisioning.ReconcileAll)...)
+	provisioning.Post("/integrations/:id/reconcile", adminRoute(deps.provisioning.Reconcile)...)
+	provisioning.Post("/integrations/:id/enroll-bundle", adminRoute(deps.provisioning.EnrollBundle)...)
 	// The provisioner-owned proxy handed to deployed machines, read live and written through; not an
 	// Integration setting (contract provisioner-http-proxy.md, decision 071).
-	provisioning.Get("/integrations/:id/http-proxy", deps.provisioning.GetHTTPProxy)
-	provisioning.Put("/integrations/:id/http-proxy", deps.provisioning.SetHTTPProxy)
+	provisioning.Get("/integrations/:id/http-proxy", adminRoute(deps.provisioning.GetHTTPProxy)...)
+	provisioning.Put("/integrations/:id/http-proxy", adminRoute(deps.provisioning.SetHTTPProxy)...)
 	// The provisioner's subnets and their DNS servers, read live and written through (contract
 	// provisioner-subnet-dns.md, decision 058).
-	provisioning.Get("/integrations/:id/subnets", deps.provisioning.ListSubnets)
-	provisioning.Put("/integrations/:id/subnets/:subnetId/dns-servers", deps.provisioning.SetSubnetDNSServers)
-	provisioning.Post("/virtual-machine-enrollments", deps.provisioning.EnrollVirtualMachines)
+	provisioning.Get("/integrations/:id/subnets", adminRoute(deps.provisioning.ListSubnets)...)
+	provisioning.Put("/integrations/:id/subnets/:subnetId/dns-servers", adminRoute(deps.provisioning.SetSubnetDNSServers)...)
+	provisioning.Post("/virtual-machine-enrollments", adminRoute(deps.provisioning.EnrollVirtualMachines)...)
 	// Boot ISOs (decision 047): built here, mounted by a Server's Boot Media.
 	if deps.bootISOs != nil {
-		provisioning.Get("/boot-isos", deps.bootISOs.List)
-		provisioning.Post("/boot-isos", deps.bootISOs.Create)
-		provisioning.Get("/boot-isos/:id", deps.bootISOs.Get)
-		provisioning.Post("/boot-isos/:id/rebuild", deps.bootISOs.Rebuild)
-		provisioning.Delete("/boot-isos/:id", deps.bootISOs.Delete)
+		provisioning.Get("/boot-isos", adminRoute(deps.bootISOs.List)...)
+		provisioning.Post("/boot-isos", adminRoute(deps.bootISOs.Create)...)
+		provisioning.Get("/boot-isos/:id", adminRoute(deps.bootISOs.Get)...)
+		provisioning.Post("/boot-isos/:id/rebuild", adminRoute(deps.bootISOs.Rebuild)...)
+		provisioning.Delete("/boot-isos/:id", adminRoute(deps.bootISOs.Delete)...)
 	}
 
 	// swallow owns Platform registration and policy; membership is observed from the
-	// runtime API.
-	platforms := v1.Group("/platforms", admin...)
-	platforms.Get("/deployment-requirements/slurm", deps.platforms.GetSlurmDeploymentRequirement)
-	platforms.Put("/deployment-requirements/slurm", deps.platforms.PutSlurmDeploymentRequirement)
+	// runtime API. A Platform belongs to the Pool every one of its members is placed in.
+	platforms := v1.Group("/platforms")
+	platforms.Get("/deployment-requirements/slurm", route(deps.platforms.GetSlurmDeploymentRequirement)...)
+	platforms.Put("/deployment-requirements/slurm", adminRoute(deps.platforms.PutSlurmDeploymentRequirement)...)
 	// The GPU Operator routes (decision 062) exist only on the canonical surface. The static
 	// releases route is registered before the /:id routes so "gpu-operator" is never read as an id.
-	platforms.Get("/gpu-operator/releases", deps.platforms.GPUOperatorReleases)
-	registerPlatformRoutes(platforms, deps.platforms)
+	platforms.Get("/gpu-operator/releases", route(deps.platforms.GPUOperatorReleases)...)
+	registerPlatformRoutes(platforms, deps.platforms, platformGuards{
+		read: with(platformRead), operate: with(platformOperate), admin: admin, authed: authed,
+		create: with(g.PlatformMembersInBody(platformSpecMembers)),
+		spec:   with(platformOperate, g.PlatformMembersInBody(platformSpecMembers)),
+	})
 
 	// Managed Software: install/uninstall a single piece of host software on deployed Servers and
 	// read the swallow-owned Software Assignment records (contract: software.md, decision 038).
-	software := v1.Group("/software", admin...)
-	software.Get("/catalog", deps.software.Catalog)
-	software.Get("/assignments", deps.software.ListAssignments)
-	software.Post("/assignments", deps.software.Install)
-	software.Post("/uninstall", deps.software.Uninstall)
+	software := v1.Group("/software")
+	software.Get("/catalog", route(deps.software.Catalog)...)
+	software.Get("/assignments", route(deps.software.ListAssignments)...)
+	software.Post("/assignments", route(deps.software.Install, g.ServersInBody(accessdomain.Operate, softwareInstallServers))...)
+	software.Post("/uninstall", route(deps.software.Uninstall, bodyServers)...)
 	// Docker CE Registry Credentials for private image pulls (contract registry-credentials.md,
 	// decision 044). Scoped under the kind they serve, so kind-specific settings of later software
 	// kinds get their own paths instead of sharing a software-wide namespace.
-	software.Get("/docker-ce/registry-credentials", deps.registryCreds.List)
-	software.Post("/docker-ce/registry-credentials", deps.registryCreds.Create)
-	software.Put("/docker-ce/registry-credentials/:credentialId", deps.registryCreds.Replace)
-	software.Delete("/docker-ce/registry-credentials/:credentialId", deps.registryCreds.Delete)
+	software.Get("/docker-ce/registry-credentials", adminRoute(deps.registryCreds.List)...)
+	software.Post("/docker-ce/registry-credentials", adminRoute(deps.registryCreds.Create)...)
+	software.Put("/docker-ce/registry-credentials/:credentialId", adminRoute(deps.registryCreds.Replace)...)
+	software.Delete("/docker-ce/registry-credentials/:credentialId", adminRoute(deps.registryCreds.Delete)...)
 
 	// swallow-owned Zones and Pools (the dashboard's Infrastructure area). Each write is also
-	// realized in the Site's provisioner when it is grouping-capable (decision 071).
-	infrastructure := v1.Group("/infrastructure", admin...)
-	infrastructure.Get("/zones", deps.infrastructure.ListZones)
-	infrastructure.Post("/zones", deps.infrastructure.CreateZone)
-	infrastructure.Get("/zones/:id", deps.infrastructure.GetZone)
-	infrastructure.Patch("/zones/:id", deps.infrastructure.UpdateZone)
-	infrastructure.Delete("/zones/:id", deps.infrastructure.DeleteZone)
-	infrastructure.Get("/pools", deps.infrastructure.ListPools)
-	infrastructure.Post("/pools", deps.infrastructure.CreatePool)
-	infrastructure.Get("/pools/:id", deps.infrastructure.GetPool)
-	infrastructure.Patch("/pools/:id", deps.infrastructure.UpdatePool)
-	infrastructure.Delete("/pools/:id", deps.infrastructure.DeletePool)
+	// realized in the Site's provisioner when it is grouping-capable (decision 071). A Pool's
+	// members and Sudo Policy are the access context's (contract pool-access.md).
+	infrastructure := v1.Group("/infrastructure")
+	infrastructure.Get("/zones", route(deps.infrastructure.ListZones)...)
+	infrastructure.Post("/zones", adminRoute(deps.infrastructure.CreateZone)...)
+	infrastructure.Get("/zones/:id", route(deps.infrastructure.GetZone)...)
+	infrastructure.Patch("/zones/:id", adminRoute(deps.infrastructure.UpdateZone)...)
+	infrastructure.Delete("/zones/:id", adminRoute(deps.infrastructure.DeleteZone)...)
+	infrastructure.Get("/pools", route(deps.infrastructure.ListPools)...)
+	infrastructure.Post("/pools", adminRoute(deps.infrastructure.CreatePool)...)
+	infrastructure.Get("/pools/:id", route(deps.infrastructure.GetPool)...)
+	infrastructure.Patch("/pools/:id", adminRoute(deps.infrastructure.UpdatePool)...)
+	infrastructure.Delete("/pools/:id", adminRoute(deps.infrastructure.DeletePool)...)
+	infrastructure.Get("/pools/:id/members", route(deps.access.handler.ListPoolMembers)...)
+	infrastructure.Post("/pools/:id/members", route(deps.access.handler.AddPoolMember)...)
+	infrastructure.Patch("/pools/:id/members/:userId", route(deps.access.handler.UpdatePoolMember)...)
+	infrastructure.Delete("/pools/:id/members/:userId", route(deps.access.handler.RemovePoolMember)...)
+	infrastructure.Get("/pools/:id/access-policy", route(deps.access.handler.GetPoolAccessPolicy)...)
+	infrastructure.Put("/pools/:id/access-policy", route(deps.access.handler.SetPoolAccessPolicy)...)
 
 	// Change Plans (contract change-plans.md, decision 076): the approval step of a destructive
 	// change, and the policy that decides whether a change approved with its write is approved at
-	// once; the resource's controller applies an approved plan.
-	deps.changePlans.RegisterRoutes(v1.Group("/change-plans", admin...))
-	deps.changePlans.RegisterPolicyRoutes(v1.Group("/change-plan-policy", admin...))
+	// once; the resource's controller applies an approved plan. Each plan route checks the plan's
+	// resource itself.
+	deps.changePlans.RegisterRoutes(guardedRouter{Router: v1.Group("/change-plans"), handlers: authed})
+	deps.changePlans.RegisterPolicyRoutes(guardedRouter{Router: v1.Group("/change-plan-policy"), handlers: admin})
 
 	// API Keys (contract api-keys.md, decision 042): the caller's keys for non-interactive
 	// clients. Creating one needs a password Session, so a leaked key cannot mint replacements.
-	apiKeys := v1.Group("/api-keys", admin...)
-	apiKeys.Get("/", deps.apiKeys.List)
-	apiKeys.Post("/", middleware.SessionOnly(), deps.apiKeys.Create)
-	apiKeys.Delete("/:keyId", deps.apiKeys.Delete)
+	apiKeys := v1.Group("/api-keys")
+	apiKeys.Get("/", route(deps.apiKeys.List)...)
+	apiKeys.Post("/", route(deps.apiKeys.Create, middleware.SessionOnly())...)
+	apiKeys.Delete("/:keyId", route(deps.apiKeys.Delete)...)
 
 	// SSH Keys (contract ssh-keys.md, decision 039): the Deployment Key and the caller's Access
 	// Keys. Static deployment paths are registered before "/:keyId" so they are never read as ids.
-	sshKeys := v1.Group("/ssh-keys", admin...)
-	sshKeys.Get("/", deps.sshKeys.List)
-	sshKeys.Post("/", deps.sshKeys.Import)
-	sshKeys.Post("/generate", deps.sshKeys.Generate)
-	sshKeys.Post("/sync", deps.sshKeys.Sync)
-	sshKeys.Put("/deployment", deps.sshKeys.ReplaceDeployment)
-	sshKeys.Post("/deployment/regenerate", deps.sshKeys.RegenerateDeployment)
-	sshKeys.Get("/:keyId", deps.sshKeys.Get)
-	sshKeys.Delete("/:keyId", deps.sshKeys.Delete)
+	sshKeys := v1.Group("/ssh-keys")
+	sshKeys.Get("/", route(deps.sshKeys.List)...)
+	sshKeys.Post("/", route(deps.sshKeys.Import)...)
+	sshKeys.Post("/generate", route(deps.sshKeys.Generate)...)
+	sshKeys.Post("/sync", adminRoute(deps.sshKeys.Sync)...)
+	sshKeys.Put("/deployment", adminRoute(deps.sshKeys.ReplaceDeployment)...)
+	sshKeys.Post("/deployment/regenerate", adminRoute(deps.sshKeys.RegenerateDeployment)...)
+	sshKeys.Get("/:keyId", route(deps.sshKeys.Get)...)
+	sshKeys.Delete("/:keyId", route(deps.sshKeys.Delete)...)
 
 	// Alerts and metrics are read straight from the monitoring stack: swallow stores
 	// neither, and acknowledging an alert creates a silence in Alertmanager.
-	monitoring := v1.Group("/monitoring", admin...)
-	monitoring.Get("/alerts", deps.monitoring.ListAlerts)
-	monitoring.Post("/alerts/:fingerprint/acknowledge", deps.monitoring.Acknowledge)
-	monitoring.Get("/metrics", deps.monitoring.ServerMetrics)
-	monitoring.Get("/metrics/range", deps.monitoring.MetricRange)
-	monitoring.Get("/metrics/names", deps.monitoring.MetricNames)
+	monitoring := v1.Group("/monitoring")
+	monitoring.Get("/alerts", adminRoute(deps.monitoring.ListAlerts)...)
+	monitoring.Post("/alerts/:fingerprint/acknowledge", adminRoute(deps.monitoring.Acknowledge)...)
+	metricScope := g.Custom(metricScopeCheck)
+	monitoring.Get("/metrics", route(deps.monitoring.ServerMetrics, metricScope)...)
+	monitoring.Get("/metrics/range", route(deps.monitoring.MetricRange, metricScope)...)
+	monitoring.Get("/metrics/names", route(deps.monitoring.MetricNames)...)
 
 	// Validation (contract validation.md, decision 081): suites, runs executed as Workflows, and
 	// schedules.
-	deps.validation.RegisterRoutes(v1.Group("/validation", admin...))
+	validation := v1.Group("/validation")
+	validation.Get("/suites", route(deps.validation.ListSuites)...)
+	validation.Post("/suites", adminRoute(deps.validation.CreateSuite)...)
+	validation.Get("/suites/:suiteId", route(deps.validation.GetSuite)...)
+	validation.Put("/suites/:suiteId", adminRoute(deps.validation.ReplaceSuite)...)
+	validation.Delete("/suites/:suiteId", adminRoute(deps.validation.DeleteSuite)...)
+	validation.Get("/runs", route(deps.validation.ListRuns)...)
+	validation.Post("/runs", route(deps.validation.StartRun, g.Custom(validationStartCheck))...)
+	validation.Get("/runs/:runId", route(deps.validation.GetRun, g.Custom(deps.validationRuns.check(accessdomain.Read)))...)
+	validation.Post("/runs/:runId/cancel", route(deps.validation.CancelRun, g.Custom(deps.validationRuns.check(accessdomain.Operate)))...)
+	validation.Get("/schedules", adminRoute(deps.validation.ListSchedules)...)
+	validation.Post("/schedules", adminRoute(deps.validation.CreateSchedule)...)
+	validation.Get("/schedules/:scheduleId", adminRoute(deps.validation.GetSchedule)...)
+	validation.Put("/schedules/:scheduleId", adminRoute(deps.validation.ReplaceSchedule)...)
+	validation.Delete("/schedules/:scheduleId", adminRoute(deps.validation.DeleteSchedule)...)
 
-	// Canonical Workflow surface (decision 072). A Workflow is a DAG of Tasks.
-	workflows := v1.Group("/workflows", admin...)
-	workflows.Post("/", deps.operations.Create)
-	workflows.Get("/", deps.operations.List)
-	workflows.Get("/:id", deps.operations.Get)
-	workflows.Get("/:id/timeline", deps.operations.Timeline)
-	workflows.Post("/:id/cancel", deps.operations.Cancel)
-	workflows.Post("/:id/rerun", deps.operations.Rerun)
-	workflows.Post("/:id/tasks/:taskId/retry", deps.operations.RetryStep)
-	workflows.Get("/:id/tasks/:taskId/logs", deps.operations.StepLogs)
-	workflows.Get("/:id/tasks/:taskId/stderr", deps.operations.StepStderr)
-	workflows.Get("/:id/tasks/:taskId/events", deps.operations.StepEvents)
-	workflows.Get("/:id/tasks/:taskId/artifacts", deps.operations.StepArtifacts)
+	// Canonical Workflow surface (decision 072). A Workflow is a DAG of Tasks, and belongs to its
+	// targets.
+	workflows := v1.Group("/workflows")
+	workflows.Post("/", adminRoute(deps.operations.Create)...)
+	workflows.Get("/", route(deps.operations.List)...)
+	workflows.Get("/:id", route(deps.operations.Get, workflowRead)...)
+	workflows.Get("/:id/timeline", route(deps.operations.Timeline, workflowRead)...)
+	workflows.Post("/:id/cancel", route(deps.operations.Cancel, workflowOperate)...)
+	workflows.Post("/:id/rerun", route(deps.operations.Rerun, workflowOperate)...)
+	workflows.Post("/:id/tasks/:taskId/retry", route(deps.operations.RetryStep, workflowOperate)...)
+	workflows.Get("/:id/tasks/:taskId/logs", route(deps.operations.StepLogs, workflowRead)...)
+	workflows.Get("/:id/tasks/:taskId/stderr", route(deps.operations.StepStderr, workflowRead)...)
+	workflows.Get("/:id/tasks/:taskId/events", route(deps.operations.StepEvents, workflowRead)...)
+	workflows.Get("/:id/tasks/:taskId/artifacts", route(deps.operations.StepArtifacts, workflowRead)...)
 
 	// Machine-to-machine discovery remains pull-based for Prometheus and external
 	// Ansible diagnostics. The embedded runner calls the same use case directly.

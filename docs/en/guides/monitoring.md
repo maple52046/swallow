@@ -81,7 +81,8 @@ swallow keeps the Node Exporter installed on every deployed, unlocked Server of 
 automation is enabled, including Servers it did not deploy. The worker checks every Server
 about every ten minutes, and straight away when a Server or its Node Exporter record changes:
 
-- When the Server has no Node Exporter, or it was uninstalled, swallow installs it.
+- When the Server has no Node Exporter, swallow installs it. When someone uninstalled it from
+  the Server, swallow leaves it off until someone installs it again.
 - When an install failed, swallow tries again after 15 minutes, 1 hour, 6 hours, and then
   once a day, so a Server whose OS lacks the package does not get an install loop.
 - When the Site's Prometheus could not scrape it for 10 minutes, for example because the
@@ -94,7 +95,7 @@ These installs show up as ordinary **Install Node Exporter** Workflows requested
 work; it never cancels a Workflow anyone else started, and it waits while other work holds the
 Server. swallow never removes the Node Exporter by itself. A locked Server is left as it is:
 swallow neither installs nor removes anything on it. To keep the Node Exporter off one Server,
-lock it; uninstalling it from a Server swallow keeps it on only lasts until the next check.
+uninstall it there (or lock the Server).
 
 While an install is pending or after it failed, the Server is not scraped, so its health shows
 as Unknown rather than Down.

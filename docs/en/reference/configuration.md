@@ -21,7 +21,11 @@ Important production-sensitive values include:
   cluster), and every swallow process checks this at startup;
 - JWT signing secret and Session lifetimes (`accessTokenTTL` 15m, `refreshTokenTTL` 168h,
   `sessionMaxAge` 720h; the old `jwtExpiryHours` is ignored);
-- bootstrap admin username/password;
+- bootstrap admin username/password, and the first POSIX uid and gid swallow gives its users
+  (`posixIdStart`, default 10000; it cannot change after the first account got one);
+- the Directory (`directory.url`, `baseDN`, `bindPasswordFile`, `caFile`, `hostURL`,
+  `readerPasswordFile`; the Compose installation sets them all) and whether the worker keeps the
+  directory client installed (`directoryClientEnsure`, default true);
 - base64 32-byte credential-encryption key;
 - machine bearer token;
 - reconcile and inventory intervals, and the controller resync interval
@@ -87,7 +91,9 @@ Production serves Dashboard and API through the same Nginx origin over plain HTT
 (port 80 by default); MongoDB and Temporal stay internal, and the API, worker, and executor
 reach MAAS and Servers through the `egress` network. The Site's Local Repository has its own
 listener for deployed Servers, `SWALLOW_PULP_PORT` (8080 by default), because a container registry
-must answer at the root of its own port. Terminate TLS in front of it when the
+must answer at the root of its own port. The Directory listens for the Servers' directory client on
+`SWALLOW_LDAP_PORT` (636 by default), LDAPS only, with a certificate from the installation CA; the
+Servers must reach it there. Terminate TLS in front of it when the
 installation is exposed beyond a trusted network.
 
 ## CLI configuration
@@ -108,5 +114,8 @@ outside a controlled lab.
 Compose and native assets document their exact secret file contract. Keep secret
 directories out of source control and back up the credential key with MongoDB and
 artifacts. The production installation generates every secret, including the co-located
-MAAS database password, admin password, and API key, and the Local Repository's (Pulp's) database
-password, admin password, and secret key, under `production/secrets/`.
+MAAS database password, admin password, and API key, the Local Repository's (Pulp's) database
+password, admin password, and secret key, and the Directory's passwords, the installation CA, and
+its certificate (`ldap-tls/`, reissued when `SWALLOW_ADDRESS` changes), under `production/secrets/`.
+Backups include the installation CA and the Directory's passwords, because every Server's directory
+client trusts that CA; the Directory's data is rebuilt from MongoDB.

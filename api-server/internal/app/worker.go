@@ -42,6 +42,7 @@ import (
 	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
 	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
 	serverapp "github.com/maple52046/swallow/internal/core/server/application"
+	sshkeyapp "github.com/maple52046/swallow/internal/core/sshkey/application"
 	validationapp "github.com/maple52046/swallow/internal/core/validation/application"
 	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
@@ -386,7 +387,7 @@ func assembleWorker(cfg config.APIConfig, modules composedModules, mongoClient *
 				provisioningstore.NewMongoHTTPProxyRepo(db), convergenceEvents),
 			provisioningapp.NewSubnetDNSController(provisionerIntegrations{integrations: integrations}, providers,
 				subnetDNS, convergenceEvents),
-			sshKeyController(sshKeys, convergenceEvents),
+			sshkeyapp.NewController(sshKeys),
 			// An enabled provisioner's autoInspect policy, realized by inspect-hardware Workflows.
 			provisioningapp.NewAutoInspectController(integrations, servers, hardwareInspectionLauncher{
 				workflows: workflows, history: operations, servers: servers, protection: protection,
@@ -412,6 +413,39 @@ func assembleWorker(cfg config.APIConfig, modules composedModules, mongoClient *
 			slog.Info("Node Exporter controller enabled", "controller", nodeExporterController.Name())
 		} else {
 			slog.Info("Node Exporter controller disabled (nodeExporterEnsure, SWALLOW_WORKER_NODE_EXPORTER_ENSURE, is false); it is not registered")
+		}
+		// The Directory controller (decision 082) runs only where the installation has a Directory;
+		// without one, Servers keep the provisioner-injected keys and nothing else is written.
+		if cfg.Directory.Configured() {
+			stores, err := newAccessStores(ctx, db, cfg.POSIXIDStart)
+			if err != nil {
+				return nil, fmt.Errorf("access stores init: %w", err)
+			}
+			directoryController, err := newDirectoryController(directoryControllerDeps{
+				cfg: cfg.Directory, db: db, sealer: sealer, transactor: transactor, stores: stores, servers: servers,
+				pools: pools, platforms: platforms, modules: modules.registry,
+			})
+			if err != nil {
+				return nil, err
+			}
+			controllers = append(controllers, directoryController)
+			slog.Info("Directory controller enabled", "url", cfg.Directory.URL, "baseDN", cfg.Directory.BaseDN)
+			// The directory client controller installs the client the Directory is read through on
+			// every covered Server; the development stack, which shares the lab, turns it off.
+			if cfg.DirectoryClientEnsure {
+				clientController, err := newDirectoryClientController(nodeExporterControllerDeps{
+					catalog: modules.software, software: platformOps.software, servers: servers, assignments: softwareAssignments,
+					automation: automationRepo, workflows: operations, canceler: workflows,
+					metrics: promstack.NewMonitoringFactory(integrations),
+				}, stores.statuses)
+				if err != nil {
+					return nil, err
+				}
+				controllers = append(controllers, clientController)
+				slog.Info("directory client controller enabled", "controller", clientController.Name())
+			} else {
+				slog.Info("directory client controller disabled (directoryClientEnsure, SWALLOW_WORKER_DIRECTORY_CLIENT_ENSURE, is false)")
+			}
 		}
 		return &workerExecution{temporalWorker: temporalWorker, controllers: controllers}, nil
 	}

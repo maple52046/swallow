@@ -45,7 +45,7 @@ GET    /boot-media/ipxe/{id}/swallow-ipxe.iso
 
 ## Authentication and Authorization
 
-The `/api/v1` routes require an admin bearer token; shared envelopes, codes, and timestamps
+The `/api/v1` routes are admin ([conventions](conventions.md#authorization)); shared envelopes, codes, and timestamps
 follow [conventions.md](conventions.md). The ISO file route is unauthenticated, because a BMC
 mounts the URL with no way to send a token; it is described in
 [server-detail-actions.md](server-detail-actions.md#the-iso). An ISO holds no secret.

@@ -19,17 +19,22 @@ type SuiteRepository interface {
 // RunFilter selects runs; every field is optional and exact-match. ServerID matches a run whose
 // target or member Servers include it.
 type RunFilter struct {
-	SiteID     string
-	SuiteID    string
-	ServerID   string
-	PlatformID string
-	ScheduleID string
-	Status     Status
-	Verdict    Verdict
-	Trigger    TriggerKind
-	ActiveOnly bool
-	Offset     int
-	Limit      int
+	// TargetsWithin with RestrictTargets keeps only runs whose target Servers (a Platform run's
+	// members included) are all in TargetsWithin, and that have at least one: the runs a User that is
+	// not an admin may read (decision 082). An empty list then matches nothing.
+	TargetsWithin   []string
+	RestrictTargets bool
+	SiteID          string
+	SuiteID         string
+	ServerID        string
+	PlatformID      string
+	ScheduleID      string
+	Status          Status
+	Verdict         Verdict
+	Trigger         TriggerKind
+	ActiveOnly      bool
+	Offset          int
+	Limit           int
 }
 
 // RunRepository stores Validation Runs. Create and Save are called inside the transaction of the

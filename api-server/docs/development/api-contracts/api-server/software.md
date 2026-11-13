@@ -48,8 +48,10 @@ POST /api/v1/software/assignments
 POST /api/v1/software/uninstall
 ```
 
-All endpoints require the `admin` role (an access token or an API Key) according to
-[conventions](conventions.md).
+Authorization ([conventions](conventions.md#authorization)): `GET /software/catalog` is reference. `GET /software/assignments` is Pool
+read and lists only the assignments of Servers the caller may read. Install and uninstall are Pool
+operate on every target Server. The Docker CE Registry Credentials ([registry-credentials.md](registry-credentials.md))
+are admin.
 
 ## Software Catalog
 
@@ -437,9 +439,10 @@ afterwards, so a client rarely needs to install it:
 - When one of those Workflows stops in `requires_attention`, swallow cancels it with the reason
   `The Node Exporter install failed; swallow retries it later.`, so the Server is released and the
   assignment becomes `failed`. Workflows with any other `requestedBy` are never canceled.
-- Uninstalling `node-exporter` from such a Server is followed by a new install. Locking the
-  Server, or turning its Site's automation off, keeps swallow from installing it; swallow never
-  uninstalls it by itself.
+- Uninstalling `node-exporter` from such a Server opts it out: swallow leaves the kind absent there
+  until someone installs it again. An uninstall swallow itself plans (its `requestedBy` starts with
+  `swallow:`) does not opt out. Locking the Server, or turning its Site's automation off, also keeps
+  swallow from installing it; swallow never uninstalls it by itself.
 - An installation can turn this off (`SWALLOW_WORKER_NODE_EXPORTER_ENSURE=false`); then only OS
   deployments, Platform deployments, and kept-servers Platform uninstalls install the kind.
 - The same coverage decides a Server's health ([servers-list.md](servers-list.md#health)), whether
@@ -537,6 +540,45 @@ enrolled. It never creates virtual machines.
   purging them, so disk images under `/var/lib/libvirt`, libvirt's configuration (pool and network
   definitions), and the group memberships stay.
 
+### Directory client (SSSD)
+
+`sssd` makes each target read its accounts, groups, SSH public keys, Host Access, and sudo rules from
+the installation's Directory ([access.md](access.md#behavior)) through SSSD over LDAPS, verified with
+the installation CA. A User then logs in to the Servers their Pool Memberships allow with their Access
+Keys, and gets the sudo the Sudo Policy gives them ([pool-access.md](pool-access.md)); nothing is written
+to the Server's `/etc/passwd`, `authorized_keys`, or `/etc/sudoers.d`, and the Server's local accounts
+(the Server Default User and swallow's automation login among them) keep working.
+
+```json
+{
+  "kind": "sssd",
+  "assignments": [{ "serverId": "srv-abc" }]
+}
+```
+
+- The request takes no `spec` fields; any field is `400 validation_error`. The OS packages decide the
+  SSSD version, and the Directory's settings come from the installation.
+- An installation without a Directory refuses the install with `409 conflict`.
+- On an installation with a Directory, swallow keeps the kind installed by itself with the same rules
+  as the Node Exporter above (every deployed, unlocked Server of a Site whose automation is enabled;
+  retries with the same backoff; a user's uninstall opts the Server out). The Workflows'
+  `requestedBy` is `swallow:sssd-controller`. An installation can turn this off
+  (`SWALLOW_WORKER_DIRECTORY_CLIENT_ENSURE=false`); the kind runs no exporter, so swallow does not
+  reinstall an installed one.
+- The kind has no install rule of its own: a member of any Platform is accepted like any other
+  deployed Server. A Platform may narrow what its Pool's members do on its nodes (Host Access).
+- The install changes no login path until the Server read the Directory and its local accounts were
+  checked against it. The install Task fails with `sssd_unsupported_os` on anything but Ubuntu,
+  `sssd_directory_unreachable` when the Server cannot read the Directory (it must reach the
+  installation address on port 636, with a synchronized clock), `sssd_name_conflict` when a local
+  account or group has the name of a User or one of swallow's groups, `sssd_id_conflict` when one has
+  an id swallow gave a User or group, and `sssd_sshd_config_invalid` when sshd refuses its
+  configuration with swallow's drop-in (which is then removed).
+- Membership, Host Access, key, and sudo changes reach a Server through the Directory within about a
+  minute; they need no new install.
+- Uninstall stops sshd, the name service, and sudo from using the Directory, stops SSSD, and removes
+  its packages and swallow's configuration; local accounts and the home directories Users left stay.
+
 On success the response is `202 Accepted`:
 
 ```json
@@ -553,6 +595,7 @@ In addition to the shared codes in [conventions](conventions.md):
 | `not_found` | 404 | A target Server, or a Prometheus `scrapeServerIds` entry, does not exist. |
 | `conflict` | 409 | A mutually exclusive software kind is already installed on a target, the `container` method's runtime is not `installed` on a target, a target is already a Kubernetes Platform member for a kind that refuses members, a target has a Platform Claim for a kind that refuses claimed Servers, or a target lacks the AMD compute GPUs the Device Metrics Exporter needs. |
 | `conflict` | 409 | A target Server is absent or not in provisioning state `deployed`, checked first and re-checked when the Workflow is created; or, when the Workflow is created, a target already has an active durable Workflow or is locked. |
+| `conflict` | 409 | The kind is the directory client (`sssd`) and the installation has no Directory. |
 | `conflict` | 409 | The kind's playbook fetches artifacts while the Site's Local Repository serves deployments and is not ready; the message names what to enable, fix, or wait for. A Site whose Local Repository does not serve deployments, or that has none, fetches them from the upstreams ([local-repository.md](local-repository.md#deployments)). |
 | `provider_unavailable` | 503 | The targets' Site cannot run the Workflow's Ansible automation (no automation configuration, automation disabled, automation not logging in with the Deployment Key, or a playbook outside the release manifest), or the Server Lock state of a target cannot be confirmed. |
 

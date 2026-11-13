@@ -51,9 +51,14 @@ third-party manifests, not to this overview.
 
 ## Not implemented
 
-Planned API design mentions Teams, user administration, physical datacenter/
-room/rack topology, workload abstractions, and GPU-specific observability. They
-must not be presented as active capability.
+Planned API design mentions Teams, physical datacenter/room/rack topology,
+workload abstractions, and GPU-specific observability. They must not be presented
+as active capability.
+
+Accounts come only from swallow's own Directory: an organization's existing LDAP or
+Active Directory cannot be connected yet, and Kubernetes access does not follow
+swallow's users. The directory client runs on Ubuntu only, and a Slurm user's home
+directory is local to each node.
 
 ## Security and support
 

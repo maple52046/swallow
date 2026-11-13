@@ -45,9 +45,11 @@ Exact release media version／digest 屬於 candidate/release 與 third-party ma
 
 ## 尚未實作
 
-Planned API design 提到 Team、user administration、datacenter/room/rack physical
-topology、workload abstraction 與 GPU-specific observability。它們不能被呈現成
-active capability。
+Planned API design 提到 Team、datacenter/room/rack physical topology、workload abstraction 與
+GPU-specific observability。它們不能被呈現成 active capability。
+
+帳號只來自 swallow 自己的 Directory：還不能接上組織既有的 LDAP 或 Active Directory，Kubernetes 的存取也不跟隨 swallow
+的使用者。directory client 只支援 Ubuntu，Slurm 使用者的 home 目錄在每個節點各自建立。
 
 ## Security 與 support
 

@@ -3,6 +3,8 @@ package delivery
 import (
 	"context"
 	"encoding/json"
+	accessdelivery "github.com/maple52046/swallow/internal/core/access/delivery"
+	accessdomain "github.com/maple52046/swallow/internal/core/access/domain"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -89,6 +91,7 @@ func newHandlerApp(t *testing.T) *fiber.App {
 	}
 	app := fiber.New()
 	app.Use(apicontract.ResponseValidator(t))
+	app.Use(accessdelivery.FixedScope(accessdomain.Scope{Admin: true}))
 	NewHandler(service).RegisterRoutes(app.Group("/api/v1/validation"))
 	return app
 }

@@ -96,6 +96,9 @@ func (r *fakeServerRepo) List(_ context.Context, filter serverdomain.ListFilter)
 		if filter.IDs != nil && !containsString(filter.IDs, s.ID) {
 			continue
 		}
+		if filter.RestrictPools && !containsString(filter.PoolIDs, s.Spec.PoolID) {
+			continue
+		}
 		if filter.SiteID != "" && s.Source.SiteID != filter.SiteID {
 			continue
 		}

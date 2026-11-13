@@ -23,9 +23,17 @@ Open **SSH keys** from the account menu (top right).
 
 ## How keys reach Servers
 
-swallow registers every key in each provisioner that can hold SSH keys (MAAS: the
-account that owns the Integration's API key). MAAS then writes those keys into the
-deployed image's default user. The page shows, per provisioner, whether each key is
+On an installation with a Directory (every Compose installation), your access keys
+reach the Servers you may log in to through it: a Server with the directory client
+reads them when you connect, so adding or deleting a key, or joining or leaving a
+Pool, takes effect within about a minute without redeploying. You log in as your
+swallow username; your home directory is created at your first login.
+
+swallow also registers the deployment key and the **admins'** access keys in each
+provisioner that can hold SSH keys (MAAS: the account that owns the Integration's API
+key), so admins can still get in if the Directory is down. Other users' keys show
+**Not registered** there. MAAS then writes the registered keys into the deployed
+image's default user. The page shows, per provisioner, whether each key is
 **Synced**, **Pending**, **Failed** (with the reason), or **Not supported**.
 
 - Sync runs after every key change, every few minutes, and before each OS
@@ -35,9 +43,10 @@ deployed image's default user. The page shows, per provisioner, whether each key
   once MAAS is reachable.
 - Keys you added in MAAS yourself are never removed by swallow.
 
-Keys are injected only when a Server is deployed. Regenerating or replacing the
-deployment key, or deleting an access key, does **not** change Servers that were
-already deployed: they keep the keys they were deployed with. Redeploy them (or
+Keys the provisioner writes are injected only when a Server is deployed.
+Regenerating or replacing the deployment key, or deleting an admin's access key,
+does **not** change that copy on Servers that were already deployed: they keep the
+keys they were deployed with. Redeploy them (or
 update their `authorized_keys`) when that matters.
 
 ## Image default users

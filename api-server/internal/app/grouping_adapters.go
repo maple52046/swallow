@@ -90,10 +90,14 @@ func (p serverPlacements) Read(ctx context.Context, serverID string) (*infradoma
 	if err != nil {
 		return nil, err
 	}
-	return &infradomain.ServerPlacement{
+	placement := &infradomain.ServerPlacement{
 		ServerID: server.ID, SiteID: server.Source.SiteID, Generation: server.Generation,
 		ZoneID: server.Spec.ZoneID, PoolID: server.Spec.PoolID,
-	}, nil
+	}
+	if server.PlatformClaim != nil {
+		placement.PlatformID = server.PlatformClaim.PlatformID
+	}
+	return placement, nil
 }
 
 // Write re-reads the Server so the tags in its spec are the ones at expectedGeneration; the

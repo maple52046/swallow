@@ -8,7 +8,11 @@ import (
 	"github.com/maple52046/swallow/internal/shared/pagination"
 )
 
+// ListServersInput narrows a Server listing. PoolIDs with RestrictPools limits it to the Servers
+// placed in those Pools: the Servers a User that is not an admin may read (decision 082).
 type ListServersInput struct {
+	PoolIDs           []string
+	RestrictPools     bool
 	SiteID            string
 	IntegrationID     string
 	ProvisioningState string
@@ -52,6 +56,8 @@ func (uc *ListServersUseCase) Execute(ctx context.Context, input ListServersInpu
 	var empty pagination.Result[ServerItem]
 
 	result, err := uc.servers.List(ctx, serverdomain.ListFilter{
+		PoolIDs:           input.PoolIDs,
+		RestrictPools:     input.RestrictPools,
 		SiteID:            input.SiteID,
 		IntegrationID:     input.IntegrationID,
 		ProvisioningState: input.ProvisioningState,

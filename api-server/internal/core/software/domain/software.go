@@ -109,6 +109,11 @@ type CatalogEntry struct {
 	ContainerRuntimes []Kind
 	// SpecFields lists the kind-specific spec keys the API accepts, for documentation and UI.
 	SpecFields []string
+	// DirectoryClient marks the kind that makes a Server read its accounts, SSH keys, and sudo
+	// rules from the installation's Directory (decision 082). Its install needs a configured
+	// Directory and receives the Directory's connection settings as trusted variables and the
+	// read-only account's password as a secret variable.
+	DirectoryClient bool
 }
 
 // InstallMethod is how a Managed Software kind that supports several install paths is installed

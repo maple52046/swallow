@@ -26,6 +26,7 @@ flowchart TB
         prom["Metrics and alerts: Prometheus, Alertmanager"]
         bmc["BMC and hypervisor: Redfish, libvirt"]
         repo["Local Repository: Pulp"]
+        directory["Directory: LDAP"]
     end
     subgraph mods [Extension modules]
         platformMods["Platform: Kubernetes, Slurm"]
@@ -78,6 +79,7 @@ core **不得**含有任何廠商、產品、平台或 GPU 廠商的名稱、型
 | Metrics 與 alerts | Prometheus、Alertmanager | `internal/adapters/metrics/promstack` | Site 的 `metrics` Integration |
 | BMC 與 hypervisor | Redfish、libvirt | `internal/adapters/bmc/redfish`、`internal/adapters/hypervisor/libvirt` | 依 Server（連線資料由 provisioner 提供，或以 Deployment Key 經 SSH 連到 Hypervisor） |
 | Local Repository | Pulp 3 | `internal/adapters/localrepo/pulp`（port 在 `internal/core/localrepo/domain`） | Site 的 `repository` Integration，一個 Site 至多一個（[local-repository.md](local-repository.md)） |
+| Directory | LDAP（安裝內建的 OpenLDAP） | `internal/adapters/directory/ldap`（port 在 `internal/core/access/domain`） | 安裝層級，由 composition root 依設定選擇；沒有設定時沒有 Directory（[identity-and-access.md](identity-and-access.md) §7） |
 
 Platform 執行環境的即時讀取（Kubernetes API、slurmrestd）與 Docker Engine 的即時管理不是 core 的 provider
 interface，而是 Platform 模組與 Software 模組提供的能力（§4）。

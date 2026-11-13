@@ -16,8 +16,9 @@ Active
 
 ## Purpose
 
-Manage Site identity and the provider integrations attached to each Site. All
-routes require an admin bearer token and use the shared error envelope.
+Manage Site identity and the provider integrations attached to each Site. Reading Sites
+(`GET /api/v1/sites`, `GET /api/v1/sites/{id}`) is reference; every other route is admin
+([conventions](conventions.md#authorization)). All routes use the shared error envelope.
 
 ## Endpoints
 

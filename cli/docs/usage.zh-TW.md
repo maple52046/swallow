@@ -201,9 +201,13 @@ authoritative flag list。以下 examples 使用 placeholder IDs。
 ```bash
 swallow login -u admin --password-stdin < password.txt
 swallow login --api-key-stdin < ./ci.key
-swallow auth me
+swallow auth me                                         # 角色、Pool 成員資格與登入方式
+printf '%s\n%s\n' "$CURRENT" "$NEW" | swallow auth password   # 變更自己的密碼
 swallow logout
 ```
+
+`auth password` 從 stdin 讀取目前密碼與新密碼，一行一個，兩者都不會進入 shell history。它需要以密碼
+登入的 session：CLI 以 API key 登入時 server 會拒絕。其他 session 維持登入。
 
 ### api-keys
 
@@ -219,6 +223,35 @@ swallow api-keys delete <keyId>                         # alias：revoke
 `create` 只會回傳一次 secret。指定 `--secret-out` 時會寫入權限 0600 的新檔案（不會覆寫既有檔案）；
 否則直接印出。`--expires-in` 接受天數（`90d`）或 duration（`12h`）；省略則永不到期。建立 API key
 需要以密碼登入的 session。
+
+### users
+
+登入 swallow 的 User，只有 admin 可以使用。username 也是此人在其 Pool 的 Server 上的 Linux 登入名稱，
+不能改名。見 [users.md](../../api-server/docs/development/api-contracts/api-server/users.md)。
+
+```bash
+swallow users list                                      # username、role、uidNumber
+swallow users get <id>
+swallow users create --username alice [--role user|admin] --password-stdin < initial.txt
+swallow users update <id> --role admin                  # 只變更給定的欄位
+swallow users update <id> --password-stdin < reset.txt  # 重設密碼
+swallow users delete <id>                               # 成員資格、key 與 session 一併刪除
+```
+
+server 會拒絕保留的 username（系統與 service 帳號）、降級或刪除最後一位 admin，以及刪除自己。
+
+### access
+
+安裝層級的存取設定、存取稽核與 Directory，只有 admin 可以使用。見
+[access.md](../../api-server/docs/development/api-contracts/api-server/access.md)。
+
+```bash
+swallow access settings get                             # adminSudoPasswordless、posixIdStart（唯讀）
+swallow access settings set --admin-sudo-passwordless=false
+swallow access audit [--limit 50]                       # 由新到舊；不含任何密碼
+swallow access directory get                            # hostUrl、baseDn、conditions、數量
+swallow access directory sync                           # 立即套用 Directory
+```
 
 ### plans
 
@@ -590,7 +623,20 @@ swallow infrastructure zones delete zone1
 # pools 使用相同 verbs：
 swallow infrastructure pools list --site-id site1
 swallow infrastructure pools create -f pool.yaml
+
+# Pool 成員與 sudo 預設值（成員可讀；owner 與 admin 可改）
+swallow infrastructure pools members list pool1
+swallow infrastructure pools members add pool1 --username bob [--role member|owner] \
+  [--sudo inherit|on|off] [--sudo-passwordless inherit|on|off]
+swallow infrastructure pools members update pool1 <userId> --sudo on
+swallow infrastructure pools members remove pool1 <userId>
+swallow infrastructure pools access-policy get pool1
+swallow infrastructure pools access-policy set pool1 --member-sudo=false --sudo-passwordless=false
 ```
+
+成員以自己的 SSH key 登入 Pool 的 Server。`members list` 顯示每個 sudo 值的實際結果與其來源（`role`、
+`pool` 或 `member`）；owner 一律有 sudo。見
+[pool-access.md](../../api-server/docs/development/api-contracts/api-server/pool-access.md)。
 
 ### platforms
 

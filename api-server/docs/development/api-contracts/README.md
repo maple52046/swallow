@@ -101,7 +101,7 @@ Areas follow route prefixes; the area table is the source of which fragment owns
 a route: `system` (`/livez`, `/readyz`, `/healthz`, `/metrics`), `auth`
 (`/api/v1/auth/*`, `/api/v1/api-keys*`, `/api/v1/ssh-keys*`), `local-repository`
 (`/api/v1/sites/{siteId}/local-repository*`), `sites`
-(the rest of `/api/v1/sites*`, `/api/v1/integrations*`, `/api/v1/infrastructure/*`,
+(the rest of `/api/v1/sites*`, `/api/v1/integrations*`, the rest of `/api/v1/infrastructure/*`,
 `PUT /api/v1/servers/{id}/placement`, `/api/v1/provisioning/integrations/{id}/http-proxy`,
 `/api/v1/provisioning/integrations/{id}/subnets*`), `servers` (`/api/v1/servers`,
 `/api/v1/servers/stream`, `/api/v1/servers/{id}` and the routes under it except
@@ -110,7 +110,9 @@ of `/api/v1/provisioning/*`, the Boot ISO file, `/downloads/*`), `platforms`
 (`/api/v1/platforms*`), `change-plans` (`/api/v1/change-plans*`, `/api/v1/change-plan-policy`),
 `workflows` (`/api/v1/workflows*`), `software` (`/api/v1/software/*`, `/api/v1/servers/{id}/docker*`),
 `monitoring` (`/api/v1/overview`, `/api/v1/monitoring/*`, `/api/v1/discovery/*`), `modules`
-(`/api/v1/modules`), and `validation` (`/api/v1/validation/*`).
+(`/api/v1/modules`), `validation` (`/api/v1/validation/*`), and `access` (`/api/v1/users*`,
+`/api/v1/access/*`, `/api/v1/infrastructure/pools/{id}/members*`,
+`/api/v1/infrastructure/pools/{id}/access-policy`).
 
 ### Authoring rules
 

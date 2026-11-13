@@ -9,8 +9,10 @@ current session in the browser.
 ## Navigation
 
 The sidebar groups its areas into four sections separated by lines: Overview;
-Servers, Platforms, and Software; Monitoring and Activity; and OS Images and
-Infrastructure. Collapse the sidebar to icons with the button at the top of the
+Servers, Platforms, and Software; Monitoring and Activity; and OS Images,
+Infrastructure, Pools, and Users. It lists only the areas you can use: an admin
+sees all of them, and other users see Servers, Platforms, Software, Activity,
+Validation, and Pools (see [Sessions and permissions](#sessions-and-permissions)). Collapse the sidebar to icons with the button at the top of the
 page (this browser remembers the choice); hovering or focusing an icon names it.
 On a phone, the menu button opens the same sidebar as a drawer.
 
@@ -24,8 +26,11 @@ On a phone, the menu button opens the same sidebar as a drawer.
 | Activity | Two tabs. **Workflows**: durable execution state, Jobs, Tasks, events, logs, cancel, rerun, and retry. **Change Plans**: plans for destructive Platform changes, the ones waiting for approval or rejection, the record of approved ones, and the safety switch |
 | OS Images | The OS images Servers are deployed with: the catalog, upload, deploy-mode verification, and deployment templates (tabs **OS images** and **Templates**) |
 | Infrastructure | Sites, Integrations, Zones, Pools, credentials, automation settings, the Site's local repository (where deployments fetch artifacts, its sources, sync state, and content; see [Initial setup](initial-setup.md#4-register-the-local-repository)), and [Boot ISOs](#boot-isos-and-server-boot-media) |
+| Pools | The Pools you belong to (an admin sees every Pool); each Pool's members, their Pool Role, and who has sudo on its Servers |
+| Users (admins) | Accounts, the access settings, the Directory's status, and recent access changes |
 | SSH keys (account menu) | The deployment key, your access keys, and their provisioner sync status — see [SSH keys](ssh-keys.md) |
 | API keys (account menu) | Keys that let scripts, CI, and the CLI call swallow as you without a password — see [API keys](api-keys.md) |
+| Change password (account menu) | Your own swallow password, which you sign in with and which a password-protected sudo rule asks for on Servers |
 
 The tabs of an area keep their own addresses, so links and bookmarks still work:
 Activity is `/workflows` and `/change-plans`, and OS Images is
@@ -212,6 +217,25 @@ The secret is shown once; delete the key to revoke it. See
 The Dashboard reads the current caller from `/auth/me` and does not decode token
 claims. Role-gated controls are presentation guidance; the API remains
 authoritative for authorization.
+
+Who can do what:
+
+- An **admin** administers swallow: Sites, Integrations, OS Images, Zones and Pools,
+  Server placement, users, and every Server and Platform. Admins can log in to every
+  Server and use sudo there.
+- Every other **user** gets access only through Pool Memberships. A **member** of a
+  Pool sees its Servers, Platforms, Workflows, and Validation Runs and logs in to its
+  Servers with their SSH keys; an **owner** also operates them (power, OS deployment,
+  software, Platforms, Validation) and manages the Pool's members and sudo defaults
+  under **Pools**. A Server in no Pool belongs to admins only.
+- Only admins create accounts (**Users → Create user**); an owner adds an existing
+  account to their Pool by username. A Pool's **Sudo defaults** decide whether
+  members have sudo and whether sudo asks for a password; each member can override
+  either one. Owners always have sudo. A Platform may narrow what members do on its
+  nodes: on a Slurm cluster they log in only to login nodes, without sudo.
+- Actions you cannot take are disabled or hidden: for example a member sees a
+  Server's **Actions** button disabled with the reason. A page only an admin can use
+  shows **Access denied**.
 
 ## Errors and diagnostics
 

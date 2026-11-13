@@ -8,8 +8,10 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/maple52046/swallow/internal/adapters/keys/openssh"
+	authstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/auth"
+	convergencestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/convergence"
 	sshkeystore "github.com/maple52046/swallow/internal/adapters/store/mongodb/sshkey"
-	"github.com/maple52046/swallow/internal/core/convergence"
+	authdomain "github.com/maple52046/swallow/internal/core/auth/domain"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 	sshkeyapp "github.com/maple52046/swallow/internal/core/sshkey/application"
@@ -22,7 +24,9 @@ import (
 // integration repository, and provider factory. The api, worker, and ansible-executor processes
 // each build one: the API serves the HTTP surface, the worker runs the SSH Key controller and
 // ensures registration before OS deployments, and every automation process reads the Deployment
-// Key.
+// Key. Every process gets the same store-backed requester, timeline, and key owners, so none of
+// them can skip a step the others take (the worker used to attach its timeline after its Temporal
+// worker had started).
 // The sealer must use the installation's credential key, or the Deployment Key cannot be opened.
 func newSSHKeyService(
 	db *mongo.Database,
@@ -34,12 +38,37 @@ func newSSHKeyService(
 	if err != nil {
 		return nil, fmt.Errorf("ssh key repo init: %w", err)
 	}
-	return sshkeyapp.NewService(
-		keys,
-		sshkeystore.NewMongoSyncRepo(db),
-		openssh.NewKeyMaterial(),
-		NewProvisionerKeys(integrations, providers),
-	), nil
+	events := convergencestore.OpenMongoEventRecorder(db)
+	return sshkeyapp.NewService(sshkeyapp.ServiceDeps{
+		Keys:         keys,
+		Syncs:        sshkeystore.NewMongoSyncRepo(db),
+		Material:     openssh.NewKeyMaterial(),
+		Provisioners: NewProvisionerKeys(integrations, providers),
+		Owners:       sshKeyOwners{users: authstore.NewMongoUserRepo(db)},
+		Requests:     convergencestore.NewMongoRequester(db),
+		Events:       events,
+	})
+}
+
+// sshKeyOwners adapts the auth user store to the SSH Key service's KeyOwners port: the Users whose
+// Access Keys may reach the provisioners are exactly the current admins (decision 082).
+type sshKeyOwners struct {
+	users authdomain.UserRepository
+}
+
+// Administrators reads the admins on every call, so a demotion takes effect at the next pass.
+func (o sshKeyOwners) Administrators(ctx context.Context) (map[string]bool, error) {
+	users, err := o.users.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	admins := make(map[string]bool)
+	for _, user := range users {
+		if user.Role == authdomain.RoleAdmin {
+			admins[user.ID] = true
+		}
+	}
+	return admins, nil
 }
 
 // deploymentKeySource adapts the SSH Key service to the operation context's DeploymentKeySource
@@ -83,11 +112,4 @@ func (p siteSSHPorts) SSHPort(ctx context.Context, siteID string) (int, error) {
 		return 0, err
 	}
 	return configuration.SSHPort, nil
-}
-
-// sshKeyController attaches the convergence timeline to the worker's SSH Key service and returns
-// the controller that runs its realization passes.
-func sshKeyController(keys *sshkeyapp.Service, events convergence.EventRecorder) *sshkeyapp.Controller {
-	keys.AttachEvents(events)
-	return sshkeyapp.NewController(keys)
 }

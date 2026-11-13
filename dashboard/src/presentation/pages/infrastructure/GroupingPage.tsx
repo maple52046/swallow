@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, Table, Text, VisuallyHidden } from '@chakra-ui/react'
 import { Plus } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { type GroupKind, type GroupingResource, groupKindLabel } from '@/domain/infrastructure/types'
 import { ConvergenceStatus } from '@/presentation/components/convergence/ConvergenceStatus'
@@ -11,7 +12,7 @@ import { failureOf, type DisplayedFailure } from '@/presentation/components/fail
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { DataToolbar, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { ResponsiveDataView, ResourceCard, ResourceCardField } from '@/presentation/components/ResponsiveDataView'
-import { ResourceRowActions } from '@/presentation/components/ResourceRowActions'
+import { ResourceRowActions, type ResourceRowAction } from '@/presentation/components/ResourceRowActions'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
@@ -42,11 +43,21 @@ type GroupingState =
 export function GroupingPage({ kind }: GroupingPageProps) {
   const { infrastructure } = useApp()
   const { showToast } = useToast()
-  const { siteId, sites } = useSiteScope()
+  const { siteId, sites, scopedHref } = useSiteScope()
+  const navigate = useNavigate()
   const [state, setState] = useState<GroupingState>({ status: 'loading' })
   const [query, setQuery] = useState('')
   const [editor, setEditor] = useState<GroupingResource | 'create' | null>(null)
   const [deleting, setDeleting] = useState<GroupingResource | null>(null)
+  // One action list for the table and the cards. A Pool also opens its members and Sudo Policy
+  // (decision 082), which live on their own page outside Infrastructure.
+  const rowActions = (group: GroupingResource): ResourceRowAction[] => [
+    { kind: 'edit', label: `Edit ${group.spec.name}`, onClick: () => setEditor(group) },
+    ...(kind === 'pool'
+      ? [{ kind: 'members' as const, label: `Members of ${group.spec.name}`, onClick: () => navigate(scopedHref(`/pools/${encodeURIComponent(group.id)}`, group.siteId)) }]
+      : []),
+    { kind: 'delete', label: `Delete ${group.spec.name}`, onClick: () => setDeleting(group) },
+  ]
 
   const label = groupKindLabel(kind)
   const noun = label.toLowerCase()
@@ -173,12 +184,7 @@ export function GroupingPage({ kind }: GroupingPageProps) {
                       </Table.Cell>
                       <Table.Cell>{formatDateTime(group.status.updatedAt)}</Table.Cell>
                       <Table.Cell textAlign="end">
-                        <ResourceRowActions
-                          actions={[
-                            { kind: 'edit', label: `Edit ${group.spec.name}`, onClick: () => setEditor(group) },
-                            { kind: 'delete', label: `Delete ${group.spec.name}`, onClick: () => setDeleting(group) },
-                          ]}
-                        />
+                        <ResourceRowActions actions={rowActions(group)} />
                       </Table.Cell>
                     </Table.Row>
                   ))}
@@ -194,12 +200,7 @@ export function GroupingPage({ kind }: GroupingPageProps) {
                   title={group.spec.name}
                   description={group.spec.description || group.id}
                   actions={
-                    <ResourceRowActions
-                      actions={[
-                        { kind: 'edit', label: `Edit ${group.spec.name}`, onClick: () => setEditor(group) },
-                        { kind: 'delete', label: `Delete ${group.spec.name}`, onClick: () => setDeleting(group) },
-                      ]}
-                    />
+                    <ResourceRowActions actions={rowActions(group)} />
                   }
                 >
                   <ResourceCardField label="Site">{siteName(group.siteId)}</ResourceCardField>

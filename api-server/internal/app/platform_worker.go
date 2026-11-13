@@ -69,8 +69,12 @@ func workerPlatformOperations(
 	}
 	operations := workflowapp.NewExecutionService(deps.servers, deps.automation, catalog, modules.workflowKinds, runner, events,
 		platformapp.NewPolicyChecker(deps.platforms, deps.servers), protection, orchestrations, deps.artifacts)
+	accessRepos, err := newAccessStores(context.Background(), db, cfg.POSIXIDStart)
+	if err != nil {
+		return platformOperations{}, fmt.Errorf("access stores init: %w", err)
+	}
 	software := softwareapp.NewSoftwareService(transactor, modules.software, modules.accelerators, deps.software, deps.servers,
-		kubernetesMembershipChecker{servers: deps.servers, platforms: deps.platforms})
+		kubernetesMembershipChecker{servers: deps.servers, platforms: deps.platforms}, newDirectoryClientSettings(cfg, db, accessRepos))
 	software.AttachLauncher(softwareDeploymentLauncher{operations: operations, orchestrations: orchestrations, modules: modules.registry})
 	software.AttachPlatformNames(platformNameReader{platforms: deps.platforms})
 	lifecycle := platformLifecycleReader{orchestrations: deps.operations}

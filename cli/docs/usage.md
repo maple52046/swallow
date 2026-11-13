@@ -206,9 +206,14 @@ authoritative flag list. Examples below use placeholder IDs.
 ```bash
 swallow login -u admin --password-stdin < password.txt
 swallow login --api-key-stdin < ./ci.key
-swallow auth me
+swallow auth me                                         # role, Pool Memberships, and how you signed in
+printf '%s\n%s\n' "$CURRENT" "$NEW" | swallow auth password   # change your own password
 swallow logout
 ```
+
+`auth password` reads the current password and the new one from stdin, one per line, so
+neither reaches the shell history. It needs a password session: the server refuses it when
+the CLI is signed in with an API key. Other sessions stay signed in.
 
 ### api-keys
 
@@ -225,6 +230,37 @@ swallow api-keys delete <keyId>                         # alias: revoke
 file with mode 0600 (an existing file is never overwritten); without it the secret is
 printed. `--expires-in` accepts days (`90d`) or a duration (`12h`); omit it for a key
 that never expires. Creating a key requires a password session.
+
+### users
+
+Users who sign in to swallow; admin only. A username is also the person's Linux login on
+the Servers of their Pools and cannot be renamed. See
+[users.md](../../api-server/docs/development/api-contracts/api-server/users.md).
+
+```bash
+swallow users list                                      # username, role, uidNumber
+swallow users get <id>
+swallow users create --username alice [--role user|admin] --password-stdin < initial.txt
+swallow users update <id> --role admin                  # only the given fields change
+swallow users update <id> --password-stdin < reset.txt  # reset the password
+swallow users delete <id>                               # memberships, keys, and sessions go too
+```
+
+The server refuses reserved usernames (system and service accounts), demoting or deleting
+the last admin, and deleting yourself.
+
+### access
+
+The installation's access settings, the access audit, and the Directory; admin only. See
+[access.md](../../api-server/docs/development/api-contracts/api-server/access.md).
+
+```bash
+swallow access settings get                             # adminSudoPasswordless, posixIdStart (read-only)
+swallow access settings set --admin-sudo-passwordless=false
+swallow access audit [--limit 50]                       # newest first; never carries a password
+swallow access directory get                            # hostUrl, baseDn, conditions, counts
+swallow access directory sync                           # apply the Directory now
+```
 
 ### plans
 
@@ -616,7 +652,20 @@ swallow infrastructure zones delete zone1
 # pools are identical:
 swallow infrastructure pools list --site-id site1
 swallow infrastructure pools create -f pool.yaml
+
+# Pool members and sudo defaults (members read; owners and admins change)
+swallow infrastructure pools members list pool1
+swallow infrastructure pools members add pool1 --username bob [--role member|owner] \
+  [--sudo inherit|on|off] [--sudo-passwordless inherit|on|off]
+swallow infrastructure pools members update pool1 <userId> --sudo on
+swallow infrastructure pools members remove pool1 <userId>
+swallow infrastructure pools access-policy get pool1
+swallow infrastructure pools access-policy set pool1 --member-sudo=false --sudo-passwordless=false
 ```
+
+Members log in to the Pool's Servers with their SSH keys. `members list` shows each sudo value
+with its effective result and where it came from (`role`, `pool`, or `member`); an owner always
+has sudo. See [pool-access.md](../../api-server/docs/development/api-contracts/api-server/pool-access.md).
 
 ### platforms
 

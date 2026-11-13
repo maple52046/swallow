@@ -33,8 +33,9 @@ installation's Change Plan policy. The resource's controller applies an approved
 
 ## Endpoints
 
-All endpoints require the `admin` role (an access token or an API Key), per
-[conventions](conventions.md).
+Authorization ([conventions](conventions.md#authorization)): a Platform's Change Plan belongs to the Platform's Pool. Listing is Pool
+read and filtered; reading a plan is Pool read; approving and rejecting it are Pool operate. Plans of
+other resource kinds and the Change Plan policy (`/api/v1/change-plan-policy`) are admin.
 
 | Method | Path | Purpose |
 | --- | --- | --- |

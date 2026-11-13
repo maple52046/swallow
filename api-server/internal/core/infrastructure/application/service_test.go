@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"github.com/maple52046/swallow/internal/core/store/storetest"
 	"testing"
 	"time"
 
@@ -18,18 +19,38 @@ type serviceFixture struct {
 	placements *fakePlacements
 	provider   *fakeGroupingProvider
 	references fakeReferences
+	// platformPools maps a Platform id onto the Pool it belongs to; cleaned records the Pools whose
+	// memberships were deleted.
+	platformPools fakePlatformPools
+	cleaned       *fakePoolAccess
+}
+
+type fakePlatformPools map[string]string
+
+func (p fakePlatformPools) PoolOf(_ context.Context, platformID string) (string, bool, error) {
+	pool, ok := p[platformID]
+	return pool, ok, nil
+}
+
+type fakePoolAccess struct{ deleted []string }
+
+func (a *fakePoolAccess) DeletePool(_ context.Context, poolID string) error {
+	a.deleted = append(a.deleted, poolID)
+	return nil
 }
 
 func newServiceFixture(t *testing.T) *serviceFixture {
 	t.Helper()
 	f := &serviceFixture{
 		zones: newFakeZoneRepo(), pools: newFakePoolRepo(),
-		placements: &fakePlacements{current: &infradomain.ServerPlacement{ServerID: "srv-1", SiteID: "site-a", Generation: 1}},
-		provider:   newFakeGroupingProvider(),
-		references: fakeReferences{zones: map[string]int{}, pools: map[string]int{}},
+		placements:    &fakePlacements{current: &infradomain.ServerPlacement{ServerID: "srv-1", SiteID: "site-a", Generation: 1}},
+		provider:      newFakeGroupingProvider(),
+		references:    fakeReferences{zones: map[string]int{}, pools: map[string]int{}},
+		platformPools: fakePlatformPools{}, cleaned: &fakePoolAccess{},
 	}
 	factory := &fakeFactory{providers: map[string]provisioningdomain.OSProvisioningProvider{"maas-a": f.provider}}
-	f.service = NewGroupingService(f.zones, f.pools, &fakeSiteReader{exists: true}, f.placements, f.references, factory)
+	f.service = NewGroupingService(f.zones, f.pools, &fakeSiteReader{exists: true}, f.placements, f.references, factory,
+		f.platformPools, f.cleaned, &storetest.Transactor{})
 	f.service.now = func() time.Time { return time.Date(2026, 10, 31, 0, 0, 0, 0, time.UTC) }
 	ids := 0
 	f.service.newID = func() string { ids++; return "id-" + string(rune('0'+ids)) }
@@ -186,5 +207,43 @@ func realizedOn(integrationID, providerName string, generation int64) infradomai
 			TargetStatus: convergence.TargetStatus{TargetID: integrationID, ObservedGeneration: generation, ObservedAt: &at, Conditions: conditions},
 			ProviderName: providerName,
 		}},
+	}
+}
+
+// A Server a Platform claims moves only into the Platform's Pool or out of every Pool, so the
+// Platform never ends up across two Pools; a Platform in no Pool may have its Servers moved.
+func TestAssignServer_KeepsAClaimedServerInItsPlatformsPool(t *testing.T) {
+	f := newServiceFixture(t)
+	ctx := context.Background()
+	f.pools.byID["p-a"] = &infradomain.Pool{ID: "p-a", SiteID: "site-a", Name: "a"}
+	f.pools.byID["p-b"] = &infradomain.Pool{ID: "p-b", SiteID: "site-a", Name: "b"}
+	f.placements.current.PoolID = "p-a"
+	f.placements.current.PlatformID = "plat-1"
+	f.platformPools["plat-1"] = "p-a"
+
+	if _, err := f.service.AssignServer(ctx, AssignServerInput{ServerID: "srv-1", Pool: PlacementChange{Set: true, ID: "p-b"}}); !errors.Is(err, infradomain.ErrPlatformPoolMismatch) {
+		t.Errorf("moving a claimed Server to another Pool: err = %v, want ErrPlatformPoolMismatch", err)
+	}
+	if _, err := f.service.AssignServer(ctx, AssignServerInput{ServerID: "srv-1", Zone: PlacementChange{Set: true}}); err != nil {
+		t.Errorf("changing only the Zone of a claimed Server: %v", err)
+	}
+	if _, err := f.service.AssignServer(ctx, AssignServerInput{ServerID: "srv-1", Pool: PlacementChange{Set: true}}); err != nil {
+		t.Errorf("clearing a claimed Server's Pool, which leaves the Platform to admins: %v", err)
+	}
+	f.platformPools["plat-1"] = ""
+	if _, err := f.service.AssignServer(ctx, AssignServerInput{ServerID: "srv-1", Pool: PlacementChange{Set: true, ID: "p-b"}}); err != nil {
+		t.Errorf("moving a Server of a Platform across Pools: %v", err)
+	}
+}
+
+// Deleting a Pool also deletes its memberships and Sudo Policy.
+func TestDeletePool_RemovesItsAccess(t *testing.T) {
+	f := newServiceFixture(t)
+	f.pools.byID["p-a"] = &infradomain.Pool{ID: "p-a", SiteID: "site-a", Name: "a"}
+	if err := f.service.DeletePool(context.Background(), "p-a"); err != nil {
+		t.Fatalf("DeletePool: %v", err)
+	}
+	if len(f.cleaned.deleted) != 1 || f.cleaned.deleted[0] != "p-a" {
+		t.Errorf("access cleaned for %v, want p-a", f.cleaned.deleted)
 	}
 }

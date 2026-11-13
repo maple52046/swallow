@@ -4,16 +4,19 @@ import "github.com/spf13/cobra"
 
 // newInfrastructureCommand groups the swallow-owned Zone and Pool records
 // (infrastructure.md). Zones and Pools share an identical shape and behavior, so
-// both subtrees are generated from one builder. Server placement lives under
-// `swallow servers placement` because it is addressed by serverId.
+// both subtrees are generated from one builder; a Pool also has members and sudo
+// defaults (pool-access.md). Server placement lives under `swallow servers
+// placement` because it is addressed by serverId.
 func newInfrastructureCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "infrastructure",
 		Short: "Manage Zones and Pools",
 	}
+	pools := groupingCmd("pools", "Pool")
+	pools.AddCommand(poolMembersCmd(), poolAccessPolicyCmd())
 	cmd.AddCommand(
 		groupingCmd("zones", "Zone"),
-		groupingCmd("pools", "Pool"),
+		pools,
 	)
 	return cmd
 }

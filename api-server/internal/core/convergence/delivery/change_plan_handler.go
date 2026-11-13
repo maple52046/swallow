@@ -1,7 +1,9 @@
 // Package delivery exposes Change Plans over HTTP (Fiber), implementing the change-plans.md
 // contract: list, read, approve, and reject, and the installation's Change Plan policy (decision
-// 076). The routes run behind authentication and AdminOnly; this package parses requests, names the
-// deciding user from the Principal, and maps the convergence errors onto the shared envelope.
+// 076). The routes run behind authentication; the policy routes are admin-only, and every plan route
+// asks ResourceAccess whether the caller may reach the plan's resource. This package parses requests,
+// names the deciding user from the Principal, and maps the convergence errors onto the shared
+// envelope.
 package delivery
 
 import (
@@ -16,14 +18,26 @@ import (
 	"github.com/maple52046/swallow/internal/shared/wire"
 )
 
-// ChangePlanHandler serves /api/v1/change-plans.
-type ChangePlanHandler struct {
-	plans *convergence.ChangePlanService
+// ResourceAccess decides whether the request's caller may read or decide the Change Plans of a
+// resource (change-plans.md, Authorization): the resource's owner context answers through it, so
+// this package needs no access model of its own. It returns false for a resource the caller may not
+// reach and an error only when the answer could not be worked out.
+type ResourceAccess interface {
+	CanRead(c *fiber.Ctx, resource convergence.ResourceRef) (bool, error)
+	CanDecide(c *fiber.Ctx, resource convergence.ResourceRef) (bool, error)
 }
 
-// NewChangePlanHandler wires the handler to the Change Plan service.
-func NewChangePlanHandler(plans *convergence.ChangePlanService) *ChangePlanHandler {
-	return &ChangePlanHandler{plans: plans}
+// ChangePlanHandler serves /api/v1/change-plans.
+type ChangePlanHandler struct {
+	plans  *convergence.ChangePlanService
+	access ResourceAccess
+}
+
+// NewChangePlanHandler wires the handler to the Change Plan service and the access check every plan
+// route applies (a list returns only plans the caller may read; reading, approving, and rejecting
+// one the caller may not reach is 404 or 403).
+func NewChangePlanHandler(plans *convergence.ChangePlanService, access ResourceAccess) *ChangePlanHandler {
+	return &ChangePlanHandler{plans: plans, access: access}
 }
 
 // RegisterRoutes mounts the Change Plan routes under router (the /change-plans group).
@@ -159,22 +173,57 @@ func (h *ChangePlanHandler) List(c *fiber.Ctx) error {
 	}
 	items := make([]ChangePlanResponse, 0, len(plans))
 	for _, plan := range plans {
-		items = append(items, ToChangePlanResponse(plan))
+		readable, err := h.access.CanRead(c, plan.Resource)
+		if err != nil {
+			return err
+		}
+		if readable {
+			items = append(items, ToChangePlanResponse(plan))
+		}
 	}
 	return c.JSON(changePlanList{Items: items})
 }
 
-// Get handles GET /change-plans/:id.
+// Get handles GET /change-plans/:id; a plan the caller may not read is 404.
 func (h *ChangePlanHandler) Get(c *fiber.Ctx) error {
-	plan, err := h.plans.Get(c.UserContext(), c.Params("id"))
-	if err != nil {
-		return respondError(c, err)
+	plan, err := h.reachable(c, false)
+	if err != nil || plan == nil {
+		return err
 	}
 	return c.JSON(ToChangePlanResponse(plan))
 }
 
+// reachable loads the plan of the route and checks the caller may read it (decide: may decide it).
+// It writes the error response itself and returns a nil plan when the caller may not go on.
+func (h *ChangePlanHandler) reachable(c *fiber.Ctx, decide bool) (*convergence.ChangePlan, error) {
+	plan, err := h.plans.Get(c.UserContext(), c.Params("id"))
+	if err != nil {
+		return nil, respondError(c, err)
+	}
+	readable, err := h.access.CanRead(c, plan.Resource)
+	if err != nil {
+		return nil, err
+	}
+	if !readable {
+		return nil, apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Change Plan not found."))
+	}
+	if decide {
+		decidable, err := h.access.CanDecide(c, plan.Resource)
+		if err != nil {
+			return nil, err
+		}
+		if !decidable {
+			return nil, apierror.Respond(c, apierror.New(apierror.CodeForbidden, "Only an owner of the resource's Pool or an admin may decide this Change Plan."))
+		}
+	}
+	return plan, nil
+}
+
 // Approve handles POST /change-plans/:id/approve.
 func (h *ChangePlanHandler) Approve(c *fiber.Ctx) error {
+	if plan, err := h.reachable(c, true); err != nil || plan == nil {
+		return err
+	}
 	plan, err := h.plans.Approve(c.UserContext(), c.Params("id"), actor(c))
 	if err != nil {
 		return respondError(c, err)
@@ -184,6 +233,9 @@ func (h *ChangePlanHandler) Approve(c *fiber.Ctx) error {
 
 // Reject handles POST /change-plans/:id/reject.
 func (h *ChangePlanHandler) Reject(c *fiber.Ctx) error {
+	if plan, err := h.reachable(c, true); err != nil || plan == nil {
+		return err
+	}
 	plan, err := h.plans.Reject(c.UserContext(), c.Params("id"), actor(c))
 	if err != nil {
 		return respondError(c, err)

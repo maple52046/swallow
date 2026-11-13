@@ -30,7 +30,7 @@ Base path, bearer authentication, error envelope, and timestamps follow
 
 ## Authentication and Authorization
 
-Bearer credential; every endpoint requires `admin`. Keys are scoped to the caller: list
+Bearer credential; own account: any authenticated User ([conventions](conventions.md#authorization)). Keys are scoped to the caller: list
 returns only the caller's keys, and delete answers `404 not_found` for another user's key.
 
 `POST /api/v1/api-keys` additionally requires a **Session** access token: a request

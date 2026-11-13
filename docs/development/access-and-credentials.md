@@ -117,16 +117,21 @@ decision 039 的現行結果寫成一份規格；API 認證的決策見
 
 ## 4. Access Key
 
-- 屬於一個 User（目前只有 bootstrap admin），只存公鑰。所有端點都要求 `admin`，且以呼叫者為範圍：list 只回
-  呼叫者的 Access Key，讀取或刪除別人的 Access Key 與不存在的 key 一樣回 `404 not_found`，無法探測別人的金鑰。
+- 屬於一個 User，只存公鑰。任何已登入的 User 都管理自己的 Access Key，以呼叫者為範圍：list 只回呼叫者的 Access Key
+  （admin 另外看得到 Deployment Key），讀取或刪除別人的 Access Key 與不存在的 key 一樣回 `404 not_found`，無法探測別人
+  的金鑰。Deployment Key 的操作與 `POST /ssh-keys/sync` 只開放 admin（[identity-and-access.md](identity-and-access.md) §4）。
 - **匯入**：一行 `authorized_keys`，只能有一把金鑰、不得帶 options（`from=`、`command=` 等），保留 comment；
   型別限制同 §3.3。名稱去除前後空白後為 1–100 字元，在同一擁有者的 Access Key 之間不分大小寫唯一。
 - **產生**：swallow 產生 ed25519 key pair，只保存公鑰，私鑰（未加密的 OpenSSH 格式）只在回應中出現一次；
   swallow 不留副本，遺失後無法取回。
 - **刪除**：刪除紀錄並觸發同步，從 swallow 註冊過的 provisioner 移除；provider 暫時無法連線時由週期同步重試。
   已佈署的 Server 仍保留該公鑰。
-- Access Key 經 provisioner 注入到之後佈署的 Server（MAAS 寫入 image 的 default user）。Server Default User 的
-  一次性密碼流程只安裝 Deployment Key，不安裝 Access Key。
+- 人員登入 Server 的主要路徑是 Directory：每把 Access Key 寫進擁有者在 Directory 的帳號（`sshPublicKey`），裝了
+  directory client 的 Server 以 sshd 的 `AuthorizedKeysCommand` 查詢，只在 Host Access 允許的 Server 上有效；刪除 Access
+  Key 或移除 membership 約一分鐘內生效，不必重新佈署（[identity-and-access.md](identity-and-access.md) §8、§9）。
+- 只有 **admin** 的 Access Key 也經 provisioner 注入到之後佈署的 Server（MAAS 寫入 image 的 default user），作為 Directory
+  故障時的緊急進入；其他 User 的 Access Key 不登錄到 provisioner（§5.2）。Server Default User 的一次性密碼流程只安裝
+  Deployment Key，不安裝 Access Key。
 
 **設計理由**：私鑰只由 swallow 保管一份（Deployment Key），人員金鑰只存公鑰，避免 swallow 成為個人金鑰保管庫，
 也避免離職者的金鑰成為 automation credential；金鑰以 User 為擁有者，未來的多使用者模型可以直接沿用。見
@@ -150,7 +155,9 @@ state；provider 有能力持有 SSH key 時，SSH Key controller 把每把金�
 ### 5.2 同步規則
 
 - SSH Key 是已遷移的資源（[desired-state-model.md](desired-state-model.md) §4.4）：spec 是要登錄的金鑰，status 是
-  它在每個 provisioner 的 realization。worker 中的 SSH Key controller 以 provisioner Integration 為 key，每次
+  它在每個 provisioner 的 realization。要登錄的是 Deployment Key 與 User Role 為 `admin` 的 User 的 Access Key；其他
+  Access Key 在每個 provisioner 的紀錄是 `realized=false`、reason `not_registered`，User 降級為 `user` 時，下一次同步把它
+  曾登錄的金鑰從 provisioner 移除。worker 中的 SSH Key controller 以 provisioner Integration 為 key，每次
   Reconcile 對該 provisioner 的所有金鑰做一次同步。
 - 目標是每個啟用中的 provisioner Integration（跨所有 Site）；暫停的 Integration 不同步，也不列在
   `status.provisioners`。已刪除或暫停的 Integration 的同步紀錄會被丟棄。
@@ -180,7 +187,8 @@ state；provider 有能力持有 SSH key 時，SSH Key controller 把每把金�
 
 ### 5.4 限制
 
-- provisioner 只在 OS 佈署時注入金鑰：重產 Deployment Key、刪除 Access Key 都不會改變已佈署的 Server。
+- provisioner 只在 OS 佈署時注入金鑰：重產 Deployment Key、刪除 admin 的 Access Key 都不會改變已佈署 Server 上
+  provisioner 寫入的那一份（Directory 那一份會立即失效）。
 - 把金鑰推送到已佈署主機尚未實作；唯一的例外是以 Server Default User 的一次性密碼安裝 Deployment Key（§8.2）。
 - provisioner 沒有登錄金鑰的能力時，佈署前的 ensure 以錯誤拒絕佈署，不靜默放行：佈署出來的 Server 不會授權 swallow
   的 automation。以 cloud-init 注入金鑰作為替代尚未實作（需要與 user 提供的 user-data 合併的設計）。
@@ -371,7 +379,9 @@ API 認證的決策與時效、cookie、rotation 細節見
   種類分支。
 - 不變式：
   - refresh token 與 API Key 都只存 hash；API Key 的 secret 只在建立時顯示一次。
-  - API Key 以擁有者目前的 role 行事（目前只有 admin；scope 延後到多使用者模型）。
+  - Session 與 API Key 都以擁有者**目前**的 User Role 與 Pool Membership 行事，每個請求從 store 讀取，不信任 token 裡的
+    role；降級或移出 Pool 立即生效（[identity-and-access.md](identity-and-access.md) §4）。API Key 沒有更窄的 scope。
+  - 改密碼與重設密碼不撤銷既有的 Session；刪除 User 撤銷它的 Session 與 API Key。
   - 以 API Key 驗證的請求不能建立 API Key（`403 forbidden`），外洩的金鑰無法自行繁衍。
   - SSE 的 query-parameter token 只接受 access token，API Key 不出現在 URL。
   - logout 撤銷 Session，但已發出的 access token 在到期前仍有效。

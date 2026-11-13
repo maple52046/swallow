@@ -511,6 +511,8 @@ components:
         - uninstall-victoriametrics
         - configure-libvirt
         - uninstall-libvirt
+        - configure-sssd
+        - uninstall-sssd
         - configure-ntp
         - run-validation
         - custom
