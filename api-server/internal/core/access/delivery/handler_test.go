@@ -54,6 +54,21 @@ func TestAccessRoutes(t *testing.T) {
 	}
 
 	f.memberships.add("pool-a", "alice-1", accessdomain.RoleOwner)
+	// An owner finds the account to add without listing Users: the candidates leave out the Pool's
+	// members and keep only id and username.
+	resp = f.do(t, "GET", "/api/v1/infrastructure/pools/pool-a/member-candidates?query=CA", "alice-1", "")
+	if candidates := decode(t, resp)["items"].([]any); len(candidates) != 1 || candidates[0].(map[string]any)["username"] != "carol" {
+		t.Errorf("candidates matching CA = %v, want only carol", candidates)
+	}
+	resp = f.do(t, "GET", "/api/v1/infrastructure/pools/pool-a/member-candidates", "alice-1", "")
+	for _, candidate := range decode(t, resp)["items"].([]any) {
+		if candidate.(map[string]any)["username"] == "alice" {
+			t.Errorf("candidates include alice, who is already a member")
+		}
+	}
+	if resp := f.do(t, "GET", "/api/v1/infrastructure/pools/pool-b/member-candidates", "alice-1", ""); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("candidates of another Pool: %d, want 404", resp.StatusCode)
+	}
 	resp = f.do(t, "POST", "/api/v1/infrastructure/pools/pool-a/members", "alice-1", `{"username":"carol","role":"member"}`)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("owner adds a member: %d", resp.StatusCode)
@@ -64,6 +79,9 @@ func TestAccessRoutes(t *testing.T) {
 	}
 	if resp := f.do(t, "GET", "/api/v1/infrastructure/pools/pool-a/members", carolID, ""); resp.StatusCode != http.StatusOK {
 		t.Errorf("member lists its Pool's members: %d, want 200", resp.StatusCode)
+	}
+	if resp := f.do(t, "GET", "/api/v1/infrastructure/pools/pool-a/member-candidates", carolID, ""); resp.StatusCode != http.StatusForbidden {
+		t.Errorf("member lists candidates: %d, want 403", resp.StatusCode)
 	}
 	if resp := f.do(t, "PATCH", "/api/v1/infrastructure/pools/pool-a/members/"+carolID, carolID, `{"sudo":"on"}`); resp.StatusCode != http.StatusForbidden {
 		t.Errorf("member changes a membership: %d, want 403", resp.StatusCode)
@@ -163,6 +181,7 @@ func newRouteFixture(t *testing.T) *routeFixture {
 	app.Patch("/api/v1/users/:id", r(admin, handler.UpdateUser)...)
 	app.Get("/api/v1/infrastructure/pools/:id/members", r(authed, handler.ListPoolMembers)...)
 	app.Post("/api/v1/infrastructure/pools/:id/members", r(authed, handler.AddPoolMember)...)
+	app.Get("/api/v1/infrastructure/pools/:id/member-candidates", r(authed, handler.ListPoolMemberCandidates)...)
 	app.Patch("/api/v1/infrastructure/pools/:id/members/:userId", r(authed, handler.UpdatePoolMember)...)
 	app.Delete("/api/v1/infrastructure/pools/:id/members/:userId", r(authed, handler.RemovePoolMember)...)
 	app.Get("/api/v1/infrastructure/pools/:id/access-policy", r(authed, handler.GetPoolAccessPolicy)...)

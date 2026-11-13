@@ -99,6 +99,8 @@ export interface PlatformStatus {
   conditions: Condition[];
   applied: PlatformSpec | null;
   realizingWorkflowId: string | null;
+  /** The Pool every node is placed in; null when they are in different Pools or none (admins manage it). */
+  poolId: string | null;
 }
 /** Whether swallow registered the platform or deployed it through a durable operation. */
 export type PlatformOrigin = "registered" | "deployed";

@@ -4,6 +4,7 @@ import { CircleX, Play, RefreshCw, ShieldAlert } from 'lucide-react'
 import { Link as RouterLink, useSearchParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { ValidationRunFilter } from '@/application/ports/ValidationRepository'
+import { ownsAnyPool } from '@/domain/user/access'
 import type {
   ValidationRunStatus,
   ValidationRunVerdict,
@@ -20,6 +21,7 @@ import { useToast } from '@/presentation/components/toast/toastContext'
 import { Select } from '@/presentation/components/ui/select'
 import { ValidationRunList } from '@/presentation/components/validation/ValidationRunList'
 import { StartValidationRunDialog } from '@/presentation/components/validation/StartValidationRunDialog'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { usePlatformNamesById } from '@/presentation/hooks/usePlatformNames'
 import { useServerNames } from '@/presentation/hooks/useServerNames'
@@ -45,6 +47,8 @@ function oneOf<T extends string>(value: string | null, allowed: readonly T[]): T
  */
 export function ValidationRunsPage() {
   const { validation } = useApp()
+  // Starting a run is Pool operate on its targets, so a user who owns no Pool has nothing to run.
+  const { currentUser } = useAuth()
   const { showToast } = useToast()
   const { siteId, scopedHref } = useSiteScope()
   const [params, setParams] = useSearchParams()
@@ -155,9 +159,11 @@ export function ValidationRunsPage() {
             <Button variant="outline" onClick={reload} disabled={state.status === 'loading'}>
               <RefreshCw size={16} aria-hidden /> Refresh
             </Button>
-            <Button colorPalette="brand" onClick={() => void openDialog()} loading={opening}>
-              <Play size={16} aria-hidden /> Run a suite
-            </Button>
+            {ownsAnyPool(currentUser) && (
+              <Button colorPalette="brand" onClick={() => void openDialog()} loading={opening}>
+                <Play size={16} aria-hidden /> Run a suite
+              </Button>
+            )}
           </HStack>
         }
       />

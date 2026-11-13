@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
 import { Badge, Button, HStack, Table, Text, VisuallyHidden } from '@chakra-ui/react'
-import { Plus } from 'lucide-react'
+import { Plus, UserPlus } from 'lucide-react'
 import { Link as RouterLink } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { Pool } from '@/domain/infrastructure/types'
-import { isAdmin } from '@/domain/user/access'
+import { canOperatePool, isAdmin } from '@/domain/user/access'
 import type { PoolRole, User } from '@/domain/user/types'
 import { SectionSurface, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { EmptyState } from '@/presentation/components/EmptyState'
@@ -18,6 +18,7 @@ import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useAsyncData } from '@/presentation/hooks/useAsyncData'
 import { ResourceDeleteDialog } from '@/presentation/pages/infrastructure/ResourceDeleteDialog'
+import { AddMemberDialog } from './AddMemberDialog'
 import { PoolDialog } from './PoolDialog'
 import { poolRoleLabel } from './poolAccessPresentation'
 
@@ -50,8 +51,9 @@ function membershipRows(user: User | null): PoolRow[] {
  * A Pool belongs to no Site, so the list ignores the Site scope. An admin sees every Pool, read
  * from the infrastructure contract, with its own membership where it has one, and creates, renames,
  * and deletes Pools here; any other user sees only its own memberships, which auth-me already
- * reported (it may not list other Pools' members, so nothing more would open). Each row opens the
- * Pool's members and sudo defaults. The list is read once per visit and again after an admin's
+ * reported (it may not list other Pools' members, so nothing more would open). A Pool's name opens
+ * its members and sudo defaults, and a row the caller manages (an admin, or an owner of that
+ * Pool) also adds a member from here. The list is read once per visit and again after an admin's
  * change.
  */
 export function PoolsPage() {
@@ -62,6 +64,7 @@ export function PoolsPage() {
   const admin = isAdmin(currentUser)
   const [editor, setEditor] = useState<Pool | 'create' | null>(null)
   const [deleting, setDeleting] = useState<Pool | null>(null)
+  const [adding, setAdding] = useState<PoolRow | null>(null)
   const pools = useAsyncData(
     () => (admin ? infrastructure.listPools() : Promise.resolve([])),
     [infrastructure, admin],
@@ -121,7 +124,7 @@ export function PoolsPage() {
       {rows && (
         <SectionSurface
           title={admin ? 'Every Pool' : 'Your Pools'}
-          description={admin ? 'Place servers in a Pool from the server list; manage who uses each Pool from its members.' : 'The Pools an owner added you to.'}
+          description={admin ? 'Place servers in a Pool from the server list; open a Pool to manage who uses it.' : 'The Pools an owner added you to. Open one to see its members.'}
           flush={rows.length > 0}
         >
           {rows.length === 0 ? (
@@ -131,9 +134,25 @@ export function PoolsPage() {
               action={admin ? { label: 'Create pool', onClick: () => setEditor('create') } : undefined}
             />
           ) : (
-            <PoolList rows={rows} hrefFor={(row) => scopedHref(`/pools/${encodeURIComponent(row.poolId)}`)} actionsFor={rowActions} />
+            <PoolList
+              rows={rows}
+              hrefFor={(row) => scopedHref(`/pools/${encodeURIComponent(row.poolId)}`)}
+              actionsFor={rowActions}
+              onAddMember={(row) => (canOperatePool(currentUser, row.poolId) ? () => setAdding(row) : undefined)}
+            />
           )}
         </SectionSurface>
+      )}
+      {adding && (
+        <AddMemberDialog
+          poolId={adding.poolId}
+          poolName={adding.name}
+          onClose={() => setAdding(null)}
+          onAdded={(title) => {
+            setAdding(null)
+            showToast({ tone: 'success', title })
+          }}
+        />
       )}
       {editor && (
         <PoolDialog pool={editor === 'create' ? undefined : editor} onClose={() => setEditor(null)} onSaved={handleSaved} />
@@ -164,21 +183,34 @@ interface PoolListProps {
   hrefFor: (row: PoolRow) => string
   /** The admin actions of a row (edit, delete); empty for a user who is not an admin. */
   actionsFor: (row: PoolRow) => ResourceRowAction[]
+  /**
+   * Opens the add-member dialog for a row the caller manages (an admin, or an owner of that Pool);
+   * `undefined` for a Pool the caller only reads, which then offers no Add member.
+   */
+  onAddMember: (row: PoolRow) => (() => void) | undefined
 }
 
 /**
- * The Pools as a table on desktop and cards on mobile. Each row links to its access page with a
- * named "Members" link, and carries the admin's icon actions beside it.
+ * The Pools as a table on desktop and cards on mobile. A Pool's name opens its page (members and
+ * sudo defaults), as a Server's or a Platform's name does in their lists; a row offers "Add member"
+ * where the caller manages the Pool, and carries the admin's icon actions beside it.
  */
-function PoolList({ rows, hrefFor, actionsFor }: PoolListProps) {
-  const actions = (row: PoolRow) => (
-    <HStack gap="1" justify="flex-end">
-      <Button asChild size="xs" variant="outline">
-        <RouterLink to={hrefFor(row)} aria-label={`Members of ${row.name}`}>Members</RouterLink>
-      </Button>
-      <ResourceRowActions actions={actionsFor(row)} />
-    </HStack>
-  )
+function PoolList({ rows, hrefFor, actionsFor, onAddMember }: PoolListProps) {
+  const name = (row: PoolRow) => <RouterLink className="sw-pool-name" to={hrefFor(row)}>{row.name}</RouterLink>
+  const actions = (row: PoolRow) => {
+    const addMember = onAddMember(row)
+    return (
+      <HStack gap="1" justify="flex-end">
+        {addMember && (
+          <Button size="xs" variant="outline" onClick={addMember} aria-label={`Add a member to ${row.name}`}>
+            <UserPlus size={14} />
+            Add member
+          </Button>
+        )}
+        <ResourceRowActions actions={actionsFor(row)} />
+      </HStack>
+    )
+  }
   return (
     <ResponsiveDataView
       desktop={
@@ -197,7 +229,7 @@ function PoolList({ rows, hrefFor, actionsFor }: PoolListProps) {
             <Table.Body>
               {rows.map((row) => (
                 <Table.Row key={row.poolId}>
-                  <Table.Cell fontWeight="semibold">{row.name}</Table.Cell>
+                  <Table.Cell>{name(row)}</Table.Cell>
                   <Table.Cell>{row.description || '-'}</Table.Cell>
                   <Table.Cell><RoleValue role={row.role} /></Table.Cell>
                   <Table.Cell textAlign="end">{actions(row)}</Table.Cell>
@@ -210,7 +242,7 @@ function PoolList({ rows, hrefFor, actionsFor }: PoolListProps) {
       mobile={
         <div className="sw-resource-card-list" aria-label="Pools">
           {rows.map((row) => (
-            <ResourceCard key={row.poolId} title={row.name} description={row.description || undefined} actions={actions(row)}>
+            <ResourceCard key={row.poolId} title={name(row)} description={row.description || undefined} actions={actions(row)}>
               <ResourceCardField label="Your role"><RoleValue role={row.role} /></ResourceCardField>
             </ResourceCard>
           ))}

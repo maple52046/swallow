@@ -27,12 +27,12 @@ import { COLLECTED_HARDWARE_COUNTERS, hardwareCountersSwitch } from './slurmHard
  * own GPU profiler possibly not getting them), then writes the spec through the Slurm port; the change is
  * non-destructive, so it starts without a Change Plan and the page follows it through the workspace
  * shell's convergence polling. The switch is disabled, with the reason as text, while the Platform
- * is not active or a change is still running. The request's error (a `conflict` when the spec
+ * is not active, a change is still running, or the user may not change the Platform. The request's error (a `conflict` when the spec
  * changed since it was read) stays in the dialog without reloading the page, which would close it;
  * confirming again writes the spec the port reads anew, so another write is never overwritten.
  * Renders nothing for a Slurm Platform without a swallow-managed Omnistat.
  */
-export function SlurmHardwareCountersControl({ platform, onChanged }: PlatformSectionProps) {
+export function SlurmHardwareCountersControl({ platform, canOperate, onChanged }: PlatformSectionProps) {
   const slurm = useSlurmPlatform()
   const { showToast } = useToast()
   const navigate = useNavigate()
@@ -46,6 +46,7 @@ export function SlurmHardwareCountersControl({ platform, onChanged }: PlatformSe
 
   const counters = hardwareCountersSwitch(platform)
   if (!counters) return null
+  const blockedReason = canOperate ? counters.blockedReason : 'Only an owner of the Platform’s Pool or an admin can change this.'
 
   const close = () => {
     if (submitting) return
@@ -82,7 +83,7 @@ export function SlurmHardwareCountersControl({ platform, onChanged }: PlatformSe
         <Switch.Root
           checked={counters.wanted}
           colorPalette="brand"
-          disabled={Boolean(counters.blockedReason) || submitting}
+          disabled={Boolean(blockedReason) || submitting}
           onCheckedChange={(details) => {
             setError(null)
             setTarget(details.checked === true)
@@ -99,7 +100,7 @@ export function SlurmHardwareCountersControl({ platform, onChanged }: PlatformSe
         </HStack>
       </HStack>
       <Text color="fg.muted" fontSize="sm">Counters collected: {COLLECTED_HARDWARE_COUNTERS}.</Text>
-      {counters.blockedReason && <Text color="fg.muted" fontSize="sm">{counters.blockedReason}</Text>}
+      {blockedReason && <Text color="fg.muted" fontSize="sm">{blockedReason}</Text>}
 
       <ConfirmDialog
         open={confirming}

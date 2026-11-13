@@ -3,6 +3,7 @@ import { Badge, Button, Field, IconButton, Input, SegmentGroup, Stack, Table, Vi
 import { Link2, Pencil, RefreshCw, Unlink } from 'lucide-react'
 import { useApp } from '@/di/AppProvider'
 import type { ManualNetworkMode, NetworkInterface, NetworkLink, NetworkTarget } from '@/domain/provisioning/types'
+import { canOperatePool } from '@/domain/user/access'
 import { DetailTableView, DetailUnavailable } from '@/presentation/components/serverSummary/DetailViews'
 import { findTable } from '@/presentation/components/serverSummary/detailTableUtils'
 import { EmptyState } from '@/presentation/components/EmptyState'
@@ -17,6 +18,7 @@ import { Modal } from '@/presentation/components/ui/modal'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { Select } from '@/presentation/components/ui/select'
 import { useToast } from '@/presentation/components/toast/toastContext'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useServerDetailContext } from './useServerDetail'
 
 const DETAIL_TABLE_DESCRIPTIONS: Record<string, string> = {
@@ -29,7 +31,8 @@ const DETAIL_TABLE_DESCRIPTIONS: Record<string, string> = {
  * columns and rows; this wrapper contributes route-level context and exactly one scroll frame.
  */
 export function ServerDetailTableTab({ title }: { title: string }) {
-  const { detail, detailError } = useServerDetailContext()
+  const { detail, detailError, detailWithheld } = useServerDetailContext()
+  if (detailWithheld) return <DetailUnavailable message="Live hardware detail is shown to the Pool's owners and admins." />
   if (!detail) return <DetailUnavailable message={detailError ? failureText(detailError) : 'The provisioner did not return detail.'} />
   const table = findTable(detail.tables, title)
   if (!table) return <DetailUnavailable message={`This provisioner reported no ${title.toLowerCase()} detail.`} />
@@ -66,10 +69,15 @@ function validIPv4(value: string): boolean {
   return octets.length === 4 && octets.every((octet) => /^(0|[1-9]\d{0,2})$/.test(octet) && Number(octet) <= 255)
 }
 
-/** Typed NIC and subnet-link management owned by swallow's provisioning contract. */
+/**
+ * Typed NIC and subnet-link management owned by swallow's provisioning contract. Any reader of the
+ * Server sees its interfaces; changing a link is offered to an admin or an owner of its Pool only.
+ */
 export function ServerNetworkTab() {
   const { server } = useServerDetailContext()
   const { servers } = useApp()
+  const { currentUser } = useAuth()
+  const canOperate = canOperatePool(currentUser, server.spec.poolId)
   const { showToast } = useToast()
   const [state, setState] = useState<NetworkState>({ status: 'loading' })
   const [editor, setEditor] = useState<LinkEditor | null>(null)
@@ -197,7 +205,7 @@ export function ServerNetworkTab() {
                     <Table.Cell>{link?.defaultGateway ? 'Default' : '-'}</Table.Cell>
                     <Table.Cell className="sw-mono">{link?.rawProviderMode || iface.rawProviderMode || '-'}</Table.Cell>
                     <Table.Cell textAlign="end">
-                      <span className="sw-row-actions">
+                      {canOperate && <span className="sw-row-actions">
                         <Tooltip content={link ? `Configure ${iface.name}` : `Add link to ${iface.name}`}>
                           <IconButton
                             variant="ghost"
@@ -223,7 +231,7 @@ export function ServerNetworkTab() {
                             </IconButton>
                           </Tooltip>
                         )}
-                      </span>
+                      </span>}
                     </Table.Cell>
                   </Table.Row>
                 ))}

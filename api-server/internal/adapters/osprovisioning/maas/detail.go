@@ -307,7 +307,8 @@ func buildMachineDetail(
 
 // powerSection describes the machine's power driver by its family (decision 054). A machine with a
 // BMC (as the power adapter registry decides) gets the BMC section with its allowlisted connection
-// facts, including the password the admin-only detail exists to reveal. Any other configured driver
+// facts, including the password: the detail is shown to admins and to owners of the Server's Pool,
+// who are trusted with its BMC (identity-and-access.md §4.2). Any other configured driver
 // (virsh, a VM host's own driver) has no BMC and gets a Power section without a password, with the
 // URI's user kept because it is the account MAAS connects as. A machine without a driver gets no
 // section.

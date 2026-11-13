@@ -27,8 +27,11 @@ import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { usePlatformNamesById } from '@/presentation/hooks/usePlatformNames'
 import { useServerNames } from '@/presentation/hooks/useServerNames'
 import { useSettlingRefresh } from '@/presentation/hooks/useSettlingRefresh'
+import { useTargetsOperable } from '@/presentation/hooks/useTargetsOperable'
 import { formatDateTime } from '@/shared/utils/time'
 import { ValidationResultInspector, ValidationResultsMatrix } from './ValidationResultsMatrix'
+
+const NO_IDS: string[] = []
 
 type PageState =
   | { status: 'loading' }
@@ -72,6 +75,8 @@ export function ValidationRunDetailPage() {
 
   const run = state.status === 'ready' ? state.run : null
   useSettlingRefresh(run !== null && isValidationRunActive(run.status), refresh)
+  // Cancelling a run is Pool operate on its targets (validation.md).
+  const operable = useTargetsOperable(run?.target.serverIds ?? NO_IDS, run?.target.platformId ? [run.target.platformId] : NO_IDS)
   const serverNames = useServerNames(run ? [...run.target.serverIds, ...run.results.filter((result) => result.target.kind === 'server').map((result) => result.target.id)] : [])
   const platformNames = usePlatformNamesById(run?.target.platformId ? [run.target.platformId] : [])
   const targetName = (target: ValidationResultTarget) =>
@@ -104,7 +109,7 @@ export function ValidationRunDetailPage() {
   }
 
   const outcome = runOutcome(run)
-  const cancellable = run.mode === 'report' && isValidationRunActive(run.status)
+  const cancellable = operable && run.mode === 'report' && isValidationRunActive(run.status)
   const target = run.target.platformId
     ? targetName({ kind: 'platform', id: run.target.platformId })
     : run.target.serverIds.map((serverId) => targetName({ kind: 'server', id: serverId })).join(', ')

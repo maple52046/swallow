@@ -4,16 +4,21 @@ import { X } from 'lucide-react'
 import { useApp } from '@/di/AppProvider'
 import type { Platform } from '@/domain/platform/types'
 import { serverDisplayName, type Server } from '@/domain/server/types'
+import { canOperatePlatform, canOperatePool } from '@/domain/user/access'
 import type { ValidationSuite } from '@/domain/validation/types'
 import { failureOf, failureText } from '@/presentation/components/failure'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { DebouncedSearchInput } from '@/presentation/components/ui/debounced-search-input'
 import { Select } from '@/presentation/components/ui/select'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useServerNames } from '@/presentation/hooks/useServerNames'
 
 /** How many matching deployed Servers the picker lists at once; a search narrows the rest. */
 const SERVER_RESULTS = 50
+
+/** Why a listed target cannot be chosen: running validation is Pool operate (validation.md). */
+const POOL_OWNERS_ONLY = 'Pool owners only'
 
 interface ValidationTargetFieldsProps {
   suite: ValidationSuite
@@ -32,7 +37,8 @@ interface ValidationTargetFieldsProps {
  * Schedule dialogs compose it, so both choose targets the same way.
  *
  * The lists are hints, not the rule: the API checks the targets again when the run or schedule is
- * written (deployed, one Site, not locked or busy) and its refusal is what the dialog shows.
+ * written (deployed, one Site, not locked or busy, and the caller owns their Pool) and its refusal is
+ * what the dialog shows. A target in a Pool the user does not own is listed but cannot be chosen.
  */
 export function ValidationTargetFields(props: ValidationTargetFieldsProps) {
   return props.suite.target === 'platform' ? <PlatformTargetField {...props} /> : <ServerTargetField {...props} />
@@ -52,6 +58,7 @@ type ServerResults =
 function ServerTargetField({ serverIds, onServerIdsChange, idPrefix, disabled = false }: ValidationTargetFieldsProps) {
   const { servers } = useApp()
   const { siteId, sites } = useSiteScope()
+  const { currentUser } = useAuth()
   const [keyword, setKeyword] = useState('')
   const searchKey = `${siteId ?? ''}|${keyword}`
   // The answer is kept with the search it answers, so a new search reads as loading until it lands.
@@ -118,16 +125,21 @@ function ServerTargetField({ serverIds, onServerIdsChange, idPrefix, disabled = 
           {results.status === 'ready' && listed.length === 0 && <Text fontSize="sm" color="fg.muted">No deployed Server matches.</Text>}
           {results.status === 'ready' && (
             <Stack gap="1">
-              {listed.map((server) => (
-                <Checkbox
-                  key={server.id}
-                  checked={chosen.has(server.id)}
-                  onCheckedChange={(on) => toggle(server.id, on, server.status.source.siteId)}
-                  disabled={disabled || Boolean(!siteId && effectiveSelectionSiteId && server.status.source.siteId !== effectiveSelectionSiteId)}
-                >
-                  {serverDisplayName(server)}{!siteId && server.status.source.siteId ? ` · ${siteName.get(server.status.source.siteId) ?? server.status.source.siteId}` : ''}
-                </Checkbox>
-              ))}
+              {listed.map((server) => {
+                const operable = canOperatePool(currentUser, server.spec.poolId)
+                return (
+                  <Checkbox
+                    key={server.id}
+                    checked={chosen.has(server.id)}
+                    onCheckedChange={(on) => toggle(server.id, on, server.status.source.siteId)}
+                    disabled={disabled || !operable || Boolean(!siteId && effectiveSelectionSiteId && server.status.source.siteId !== effectiveSelectionSiteId)}
+                  >
+                    {serverDisplayName(server)}
+                    {!siteId && server.status.source.siteId ? ` · ${siteName.get(server.status.source.siteId) ?? server.status.source.siteId}` : ''}
+                    {!operable ? ` · ${POOL_OWNERS_ONLY}` : ''}
+                  </Checkbox>
+                )
+              })}
               {results.total > listed.length && (
                 <Text fontSize="xs" color="fg.muted">Showing {listed.length} of {results.total}; search to narrow the list.</Text>
               )}
@@ -147,6 +159,7 @@ function ServerTargetField({ serverIds, onServerIdsChange, idPrefix, disabled = 
 function PlatformTargetField({ suite, platformId, onPlatformIdChange, idPrefix, disabled = false }: ValidationTargetFieldsProps) {
   const { platforms } = useApp()
   const { siteId } = useSiteScope()
+  const { currentUser } = useAuth()
   const [list, setList] = useState<Platform[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -168,11 +181,16 @@ function PlatformTargetField({ suite, platformId, onPlatformIdChange, idPrefix, 
 
   const options = (list ?? [])
     .filter((platform) => platform.type === suite.platformType)
-    .map((platform) => ({
-      value: platform.id,
-      label: platform.lifecycleState === 'active' ? platform.name : `${platform.name} (${platform.lifecycleState.replaceAll('_', ' ')})`,
-      disabled: platform.lifecycleState !== 'active',
-    }))
+    .map((platform) => {
+      const operable = canOperatePlatform(currentUser, platform)
+      return {
+        value: platform.id,
+        label: !operable
+          ? `${platform.name} (${POOL_OWNERS_ONLY})`
+          : platform.lifecycleState === 'active' ? platform.name : `${platform.name} (${platform.lifecycleState.replaceAll('_', ' ')})`,
+        disabled: !operable || platform.lifecycleState !== 'active',
+      }
+    })
   const id = `${idPrefix}-platform`
   return (
     <Field.Root required disabled={disabled} invalid={error !== null}>

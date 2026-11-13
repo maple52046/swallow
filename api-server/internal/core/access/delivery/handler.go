@@ -207,6 +207,27 @@ func (h *Handler) ListPoolMembers(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"items": items})
 }
 
+// candidateResponse is one entry of the pool-access member-candidates list: a User's id and username
+// only.
+type candidateResponse struct {
+	UserID   string `json:"userId"`
+	Username string `json:"username"`
+}
+
+// ListPoolMemberCandidates implements GET /api/v1/infrastructure/pools/{id}/member-candidates: the
+// Users an owner may add, filtered by the optional query parameter.
+func (h *Handler) ListPoolMemberCandidates(c *fiber.Ctx) error {
+	candidates, err := h.deps.Memberships.Candidates(c.UserContext(), scopeOf(c), c.Params("id"), c.Query("query"))
+	if err != nil {
+		return respondError(c, err)
+	}
+	items := make([]candidateResponse, 0, len(candidates))
+	for _, candidate := range candidates {
+		items = append(items, candidateResponse{UserID: candidate.UserID, Username: candidate.Username})
+	}
+	return c.JSON(fiber.Map{"items": items})
+}
+
 type addMemberRequest struct {
 	Username         string `json:"username"`
 	Role             string `json:"role"`

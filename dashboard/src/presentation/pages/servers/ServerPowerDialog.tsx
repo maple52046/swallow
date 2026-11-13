@@ -4,12 +4,14 @@ import { Power, PowerOff, type LucideIcon } from 'lucide-react'
 import { useApp } from '@/di/AppProvider'
 import type { Server, ServerPowerConfiguration } from '@/domain/server/types'
 import { serverDisplayName } from '@/domain/server/types'
+import { isAdmin } from '@/domain/user/access'
 import { powerStateLabel } from '@/presentation/components/axisBadgeUtils'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { powerDriverLabel } from '@/presentation/components/serverSummary/powerConfigurationLabels'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useAsyncData } from '@/presentation/hooks/useAsyncData'
 import { PowerConfigurationFields } from './PowerConfigurationFields'
 import { serverActionAvailability } from './serverActions'
@@ -92,6 +94,8 @@ function knownControl(configuration: ServerPowerConfiguration | null): 'none' | 
  *   button follows).
  * - When the configuration cannot be read (a provisioner without the capability, or one that is
  *   unreachable), the reason is shown above the tiles, which stay as before.
+ * - Power Configuration is admin-only, so a Pool owner's dialog never reads or edits it: it shows
+ *   the tiles, and for a Server without a usable driver, a note that an admin sets one up.
  *
  * The list has no live `ProvisionerCapabilities`, so — like the row's action menu — both tiles are
  * offered and the backend refuses unsupported ones. `serverActionAvailability` still gates locked
@@ -102,8 +106,15 @@ function knownControl(configuration: ServerPowerConfiguration | null): 'none' | 
  */
 export function ServerPowerDialog({ server, onSelect, onClose }: ServerPowerDialogProps) {
   const { servers } = useApp()
+  const { currentUser } = useAuth()
+  // Power Configuration is an admin route; a Pool owner powers the Server with the actions alone.
+  const admin = isAdmin(currentUser)
   const name = serverDisplayName(server)
-  const loaded = useAsyncData(() => servers.getPowerConfiguration(server.id), [servers, server.id], { unavailableStatuses: [] })
+  const loaded = useAsyncData(
+    async () => (admin ? servers.getPowerConfiguration(server.id) : null),
+    [admin, servers, server.id],
+    { unavailableStatuses: [] },
+  )
   const [choice, setChoice] = useState<Exclude<PowerDialogView, 'reading'> | null>(null)
   const configuration = loaded.status === 'ready' ? loaded.data : null
   const readFailed = loaded.status === 'error' || loaded.status === 'unavailable'
@@ -111,7 +122,7 @@ export function ServerPowerDialog({ server, onSelect, onClose }: ServerPowerDial
   // Until the live read answers, the projection decides: its power control, and VM-host membership
   // for editability (the API marks exactly those Servers read-only).
   const control = knownControl(configuration) ?? projectedPowerControl(server)
-  const editable = configuration ? configuration.editable : !server.status.providerPod
+  const editable = admin && (configuration ? configuration.editable : !server.status.providerPod)
   const view = powerDialogView(control, editable, { reading: loaded.status === 'loading', readFailed }, choice)
 
   if (view === 'configure') {
@@ -186,13 +197,20 @@ export function ServerPowerDialog({ server, onSelect, onClose }: ServerPowerDial
           <Text>
             {configuration
               ? `It powers ${name} through ${powerDriverLabel(configuration.driver)}; check that driver's address and account.`
-              : `It has a power driver for ${name}; check that driver's address and account.`}
+              : admin
+                ? `It has a power driver for ${name}; check that driver's address and account.`
+                : `It has a power driver for ${name}; an admin can check that driver's address and account.`}
           </Text>
           {editable && (
             <Button size="xs" variant="outline" colorPalette="brand" mt="2" onClick={() => setChoice('configure')}>
               Edit power configuration
             </Button>
           )}
+        </Alert>
+      )}
+      {!admin && (control === 'none' || control === 'manual') && (
+        <Alert status="info" title="No power driver the provisioner can use" mb="3">
+          swallow cannot switch or read the power of {name} until an admin sets its Power Configuration.
         </Alert>
       )}
       {view === 'actions' && (

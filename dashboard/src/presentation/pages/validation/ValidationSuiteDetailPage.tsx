@@ -4,6 +4,7 @@ import { CalendarPlus, Play, ScrollText } from 'lucide-react'
 import { Link as RouterLink, useParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { Paginated } from '@/application/ports/ServerRepository'
+import { isAdmin, ownsAnyPool } from '@/domain/user/access'
 import type { ValidationRunSummary, ValidationSchedule, ValidationSuite } from '@/domain/validation/types'
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
 import { KeyValueGrid, SectionSurface, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
@@ -17,6 +18,7 @@ import { useToast } from '@/presentation/components/toast/toastContext'
 import { StartValidationRunDialog } from '@/presentation/components/validation/StartValidationRunDialog'
 import { ValidationRunList } from '@/presentation/components/validation/ValidationRunList'
 import { IMPACT_COPY, scheduleTriggerLabel, suiteSourceLabel } from '@/presentation/components/validation/validationPresentation'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDateTime } from '@/shared/utils/time'
 import { UserSuiteDialog } from './UserSuiteDialog'
@@ -38,10 +40,16 @@ type SecondaryState =
       schedulesFailure?: DisplayedFailure
     }
 
-/** Suite identity, checks, parameters, script metadata, recent Runs, and referencing Schedules. */
+/**
+ * Suite identity, checks, parameters, script metadata, recent Runs, and referencing Schedules.
+ * Schedules and the user-suite writes (create schedule, edit, retire) are admin routes
+ * (validation.md), so another user sees the suite and its runs and may run it.
+ */
 export function ValidationSuiteDetailPage() {
   const { id = '' } = useParams()
   const { validation } = useApp()
+  const { currentUser } = useAuth()
+  const admin = isAdmin(currentUser)
   const { siteId, scopedHref } = useSiteScope()
   const { showToast } = useToast()
   const [suiteState, setSuiteState] = useState<SuiteState>({ status: 'loading' })
@@ -77,9 +85,10 @@ export function ValidationSuiteDetailPage() {
     if (!suite) return
     let cancelled = false
     setSecondary({ status: 'loading' })
+    // Schedules are an admin read (validation.md), so only an admin's page reads them.
     Promise.allSettled([
       validation.listRuns({ siteId, suiteId: suite.id, page: 1, pageSize: 5 }),
-      validation.listSchedules(siteId),
+      admin ? validation.listSchedules(siteId) : Promise.resolve([]),
     ]).then(([runs, schedules]) => {
       if (cancelled) return
       setSecondary({
@@ -91,7 +100,7 @@ export function ValidationSuiteDetailPage() {
       })
     })
     return () => { cancelled = true }
-  }, [siteId, suite, validation, nonce])
+  }, [admin, siteId, suite, validation, nonce])
 
   const retire = async () => {
     if (!suite) return
@@ -142,11 +151,13 @@ export function ValidationSuiteDetailPage() {
         stackActionsOnMobile
         actions={!suite.retired ? (
           <>
-            <Button colorPalette="brand" onClick={() => setRunDialog(true)}><Play size={16} /> Run suite</Button>
-            {suite.impact !== 'disruptive' && (
+            {ownsAnyPool(currentUser) && (
+              <Button colorPalette="brand" onClick={() => setRunDialog(true)}><Play size={16} /> Run suite</Button>
+            )}
+            {admin && suite.impact !== 'disruptive' && (
               <Button variant="outline" onClick={() => setScheduleDialog(true)}><CalendarPlus size={16} /> Create schedule</Button>
             )}
-            {suite.source === 'user' && (
+            {admin && suite.source === 'user' && (
               <>
                 <Button variant="outline" onClick={() => setEditDialog(true)}>Edit</Button>
                 <Button variant="outline" colorPalette="red" onClick={() => setRetiring(true)}>Retire</Button>
@@ -224,7 +235,7 @@ export function ValidationSuiteDetailPage() {
         )}
       </SectionSurface>
 
-      <SectionSurface title="Schedules">
+      {admin && <SectionSurface title="Schedules">
         {secondary.status === 'loading' && <LoadingState rows={2} />}
         {secondary.status === 'ready' && secondary.schedulesFailure && <FailureMessage failure={secondary.schedulesFailure} />}
         {secondary.status === 'ready' && secondary.schedules && schedules.length === 0 && <Text color="fg.muted">No schedule in the current Site scope references this suite.</Text>}
@@ -242,7 +253,7 @@ export function ValidationSuiteDetailPage() {
             </Table.Root>
           </StickyTableFrame>
         )}
-      </SectionSurface>
+      </SectionSurface>}
 
       <StartValidationRunDialog key={runDialog ? 'open' : 'closed'} open={runDialog} onClose={() => setRunDialog(false)} suites={[suite]} preset={{ suiteId: suite.id }} />
       <ValidationScheduleDialog

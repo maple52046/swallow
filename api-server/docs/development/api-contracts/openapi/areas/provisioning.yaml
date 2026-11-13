@@ -100,6 +100,41 @@ paths:
                 $ref: '#/components/schemas/Error'
         default:
           $ref: '#/components/responses/Error'
+  /api/v1/provisioning/image-catalogs:
+    get:
+      tags: [provisioning]
+      operationId: listOsImageCatalogs
+      summary: List the OS Image catalogs of every provisioner of a Site, or of every Site.
+      description: >-
+        Reference: any authenticated User. Reads the catalog of each provisioner Integration in the
+        scope, enabled or not, at most two at a time; each catalog's images are what
+        `GET /images` returns for that Integration. A catalog that cannot be read carries an error
+        message and no images, and the request still answers 200. Carries only the Integration's id,
+        name, and Site.
+      parameters:
+        - name: siteId
+          in: query
+          required: false
+          description: Only this Site's provisioners; every Site's when omitted.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: One catalog per provisioner Integration, ordered by Site id and Integration name.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OsImageCatalogList'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Site does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /api/v1/provisioning/image-uploads:
     post:
       tags: [provisioning]
@@ -1551,6 +1586,37 @@ components:
       schema:
         type: string
   schemas:
+    OsImageCatalogList:
+      type: object
+      description: The OS Image catalogs of the provisioners in the scope.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OsImageCatalog'
+    OsImageCatalog:
+      type: object
+      description: >-
+        One provisioner Integration's OS Image catalog: the Integration's id, name, and Site only, and
+        its images as `GET /images` returns them, or why they could not be read.
+      required: [integrationId, integrationName, siteId, images, error]
+      properties:
+        integrationId:
+          type: string
+        integrationName:
+          type: string
+        siteId:
+          type: string
+        images:
+          type: array
+          description: Empty when the catalog could not be read.
+          items:
+            $ref: '#/components/schemas/OsImage'
+        error:
+          type: string
+          nullable: true
+          description: Why the catalog could not be read, for a person to read; null when it was read.
     OsImage:
       type: object
       description: >-

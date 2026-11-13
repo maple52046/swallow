@@ -16,6 +16,7 @@ import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentat
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { Select } from '@/presentation/components/ui/select'
 import { useAuth } from '@/presentation/contexts/AuthContext'
+import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useAsyncData } from '@/presentation/hooks/useAsyncData'
 import { AddMemberDialog } from './AddMemberDialog'
 import { PoolSudoDefaultsSection } from './PoolSudoDefaultsSection'
@@ -56,6 +57,7 @@ export function PoolAccessPage() {
   const { id = '' } = useParams()
   const { infrastructure, poolAccess } = useApp()
   const { currentUser, restoreSession } = useAuth()
+  const { scopedHref } = useSiteScope()
   const { showToast } = useToast()
   const [dialog, setDialog] = useState<DialogState>(null)
   const [savingUserId, setSavingUserId] = useState<string | null>(null)
@@ -94,7 +96,7 @@ export function PoolAccessPage() {
     if (removedSelf) restoreSession()
   }
 
-  const title = access.status === 'ready' ? access.data.name : 'Pool access'
+  const title = access.status === 'ready' ? access.data.name : 'Pool'
   const addAction = canManage ? (
     <Button colorPalette="brand" onClick={() => setDialog({ kind: 'add' })} disabled={access.status !== 'ready'}>
       <UserPlus size={16} />
@@ -106,6 +108,7 @@ export function PoolAccessPage() {
     <div className="console-page">
       <PageHeader
         title={title}
+        breadcrumbs={[{ label: 'Pools', href: scopedHref('/pools') }, { label: title }]}
         subtitle="Members log in to this Pool's Servers with their SSH keys. Owners operate the Pool and decide who has sudo."
         actions={addAction}
       />

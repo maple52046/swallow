@@ -34,6 +34,7 @@ import {
 import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom'
 import type { OSImageCatalogFailure, OSImageCatalogRow } from '@/application/usecases/provisioning/loadOSImageCatalog'
 import type { Site } from '@/domain/site/types'
+import { isAdmin, ownsAnyPool } from '@/domain/user/access'
 import { useApp } from '@/di/AppProvider'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { EmptyState } from '@/presentation/components/EmptyState'
@@ -52,13 +53,13 @@ import { DebouncedSearchInput } from '@/presentation/components/ui/debounced-sea
 import { Select } from '@/presentation/components/ui/select'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useToast } from '@/presentation/components/toast/toastContext'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import { formatBytes } from '@/shared/utils/bytes'
 import { formatDateTime } from '@/shared/utils/time'
 import { BulkImageActionDialog } from './BulkImageActionDialog'
 import { DeployOSDialog } from './DeployOSDialog'
-import { ProvisioningTabs } from './ProvisioningTabs'
 import { UploadImageDialog } from './UploadImageDialog'
 import { TestImageDeploymentDialog } from './TestImageDeploymentDialog'
 import { EditImageDialog, DeleteImageDialog } from './OSImageDialogs'
@@ -279,7 +280,12 @@ function DefaultUserCell({ image }: { image: OSImageCatalogRow }) {
   return image.status.defaultUser ? <span className="sw-mono">{image.status.defaultUser}</span> : <span className="sw-empty-value">Not set</span>
 }
 
-function SourceCell({ image, siteName }: { image: OSImageCatalogRow; siteName: string }) {
+/**
+ * The image's provisioner and Site. They link to their Infrastructure pages for an admin; those
+ * pages are admin-only, so every other user reads them as text.
+ */
+function SourceCell({ image, siteName, canManage }: { image: OSImageCatalogRow; siteName: string; canManage: boolean }) {
+  if (!canManage) return <div className="sw-os-image-source"><span>{image.integrationName}</span><span>{siteName}</span></div>
   return <div className="sw-os-image-source"><RouterLink to={`/infrastructure/integrations?site=${encodeURIComponent(image.siteId)}#integration-${image.integrationId}`}>{image.integrationName}</RouterLink><RouterLink to={`/infrastructure/sites?site=${encodeURIComponent(image.siteId)}#site-${image.siteId}`}>{siteName}</RouterLink></div>
 }
 
@@ -288,25 +294,39 @@ function DefaultUserDetail({ image }: { image: OSImageCatalogRow }) {
   return <>Not set · automation falls back to the Site SSH user and built-in candidates</>
 }
 
-function ImageDetails({ image, siteName, activities, scopedHref }: { image: OSImageCatalogRow; siteName: string; activities: OSImageVerificationActivityMap; scopedHref: (path: string) => string }) {
+function ImageDetails({ image, siteName, activities, canManage, scopedHref }: { image: OSImageCatalogRow; siteName: string; activities: OSImageVerificationActivityMap; canManage: boolean; scopedHref: (path: string) => string }) {
+  const provider = canManage
+    ? <RouterLink to={`/infrastructure/integrations?site=${encodeURIComponent(image.siteId)}#integration-${image.integrationId}`}>{image.integrationName}</RouterLink>
+    : image.integrationName
   return (
     <div className="sw-os-image-details">
       <section><Heading as="h3" size="sm">Image</Heading><dl><div><dt>Name</dt><dd>{image.status.name || image.id}</dd></div><div><dt>OS family</dt><dd>{osImageOSFamilyLabel(image.status.osSystem)}</dd></div><div><dt>Release</dt><dd>{image.status.release || 'Not set'}</dd></div><div><dt>Image ID</dt><dd><ImageID imageId={image.id} /></dd></div></dl></section>
       <section><Heading as="h3" size="sm">Organization</Heading><dl><div><dt>Tags</dt><dd><TagSummary tags={image.spec.tags} /></dd></div><div><dt>Default user</dt><dd><DefaultUserDetail image={image} /></dd></div></dl></section>
       <section><Heading as="h3" size="sm">Deploy modes</Heading><div className="sw-os-image-details__deploy-modes"><DeployModeStatus target="disk" status={osImageDeployModeStatus(image, 'disk', activities)} scopedHref={scopedHref} /><DeployModeStatus target="ram" status={osImageDeployModeStatus(image, 'ram', activities)} scopedHref={scopedHref} /></div></section>
-      <section><Heading as="h3" size="sm">Artifact and source</Heading><dl><div><dt>Architecture</dt><dd className="sw-mono">{image.architecture || 'Unknown'}</dd></div><div><dt>Size</dt><dd>{formatImageSize(image.status.sizeBytes)}</dd></div><div><dt>Provider</dt><dd><RouterLink to={`/infrastructure/integrations?site=${encodeURIComponent(image.siteId)}#integration-${image.integrationId}`}>{image.integrationName}</RouterLink></dd></div><div><dt>Site</dt><dd>{siteName}</dd></div><div><dt>Catalog refreshed</dt><dd>{formatDateTime(image.refreshedAt)}</dd></div></dl></section>
+      <section><Heading as="h3" size="sm">Artifact and source</Heading><dl><div><dt>Architecture</dt><dd className="sw-mono">{image.architecture || 'Unknown'}</dd></div><div><dt>Size</dt><dd>{formatImageSize(image.status.sizeBytes)}</dd></div><div><dt>Provider</dt><dd>{provider}</dd></div><div><dt>Site</dt><dd>{siteName}</dd></div><div><dt>Catalog refreshed</dt><dd>{formatDateTime(image.refreshedAt)}</dd></div></dl></section>
     </div>
   )
 }
 
-function ContextAction({ image, activities, scopedHref, onTest, onDeploy }: { image: OSImageCatalogRow; activities: OSImageVerificationActivityMap; scopedHref: (path: string) => string; onTest: (target: OSImageTarget) => void; onDeploy?: () => void }) {
+/**
+ * The row's next step: the running or blocked deployment test's Workflow, Test for a custom image no
+ * test has passed, otherwise Deploy. Testing an image is an admin's; a user who is not an admin sees
+ * such an image's Deploy disabled with the reason, since the deployment would be refused until a test
+ * passes. Deploying is Pool operate on the targets, so a user who owns no Pool gets no Deploy.
+ */
+function ContextAction({ image, activities, canManage, canDeploy, scopedHref, onTest, onDeploy }: { image: OSImageCatalogRow; activities: OSImageVerificationActivityMap; canManage: boolean; canDeploy: boolean; scopedHref: (path: string) => string; onTest: (target: OSImageTarget) => void; onDeploy?: () => void }) {
   const [deployOpen, setDeployOpen] = useState(false)
   const action = osImageContextAction(image, activities)
   if (action.kind === 'workflow') {
     const shortLabel = action.label === 'Review workflow' ? 'Review' : 'View'
     return <Tooltip content={action.label}><Button asChild className="sw-os-image-context-action" size="sm" variant={action.label === 'Review workflow' ? 'solid' : 'outline'} colorPalette={action.label === 'Review workflow' ? 'brand' : undefined}><RouterLink aria-label={action.label} to={scopedHref(`/workflows/${action.operationId}`)}>{shortLabel}<ArrowUpRight size={14} /></RouterLink></Button></Tooltip>
   }
-  if (action.kind === 'test') return <Tooltip content="Test deployment"><Button className="sw-os-image-context-action" size="sm" colorPalette="brand" aria-label="Test deployment" onClick={() => onTest(action.target)}><FlaskConical size={15} />Test</Button></Tooltip>
+  if (action.kind === 'test' && canManage) return <Tooltip content="Test deployment"><Button className="sw-os-image-context-action" size="sm" colorPalette="brand" aria-label="Test deployment" onClick={() => onTest(action.target)}><FlaskConical size={15} />Test</Button></Tooltip>
+  if (!canDeploy) return null
+  if (action.kind === 'test') {
+    const reason = 'No deployment test of this custom image has passed yet; an admin tests it before it can be deployed.'
+    return <Tooltip content={reason}><Button className="sw-os-image-context-action" size="sm" colorPalette="brand" aria-disabled aria-label={`Deploy ${image.status.name || image.id}: ${reason}`}><UploadCloud size={15} />Deploy</Button></Tooltip>
+  }
   return <><Tooltip content="Deploy OS"><Button className="sw-os-image-context-action" size="sm" colorPalette="brand" aria-label={`Deploy ${image.status.name || image.id}`} onClick={() => onDeploy ? onDeploy() : setDeployOpen(true)}><UploadCloud size={15} />Deploy</Button></Tooltip>{deployOpen && <DeployOSDialog context={{ kind: 'fixed-image', siteId: image.siteId, integrationId: image.integrationId, image }} onClose={() => setDeployOpen(false)} onLaunched={() => setDeployOpen(false)} />}</>
 }
 
@@ -327,6 +347,10 @@ interface ImagePresentationProps {
   siteName: string
   activities: OSImageVerificationActivityMap
   templatesEnabled: boolean
+  /** An admin's controls: selection, editing, testing, deleting, and templates (provisioning.md). */
+  canManage: boolean
+  /** Whether Deploy is offered: the user owns a Pool (or is an admin). */
+  canDeploy: boolean
   scopedHref: (path: string) => string
   onToggle: () => void
   onEdit: () => void
@@ -335,13 +359,13 @@ interface ImagePresentationProps {
   onDelete: () => void
 }
 
-function ImageRow({ image, checked, siteName, activities, templatesEnabled, scopedHref, onToggle, onEdit, onTest, onDeploy, onDelete }: ImagePresentationProps) {
+function ImageRow({ image, checked, siteName, activities, templatesEnabled, canManage, canDeploy, scopedHref, onToggle, onEdit, onTest, onDeploy, onDelete }: ImagePresentationProps) {
   const [expanded, setExpanded] = useState(false)
   const detailId = `os-image-details-${controlId(osImageKey(image))}`
   const displayName = image.status.name || image.id
   return <>
     <Table.Row className="sw-os-image-title-row" data-selected={checked || undefined} aria-label={`${displayName} image`}>
-      <Table.Cell rowSpan={2} className="sw-cell-center sw-os-image-col--select"><Checkbox aria-label={`Select ${displayName}`} checked={checked} onCheckedChange={onToggle} /></Table.Cell>
+      {canManage && <Table.Cell rowSpan={2} className="sw-cell-center sw-os-image-col--select"><Checkbox aria-label={`Select ${displayName}`} checked={checked} onCheckedChange={onToggle} /></Table.Cell>}
       <Table.Cell rowSpan={2} className="sw-cell-center sw-os-image-col--expand"><IconButton variant="ghost" size="xs" aria-label={`${expanded ? 'Hide' : 'Show'} details for ${displayName}`} aria-expanded={expanded} aria-controls={detailId} onClick={() => setExpanded((value) => !value)}>{expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</IconButton></Table.Cell>
       <Table.Cell colSpan={6} className="sw-os-image-title-cell"><ImageTitle image={image} /></Table.Cell>
     </Table.Row>
@@ -350,15 +374,15 @@ function ImageRow({ image, checked, siteName, activities, templatesEnabled, scop
       <Table.Cell className="sw-os-image-col--deploy-modes"><DeployModesCell image={image} activities={activities} scopedHref={scopedHref} /></Table.Cell>
       <Table.Cell className="sw-os-image-col--tags"><TagSummary tags={image.spec.tags} /></Table.Cell>
       <Table.Cell className="sw-os-image-col--default-user"><DefaultUserCell image={image} /></Table.Cell>
-      <Table.Cell className="sw-os-image-col--source"><SourceCell image={image} siteName={siteName} /></Table.Cell>
-      <Table.Cell className="sw-os-image-col--action"><HStack gap="1" wrap="nowrap"><ContextAction image={image} activities={activities} scopedHref={scopedHref} onTest={onTest} onDeploy={onDeploy} /><ImageActionsMenu image={image} templatesEnabled={templatesEnabled} scopedHref={scopedHref} onEdit={onEdit} onTest={() => onTest('disk')} onDelete={onDelete} /></HStack></Table.Cell>
+      <Table.Cell className="sw-os-image-col--source"><SourceCell image={image} siteName={siteName} canManage={canManage} /></Table.Cell>
+      <Table.Cell className="sw-os-image-col--action"><HStack gap="1" wrap="nowrap"><ContextAction image={image} activities={activities} canManage={canManage} canDeploy={canDeploy} scopedHref={scopedHref} onTest={onTest} onDeploy={onDeploy} />{canManage && <ImageActionsMenu image={image} templatesEnabled={templatesEnabled} scopedHref={scopedHref} onEdit={onEdit} onTest={() => onTest('disk')} onDelete={onDelete} />}</HStack></Table.Cell>
     </Table.Row>
-    {expanded && <Table.Row id={detailId} className="sw-os-image-detail-row"><Table.Cell colSpan={8}><ImageDetails image={image} siteName={siteName} activities={activities} scopedHref={scopedHref} /></Table.Cell></Table.Row>}
+    {expanded && <Table.Row id={detailId} className="sw-os-image-detail-row"><Table.Cell colSpan={catalogColumnCount(canManage)}><ImageDetails image={image} siteName={siteName} activities={activities} canManage={canManage} scopedHref={scopedHref} /></Table.Cell></Table.Row>}
   </>
 }
 
-function ImageCard({ image, checked, siteName, activities, templatesEnabled, scopedHref, onToggle, onEdit, onTest, onDeploy, onDelete }: ImagePresentationProps) {
-  return <ResourceCard title={<ImageTitle image={image} />} status={<Checkbox aria-label={`Select ${image.status.name || image.id}`} checked={checked} onCheckedChange={onToggle} />} selected={checked} details={<ResourceCardField label="Catalog details"><ImageDetails image={image} siteName={siteName} activities={activities} scopedHref={scopedHref} /></ResourceCardField>} actions={<><ContextAction image={image} activities={activities} scopedHref={scopedHref} onTest={onTest} onDeploy={onDeploy} /><Button size="sm" variant="outline" onClick={onEdit}><PenLine size={14} />Edit image</Button><ImageActionsMenu image={image} templatesEnabled={templatesEnabled} scopedHref={scopedHref} onTest={() => onTest('disk')} onDelete={onDelete} /></>}>
+function ImageCard({ image, checked, siteName, activities, templatesEnabled, canManage, canDeploy, scopedHref, onToggle, onEdit, onTest, onDeploy, onDelete }: ImagePresentationProps) {
+  return <ResourceCard title={<ImageTitle image={image} />} status={canManage ? <Checkbox aria-label={`Select ${image.status.name || image.id}`} checked={checked} onCheckedChange={onToggle} /> : undefined} selected={checked} details={<ResourceCardField label="Catalog details"><ImageDetails image={image} siteName={siteName} activities={activities} canManage={canManage} scopedHref={scopedHref} /></ResourceCardField>} actions={<><ContextAction image={image} activities={activities} canManage={canManage} canDeploy={canDeploy} scopedHref={scopedHref} onTest={onTest} onDeploy={onDeploy} />{canManage && <><Button size="sm" variant="outline" onClick={onEdit}><PenLine size={14} />Edit image</Button><ImageActionsMenu image={image} templatesEnabled={templatesEnabled} scopedHref={scopedHref} onTest={() => onTest('disk')} onDelete={onDelete} /></>}</>}>
     <ResourceCardField label="Image"><ImageInventoryCell image={image} /></ResourceCardField>
     <ResourceCardField label="Deploy modes"><DeployModesCell image={image} activities={activities} scopedHref={scopedHref} /></ResourceCardField>
     <ResourceCardField label="Tags"><TagSummary tags={image.spec.tags} /></ResourceCardField>
@@ -366,13 +390,28 @@ function ImageCard({ image, checked, siteName, activities, templatesEnabled, sco
   </ResourceCard>
 }
 
+/** The desktop table's columns: an admin's has the selection column in front of the other seven. */
+function catalogColumnCount(canManage: boolean): number {
+  return canManage ? 8 : 7
+}
+
 function activeFilterCount(query: OSImageInventoryQuery): number {
   return query.os.length + query.architectures.length + query.tags.length + query.integrations.length + (query.target === 'any' ? 0 : 1) + (query.readiness === 'any' ? 0 : 1)
 }
 
-/** Deployment-focused OS Image catalog with user-owned discovery metadata. */
+/**
+ * Deployment-focused OS Image catalog with user-owned discovery metadata (route `/provisioning/images`).
+ *
+ * Every signed-in user reads the same catalog, every provisioner's images of the scope: OS Images
+ * are reference data (provisioning.md), independent of the Servers a user can see. An admin manages
+ * them too — upload, edit, test, delete, bulk actions, and creating a Deployment Template — while every
+ * other user only refreshes the catalog and, when it owns a Pool, deploys an image to its own Servers.
+ */
 export function OSImageCatalogPage() {
   const { provisioning, servers } = useApp()
+  const { currentUser } = useAuth()
+  const canManage = isAdmin(currentUser)
+  const canDeploy = ownsAnyPool(currentUser)
   const { sites, siteId, scopedHref } = useSiteScope()
   const { showToast } = useToast()
   const navigate = useNavigate()
@@ -414,6 +453,7 @@ export function OSImageCatalogPage() {
   const items = useMemo(() => state.status === 'ready' ? state.catalog.images : [], [state])
   const failures = useMemo(() => state.status === 'ready' ? state.catalog.failures : [], [state])
   const provisioners = useMemo(() => state.status === 'ready' ? state.integrations : [], [state])
+  const provisionerCount = state.status === 'ready' ? state.catalog.provisionerCount : 0
   const facts = useMemo(() => osImageCatalogFacts(items, failures), [failures, items])
   const facets = useMemo(() => osImageFacetOptions(items, query), [items, query])
   const filtered = useMemo(() => items.filter((image) => matchesOSImageFocus(image, searchParams)).filter((image) => matchesOSImageInventory(image, query, activity.activities, sites)).sort((left, right) => compareOSImages(left, right, query)), [activity.activities, items, query, searchParams, sites])
@@ -447,14 +487,29 @@ export function OSImageCatalogPage() {
     const skipped = selectedImages.filter((image) => !eligible.includes(image))
     setBulk({ action, targets: eligible.map(toBulkTarget), skipped: skipped.map(toBulkTarget) })
   }
+  // Why the list is empty, most specific first. Connecting a provisioner is an admin's, so every
+  // other user is only told that none is connected yet.
+  const refreshAction = { label: 'Refresh', onClick: reload }
+  const emptyState = hasOSImageFilters(query, searchParams)
+    ? { title: 'No matching OS images', message: 'Adjust the search or catalog facets to see other images.', action: { label: 'Clear filters', onClick: clearFilters } }
+    : failures.length > 0
+      ? {
+          title: 'No provider catalog is available',
+          message: canManage ? 'Refresh the catalog or review the unavailable provider integrations.' : 'Refresh the catalog, or ask an admin about the unavailable provisioners.',
+          action: refreshAction,
+        }
+      : provisionerCount > 0
+        ? { title: 'No OS images', message: 'The connected provisioners returned no deployable OS Images.', action: refreshAction }
+        : canManage
+          ? { title: 'No provisioner connected', message: 'OS Images come from a provisioner integration.', action: { label: 'Manage integrations', onClick: () => navigate(scopedHref('/infrastructure/integrations')) } }
+          : { title: 'No provisioner connected', message: 'OS Images come from a provisioner, which an admin connects.', action: refreshAction }
 
   return <div className="console-page sw-os-image-page">
-    <PageHeader title="OS Images" subtitle="Organize deployment images and see which Disk or RAM modes each image supports." actions={<>
-      <Button variant="outline" onClick={() => navigate(scopedHref('/infrastructure/integrations'))}>Manage integrations</Button>
+    <PageHeader title="OS Images" subtitle={canManage ? 'Organize deployment images and see which Disk or RAM modes each image supports.' : 'Deployment images and the Disk or RAM modes each image supports.'} actions={<>
+      {canManage && <Button variant="outline" onClick={() => navigate(scopedHref('/infrastructure/integrations'))}>Manage integrations</Button>}
       <Button variant="outline" loading={isRefreshing} onClick={reload}><RefreshCw size={16} />Refresh</Button>
-      {uploadEnabled && <Tooltip content={provisioners.length === 0 ? 'Add a provisioner integration before uploading an image' : 'Upload a new OS image to a provisioner'}><span><Button colorPalette="brand" disabled={provisioners.length === 0} onClick={() => setUploading(true)}><Upload size={16} />Upload image</Button></span></Tooltip>}
+      {canManage && uploadEnabled && <Tooltip content={provisioners.length === 0 ? 'Add a provisioner integration before uploading an image' : 'Upload a new OS image to a provisioner'}><span><Button colorPalette="brand" disabled={provisioners.length === 0} onClick={() => setUploading(true)}><Upload size={16} />Upload image</Button></span></Tooltip>}
     </>} />
-    <ProvisioningTabs />
     {state.status === 'loading' && <LoadingState rows={7} />}
     {state.status === 'error' && <ErrorState message={state.message} requestId={state.requestId} onRetry={reload} />}
     {state.status === 'ready' && <>
@@ -467,12 +522,12 @@ export function OSImageCatalogPage() {
           <PopoverButton title="Display options" trigger={<Button variant="outline" size="sm"><SlidersHorizontal size={16} />Display</Button>}><DisplayPanel query={query} density={density} pageSize={pageSize} onGroup={(value) => updateParams((next) => { if (value === 'none') next.delete('group'); else next.set('group', value); next.delete('page') })} onSort={(value) => updateParams((next) => { if (value === 'os') next.delete('sort'); else next.set('sort', value); next.delete('page') })} onDirection={(value) => updateParams((next) => { if (value === 'asc') next.delete('dir'); else next.set('dir', value); next.delete('page') })} onDensity={(value) => { setDensity(value); writePreference(DENSITY_KEY, value) }} onPageSize={(value) => { setPageSize(value); writePreference(PAGE_SIZE_KEY, value); updateParams((next) => next.delete('page')) }} /></PopoverButton>
         </Flex>
       </div>}>
-        <SelectionToolbar count={selectedImages.length} onClear={clearSelection}><Button size="sm" colorPalette="red" disabled={!selectedImages.some((image) => image.status.providerOsSystem === 'custom')} onClick={() => openBulk('delete')}><Trash2 size={15} />Delete</Button><Button size="sm" variant="outline" disabled={!selectedImages.some(hasOSImageMetadata)} onClick={() => openBulk('reset-overrides')}><RotateCcw size={15} />Restore original details</Button>{selected.size < filtered.length && <Button size="sm" variant="plain" onClick={() => setMany(filtered.map(osImageKey), true)}>Select all {filtered.length} matches</Button>}</SelectionToolbar>
+        {canManage && <SelectionToolbar count={selectedImages.length} onClear={clearSelection}><Button size="sm" colorPalette="red" disabled={!selectedImages.some((image) => image.status.providerOsSystem === 'custom')} onClick={() => openBulk('delete')}><Trash2 size={15} />Delete</Button><Button size="sm" variant="outline" disabled={!selectedImages.some(hasOSImageMetadata)} onClick={() => openBulk('reset-overrides')}><RotateCcw size={15} />Restore original details</Button>{selected.size < filtered.length && <Button size="sm" variant="plain" onClick={() => setMany(filtered.map(osImageKey), true)}>Select all {filtered.length} matches</Button>}</SelectionToolbar>}
         {state.refreshError && <Alert status="warning" title="Catalog refresh failed">Showing the last successful catalog. {state.refreshError}</Alert>}
         {activity.refreshError && <Alert status="warning" title="Deployment test activity may be stale">{activity.refreshError}</Alert>}
         {failures.map((failure) => <CatalogFailureAlert key={failure.integrationId} failure={failure} />)}
-        {filtered.length === 0 ? <div className="sw-os-image-empty"><EmptyState title={hasOSImageFilters(query, searchParams) ? 'No matching OS images' : failures.length > 0 ? 'No provider catalog is available' : provisioners.length === 0 ? 'No provisioner connected' : 'No OS images'} message={hasOSImageFilters(query, searchParams) ? 'Adjust the search or catalog facets to see other images.' : failures.length > 0 ? 'Refresh the catalog or review the unavailable provider integrations.' : provisioners.length === 0 ? 'OS Images come from a provisioner integration.' : 'The connected provisioners returned no deployable OS Images.'} action={hasOSImageFilters(query, searchParams) ? { label: 'Clear filters', onClick: clearFilters } : provisioners.length === 0 ? { label: 'Manage integrations', onClick: () => navigate(scopedHref('/infrastructure/integrations')) } : { label: 'Refresh', onClick: reload }} /></div> : <>
-          <ResponsiveDataView desktop={<StickyTableFrame><Table.Root size={density === 'compact' ? 'sm' : 'md'} aria-label="OS images" className="sw-os-image-table"><Table.Header><Table.Row><Table.ColumnHeader className="sw-cell-center sw-os-image-col--select" aria-label="Row selection"><Checkbox aria-label="Select all on this page" checked={allPageSelected ? true : somePageSelected ? 'indeterminate' : false} onCheckedChange={() => setMany(pageKeys, !allPageSelected)} /></Table.ColumnHeader><Table.ColumnHeader className="sw-cell-center sw-os-image-col--expand" aria-label="Row details" /><Table.ColumnHeader className="sw-os-image-col--identity">Image</Table.ColumnHeader><Table.ColumnHeader className="sw-os-image-col--deploy-modes">Deploy modes</Table.ColumnHeader><Table.ColumnHeader className="sw-os-image-col--tags">Tags</Table.ColumnHeader><Table.ColumnHeader className="sw-os-image-col--default-user">Default user</Table.ColumnHeader><Table.ColumnHeader className="sw-os-image-col--source">Source</Table.ColumnHeader><Table.ColumnHeader className="sw-os-image-col--action" aria-label="Image actions" /></Table.Row></Table.Header><Table.Body>{groups.map((group) => <CatalogGroupRows key={group.key || 'all'} group={group} grouped={query.group !== 'none'} selected={selected} sites={sites} activities={activity.activities} templatesEnabled={templatesEnabled} scopedHref={scopedHref} onToggle={(image) => toggleOne(osImageKey(image))} onEdit={setEditing} onTest={(image, target) => setTesting({ image, target })} onDelete={setDeleting} />)}</Table.Body></Table.Root></StickyTableFrame>} mobile={<div className="sw-os-image-card-list" aria-label="OS images">{groups.map((group) => <section key={group.key || 'all'}>{query.group !== 'none' && <HStack className="sw-os-image-mobile-group"><Text fontWeight="semibold">{group.label}</Text><Badge variant="subtle">{group.items.length}</Badge></HStack>}<div className="sw-resource-card-list">{group.items.map((image) => <ImageCard key={osImageKey(image)} image={image} checked={selected.has(osImageKey(image))} siteName={siteName(image.siteId)} activities={activity.activities} templatesEnabled={templatesEnabled} scopedHref={scopedHref} onToggle={() => toggleOne(osImageKey(image))} onEdit={() => setEditing(image)} onTest={(target) => setTesting({ image, target })} onDelete={() => setDeleting(image)} />)}</div></section>)}</div>} />
+        {filtered.length === 0 ? <div className="sw-os-image-empty"><EmptyState {...emptyState} /></div> : <>
+          <ResponsiveDataView desktop={<StickyTableFrame><Table.Root size={density === 'compact' ? 'sm' : 'md'} aria-label="OS images" className="sw-os-image-table"><Table.Header><Table.Row>{canManage && <Table.ColumnHeader className="sw-cell-center sw-os-image-col--select" aria-label="Row selection"><Checkbox aria-label="Select all on this page" checked={allPageSelected ? true : somePageSelected ? 'indeterminate' : false} onCheckedChange={() => setMany(pageKeys, !allPageSelected)} /></Table.ColumnHeader>}<Table.ColumnHeader className="sw-cell-center sw-os-image-col--expand" aria-label="Row details" /><Table.ColumnHeader className="sw-os-image-col--identity">Image</Table.ColumnHeader><Table.ColumnHeader className="sw-os-image-col--deploy-modes">Deploy modes</Table.ColumnHeader><Table.ColumnHeader className="sw-os-image-col--tags">Tags</Table.ColumnHeader><Table.ColumnHeader className="sw-os-image-col--default-user">Default user</Table.ColumnHeader><Table.ColumnHeader className="sw-os-image-col--source">Source</Table.ColumnHeader><Table.ColumnHeader className="sw-os-image-col--action" aria-label="Image actions" /></Table.Row></Table.Header><Table.Body>{groups.map((group) => <CatalogGroupRows key={group.key || 'all'} group={group} grouped={query.group !== 'none'} selected={selected} sites={sites} activities={activity.activities} templatesEnabled={templatesEnabled} canManage={canManage} canDeploy={canDeploy} scopedHref={scopedHref} onToggle={(image) => toggleOne(osImageKey(image))} onEdit={setEditing} onTest={(image, target) => setTesting({ image, target })} onDelete={setDeleting} />)}</Table.Body></Table.Root></StickyTableFrame>} mobile={<div className="sw-os-image-card-list" aria-label="OS images">{groups.map((group) => <section key={group.key || 'all'}>{query.group !== 'none' && <HStack className="sw-os-image-mobile-group"><Text fontWeight="semibold">{group.label}</Text><Badge variant="subtle">{group.items.length}</Badge></HStack>}<div className="sw-resource-card-list">{group.items.map((image) => <ImageCard key={osImageKey(image)} image={image} checked={selected.has(osImageKey(image))} siteName={siteName(image.siteId)} activities={activity.activities} templatesEnabled={templatesEnabled} canManage={canManage} canDeploy={canDeploy} scopedHref={scopedHref} onToggle={() => toggleOne(osImageKey(image))} onEdit={() => setEditing(image)} onTest={(target) => setTesting({ image, target })} onDelete={() => setDeleting(image)} />)}</div></section>)}</div>} />
           <div className="sw-os-image-pagination"><Pagination total={totalPages} value={safePage} onChange={(page) => updateParams((next) => { if (page > 1) next.set('page', String(page)); else next.delete('page') })} /></div>
         </>}
       </InventorySurface>
@@ -489,18 +544,20 @@ function CatalogFailureAlert({ failure }: { failure: OSImageCatalogFailure }) {
   return <Alert status="warning" title={`${failure.integrationName} image catalog unavailable`}><FailureMessage failure={failure} /></Alert>
 }
 
-function CatalogGroupRows({ group, grouped, selected, sites, activities, templatesEnabled, scopedHref, onToggle, onEdit, onTest, onDelete }: {
+function CatalogGroupRows({ group, grouped, selected, sites, activities, templatesEnabled, canManage, canDeploy, scopedHref, onToggle, onEdit, onTest, onDelete }: {
   group: ReturnType<typeof groupOSImages>[number]
   grouped: boolean
   selected: ReadonlySet<string>
   sites: readonly Site[]
   activities: OSImageVerificationActivityMap
   templatesEnabled: boolean
+  canManage: boolean
+  canDeploy: boolean
   scopedHref: (path: string) => string
   onToggle: (image: OSImageCatalogRow) => void
   onEdit: (image: OSImageCatalogRow) => void
   onTest: (image: OSImageCatalogRow, target: OSImageTarget) => void
   onDelete: (image: OSImageCatalogRow) => void
 }) {
-  return <>{grouped && <Table.Row className="sw-os-image-group-row"><Table.Cell colSpan={8}><HStack><strong>{group.label}</strong><Badge variant="subtle">{group.items.length}</Badge></HStack></Table.Cell></Table.Row>}{group.items.map((image) => <ImageRow key={osImageKey(image)} image={image} checked={selected.has(osImageKey(image))} siteName={sites.find((site) => site.id === image.siteId)?.name ?? image.siteId} activities={activities} templatesEnabled={templatesEnabled} scopedHref={scopedHref} onToggle={() => onToggle(image)} onEdit={() => onEdit(image)} onTest={(target) => onTest(image, target)} onDelete={() => onDelete(image)} />)}</>
+  return <>{grouped && <Table.Row className="sw-os-image-group-row"><Table.Cell colSpan={catalogColumnCount(canManage)}><HStack><strong>{group.label}</strong><Badge variant="subtle">{group.items.length}</Badge></HStack></Table.Cell></Table.Row>}{group.items.map((image) => <ImageRow key={osImageKey(image)} image={image} checked={selected.has(osImageKey(image))} siteName={sites.find((site) => site.id === image.siteId)?.name ?? image.siteId} activities={activities} templatesEnabled={templatesEnabled} canManage={canManage} canDeploy={canDeploy} scopedHref={scopedHref} onToggle={() => onToggle(image)} onEdit={() => onEdit(image)} onTest={(target) => onTest(image, target)} onDelete={() => onDelete(image)} />)}</>
 }

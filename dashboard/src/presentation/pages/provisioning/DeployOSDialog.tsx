@@ -24,6 +24,7 @@ import type {
 import { DEPLOY_TARGET_LABELS, DEPLOYMENT_NETWORK_MODE_LABELS } from '@/domain/provisioning/types'
 import { serverDisplayName, type Server } from '@/domain/server/types'
 import type { Integration, OSImage } from '@/domain/site/types'
+import { canOperatePool, isAdmin } from '@/domain/user/access'
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
@@ -35,6 +36,7 @@ import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { DescriptionList } from '@/presentation/components/ui/description-list'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import { useViewWorkflowToastAction } from '@/presentation/hooks/useViewWorkflowToastAction'
 import { useServerWorkingSet } from '@/presentation/pages/servers/useServerWorkingSet'
@@ -67,15 +69,26 @@ interface DeployOSDialogProps {
   onLaunched: (operationId: string, targetIds: readonly string[]) => void
 }
 
+/**
+ * The Site's provisioner Integrations as an admin's read returned them, only to name the provisioner
+ * and refuse a disabled one early. `integrations` is `null` when they are not read (a Pool owner may
+ * not read Integrations) or the read failed; the deployment then goes on without them, because the
+ * provisioner comes from the targets and the backend checks it when it accepts the deployment.
+ */
 type ResourceState =
   | { status: 'loading' }
-  | ({ status: 'error' } & DisplayedFailure)
-  | { status: 'ready'; integrations: Integration[] }
+  | { status: 'ready'; integrations: Integration[] | null }
+
+/** The provisioner a deployment goes through; `name` is empty when its Integration was not read. */
+interface DeploymentProvisioner {
+  id: string
+  name: string
+}
 
 type ProvisionerResolution =
   | { status: 'loading' }
   | ({ status: 'error'; title: string } & DisplayedFailure)
-  | { status: 'ready'; integration: Integration }
+  | { status: 'ready'; provisioner: DeploymentProvisioner }
 
 type InspectionState =
   | { status: 'idle' }
@@ -160,56 +173,54 @@ function DialogWizardSection({
   )
 }
 
+/**
+ * The provisioner a deployment goes through, taken from what the launch already names: the fixed
+ * image's provisioner, or the one every fixed target records as its source. Targets of several
+ * provisioners or of another Site cannot be deployed together. When the Site's Integrations were
+ * read (admins), they name the provisioner and refuse a missing or disabled one before any step;
+ * otherwise the backend's own check when it accepts the deployment is the guard.
+ */
 function resolveProvisioner(
   context: ContextualLaunchContext,
   state: ResourceState,
 ): ProvisionerResolution {
   if (state.status === 'loading') return { status: 'loading' }
-  if (state.status === 'error') {
+  const sources = context.kind === 'fixed-image'
+    ? new Set([context.integrationId])
+    : new Set(context.targets.map((server) => server.status.source.integrationId))
+  const otherSite = context.kind === 'fixed-targets' &&
+    context.targets.some((server) => server.status.source.siteId !== context.siteId)
+  const [id] = [...sources]
+  if (otherSite || sources.size !== 1 || !id) {
     return {
       status: 'error',
-      title: 'Provisioner configuration unavailable',
-      message: state.message,
-      requestId: state.requestId,
+      title: 'Inconsistent deployment source',
+      message: 'The selected Servers belong to different provisioners. Deploy each provisioner\'s Servers separately.',
     }
   }
-  if (state.integrations.length === 0) {
+  const integration = state.integrations?.find((candidate) => candidate.id === id)
+  if (state.integrations?.length === 0) {
     return {
       status: 'error',
       title: 'Connect a provisioner',
       message: 'This Site has no provisioner Integration. Connect one before deploying an OS.',
     }
   }
-  if (state.integrations.length > 1) {
+  if (state.integrations && !integration) {
     return {
       status: 'error',
-      title: 'Site configuration conflict',
-      message: 'OS deployment requires exactly one provisioner Integration for this Site.',
+      title: 'Inconsistent deployment source',
+      message: 'The selected Server or OS image does not belong to a provisioner of this Site.',
     }
   }
-  const integration = state.integrations[0]
-  if (!integration.enabled) {
+  if (integration && !integration.enabled) {
     return {
       status: 'error',
       title: 'Enable the Site provisioner',
       message: `${integration.name} is disabled. Enable it before deploying an OS.`,
     }
   }
-  const sourceMismatch = context.kind === 'fixed-image'
-    ? context.integrationId !== integration.id
-    : context.targets.some(
-        (server) =>
-          server.status.source.siteId !== context.siteId ||
-          server.status.source.integrationId !== integration.id,
-      )
-  if (sourceMismatch) {
-    return {
-      status: 'error',
-      title: 'Inconsistent deployment source',
-      message: 'The selected Server or OS image does not belong to the Site\'s configured provisioner.',
-    }
-  }
-  return { status: 'ready', integration }
+  return { status: 'ready', provisioner: { id, name: integration?.name ?? '' } }
 }
 
 /**
@@ -222,13 +233,17 @@ function resolveProvisioner(
  */
 export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogProps) {
   const { provisioning, sites: siteRepository } = useApp()
+  const { currentUser } = useAuth()
+  // Only an admin may read Integrations (sites-integrations.md); a Pool owner deploys without them.
+  const admin = isAdmin(currentUser)
   const navigate = useNavigate()
   const { showToast } = useToast()
   const viewWorkflow = useViewWorkflowToastAction()
   const templatesEnabled = useExperimentalFeature('deploymentTemplates')
   const workingSet = useServerWorkingSet({ siteId: context.siteId, includeAbsent: true })
-  const [resourceNonce, setResourceNonce] = useState(0)
-  const [resourceState, setResourceState] = useState<ResourceState>({ status: 'loading' })
+  const [resourceState, setResourceState] = useState<ResourceState>(
+    admin ? { status: 'loading' } : { status: 'ready', integrations: null },
+  )
   const [images, setImages] = useState<OSImage[]>(
     context.kind === 'fixed-image' ? [context.image] : [],
   )
@@ -270,27 +285,29 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
   const scrollViewportRef = useRef<HTMLDivElement>(null)
   const previousStepIdRef = useRef(currentStepId)
 
+  // An admin's read of the Site's provisioners only names the provisioner and catches a disabled
+  // one early; a failed read is treated like no read, so the deployment never waits on it.
   useEffect(() => {
+    if (!admin) return
     let cancelled = false
-    setResourceState({ status: 'loading' })
     siteRepository
       .listIntegrations({ siteId: context.siteId, kind: 'provisioner' })
       .then((integrations) => {
         if (!cancelled) setResourceState({ status: 'ready', integrations })
       })
-      .catch((error: Error) => {
-        if (!cancelled) setResourceState({ status: 'error', ...failureOf(error, 'The Site provisioner could not be read.') })
+      .catch(() => {
+        if (!cancelled) setResourceState({ status: 'ready', integrations: null })
       })
     return () => {
       cancelled = true
     }
-  }, [context.siteId, resourceNonce, siteRepository])
+  }, [admin, context.siteId, siteRepository])
 
   const resolution = useMemo(
     () => resolveProvisioner(context, resourceState),
     [context, resourceState],
   )
-  const integration = resolution.status === 'ready' ? resolution.integration : undefined
+  const integration = resolution.status === 'ready' ? resolution.provisioner : undefined
   const resolvedIntegrationId = integration?.id ?? ''
 
   useEffect(() => {
@@ -336,16 +353,19 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
     () => servers.filter((server) => selected.has(server.id)),
     [selected, servers],
   )
+  // Deploying is Pool operate on every target, so a user who is not an admin chooses only among the
+  // Servers of the Pools it owns.
   const availableServers = useMemo(
     () => integration
       ? servers.filter(
           (server) =>
             server.status.source.siteId === context.siteId &&
             server.status.source.integrationId === integration.id &&
-            serverIsSelectable(server),
+            serverIsSelectable(server) &&
+            canOperatePool(currentUser, server.spec.poolId),
         )
       : [],
-    [context.siteId, integration, servers],
+    [context.siteId, currentUser, integration, servers],
   )
   const normalizedTargetQuery = targetQuery.trim().toLocaleLowerCase()
   const filteredAvailableServers = useMemo(
@@ -722,7 +742,9 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
             </div>
             {availableServers.length === 0 ? (
               <div className="sw-deploy-target-picker__empty">
-                No ready, unlocked Servers are available for this provisioner.
+                {admin
+                  ? 'No ready, unlocked Servers are available for this provisioner.'
+                  : 'No ready, unlocked Server of a Pool you own uses this provisioner.'}
               </div>
             ) : filteredAvailableServers.length === 0 ? (
               <div className="sw-deploy-target-picker__empty">
@@ -937,7 +959,7 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
               emptyText="-"
               items={[
                 { label: 'Site', value: context.siteId },
-                { label: 'Provisioner', value: integration?.name ?? '-' },
+                { label: 'Provisioner', value: integration?.name || 'The Servers’ own provisioner' },
                 { label: 'Configuration', value: 'Custom' },
                 { label: 'Image', value: selectedImage?.status.name || effectiveImageId },
                 {
@@ -1106,20 +1128,13 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
         status="warning"
         title={resolution.title}
         actions={
-          <HStack>
-            <Button variant="outline" size="sm" onClick={manageIntegrations}>
-              Manage integrations
-            </Button>
-            {resourceState.status === 'error' && (
-              <Button
-                variant="plain"
-                size="sm"
-                onClick={() => setResourceNonce((value) => value + 1)}
-              >
-                Retry
+          admin ? (
+            <HStack>
+              <Button variant="outline" size="sm" onClick={manageIntegrations}>
+                Manage integrations
               </Button>
-            )}
-          </HStack>
+            </HStack>
+          ) : undefined
         }
       >
         <FailureMessage failure={resolution} />

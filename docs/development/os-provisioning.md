@@ -141,6 +141,9 @@ OS Image Catalog、OS Image Upload、OS Image Metadata。
 - 目錄每次依 `integrationId` live read，再合併 metadata：每個 image 是 `{id, architecture, spec, status}`，
   `spec` 是 metadata，`status` 帶 effective 值（`metadata ?? provider`）、`provider*` 原值與驗證結果。`id` 與
   `architecture` 是可部署 artifact 的身分，不可覆寫。
+- OS Image 是共用的參考資料：任何 User 都能讀，與他能不能看到某台 Server 無關。列出 Integration 是 admin 的路由，所以
+  另有依 Site 讀取的 `GET /image-catalogs`：一次讀 Site 的每個 provisioner 的目錄（最多同時兩個），每個目錄只帶
+  Integration 的 id、名稱與 Site，讀不到的目錄帶原因而不讓整個請求失敗。
 - 目錄只含 provisioner 接受部署的 resource（MAAS 會排除同一 API 回傳的 PXE 與 bootloader artifact）。
   `sizeBytes` 屬於 provider 的 artifact，不進 metadata。
 - metadata 的欄位與 default user 規則見 glossary [OS Image](glossaries/terms/os-image.md)。

@@ -143,6 +143,20 @@ export interface OSImageStatus {
 }
 
 /**
+ * One provisioner Integration's OS Image catalog as the Site-wide read returns it
+ * (provisioning.md "Image catalogs of a Site"): the Integration's id, name, and Site only — any user
+ * may read it, while the Integration itself is an admin read — and its images, or why they could not
+ * be read (`error`, a sentence for a person; `null` when they were, `images` then empty).
+ */
+export interface ProvisionerImageCatalog {
+  integrationId: string
+  integrationName: string
+  siteId: string
+  images: OSImage[]
+  error: string | null
+}
+
+/**
  * An operating system a provisioner can currently deploy, in the shared spec/status shape.
  * `id` and `architecture` identify the provider-owned deployable artifact and are never
  * overridable.

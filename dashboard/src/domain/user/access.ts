@@ -26,6 +26,11 @@ export function canOperatePool(user: User | null, poolId: string | null | undefi
   return isAdmin(user) || poolRoleOf(user, poolId) === 'owner'
 }
 
+/** Whether the user may manage a Platform: an admin, or an owner of the Pool its nodes are in. */
+export function canOperatePlatform(user: User | null, platform: { status: { poolId?: string | null } }): boolean {
+  return canOperatePool(user, platform.status.poolId)
+}
+
 /** Whether the user owns at least one Pool, which decides whether deploy and install entry points are offered. */
 export function ownsAnyPool(user: User | null): boolean {
   return isAdmin(user) || (user?.memberships.some((membership) => membership.role === 'owner') ?? false)

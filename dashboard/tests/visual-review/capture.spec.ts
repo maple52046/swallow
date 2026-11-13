@@ -21,7 +21,8 @@ const visualCases = [
   { name: 'workflow-list', path: '/workflows?site=site-a', heading: 'Activity', authenticated: true, representative: false },
   { name: 'change-plans', path: '/change-plans?site=site-a', heading: 'Activity', authenticated: true, representative: false },
   { name: 'os-image-list', path: '/provisioning/images?site=site-a', heading: 'OS Images', authenticated: true, representative: false },
-  { name: 'os-image-templates', path: '/provisioning/templates?site=site-a', heading: 'OS Images', authenticated: true, representative: false },
+  { name: 'os-image-list-owner', path: '/provisioning/images?site=site-a', heading: 'OS Images', authenticated: true, representative: false },
+  { name: 'deployment-templates', path: '/provisioning/templates?site=site-a', heading: 'Deployment Templates', authenticated: true, representative: false },
   { name: 'boot-isos', path: '/infrastructure/boot-isos?site=site-a', heading: 'Infrastructure', authenticated: true, representative: false },
   { name: 'boot-isos-needs-rebuild', path: '/infrastructure/boot-isos?site=site-a', heading: 'Infrastructure', authenticated: true, representative: false },
   { name: 'software-catalog', path: '/software?site=site-a', heading: 'Software', authenticated: true, representative: false },
@@ -67,12 +68,20 @@ const visualCases = [
   { name: 'pools', path: '/pools?site=site-a', heading: 'Pools', authenticated: true, representative: false },
   { name: 'pool-access', path: '/pools/pool-research?site=site-a', heading: 'research', authenticated: true, representative: false },
   { name: 'pool-access-member', path: '/pools/pool-research?site=site-a', heading: 'research', authenticated: true, representative: false },
+  { name: 'pools-owner-add-member', path: '/pools?site=site-a', heading: 'Pools', authenticated: true, representative: false },
+  { name: 'servers-empty-member', path: '/servers?site=site-a', heading: 'Servers', authenticated: true, representative: false },
+  { name: 'servers-member', path: '/servers?site=site-a', heading: 'Servers', authenticated: true, representative: false },
+  { name: 'server-detail-owner', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
+  { name: 'server-storage-member', path: '/servers/srv-1/storage?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
+  { name: 'ssh-keys-member', path: '/account/ssh-keys?site=site-a', heading: 'SSH keys', authenticated: true, representative: false },
+  { name: 'platform-detail-member', path: '/platforms/platform-a/overview?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
+  { name: 'change-plans-member', path: '/change-plans?site=site-a', heading: 'Activity', authenticated: true, representative: false },
   { name: 'account-password', path: '/account/password?site=site-a', heading: 'Change password', authenticated: true, representative: false },
 ] as const
 
 /** Cases whose header carries tabs (an area's or a detail page's); see the phone `-top` capture. */
 const TAB_HEADER_CASES: ReadonlySet<string> = new Set([
-  'workflow-list', 'change-plans', 'os-image-list', 'os-image-templates', 'boot-isos', 'infrastructure', 'infrastructure-zones',
+  'workflow-list', 'change-plans', 'boot-isos', 'infrastructure', 'infrastructure-zones',
   'server-detail', 'platform-detail', 'platform-detail-kubernetes-cluster', 'platform-detail-slurm-deployed',
   'validation-runs', 'validation-suites', 'validation-schedules',
 ])
@@ -161,8 +170,28 @@ test.describe('dashboard visual review', () => {
 
       await installApiFixtures(page, {
         signedIn: visualCase.authenticated,
-        // A Pool member sees the Pool's access page read-only (decision 082).
+        // A Pool member sees the Pool's access page read-only (decision 082), an owner adds members
+        // from the Pools page, and a user whose Pools hold no Servers sees only that none is there.
         ...(visualCase.name === 'pool-access-member' ? { identity: 'member' as const } : {}),
+        ...(visualCase.name === 'pools-owner-add-member' ? { identity: 'owner' as const } : {}),
+        ...(visualCase.name === 'servers-empty-member' ? { identity: 'member' as const, fleetSize: 0, noProvisioners: true } : {}),
+        // An owner and a member of pool-research, which holds srv-1 and srv-2: the owner operates
+        // them without the admin-only controls, the member only reads them.
+        ...(['servers-member', 'server-storage-member', 'ssh-keys-member', 'platform-detail-member', 'change-plans-member'].includes(visualCase.name)
+          ? { identity: 'member' as const }
+          : {}),
+        ...(['platform-detail-member', 'change-plans-member'].includes(visualCase.name)
+          ? { platformPools: { 'platform-a': 'pool-research', 'platform-slurm': 'pool-research' } }
+          : {}),
+        ...(visualCase.name === 'server-detail-owner' ? { identity: 'owner' as const } : {}),
+        // An owner reads the catalog of its Servers' provisioner and deploys only, with a custom
+        // image no test has passed to show the disabled Deploy.
+        ...(visualCase.name === 'os-image-list-owner'
+          ? { identity: 'owner' as const, untestedCustomImage: true, serverPlacements: { 'srv-1': { poolId: 'pool-research' } } }
+          : {}),
+        ...(['servers-member', 'server-storage-member', 'server-detail-owner'].includes(visualCase.name)
+          ? { serverPlacements: { 'srv-1': { poolId: 'pool-research' }, 'srv-2': { poolId: 'pool-research' } } }
+          : {}),
         // One Server in each health state: srv-1 N/A, srv-2 up, srv-3 unknown, srv-4 down.
         ...(visualCase.name === 'servers'
           ? {
@@ -402,6 +431,13 @@ test.describe('dashboard visual review', () => {
         await manager.getByRole('button', { name: 'Delete 2 tags' }).click()
         await expect(page.getByRole('alertdialog', { name: 'Delete 2 tags?' }).getByRole('button', { name: 'Cancel' })).toBeFocused()
         await capture(page, testInfo, `${visualCase.name}-bulk-delete-confirm`, false)
+      }
+      // The owner's add-member dialog opened from the Pools page, with the accounts it may pick.
+      if (visualCase.name === 'pools-owner-add-member') {
+        await page.getByRole('button', { name: 'Add a member to research' }).first().click()
+        const dialog = page.getByRole('dialog', { name: 'Add a member to research' })
+        await expect(dialog.getByRole('group', { name: 'Matching accounts' })).toBeVisible()
+        await capture(page, testInfo, `${visualCase.name}-dialog`, false)
       }
       // The full mobile page is too long to read at its own scale; the changed card is captured too.
       if (visualCase.name === 'server-detail-vm-boot-media') {

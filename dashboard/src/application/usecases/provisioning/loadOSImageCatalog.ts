@@ -1,6 +1,5 @@
 import type { ProvisioningRepository } from '@/application/ports/ProvisioningRepository'
-import type { RequestFailure } from '@/application/ports/RequestFailure'
-import type { Integration, OSImage } from '@/domain/site/types'
+import type { OSImage } from '@/domain/site/types'
 
 export interface OSImageCatalogRow extends OSImage {
   integrationId: string
@@ -17,57 +16,52 @@ export interface OSImageCatalogFailure {
   integrationId: string
   integrationName: string
   message: string
-  /** The request ID of the failed catalog read, when the API answered with one. */
+  /**
+   * The request ID of the failed catalog read, when the API answered with one. The Site-wide read
+   * reports a provisioner's failure inside a successful response, so it carries none.
+   */
   requestId?: string
 }
 
+/**
+ * Every provisioner's images of the scope as catalog rows, the provisioners whose catalogs could
+ * not be read, and how many provisioners the scope has (zero means none is connected, which is
+ * different from provisioners that list no image).
+ */
 export interface OSImageCatalog {
   images: OSImageCatalogRow[]
   failures: OSImageCatalogFailure[]
+  provisionerCount: number
 }
 
-/** Loads live provider catalogs with at most two requests in flight. */
+/**
+ * Loads the OS Image catalog of every provisioner of `siteId` (of every Site when omitted) through
+ * the one Site-wide reference read, so every user sees every image whatever Servers it can see.
+ * Each image becomes a row that carries its provisioner's id, name, and Site; a provisioner whose
+ * catalog could not be read becomes a failure with the API's message. A failed request rejects.
+ */
 export async function loadOSImageCatalog(
   repository: ProvisioningRepository,
-  integrations: Integration[],
+  siteId?: string,
 ): Promise<OSImageCatalog> {
+  const catalogs = await repository.listOSImageCatalogs(siteId)
+  const refreshedAt = new Date().toISOString()
   const images: OSImageCatalogRow[] = []
   const failures: OSImageCatalogFailure[] = []
-  let cursor = 0
-
-  const worker = async () => {
-    for (;;) {
-      const index = cursor
-      cursor += 1
-      if (index >= integrations.length) return
-      const integration = integrations[index]
-      try {
-        const providerImages = await repository.listOSImages(integration.id)
-        const refreshedAt = new Date().toISOString()
-        for (const image of providerImages) {
-          images.push({
-            ...image,
-            integrationId: integration.id,
-            integrationName: integration.name,
-            siteId: integration.siteId,
-            refreshedAt,
-          })
-        }
-      } catch (error) {
-        failures.push({
-          integrationId: integration.id,
-          integrationName: integration.name,
-          message: error instanceof Error ? error.message : 'Provider unavailable.',
-          // Structural read through the port: the adapter's error class is not visible here.
-          requestId: error instanceof Error ? (error as Partial<RequestFailure>).requestId : undefined,
-        })
-      }
+  for (const catalog of catalogs) {
+    if (catalog.error !== null) {
+      failures.push({ integrationId: catalog.integrationId, integrationName: catalog.integrationName, message: catalog.error })
+      continue
+    }
+    for (const image of catalog.images) {
+      images.push({
+        ...image,
+        integrationId: catalog.integrationId,
+        integrationName: catalog.integrationName,
+        siteId: catalog.siteId,
+        refreshedAt,
+      })
     }
   }
-
-  await Promise.all(Array.from(
-    { length: Math.min(2, integrations.length) },
-    () => worker(),
-  ))
-  return { images, failures }
+  return { images, failures, provisionerCount: catalogs.length }
 }

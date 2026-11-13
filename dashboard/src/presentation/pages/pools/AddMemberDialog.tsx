@@ -1,7 +1,7 @@
-import { useState } from 'react'
-import { Button, Field, Input, Stack, Text } from '@chakra-ui/react'
+import { useEffect, useState } from 'react'
+import { Button, Field, HStack, Input, Stack, Text } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
-import type { PoolAccessPolicy, SudoSetting } from '@/domain/access/accounts'
+import type { PoolAccessPolicy, PoolMemberCandidate, SudoSetting } from '@/domain/access/accounts'
 import type { PoolRole } from '@/domain/user/types'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
@@ -13,18 +13,31 @@ import { POOL_ROLE_CHOICES, sudoSettingOptions, toPoolRole, toSudoSetting } from
 interface AddMemberDialogProps {
   poolId: string
   poolName: string
-  /** The Pool's defaults, which the "Pool default" choices name. */
-  policy: PoolAccessPolicy
+  /**
+   * The Pool's defaults, which the "Pool default" choices name. A caller that has not read them
+   * (the Pools list) omits them, and the dialog reads them itself.
+   */
+  policy?: PoolAccessPolicy
   onClose: () => void
   /** Called after the member is added, with the toast title to show. */
   onAdded: (title: string) => void
 }
 
+/** How long typing pauses before the matching accounts are read again. */
+const CANDIDATE_DEBOUNCE_MS = 250
+
+/** The matching accounts as the dialog last read them; `null` before the first answer. */
+type CandidateState = { query: string; items: readonly PoolMemberCandidate[] } | null
+
 /**
- * Adds an existing User to a Pool (pool-access.md `POST members`). Owners cannot list Users (that is
- * an admin read), so the username is typed; a name that is not a User comes back as `not_found` and
- * an existing member as `conflict`, both keeping the dialog open with the API's reason. The sudo
- * overrides start at the Pool default and are hidden for an owner, who always has sudo.
+ * Adds an existing User to a Pool (pool-access.md `POST members`), from the Pool's members page or
+ * from its row on the Pools page. Owners cannot list Users (that is an admin read), so the dialog
+ * offers the accounts that are not members yet from `member-candidates` (at most 20, filtered by
+ * what is typed, re-read after a short pause); picking one fills the username, which can also be
+ * typed. A name that is not a User comes back as `not_found` and an existing member as `conflict`,
+ * both keeping the dialog open with the API's reason. A failed candidate read only hides the
+ * suggestions. The sudo overrides start at the Pool default and are hidden for an owner, who always
+ * has sudo.
  */
 export function AddMemberDialog({ poolId, poolName, policy, onClose, onAdded }: AddMemberDialogProps) {
   const { poolAccess } = useApp()
@@ -34,7 +47,49 @@ export function AddMemberDialog({ poolId, poolName, policy, onClose, onAdded }: 
   const [sudoPasswordless, setSudoPasswordless] = useState<SudoSetting>('inherit')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<DisplayedFailure | null>(null)
+  const [loadedPolicy, setLoadedPolicy] = useState<PoolAccessPolicy | null>(null)
+  const [candidates, setCandidates] = useState<CandidateState>(null)
   const name = username.trim()
+  const defaults = policy ?? loadedPolicy
+
+  // Reads the Pool's defaults once when the caller did not pass them; until then the "Pool default"
+  // choices read "no", the zero value of a Pool without stored defaults.
+  useEffect(() => {
+    if (policy) return
+    let cancelled = false
+    poolAccess.getPolicy(poolId)
+      .then((read) => {
+        if (!cancelled) setLoadedPolicy(read)
+      })
+      .catch(() => {
+        // The defaults only label the "Pool default" choices; the add itself does not need them.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [policy, poolAccess, poolId])
+
+  // Re-reads the matching accounts after typing pauses; the cleanup cancels a pending read so a slow
+  // answer for an earlier query never replaces a newer one.
+  useEffect(() => {
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      poolAccess.listCandidates(poolId, name)
+        .then((items) => {
+          if (!cancelled) setCandidates({ query: name, items })
+        })
+        .catch(() => {
+          if (!cancelled) setCandidates({ query: name, items: [] })
+        })
+    }, CANDIDATE_DEBOUNCE_MS)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [poolAccess, poolId, name])
+
+  // An exact match is already chosen, so it is not offered again.
+  const suggestions = (candidates?.items ?? []).filter((candidate) => candidate.username !== name)
 
   const close = () => {
     if (!submitting) onClose()
@@ -96,11 +151,36 @@ export function AddMemberDialog({ poolId, poolName, policy, onClose, onAdded }: 
             autoComplete="off"
             spellCheck={false}
             className="sw-mono"
-            placeholder="e.g. alice"
+            placeholder="Type to find an account"
             disabled={submitting}
             autoFocus
           />
+          {candidates && candidates.items.length === 0 && (
+            <Field.HelperText>
+              {candidates.query ? `No account that is not already a member matches “${candidates.query}”.` : 'Every account is already a member of this Pool.'}
+            </Field.HelperText>
+          )}
         </Field.Root>
+        {suggestions.length > 0 && (
+          <Stack gap="1.5" role="group" aria-label="Matching accounts">
+            <Text color="fg.muted" fontSize="sm">Matching accounts</Text>
+            <HStack gap="1.5" wrap="wrap">
+              {suggestions.map((candidate) => (
+                <Button
+                  key={candidate.userId}
+                  size="xs"
+                  variant="outline"
+                  className="sw-mono"
+                  aria-label={`Choose ${candidate.username}`}
+                  disabled={submitting}
+                  onClick={() => setUsername(candidate.username)}
+                >
+                  {candidate.username}
+                </Button>
+              ))}
+            </HStack>
+          </Stack>
+        )}
         <Field.Root>
           <Field.Label htmlFor="member-add-role">Role</Field.Label>
           <Select
@@ -120,7 +200,7 @@ export function AddMemberDialog({ poolId, poolName, policy, onClose, onAdded }: 
               aria-label="Sudo"
               value={sudo}
               onChange={(value) => setSudo(toSudoSetting(value))}
-              options={sudoSettingOptions(policy.memberSudo)}
+              options={sudoSettingOptions(defaults?.memberSudo ?? false)}
               disabled={submitting}
             />
           </Field.Root>
@@ -132,7 +212,7 @@ export function AddMemberDialog({ poolId, poolName, policy, onClose, onAdded }: 
             aria-label="Sudo without password"
             value={sudoPasswordless}
             onChange={(value) => setSudoPasswordless(toSudoSetting(value))}
-            options={sudoSettingOptions(policy.sudoPasswordless)}
+            options={sudoSettingOptions(defaults?.sudoPasswordless ?? false)}
             disabled={submitting}
           />
         </Field.Root>

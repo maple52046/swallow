@@ -27,7 +27,7 @@ import type {
   VirtualMachineEnrollmentAccepted,
   VirtualMachineEnrollmentInput,
 } from "@/domain/provisioning/types";
-import type { OSImage, OSImageMetadata } from "@/domain/site/types";
+import type { OSImage, OSImageMetadata, ProvisionerImageCatalog } from "@/domain/site/types";
 import { ApiRequestError, apiRequest, apiUpload } from "./client";
 import type { JsonRequestBody, JsonResponse } from "./contractTypes";
 import { sha256OfFile } from "./fileDigest";
@@ -170,6 +170,15 @@ export class ApiProvisioningRepository implements ProvisioningRepository {
   async listOSImages(integrationId: string): Promise<OSImage[]> {
     const query = new URLSearchParams({ integrationId });
     return apiRequest<OSImage[]>(`/api/v1/provisioning/images?${query}`);
+  }
+
+  /** `GET /image-catalogs` (provisioning.md "Image catalogs of a Site"), unwrapped from `items`. */
+  async listOSImageCatalogs(siteId?: string): Promise<ProvisionerImageCatalog[]> {
+    const query = siteId ? `?${new URLSearchParams({ siteId })}` : "";
+    const response = await apiRequest<JsonResponse<operations["listOsImageCatalogs"], 200>>(
+      `/api/v1/provisioning/image-catalogs${query}`,
+    );
+    return response.items;
   }
 
   /**

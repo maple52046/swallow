@@ -48,6 +48,15 @@ export interface PoolMember {
 }
 
 /**
+ * A User an owner may add to a Pool (contract pool-access.md `member-candidates`): not a member yet,
+ * and shown by id and username only, because an owner may not list Users.
+ */
+export interface PoolMemberCandidate {
+  userId: string
+  username: string
+}
+
+/**
  * A Pool's Sudo Policy defaults: whether members have sudo, and whether sudo asks for a password,
  * unless a membership overrides them. `updatedAt` is `null` while the Pool has its initial defaults.
  */

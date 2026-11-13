@@ -9,6 +9,7 @@ import { wantsPlatformGrafana } from '@/domain/platform/monitoring'
 import { platformCurrentSpec } from '@/domain/platform/spec'
 import type { Platform } from '@/domain/platform/types'
 import type { Server } from '@/domain/server/types'
+import { canOperatePlatform } from '@/domain/user/access'
 import { platformConfigurationSections, platformModuleUI, platformMonitoringEntries, type PlatformMonitoringServerStates } from '@/modules/registry'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -20,6 +21,7 @@ import { KeyValueGrid, SectionHeader, SectionSurface, StickyTableFrame } from '@
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Select } from '@/presentation/components/ui/select'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDateTime, formatRelative } from '@/shared/utils/time'
 import { PlatformDetailsCard } from './PlatformDetailsCard'
@@ -44,6 +46,7 @@ function useMembersForRoute(platform: Platform): PlatformMembersState {
  */
 export function PlatformOverviewRoute() {
   const { platform } = usePlatformWorkspaceContext()
+  const { currentUser } = useAuth()
   const module = platformModuleUI(platform.type)
   const members = useMembersForRoute(platform)
   const counts = platformMemberCounts(platform)
@@ -96,6 +99,7 @@ export function PlatformOverviewRoute() {
               platform={platform}
               members={members.data.members}
               loginNodes={members.data.loginNodes}
+              canOperate={canOperatePlatform(currentUser, platform)}
               onSelectServer={() => undefined}
             />
           )}
@@ -119,7 +123,7 @@ export function PlatformOverviewRoute() {
         </HStack>
       </SectionSurface>
       {/* Renders nothing while the Validation area is hidden (an experimental feature). */}
-      <RecentValidationRuns platformId={platform.id} />
+      <RecentValidationRuns platformId={platform.id} canRun={canOperatePlatform(currentUser, platform)} />
     </div>
   )
 }
@@ -130,6 +134,8 @@ export function PlatformOverviewRoute() {
  */
 export function PlatformConfigurationRoute() {
   const { platform, reload } = usePlatformWorkspaceContext()
+  const { currentUser } = useAuth()
+  const canOperate = canOperatePlatform(currentUser, platform)
   const navigate = useNavigate()
   const module = platformModuleUI(platform.type)
   const sections = platformConfigurationSections(platform.type)
@@ -182,6 +188,7 @@ export function PlatformConfigurationRoute() {
           key={index}
           platform={platform}
           members={resolvedMembers}
+          canOperate={canOperate}
           onChanged={() => reload()}
           onOpenWorkflow={(workflowId) => navigate(scopedHref('/workflows/' + workflowId, platform.siteId))}
         />
@@ -198,10 +205,11 @@ export function PlatformConfigurationRoute() {
  * is a text badge and the reason plain text, so nothing depends on colour. A summary stands in while
  * no Server has reported.
  */
-function MonitoringServerStates({ states, platform, members, serverHref, onChanged, onOpenWorkflow }: {
+function MonitoringServerStates({ states, platform, members, canOperate, serverHref, onChanged, onOpenWorkflow }: {
   states: PlatformMonitoringServerStates
   platform: Platform
   members: Server[]
+  canOperate: boolean
   serverHref: (serverId: string) => string
   onChanged: () => void
   onOpenWorkflow: (workflowId: string) => void
@@ -210,7 +218,7 @@ function MonitoringServerStates({ states, platform, members, serverHref, onChang
   return (
     <Stack gap="1" role="group" aria-label={states.title}>
       <Text fontWeight="medium" fontSize="sm">{states.title}</Text>
-      {Control && <Control platform={platform} members={members} onChanged={onChanged} onOpenWorkflow={onOpenWorkflow} />}
+      {Control && <Control platform={platform} members={members} canOperate={canOperate} onChanged={onChanged} onOpenWorkflow={onOpenWorkflow} />}
       <Text color="fg.muted" fontSize="sm">{states.summary}</Text>
       {states.servers.length > 0 && (
         <ul className="sw-platform-monitoring-servers">
@@ -233,6 +241,8 @@ function MonitoringServerStates({ states, platform, members, serverHref, onChang
 /** Monitoring entries and installation state; charts remain in the dedicated Monitoring console. */
 export function PlatformMonitoringRoute() {
   const { platform, reload } = usePlatformWorkspaceContext()
+  const { currentUser } = useAuth()
+  const canOperate = canOperatePlatform(currentUser, platform)
   const { scopedHref } = useSiteScope()
   const navigate = useNavigate()
   // Only to name the Servers of a per-Server breakdown; a failed or slow load falls back to ids.
@@ -300,6 +310,7 @@ export function PlatformMonitoringRoute() {
                     states={feature.serverStates}
                     platform={platform}
                     members={resolvedMembers}
+                    canOperate={canOperate}
                     serverHref={(serverId) => scopedHref(`/servers/${encodeURIComponent(serverId)}`, platform.siteId)}
                     onChanged={() => reload()}
                     onOpenWorkflow={(workflowId) => navigate(scopedHref('/workflows/' + workflowId, platform.siteId))}
@@ -477,8 +488,11 @@ export function PlatformModuleRoute({ route }: { route: string }) {
   const context = usePlatformWorkspaceContext()
   const navigate = useNavigate()
   const { scopedHref } = useSiteScope()
+  const { currentUser } = useAuth()
   const module = platformModuleUI(context.platform.type)
-  const entry = module?.tabs.find((candidate) => candidate.value === route && candidate.available(context.platform))
+  const operable = canOperatePlatform(currentUser, context.platform)
+  const entry = module?.tabs.find((candidate) =>
+    candidate.value === route && candidate.available(context.platform) && (!candidate.requiresOperate || operable))
   if (!entry) return <PlatformWorkspaceNotFound />
   if (entry.requiresMembers) return <MemberBackedModuleRoute entry={entry} />
   const Content = entry.Content

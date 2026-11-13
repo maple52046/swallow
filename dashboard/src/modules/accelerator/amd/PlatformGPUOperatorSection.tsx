@@ -37,6 +37,8 @@ interface PlatformGPUOperatorSectionProps {
   platform: Platform
   /** The Platform's Servers (members plus deployment controllers), for their GPU inventory. */
   members: readonly Server[]
+  /** Whether the user may change the Platform; without it the section shows the state only. */
+  canOperate: boolean
   /** Reloads the Platform after an accepted change so the new state and Workflow appear. */
   onChanged: () => void
   onOpenWorkflow: (workflowId: string) => void
@@ -44,8 +46,8 @@ interface PlatformGPUOperatorSectionProps {
 
 /**
  * The swallow-managed AMD GPU Operator of a Kubernetes Platform (decision 062), on the Platform
- * Configuration route: its GPU Operator State, recorded settings, and the Install, Configure, and Uninstall
- * actions.
+ * Configuration route: its GPU Operator State, recorded settings, and, for a user who may change the
+ * Platform, the Install, Configure, and Uninstall actions.
  *
  * Changes are allowed only on an active swallow-deployed Platform with no change running, which
  * mirrors the backend preconditions; the reason is shown as text when they are not. A change opens
@@ -54,7 +56,7 @@ interface PlatformGPUOperatorSectionProps {
  * state warns that the cluster may still run the previous settings. The page polls while a change
  * is in progress through the workspace shell's lifecycle polling.
  */
-export function PlatformGPUOperatorSection({ platform, members, onChanged, onOpenWorkflow }: PlatformGPUOperatorSectionProps) {
+export function PlatformGPUOperatorSection({ platform, members, canOperate, onChanged, onOpenWorkflow }: PlatformGPUOperatorSectionProps) {
   const amd = useAMDPlatform()
   const { showToast } = useToast()
   const navigate = useNavigate()
@@ -125,7 +127,7 @@ export function PlatformGPUOperatorSection({ platform, members, onChanged, onOpe
       <SectionHeader
         title="AMD GPU Operator"
         description="Schedules workloads on this Platform's AMD GPUs."
-        actions={
+        actions={canOperate && (
           <HStack gap="2">
             {managed ? (
               <>
@@ -140,7 +142,7 @@ export function PlatformGPUOperatorSection({ platform, members, onChanged, onOpe
               </Button>
             )}
           </HStack>
-        }
+        )}
       />
       <Stack gap="3" className="sw-section-content sw-gpu-operator-summary">
         <HStack gap="2">

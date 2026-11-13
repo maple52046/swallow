@@ -1,5 +1,5 @@
 import type { PoolAccessRepository } from '@/application/ports/PoolAccessRepository'
-import type { PoolAccessPolicy, PoolMember, SudoSetting } from '@/domain/access/accounts'
+import type { PoolAccessPolicy, PoolMember, PoolMemberCandidate, SudoSetting } from '@/domain/access/accounts'
 import type { PoolRole } from '@/domain/user/types'
 import { apiRequest } from './client'
 import type { JsonRequestBody, JsonResponse } from './contractTypes'
@@ -11,13 +11,21 @@ function membersPath(poolId: string): string {
 }
 
 /**
- * Maps the Active Pool access contract (`/api/v1/infrastructure/pools/{id}/members` and
- * `/access-policy`, pool-access.md) onto the PoolAccessRepository port. The contract's JSON already
+ * Maps the Active Pool access contract (`/api/v1/infrastructure/pools/{id}/members`,
+ * `/member-candidates`, and `/access-policy`, pool-access.md) onto the PoolAccessRepository port. The contract's JSON already
  * matches the domain shapes, which the generated request and response types prove at each call.
  */
 export class ApiPoolAccessRepository implements PoolAccessRepository {
   async listMembers(poolId: string): Promise<PoolMember[]> {
     const response = await apiRequest<JsonResponse<operations['listPoolMembers'], 200>>(membersPath(poolId))
+    return response.items
+  }
+
+  async listCandidates(poolId: string, query: string): Promise<PoolMemberCandidate[]> {
+    const search = query.trim() ? `?query=${encodeURIComponent(query.trim())}` : ''
+    const response = await apiRequest<JsonResponse<operations['listPoolMemberCandidates'], 200>>(
+      `/api/v1/infrastructure/pools/${encodeURIComponent(poolId)}/member-candidates${search}`,
+    )
     return response.items
   }
 

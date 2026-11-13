@@ -25,7 +25,7 @@ import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatRelative } from '@/shared/utils/time'
-import { isAdmin, ownsAnyPool } from '@/domain/user/access'
+import { canOperatePlatform, isAdmin, ownsAnyPool } from '@/domain/user/access'
 import { useAuth } from '@/presentation/contexts/AuthContext'
 import { PlatformBulkDeleteDialog } from './PlatformBulkDeleteDialog'
 import { PlatformBulkUninstallDialog } from './PlatformBulkUninstallDialog'
@@ -394,6 +394,7 @@ export function PlatformsPage() {
   const clearSelection = () => setSelectionState({ filterKey, ids: new Set() })
 
   const selectedPlatforms = platforms.filter((platform) => selected.has(platform.id))
+  const selectionOperable = selectedPlatforms.every((platform) => canOperatePlatform(currentUser, platform))
   // The red removal control follows what the selection leads with (decision 010 amendment): a
   // split button while any selected Platform leads with Uninstall ("Uninstall eligible" when the
   // selection also holds delete-only ones), and a single Delete when none does.
@@ -515,7 +516,9 @@ export function PlatformsPage() {
           >
 
             <SelectionToolbar count={selected.size} onClear={clearSelection}>
-              {primaryRemovalActions.has('uninstall') ? (
+              {!selectionOperable ? (
+                <span className="sw-action-reason">Only an owner of each selected Platform’s Pool or an admin can uninstall or delete it.</span>
+              ) : primaryRemovalActions.has('uninstall') ? (
                 <PlatformRemovalSplitButton
                   primaryLabel="Uninstall"
                   primaryLabelSuffix={primaryRemovalActions.has('delete') ? 'eligible' : 'selected'}

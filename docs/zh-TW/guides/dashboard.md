@@ -8,8 +8,9 @@ published HTTP API，browser 內只保存 UI preference 與目前 session。
 ## 導覽
 
 側邊欄以分隔線把區域分成四段：Overview；Servers、Platforms 與 Software；
-Monitoring 與 Activity；OS Images、Infrastructure、Pools 與 Users。它只列出你能使用的區域：admin 看得到全部，其他
-user 看得到 Servers、Platforms、Software、Activity、Validation 與 Pools（見 [Session 與權限](#session-與權限)）。用頁面頂端的按鈕可把側邊欄收合成圖示（這個瀏覽器會記住選擇）；
+Monitoring 與 Activity；OS Images、Deployment Templates、Infrastructure、Pools 與 Users。它只列出你能使用的區域：
+admin 看得到全部，其他 user 看得到 Servers、Platforms、Software、Activity、Validation、OS Images 與 Pools（見
+[Session 與權限](#session-與權限)）。用頁面頂端的按鈕可把側邊欄收合成圖示（這個瀏覽器會記住選擇）；
 滑鼠停在圖示上或以鍵盤聚焦時會顯示名稱。手機上以選單按鈕開啟同一份側邊欄的 drawer。
 
 | 區域 | 用途 |
@@ -20,16 +21,17 @@ user 看得到 Servers、Platforms、Software、Activity、Validation 與 Pools�
 | Software | 分類呈現 catalog（Docker CE、Podman、libvirt (QEMU/KVM)、NFS、Prometheus、Grafana、AMD Device Metrics Exporter、Node Exporter、VictoriaMetrics，以及這個版本中沒有專屬卡片、列在 Other software 的 software）、各 software deployment 與多 Server 安裝 |
 | Monitoring | Fleet health、勾選 Server／Pool／Zone／Platform 的用量圖表、current metrics、選用的 Grafana link，以及（開發中的）alert 與 silence |
 | Activity | 兩個分頁。**Workflows**：durable execution、Job、Task、event、log、cancel、rerun 與 retry。**Change Plans**：Platform 破壞性變更的計畫，包括等待核准或拒絕的 plan、已核准 plan 的紀錄，以及安全開關 |
-| OS Images | 佈署 Server 所用的 OS image：catalog、upload、deploy mode 驗證與 deployment template（分頁 **OS images** 與 **Templates**） |
+| OS Images | 佈署 Server 所用的 OS image：catalog、每個 image 支援的 deploy mode 與 Deploy。admin 另外可以 upload、編輯、測試與刪除 image；其他 user 看得到每個 image，可以 refresh，並把 image 佈署到自己是 owner 的 Pool 的 Server |
+| Deployment Templates（admin） | OS image 可重複使用的佈署設定：Disk 或 RAM、網路，以及選用的 cloud-init |
 | Infrastructure | Site、Integration、Zone、credential、automation settings、Site 的 local repository（deployment 從哪裡取得 artifact、來源、同步狀態與內容，見[初始設定](initial-setup.md#4-註冊-local-repository)），以及 [Boot ISO](#boot-iso-與-server-boot-media) |
 | Pools | 你所屬的 Pool（admin 看得到 installation 的每個 Pool，並在這裡建立、改名與刪除）；每個 Pool 的成員、Pool Role，以及誰在它的 Server 上有 sudo |
 | Users（admin） | 帳號、存取設定、Directory 的狀態與最近的存取變更 |
-| SSH keys（account menu） | Deployment key、你的 access keys 及其 provisioner sync 狀態，見 [SSH key](ssh-keys.md) |
+| SSH keys（account menu） | Deployment key、你的 access keys，以及（admin 才看得到的）provisioner sync 狀態，見 [SSH key](ssh-keys.md) |
 | API keys（account menu） | 讓 script、CI 與 CLI 不需要密碼即可以你的身分呼叫 swallow 的 key，見 [API key](api-keys.md) |
 | Change password（account menu） | 你自己的 swallow 密碼：登入 swallow 用它，Server 上需要密碼的 sudo 規則也問它 |
 
-區域內的分頁保有各自的網址，因此連結與書籤仍然有效：Activity 是 `/workflows` 與 `/change-plans`，
-OS Images 是 `/provisioning/images` 與 `/provisioning/templates`。`/clusters` 與 `/operations` 下的
+區域內的分頁保有各自的網址，因此連結與書籤仍然有效：Activity 是 `/workflows` 與 `/change-plans`。
+OS Images 是 `/provisioning/images`，Deployment Templates 是 `/provisioning/templates`，兩頁都沒有分頁。`/clusters` 與 `/operations` 下的
 route 是 compatibility redirect；`/provisioning/boot-isos` 會轉到 `/infrastructure/boot-isos`，並保留
 Site scope。
 
@@ -63,8 +65,8 @@ CLI 不受影響。
   顯示「Not available in this release」，也不會產生 alert 的 attention item。基礎監控不受影響：
   health、current metrics 與用量圖表在每個 build 都會顯示。請改用 `swallow monitoring alerts`。
 - **OS image upload**：OS Images 沒有 Upload。既有 custom image 的 verification 仍可使用。
-- **Deployment Template**：OS Images 沒有 Templates 分頁與 Create template，佈署時也不能選擇或保存
-  template；佈署使用 custom configuration。
+- **Deployment Template**：沒有 Deployment Templates 頁面與它的側邊欄項目，OS image 沒有 Create deployment
+  template，佈署時也不能選擇或保存 template；佈署使用 custom configuration。
 - **Virtual machines**：Add servers 沒有 libvirt virtual machine 路徑，virtual machine 的
   Summary 也不會顯示經由 hypervisor 的 Boot Media。請改用 `swallow servers virtual-machines` 與
   `swallow servers boot-media`。
@@ -176,11 +178,19 @@ presentation guidance；authorization 仍以 API 為準。
   Run，並以自己的 SSH key 登入它的 Server；**owner** 還能操作它們（電源、OS 佈署、軟體、Platform、Validation），並在
   **Pools** 管理 Pool 的成員與 sudo 預設值。Pool 與它的成員資格涵蓋它在每個 Site 的 Server。不在任何 Pool 的 Server
   只屬於 admin。
-- 只有 admin 建立帳號（**Users → Create user**）；owner 以 username 把既有的帳號加入自己的 Pool。Pool 的
+- 只有 admin 建立帳號（**Users → Create user**）；owner 以 **Add member**（在 **Pools** 中 Pool 那一列，或點選 Pool 名稱開啟的 Pool 頁面）把
+  既有的帳號加入自己的 Pool，對話框會依輸入的 username 片段列出還不是成員的帳號。所屬 Pool 沒有任何 Server 的 user，在
+  Server 列表看到 **No servers available**。Pool 的
   **Sudo defaults** 決定 member 有沒有 sudo、sudo 要不要密碼，每個 member 可以個別覆寫。owner 一律有 sudo。Platform
   可以收窄 member 在它的節點上能做的事：在 Slurm 叢集上 member 只能登入 login node，而且沒有 sudo。
-- 不能做的動作會停用或隱藏：例如 member 看到 Server 的 **Actions** 按鈕是停用的，並附上原因。只有 admin 能用的頁面會
-  顯示 **Access denied**。
+- 不能做的動作會停用或隱藏：例如 member 看到 Server 的 **Actions** 按鈕是停用的，並附上原因；它的電源狀態與 tag
+  也只顯示、不提供操作。member 看到所屬 Pool 的 Platform、Change Plan、Workflow、Validation Run 與軟體部署時，也沒有
+  owner 的操作（uninstall、sync、approve、cancel、retry、run a suite、install），Kubernetes Platform 也不顯示即時叢集的
+  分頁，那些只有 owner 與 admin 能開。只有 admin 能用的頁面會顯示 **Access denied**。
+- 只有 admin 能改的設定不會出現在其他使用者的畫面：Server 的 Power Configuration、Boot Media 與 placement；Change
+  Plan 的核准政策；Validation Schedule 與自訂 script suite；軟體的設定（例如 Docker 的 registry credential）；以及
+  Deployment Key。owner 佈署 OS 或 Platform 時，透過每台 Server 自己記錄的 provisioner 佈署，不需要選擇。Server 的即時
+  硬體資訊（Storage、PCI devices）只顯示給 Pool 的 owner 與 admin。
 
 ## Error 與診斷
 

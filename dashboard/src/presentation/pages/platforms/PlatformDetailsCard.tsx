@@ -6,7 +6,9 @@ import { platformMemberCounts } from '@/domain/platform/membership'
 import { platformCurrentSpec } from '@/domain/platform/spec'
 import type { Platform } from '@/domain/platform/types'
 import { DEPLOY_TARGET_LABELS } from '@/domain/provisioning/types'
+import { isAdmin } from '@/domain/user/access'
 import { SectionHeader } from '@/presentation/components/ConsolePrimitives'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useIntegration } from '@/presentation/pages/infrastructure/useIntegrationSettings'
 import type { PlatformFact, PlatformModuleUI } from '@/modules/registry'
@@ -116,13 +118,15 @@ function machinePreparationFacts(platform: Platform): PlatformFact[] {
  *
  * The page renders it once the Platform loaded, so it has no loading or error state of its own.
  * Everything comes from the Platform record, except the Site name (the Site scope's registry) and
- * the Integration name, read once per Integration id. Both fall back to the id
+ * the Integration name, which an admin's page reads once per Integration id. Both fall back to the id
  * while loading or when unreadable, so a failed lookup never blanks a fact. Each group is a named
  * `group` labelled by its heading, and the card is the "Platform details" region.
  */
 export function PlatformDetailsCard({ platform, module }: PlatformDetailsCardProps) {
   const { sites } = useSiteScope()
-  const { state: integrationState } = useIntegration(platform.integrationId ?? undefined)
+  const { currentUser } = useAuth()
+  // Reading an Integration is an admin route; other users see the Integration's id.
+  const { state: integrationState } = useIntegration(isAdmin(currentUser) ? platform.integrationId ?? undefined : undefined)
   const headingPrefix = useId()
   const specState = describePlatformSpecState(platform)
   const siteName = sites.find((site) => site.id === platform.siteId)?.name ?? platform.siteId

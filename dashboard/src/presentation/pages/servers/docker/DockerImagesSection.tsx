@@ -4,6 +4,7 @@ import { Download, RefreshCw, Trash2 } from 'lucide-react'
 import { Link as RouterLink } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { imageReferenceRegistry, shortDockerId, type DockerImage } from '@/domain/software/docker'
+import { isAdmin } from '@/domain/user/access'
 import { formatBytes } from '@/shared/utils/bytes'
 import { formatDateTime, formatRelative } from '@/shared/utils/time'
 import { AsyncSection } from '@/presentation/components/AsyncSection'
@@ -18,6 +19,7 @@ import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useAsyncData } from '@/presentation/hooks/useAsyncData'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { softwareSettingsPath } from '@/presentation/pages/software/softwarePresentation'
 import { ResponsiveResourceList } from '@/presentation/components/ResponsiveResourceList'
@@ -230,14 +232,22 @@ export function DockerImagesSection({ serverId, readOnlyReason, onChanged }: Doc
 function PullImageDialog({ onPull, onClose }: { onPull: (reference: string) => Promise<void>; onClose: () => void }) {
   const { registryCredentials } = useApp()
   const { scopedHref } = useSiteScope()
-  const credentials = useAsyncData(() => registryCredentials.list(), [registryCredentials])
+  const { currentUser } = useAuth()
+  // Registry credentials are an admin read (registry-credentials.md); a Pool owner pulls without the
+  // hint, and api-server still signs in with a saved credential when one matches.
+  const admin = isAdmin(currentUser)
+  const credentials = useAsyncData(
+    () => (admin ? registryCredentials.list() : Promise.resolve(null)),
+    [admin, registryCredentials],
+  )
   const [reference, setReference] = useState('')
   const [error, setError] = useState<DisplayedFailure | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const trimmed = reference.trim()
   const valid = trimmed !== '' && !/\s/.test(trimmed)
   const registry = valid ? imageReferenceRegistry(trimmed) : ''
-  const credential = credentials.status === 'ready' ? credentials.data.find((item) => item.registry === registry) : undefined
+  const knownCredentials = credentials.status === 'ready' ? credentials.data : null
+  const credential = knownCredentials?.find((item) => item.registry === registry)
 
   const submit = async () => {
     if (!valid || submitting) return
@@ -296,7 +306,7 @@ function PullImageDialog({ onPull, onClose }: { onPull: (reference: string) => P
           </Field.HelperText>
           <Field.ErrorText>A reference cannot contain spaces.</Field.ErrorText>
         </Field.Root>
-        {registry && credentials.status === 'ready' && (
+        {registry && knownCredentials && (
           <Text color="fg.muted" fontSize="sm" role="status">
             {credential ? (
               <>

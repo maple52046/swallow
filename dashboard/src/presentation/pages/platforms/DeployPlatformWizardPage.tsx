@@ -9,6 +9,7 @@ import { formatGiB } from '@/domain/platform/resourceEligibility'
 import type { Platform, PlatformMachinePreparation, PlatformType } from '@/domain/platform/types'
 import type { DeploymentNetworkMode, DeploymentTemplate, DeployTarget, NetworkInspectionResult } from '@/domain/provisioning/types'
 import type { Integration, OSImage } from '@/domain/site/types'
+import { isAdmin } from '@/domain/user/access'
 import { serverGPUsByKind } from '@/domain/server/gpu'
 import { serverDisplayName, serverPrimaryAddress, type Server } from '@/domain/server/types'
 import {
@@ -50,6 +51,7 @@ import {
 import { DescriptionList } from '@/presentation/components/ui/description-list'
 import { Select } from '@/presentation/components/ui/select'
 import { useToast } from '@/presentation/components/toast/toastContext'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import { formatQuantity } from '@/shared/utils/quantity'
@@ -188,6 +190,9 @@ interface DeployPlatformWizardPageProps {
 function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizardPageProps) {
   const navigate = useNavigate()
   const { platforms, provisioning, sites: siteRepository } = useApp()
+  const { currentUser } = useAuth()
+  // Only an admin may read Integrations (sites-integrations.md) or manage them.
+  const admin = isAdmin(currentUser)
   const { siteId: scopedSiteId, scopedHref } = useSiteScope()
   const { showToast } = useToast()
   const [siteId, setSiteId] = useState<string | undefined>(scopedSiteId)
@@ -212,11 +217,13 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
   const [networkAssignments, setNetworkAssignments] = useState<Record<string, { interfaceId: string; subnetId: string; ipAddress: string }>>({})
   const [provisioningLoading, setProvisioningLoading] = useState(false)
   const [provisioningError, setProvisioningError] = useState<DisplayedFailure | null>(null)
+  // The Site's provisioner Integrations as an admin's read returned them, only to refuse a missing
+  // or disabled provisioner early; `items` is null when the read failed. A Pool owner
+  // may not read Integrations and never waits for them (see siteProvisionerIssue).
   const [siteProvisionerState, setSiteProvisionerState] = useState<{
     siteKey: string | null
-    items: Integration[]
-    error: DisplayedFailure | null
-  }>({ siteKey: null, items: [], error: null })
+    items: Integration[] | null
+  }>({ siteKey: null, items: null })
   const effectiveSiteId = siteId ?? scopedSiteId
   const state = useDeployableServers(effectiveSiteId, CANDIDATE_PROVISIONING_STATES, candidateRevision)
   const candidates = state.status === 'ready' ? state.data.servers : []
@@ -230,32 +237,21 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
 
 
   useEffect(() => {
-    if (!effectiveSiteId) return
+    if (!effectiveSiteId || !admin) return
     let canceled = false
     siteRepository
       .listIntegrations({ siteId: effectiveSiteId, kind: 'provisioner' })
       .then((integrations) => {
-        if (!canceled) {
-          setSiteProvisionerState({
-            siteKey: effectiveSiteId,
-            items: integrations,
-            error: null,
-          })
-        }
+        if (!canceled) setSiteProvisionerState({ siteKey: effectiveSiteId, items: integrations })
       })
-      .catch((error: Error) => {
-        if (!canceled) {
-          setSiteProvisionerState({
-            siteKey: effectiveSiteId,
-            items: [],
-            error: failureOf(error, 'The Site provisioner could not be read.'),
-          })
-        }
+      .catch(() => {
+        // A failed read is treated like no read: the provisioner still comes from the Servers.
+        if (!canceled) setSiteProvisionerState({ siteKey: effectiveSiteId, items: null })
       })
     return () => {
       canceled = true
     }
-  }, [effectiveSiteId, siteRepository])
+  }, [admin, effectiveSiteId, siteRepository])
 
 
   // Deployment templates are per-Site; the OS step filters them to the derived provisioner.
@@ -299,56 +295,47 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
   const deployedSelectedServers = selectedServers.filter((server) => server.status.provisioning?.state === 'deployed')
   const readySelectedServers = selectedServers.filter((server) => server.status.provisioning?.state !== 'deployed')
   const needsProvisioning = readySelectedServers.length > 0
-  const siteProvisioners = siteProvisionerState.siteKey === effectiveSiteId
-    ? siteProvisionerState.items
-    : null
-  const siteProvisionerError = siteProvisionerState.siteKey === effectiveSiteId ? siteProvisionerState.error : null
-  const siteProvisioner =
-    siteProvisioners?.length === 1 ? siteProvisioners[0] : undefined
-  const provisionerSourceMismatch = Boolean(
-    siteProvisioner &&
-      readySelectedServers.some(
-        (server) =>
-          server.status.source.siteId !== effectiveSiteId ||
-          server.status.source.integrationId !== siteProvisioner.id,
-      ),
-  )
-  const siteProvisionerIssue = !needsProvisioning
+  // The provisioner that prepares the OS is the one every Server needing an OS records as its
+  // source, so a Pool owner, who may not read Integrations, deploys like an admin. An admin's read of
+  // the Site's provisioners only adds an early refusal of a missing or disabled one; the backend
+  // checks the provisioner either way when it accepts the deployment.
+  const readySources = new Set(readySelectedServers.map((server) => server.status.source.integrationId))
+  const [readySource] = [...readySources]
+  const readyFromOtherSite = readySelectedServers.some((server) => server.status.source.siteId !== effectiveSiteId)
+  const siteProvisionersRead = !admin || siteProvisionerState.siteKey === effectiveSiteId
+  const siteProvisioners = admin && siteProvisionerState.siteKey === effectiveSiteId ? siteProvisionerState.items : null
+  const sourceIntegration = siteProvisioners?.find((integration) => integration.id === readySource)
+  const siteProvisionerIssue: ({ title: string } & DisplayedFailure) | null = !needsProvisioning
     ? null
-    : siteProvisioners === null
+    : readyFromOtherSite || readySources.size !== 1 || !readySource
       ? {
-          title: 'Resolving Site provisioner',
-          message: 'Checking the Site configuration before OS preparation.',
+          title: 'Inconsistent deployment source',
+          message: 'The selected Servers that need an OS belong to different provisioners. Deploy each provisioner\'s Servers separately.',
         }
-      : siteProvisionerError
+      : !siteProvisionersRead
         ? {
-            title: 'Provisioner configuration unavailable',
-            ...siteProvisionerError,
+            title: 'Resolving Site provisioner',
+            message: 'Checking the Site configuration before OS preparation.',
           }
-        : siteProvisioners.length === 0
+        : siteProvisioners?.length === 0
           ? {
               title: 'Connect a provisioner',
               message: 'This Site has no provisioner Integration.',
             }
-          : siteProvisioners.length > 1
+          : siteProvisioners && !sourceIntegration
             ? {
-                title: 'Site configuration conflict',
-                message: 'Platform OS preparation requires exactly one provisioner for this Site.',
+                title: 'Inconsistent deployment source',
+                message: 'A selected ready Server does not belong to a provisioner of this Site.',
               }
-            : !siteProvisioner?.enabled
+            : sourceIntegration && !sourceIntegration.enabled
               ? {
                   title: 'Enable the Site provisioner',
-                  message: `${siteProvisioner?.name ?? 'The provisioner'} is disabled.`,
+                  message: `${sourceIntegration.name} is disabled.`,
                 }
-              : provisionerSourceMismatch
-                ? {
-                    title: 'Inconsistent deployment source',
-                    message: 'A selected ready Server does not belong to the Site provisioner.',
-                  }
-                : null
+              : null
   const provisionerConflict = Boolean(siteProvisionerIssue)
   const integrationId =
-    needsProvisioning && !siteProvisionerIssue ? siteProvisioner?.id ?? '' : ''
+    needsProvisioning && !siteProvisionerIssue ? readySource ?? '' : ''
   const machinesValid =
     form.machines.valid &&
     (!needsProvisioning || (!provisionerConflict && Boolean(integrationId)))
@@ -626,7 +613,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
               status="warning"
               title={siteProvisionerIssue.title}
               actions={
-                effectiveSiteId ? (
+                effectiveSiteId && admin ? (
                   <Button
                     variant="outline"
                     size="sm"

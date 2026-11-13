@@ -3,7 +3,9 @@ import { useOutletContext } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import { streamChangeMayMoveHealth, withKnownHealth } from '@/application/usecases/servers/serverStreamPatch'
 import type { ProvisionerDetail, Server } from '@/domain/server/types'
+import { canOperatePool, isAdmin } from '@/domain/user/access'
 import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import type { ServerDockerAssignment } from './useServerDockerAssignment'
 import { useServerReread } from './useServerReread'
 
@@ -14,6 +16,12 @@ export interface ServerDetailData {
   detail: ProvisionerDetail | null
   /** A failed detail read, with its request ID; the projection can still render without it. */
   detailError: DisplayedFailure | null
+  /**
+   * True when the detail was not read because the caller may not: the provisioner detail is read by
+   * an admin or an owner of the Server's Pool (server-detail-actions.md), so a member sees the
+   * Server without it. Not an error, so `detailError` stays null.
+   */
+  detailWithheld: boolean
   /** Refetches both projection and detail, e.g. after an action changes the machine. */
   reload: () => void
 }
@@ -42,6 +50,8 @@ export type ServerDetailState =
  */
 export function useServerDetail(id: string | undefined): ServerDetailState {
   const { servers, serverEvents } = useApp()
+  const { currentUser } = useAuth()
+  const admin = isAdmin(currentUser)
   // Seed from id so the no-id case needs no synchronous setState inside the effect: a
   // detail route with no id is a not-found from the first render.
   const [state, setState] = useState<ServerDetailState>(
@@ -61,14 +71,21 @@ export function useServerDetail(id: string | undefined): ServerDetailState {
 
     let cancelled = false
 
-    // The two reads are independent: detail failing must not hide the projection.
-    Promise.all([
-      servers.getServer(id),
-      servers.getProvisionerDetail(id).then(
-        (detail) => ({ detail, detailError: null as DisplayedFailure | null }),
-        (err: Error) => ({ detail: null, detailError: failureOf(err, 'The provisioner detail could not be read.') }),
-      ),
-    ])
+    // The two reads are independent: detail failing must not hide the projection. An admin reads
+    // both at once; anyone else learns the Server's Pool first and reads the detail only where it
+    // is an owner, because a member's read would only be refused.
+    const readDetail = () => servers.getProvisionerDetail(id).then(
+      (detail) => ({ detail, detailError: null as DisplayedFailure | null, detailWithheld: false }),
+      (err: Error) => ({ detail: null, detailError: failureOf(err, 'The provisioner detail could not be read.'), detailWithheld: false }),
+    )
+    const withheld = { detail: null, detailError: null, detailWithheld: true }
+    const reads = admin
+      ? Promise.all([servers.getServer(id), readDetail()])
+      : servers.getServer(id).then(async (server) => [
+          server,
+          server && canOperatePool(currentUser, server.spec.poolId) ? await readDetail() : withheld,
+        ] as const)
+    reads
       .then(([server, detailResult]) => {
         if (cancelled) return
         if (server === null) {
@@ -81,6 +98,7 @@ export function useServerDetail(id: string | undefined): ServerDetailState {
             server,
             detail: detailResult.detail,
             detailError: detailResult.detailError,
+            detailWithheld: detailResult.detailWithheld,
             reload,
           },
         })
@@ -95,7 +113,7 @@ export function useServerDetail(id: string | undefined): ServerDetailState {
     return () => {
       cancelled = true
     }
-  }, [servers, id, nonce, reload])
+  }, [servers, id, nonce, reload, admin, currentUser])
 
   // The latest state, read by the stream callback (never during render) to compare an upsert with
   // the Server shown before its patch is applied.

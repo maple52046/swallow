@@ -10,9 +10,9 @@ current session in the browser.
 
 The sidebar groups its areas into four sections separated by lines: Overview;
 Servers, Platforms, and Software; Monitoring and Activity; and OS Images,
-Infrastructure, Pools, and Users. It lists only the areas you can use: an admin
-sees all of them, and other users see Servers, Platforms, Software, Activity,
-Validation, and Pools (see [Sessions and permissions](#sessions-and-permissions)). Collapse the sidebar to icons with the button at the top of the
+Deployment Templates, Infrastructure, Pools, and Users. It lists only the areas you
+can use: an admin sees all of them, and other users see Servers, Platforms, Software,
+Activity, Validation, OS Images, and Pools (see [Sessions and permissions](#sessions-and-permissions)). Collapse the sidebar to icons with the button at the top of the
 page (this browser remembers the choice); hovering or focusing an icon names it.
 On a phone, the menu button opens the same sidebar as a drawer.
 
@@ -24,17 +24,18 @@ On a phone, the menu button opens the same sidebar as a drawer.
 | Software | Grouped catalog (Docker CE, Podman, libvirt (QEMU/KVM), NFS, Prometheus, Grafana, AMD Device Metrics Exporter, Node Exporter, VictoriaMetrics, and any software of this release without its own card under Other software), per-software deployments, and multi-Server installation |
 | Monitoring | Fleet health, usage charts for selected Servers, Pools, Zones, and Platforms, current metrics, optional Grafana links, and (in development) alerts and silences |
 | Activity | Two tabs. **Workflows**: durable execution state, Jobs, Tasks, events, logs, cancel, rerun, and retry. **Change Plans**: plans for destructive Platform changes, the ones waiting for approval or rejection, the record of approved ones, and the safety switch |
-| OS Images | The OS images Servers are deployed with: the catalog, upload, deploy-mode verification, and deployment templates (tabs **OS images** and **Templates**) |
+| OS Images | The OS images Servers are deployed with: the catalog, which modes each image supports, and Deploy. An admin also uploads, edits, tests, and deletes images; other users see every image, refresh the catalog, and deploy an image to the Servers of the Pools they own |
+| Deployment Templates (admins) | Reusable deployment settings for an OS image: Disk or RAM, network, and optional cloud-init |
 | Infrastructure | Sites, Integrations, Zones, credentials, automation settings, the Site's local repository (where deployments fetch artifacts, its sources, sync state, and content; see [Initial setup](initial-setup.md#4-register-the-local-repository)), and [Boot ISOs](#boot-isos-and-server-boot-media) |
 | Pools | The Pools you belong to (an admin sees every Pool of the installation and creates, renames, and deletes them); each Pool's members, their Pool Role, and who has sudo on its Servers |
 | Users (admins) | Accounts, the access settings, the Directory's status, and recent access changes |
-| SSH keys (account menu) | The deployment key, your access keys, and their provisioner sync status — see [SSH keys](ssh-keys.md) |
+| SSH keys (account menu) | The deployment key, your access keys, and (for admins) their provisioner sync status — see [SSH keys](ssh-keys.md) |
 | API keys (account menu) | Keys that let scripts, CI, and the CLI call swallow as you without a password — see [API keys](api-keys.md) |
 | Change password (account menu) | Your own swallow password, which you sign in with and which a password-protected sudo rule asks for on Servers |
 
 The tabs of an area keep their own addresses, so links and bookmarks still work:
-Activity is `/workflows` and `/change-plans`, and OS Images is
-`/provisioning/images` and `/provisioning/templates`. Routes under `/clusters`
+Activity is `/workflows` and `/change-plans`. OS Images is `/provisioning/images`
+and Deployment Templates `/provisioning/templates`; neither page has tabs. Routes under `/clusters`
 and `/operations` are compatibility redirects, and `/provisioning/boot-isos`
 redirects to `/infrastructure/boot-isos`, keeping its Site scope.
 
@@ -77,9 +78,9 @@ Dashboard hide them; the API and the `swallow` CLI are not affected.
   `swallow monitoring alerts` instead.
 - **OS image upload**: OS Images has no Upload action. Verifying an existing
   custom image is still available.
-- **Deployment Templates**: the Templates tab of OS Images, Create template, and
-  choosing or saving a template while deploying are absent; deployments use a
-  custom configuration.
+- **Deployment Templates**: the Deployment Templates page and its sidebar entry,
+  Create deployment template on an OS image, and choosing or saving a template while
+  deploying are absent; deployments use a custom configuration.
 - **Virtual machines**: Add servers has no libvirt virtual machine path, and a
   virtual machine's Summary shows no Boot Media through its hypervisor. Use
   `swallow servers virtual-machines` and `swallow servers boot-media` instead.
@@ -230,13 +231,26 @@ Who can do what:
   under **Pools**. A Pool and its memberships cover its Servers in every Site. A
   Server in no Pool belongs to admins only.
 - Only admins create accounts (**Users → Create user**); an owner adds an existing
-  account to their Pool by username. A Pool's **Sudo defaults** decide whether
+  account to their Pool with **Add member**, on the Pool's row under **Pools** or on the
+  Pool's page, which its name opens. The dialog offers the accounts that are not members yet as you type
+  part of the username. A user whose Pools hold no Servers sees **No servers
+  available** in the server list. A Pool's **Sudo defaults** decide whether
   members have sudo and whether sudo asks for a password; each member can override
   either one. Owners always have sudo. A Platform may narrow what members do on its
   nodes: on a Slurm cluster they log in only to login nodes, without sudo.
 - Actions you cannot take are disabled or hidden: for example a member sees a
-  Server's **Actions** button disabled with the reason. A page only an admin can use
-  shows **Access denied**.
+  Server's **Actions** button disabled with the reason, and its power state and tags
+  without their controls. A member also sees its Pool's Platforms, Change Plans,
+  Workflows, Validation Runs, and software deployments without an owner's controls
+  (uninstall, sync, approve, cancel, retry, run a suite, install), and a Kubernetes
+  Platform without its live cluster tabs, which only owners and admins open. A page
+  only an admin can use shows **Access denied**.
+- Settings only an admin changes stay out of other users' screens: a Server's Power
+  Configuration, Boot Media, and placement; the Change Plan approval policy; Validation
+  Schedules and custom script suites; software settings such as Docker registry
+  credentials; and the Deployment Key. An owner who deploys an OS or a Platform deploys
+  through the provisioner each Server records, without choosing one. A Server's live
+  hardware detail (Storage, PCI devices) is shown to the Pool's owners and admins.
 
 ## Errors and diagnostics
 

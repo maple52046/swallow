@@ -8,7 +8,9 @@ automation stages converge the Server toward the requested result.
 
 ## Prepare an image
 
-Under **OS Images** (above **Infrastructure** in the sidebar):
+Every user can open **OS Images** to see the images and the modes each supports, and
+deploy one to the Servers of a Pool they own. Preparing images is an admin's: under
+**OS Images** (above **Infrastructure** in the sidebar):
 
 1. Select the Site/provisioner catalog.
 2. Use an existing provider image or upload a supported custom image.
@@ -33,7 +35,8 @@ A Deployment Template records reusable user choices, not executable
 automation. It can preselect an image and settings while the deployment request
 still validates each current target. Templates never bypass current eligibility.
 
-Templates in the Dashboard are in development; release builds hide them and
+Admins manage templates on the **Deployment Templates** page, next to OS Images in the
+sidebar. Templates in the Dashboard are in development; release builds hide them and
 deploy with a custom configuration. The API and CLI are unaffected.
 
 ## Deploy an operating system

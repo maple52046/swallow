@@ -34,7 +34,7 @@ Templates, and submit one OS deployment configuration to one or more eligible Se
 
 ## Authentication and Authorization
 
-Reading OS Images and Deployment Templates (`GET /images`, `GET /templates`,
+Reading OS Images and Deployment Templates (`GET /images`, `GET /image-catalogs`, `GET /templates`,
 `GET /templates/{id}`) is reference; `POST /deployments/preflight`, `POST /deployment-operations`,
 `POST /release-operations`, and `POST /recover-operations` are Pool operate on every target Server;
 every other endpoint is admin ([conventions](conventions.md#authorization)). Shared error envelopes, codes,
@@ -44,6 +44,7 @@ timestamps, and authentication behavior follow [conventions.md](conventions.md).
 
 ```text
 GET    /api/v1/provisioning/images?integrationId={integrationId}
+GET    /api/v1/provisioning/image-catalogs?siteId={optional}
 DELETE /api/v1/provisioning/images?integrationId={integrationId}&imageId={imageId}&architecture={architecture}
 POST   /api/v1/provisioning/image-uploads
 PUT    /api/v1/provisioning/image-uploads/{id}/content                          (application/octet-stream)
@@ -164,6 +165,40 @@ The image artifact is provider-owned and is not persisted by swallow; only the m
 swallow-owned. Missing `integrationId` is
 `400 validation_error`; an unknown integration is `404 not_found`; a provider
 failure is `503 provider_unavailable`.
+
+### Image catalogs of a Site
+
+`GET /image-catalogs` reads the catalog of every provisioner Integration of a Site (of every Site
+when `siteId` is omitted), enabled or not, so a client shows the images any user may deploy
+without listing Integrations, which is an admin route
+([sites-integrations.md](sites-integrations.md)). Each catalog's `images` are exactly what
+`GET /images` returns for that Integration. It returns `200`:
+
+```json
+{
+  "items": [
+    {
+      "integrationId": "integration-id",
+      "integrationName": "maas-east",
+      "siteId": "site-id",
+      "images": [],
+      "error": null
+    }
+  ]
+}
+```
+
+- `items` holds one catalog per provisioner Integration, ordered by Site id and then
+  Integration name; it is empty when the scope has no provisioner.
+- `integrationId`, `integrationName`, and `siteId` are the only facts of the Integration it
+  carries: never its endpoint, settings, or credential.
+- `error` is `null` when the catalog was read. When it could not be (the provisioner is
+  unreachable or refused the read, or the Integration has no credential), `images` is empty and
+  `error` says why in words a person reads; the other catalogs still answer, so the request is
+  `200` either way.
+- At most two provisioners are read at a time, each like one `GET /images`.
+
+An unknown `siteId` is `404 not_found`.
 
 `DELETE /images` removes one provider-owned OS Image. It requires `integrationId`,
 `imageId`, and `architecture` as query parameters — the same identity `GET /images`
@@ -1025,6 +1060,10 @@ answers `200`, and the same message is recorded as the Integration's last sync e
 unknown Integration is `404 not_found` and a non-provisioner Integration `400 validation_error`.
 
 ## Compatibility Notes
+
+On 2026-11-13 `GET /image-catalogs` was added: the image catalogs of every provisioner of a Site
+in one reference read, so a user who may not list Integrations can see OS Images. It is additive;
+`GET /images` is unchanged.
 
 On 2026-11-05 the installation error in a `deployment_failed` message began masking secrets
 instead of skipping every line that mentions a password, token, or secret: such a line can now be

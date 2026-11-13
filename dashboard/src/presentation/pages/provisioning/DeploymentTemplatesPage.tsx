@@ -23,7 +23,6 @@ import { SearchInput } from '@/presentation/components/ui/search-input'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDateTime } from '@/shared/utils/time'
-import { ProvisioningTabs } from './ProvisioningTabs'
 import { defaultDeployTargetForImage } from './osDeploymentFlow'
 
 type TemplatesState =
@@ -67,8 +66,11 @@ function templateNetworkLabel(template: DeploymentTemplate, separator: string): 
 }
 
 /**
- * CRUD workspace for swallow-owned deployment intent and write-only cloud-init: the Templates tab
- * of OS Images (`/provisioning/templates`, behind the `deploymentTemplates` experimental feature).
+ * CRUD workspace for swallow-owned deployment intent and write-only cloud-init: the Deployment
+ * Templates page (`/provisioning/templates`, its own sidebar entry beside OS Images, behind the
+ * `deploymentTemplates` experimental feature). Template writes and the provisioner Integrations it
+ * names are admin routes, so the page is an admin's; OS Images links here to create a template for
+ * one of its images (`?create=1&integrationId=…&imageId=…`).
  */
 export function DeploymentTemplatesPage() {
   const { provisioning, sites: siteRepository } = useApp()
@@ -260,7 +262,7 @@ export function DeploymentTemplatesPage() {
   return (
     <div className="console-page">
       <PageHeader
-        title="OS Images"
+        title="Deployment Templates"
         subtitle="Reusable deployment settings for an OS image: Disk or RAM, network, and optional cloud-init."
         stackActionsOnMobile
         actions={
@@ -270,7 +272,6 @@ export function DeploymentTemplatesPage() {
           </Button>
         }
       />
-      <ProvisioningTabs />
 
       {formOpen && (
         <Card.Root>

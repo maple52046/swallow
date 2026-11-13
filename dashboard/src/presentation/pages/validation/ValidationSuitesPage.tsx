@@ -14,6 +14,7 @@ import {
 import { Blocks, FileCode2, FilePlus2, FlaskConical, Server } from 'lucide-react'
 import { Link as RouterLink } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
+import { isAdmin } from '@/domain/user/access'
 import type { ValidationSuite } from '@/domain/validation/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -26,6 +27,7 @@ import {
   validationSuiteGroup,
   type ValidationSuiteGroup,
 } from '@/presentation/components/validation/validationPresentation'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useShowExperimentalSuites } from '@/presentation/hooks/useShowExperimentalSuites'
 import { UserSuiteDialog } from './UserSuiteDialog'
@@ -73,6 +75,7 @@ function suiteTarget(suite: ValidationSuite): string {
  */
 export function ValidationSuitesPage() {
   const { validation } = useApp()
+  const { currentUser } = useAuth()
   const { scopedHref } = useSiteScope()
   const { showToast } = useToast()
   const [showExperimental, setShowExperimental] = useShowExperimentalSuites()
@@ -111,9 +114,12 @@ export function ValidationSuitesPage() {
       <ValidationHeader
         subtitle="Choose an assurance capability, understand what it checks, and run it against the right targets."
         actions={
-          <Button colorPalette="brand" onClick={() => setEditor({ key: Date.now() })}>
-            <FilePlus2 size={16} aria-hidden /> New script suite
-          </Button>
+          // Writing a script suite is an admin route (validation.md): a script runs on its targets.
+          isAdmin(currentUser) ? (
+            <Button colorPalette="brand" onClick={() => setEditor({ key: Date.now() })}>
+              <FilePlus2 size={16} aria-hidden /> New script suite
+            </Button>
+          ) : undefined
         }
       />
       <Box className="sw-section" p={{ base: '4', md: '6' }}>

@@ -281,7 +281,7 @@ export function createAccessFixtures(identity: FixtureIdentity = 'admin') {
       return true
     }
 
-    const poolMatch = path.match(/^\/api\/v1\/infrastructure\/pools\/([^/]+)\/(members|access-policy)(?:\/([^/]+))?$/)
+    const poolMatch = path.match(/^\/api\/v1\/infrastructure\/pools\/([^/]+)\/(members|member-candidates|access-policy)(?:\/([^/]+))?$/)
     if (!poolMatch) return false
     const poolId = decodeURIComponent(poolMatch[1])
     const items = memberships.get(poolId)
@@ -289,8 +289,19 @@ export function createAccessFixtures(identity: FixtureIdentity = 'admin') {
       await failure(route, 404, 'not_found', 'Pool not found.')
       return true
     }
-    if (method !== 'GET' && !operatesPool(poolId)) {
+    if ((method !== 'GET' || poolMatch[2] === 'member-candidates') && !operatesPool(poolId)) {
       await failure(route, 403, 'forbidden', 'Only an owner of the Pool or an admin can change its access.')
+      return true
+    }
+    if (poolMatch[2] === 'member-candidates') {
+      // The accounts that are not members yet, by id and username only (pool-access.md).
+      const query = (url.searchParams.get('query') ?? '').toLowerCase()
+      const candidates = accounts
+        .filter((account) => !items.some((item) => item.userId === account.id) && account.username.toLowerCase().includes(query))
+        .sort((a, b) => a.username.localeCompare(b.username))
+        .slice(0, 20)
+        .map((account) => ({ userId: account.id, username: account.username }))
+      await json(route, { items: candidates })
       return true
     }
     if (poolMatch[2] === 'access-policy') {

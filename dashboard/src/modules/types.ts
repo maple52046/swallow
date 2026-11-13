@@ -17,6 +17,11 @@ export interface PlatformAccessProps {
   members: Server[]
   /** Servers the deployment intent names as login hosts (Slurm); empty for other types. */
   loginNodes: Server[]
+  /**
+   * Whether the user may manage the Platform (an admin or an owner of its Pool), so a way into a
+   * tab that needs the Pool operate class is offered only to them.
+   */
+  canOperate: boolean
   /** Opens a Server's detail page; the shell owns navigation and Site scope. */
   onSelectServer: (server: Server) => void
 }
@@ -42,6 +47,11 @@ export interface PlatformModuleTab {
   icon: LucideIcon
   /** Whether the tab applies to this Platform, so a tab never makes a call that can only fail. */
   available: (platform: Platform) => boolean
+  /**
+   * The tab's reads already need the Pool operate class (an admin or an owner of the Platform's
+   * Pool), so it is not listed for a member, whose every call would be refused.
+   */
+  requiresOperate?: boolean
   /** Loads Platform member and login-node projections only while this route is active. */
   requiresMembers?: boolean
   Content: ComponentType<PlatformTabProps>
@@ -61,6 +71,11 @@ export interface PlatformFact {
 export interface PlatformSectionProps {
   platform: Platform
   members: Server[]
+  /**
+   * Whether the user may change this Platform (an admin or an owner of its Pool). A section shows its
+   * state either way and offers its write controls only when this is true.
+   */
+  canOperate: boolean
   /** Reloads the Platform after the section changed it. */
   onChanged: () => void
   /** Opens a Workflow's detail page by id. */

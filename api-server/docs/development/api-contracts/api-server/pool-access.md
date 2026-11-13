@@ -34,6 +34,7 @@ access, and directory); [identity-and-access.md](../../../../../docs/development
 ```text
 GET    /api/v1/infrastructure/pools/{id}/members
 POST   /api/v1/infrastructure/pools/{id}/members
+GET    /api/v1/infrastructure/pools/{id}/member-candidates
 PATCH  /api/v1/infrastructure/pools/{id}/members/{userId}
 DELETE /api/v1/infrastructure/pools/{id}/members/{userId}
 GET    /api/v1/infrastructure/pools/{id}/access-policy
@@ -48,6 +49,7 @@ Defined in `openapi/areas/access.yaml`.
 | --------- | ----------- |
 | `GET /api/v1/infrastructure/pools/{id}/members` | `listPoolMembers` |
 | `POST /api/v1/infrastructure/pools/{id}/members` | `addPoolMember` |
+| `GET /api/v1/infrastructure/pools/{id}/member-candidates` | `listPoolMemberCandidates` |
 | `PATCH /api/v1/infrastructure/pools/{id}/members/{userId}` | `updatePoolMember` |
 | `DELETE /api/v1/infrastructure/pools/{id}/members/{userId}` | `removePoolMember` |
 | `GET /api/v1/infrastructure/pools/{id}/access-policy` | `getPoolAccessPolicy` |
@@ -59,15 +61,21 @@ Bearer credential required (see [conventions.md](conventions.md)).
 
 ## Authorization
 
-- The `GET` routes are Pool read: an admin or any Pool Role in the Pool. Any other caller gets
-  `404 not_found`, as for a Pool that does not exist.
-- The writes are Pool operate: an admin or an `owner` of the Pool; a `member` gets `403 forbidden`.
+- `GET members` and `GET access-policy` are Pool read: an admin or any Pool Role in the Pool. Any other
+  caller gets `404 not_found`, as for a Pool that does not exist.
+- The writes and `GET member-candidates` are Pool operate: an admin or an `owner` of the Pool; a
+  `member` gets `403 forbidden`.
 
 ## Behavior
 
 - **Add** names an existing User by `username` (only admins create Users, [users.md](users.md)); an
   unknown username is `404`, a User already in the Pool `409`. `sudo` and `sudoPasswordless` default to
   `inherit`.
+- **Member candidates** are how an owner, who may not list Users, finds the username to add: the Users
+  that are not members of the Pool, as `{"items": [{"userId": "…", "username": "alice"}]}` ordered by
+  `username`, at most 20. The optional `query` keeps the Users whose username contains it,
+  case-insensitively; without it the first 20 are returned. Only the id and username of a User are
+  shown, never its User Role or other memberships.
 - An owner may make another User an owner, change any membership, and remove any membership,
   itself included.
 - **Sudo Policy** resolution, reported per member as `effective` with its `source`:
@@ -94,4 +102,4 @@ Bearer credential required (see [conventions.md](conventions.md)).
 
 ## Compatibility Notes
 
-Added 2026-11-13 (decision 082); new surface.
+Added 2026-11-13 (decision 082); new surface. `GET member-candidates` was added the same day, additive.

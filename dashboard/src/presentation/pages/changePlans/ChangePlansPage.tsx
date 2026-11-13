@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Stack, Text } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import type { ChangePlan } from '@/domain/convergence/changePlan'
+import { canOperatePool, isAdmin } from '@/domain/user/access'
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -9,6 +10,8 @@ import { failureOf, failureText, type DisplayedFailure } from '@/presentation/co
 import { LoadingState } from '@/presentation/components/LoadingState'
 import { SectionSurface } from '@/presentation/components/ConsolePrimitives'
 import { useToast } from '@/presentation/components/toast/toastContext'
+import { useAuth } from '@/presentation/contexts/AuthContext'
+import { usePlatformPools } from '@/presentation/hooks/usePlatformPools'
 import { useSettlingRefresh } from '@/presentation/hooks/useSettlingRefresh'
 import { ActivityHeader } from '@/presentation/pages/operations/ActivityHeader'
 import { ChangePlanCard } from './ChangePlanCard'
@@ -16,6 +19,7 @@ import { ChangePlanPolicyCard } from './ChangePlanPolicyCard'
 import {
   changePlanApprovalConsequence,
   changePlanApprovalScope,
+  changePlanResourceIds,
   changePlanResourceLabel,
   groupChangePlans,
   type ChangePlanNames,
@@ -31,6 +35,7 @@ type PageState =
 type Decision = { kind: 'approve' | 'reject'; plan: ChangePlan } | null
 
 const NO_PLANS: ChangePlan[] = []
+const NO_IDS: string[] = []
 
 /**
  * The Change Plans tab of Activity (route `/change-plans`, decision 076): every destructive change's plan
@@ -50,11 +55,16 @@ const NO_PLANS: ChangePlan[] = []
  * Plans are grouped as waiting for approval, approved, and recent final plans. Approving or
  * rejecting always goes through a confirmation that names the resource and the consequence and
  * opens on Cancel; a `conflict` from the API (for example a plan that expired meanwhile) is shown
- * as a toast and the list re-read. Every endpoint requires `admin`; a non-admin sees the API's
- * error state.
+ * as a toast and the list re-read. A user who is not an admin sees the plans of the Platforms its
+ * Pools hold without the policy switch, which is admin-only, and is offered Approve and Reject only
+ * for a Platform whose Pool it owns.
  */
 export function ChangePlansPage() {
   const { changePlans } = useApp()
+  const { currentUser } = useAuth()
+  // The Change Plan policy is an admin read and write (change-plans.md); other users see the plans
+  // of their Pools' Platforms without it.
+  const admin = isAdmin(currentUser)
   const { showToast } = useToast()
   const [state, setState] = useState<PageState>({ status: 'loading' })
   const [decision, setDecision] = useState<Decision>(null)
@@ -68,6 +78,11 @@ export function ChangePlansPage() {
 
   const plans = state.status === 'ready' ? state.plans : NO_PLANS
   const names = useChangePlanNames(plans)
+  // A Platform's plan is decided by an admin or an owner of the Platform's Pool; plans of other
+  // resource kinds by an admin only (change-plans.md).
+  const platformPools = usePlatformPools(admin ? NO_IDS : changePlanResourceIds(plans, 'platform'))
+  const canDecide = (plan: ChangePlan) =>
+    admin || (plan.resource.kind === 'platform' && canOperatePool(currentUser, platformPools.get(plan.resource.id)))
 
   /** Re-reads the list and shows it in place; rejects with the read's failure for the caller to handle. */
   const refresh = useCallback(async () => {
@@ -122,7 +137,7 @@ export function ChangePlansPage() {
     <div className="console-page">
       <ActivityHeader subtitle="What each destructive change does, who approved it, and the plans that still wait for approval." />
 
-      <ChangePlanPolicyCard />
+      {admin && <ChangePlanPolicyCard />}
       {state.status === 'loading' && <LoadingState rows={4} />}
       {state.status === 'error' && <ErrorState message={state.message} requestId={state.requestId} onRetry={reload} />}
       {state.status === 'ready' && (
@@ -130,6 +145,7 @@ export function ChangePlansPage() {
           plans={state.plans}
           names={names}
           now={readAt}
+          canDecide={canDecide}
           onApprove={(plan) => setDecision({ kind: 'approve', plan })}
           onReject={(plan) => setDecision({ kind: 'reject', plan })}
         />
@@ -170,10 +186,11 @@ export function ChangePlansPage() {
 }
 
 /** The three plan sections; an empty installation shows one explanatory empty state. */
-function ChangePlanSections({ plans, names, now, onApprove, onReject }: {
+function ChangePlanSections({ plans, names, now, canDecide, onApprove, onReject }: {
   plans: ChangePlan[]
   names: ChangePlanNames
   now: number
+  canDecide: (plan: ChangePlan) => boolean
   onApprove: (plan: ChangePlan) => void
   onReject: (plan: ChangePlan) => void
 }) {
@@ -192,7 +209,7 @@ function ChangePlanSections({ plans, names, now, onApprove, onReject }: {
     <SectionSurface title={title} description={description}>
       <Stack gap="4">
         {items.map((plan) => (
-          <ChangePlanCard key={plan.id} plan={plan} names={names} now={now} onApprove={onApprove} onReject={onReject} />
+          <ChangePlanCard key={plan.id} plan={plan} names={names} now={now} canDecide={canDecide(plan)} onApprove={onApprove} onReject={onReject} />
         ))}
       </Stack>
     </SectionSurface>

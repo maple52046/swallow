@@ -2905,7 +2905,9 @@ html:has(.sw-wizard) {
   gap: 0.125rem;
 }
 
-.sw-platform-name {
+/* A list row's name that opens the resource's page (Platforms, Pools). */
+.sw-platform-name,
+.sw-pool-name {
   width: fit-content;
   max-width: 100%;
   overflow: hidden;
@@ -2916,7 +2918,8 @@ html:has(.sw-wizard) {
   white-space: nowrap;
 }
 
-.sw-platform-name:hover {
+.sw-platform-name:hover,
+.sw-pool-name:hover {
   color: var(--chakra-colors-brand-fg);
 }
 

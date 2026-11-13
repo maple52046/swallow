@@ -120,10 +120,13 @@ flowchart LR
 | 類別 | 誰可以 | 路由（摘要；完整以各契約為準） |
 | --- | --- | --- |
 | 自己的帳號 | 任何已登入的 User | `GET /auth/me`、`PUT /auth/me/password`（只限 Session）、`/api-keys`、自己的 Access Key（`GET /ssh-keys`、`POST /ssh-keys`、`POST /ssh-keys/generate`、`GET`／`DELETE /ssh-keys/{keyId}`） |
-| 共用的參考資料 | 任何已登入的 User | `GET /modules`、`GET /sites`、`GET /sites/{id}`、Zone 與 Pool 目錄的讀取、`GET /software/catalog`、`GET /provisioning/images`、`GET /provisioning/templates(/{id})`、`GET /provisioning/tags`、`GET /platforms/deployment-requirements/slurm`、`GET /platforms/gpu-operator/releases`、`GET /validation/suites(/{suiteId})`、`GET /monitoring/metrics/names` |
+| 共用的參考資料 | 任何已登入的 User | `GET /modules`、`GET /sites`、`GET /sites/{id}`、Zone 與 Pool 目錄的讀取、`GET /software/catalog`、`GET /provisioning/images`、`GET /provisioning/image-catalogs`、`GET /provisioning/templates(/{id})`、`GET /provisioning/tags`、`GET /platforms/deployment-requirements/slurm`、`GET /platforms/gpu-operator/releases`、`GET /validation/suites(/{suiteId})`、`GET /monitoring/metrics/names` |
 | Pool 範圍的讀取 | 能讀取資源的 User（Pool 的 owner 或 member） | `GET /servers`（過濾）、`GET /servers/stream`（過濾）、`GET /servers/{id}` 與其讀取子路由（`events`、`network`、`provisioning-tasks`、`power-state`）、`GET /platforms`（過濾）、`GET /platforms/{id}`、`GET /platforms/{id}/slurm`、`GET /software/assignments`（過濾）、`GET /workflows`（過濾）與 Workflow 的讀取子路由、`GET /change-plans`（過濾）、`GET /validation/runs`（過濾）、`GET /monitoring/metrics(/range)`（該 Server）、Pool 的 members 與 access policy 的讀取 |
-| Pool 範圍的操作 | 資源所在 Pool 的 owner | Server 的動作（`refresh`、`power-on`、`power-off`、`inspect`、`test`、`abort`、`override-failed-testing`、`lock`、`unlock`、`mark-broken`、`mark-fixed`、`rescue-mode`、`exit-rescue-mode`、`default-user`、網路 link、`provisioner-detail`、Docker Host Explorer）、`POST /provisioning/deployment-operations`、`release-operations`、`recover-operations`、`deployments/preflight`、`POST /provisioning/tags`（每個目標 Server）、`POST /software/assignments`、`POST /software/uninstall`、`POST /platforms`（每個節點都在呼叫者是 owner 的同一個 Pool）、Platform 的 `PATCH`、`PUT /spec`、`DELETE`、`sync` 與 Kubernetes explorer、Change Plan 的核准與拒絕（Platform 的 plan）、Workflow 的 `cancel`、`rerun`、Task 重試、`POST /validation/runs`、`POST /validation/runs/{runId}/cancel`、Pool 的 members 與 access policy 的寫入 |
+| Pool 範圍的操作 | 資源所在 Pool 的 owner | Server 的動作（`refresh`、`power-on`、`power-off`、`inspect`、`test`、`abort`、`override-failed-testing`、`lock`、`unlock`、`mark-broken`、`mark-fixed`、`rescue-mode`、`exit-rescue-mode`、`default-user`、網路 link、`provisioner-detail`、Docker Host Explorer）、`POST /provisioning/deployment-operations`、`release-operations`、`recover-operations`、`deployments/preflight`、`POST /provisioning/tags`（每個目標 Server）、`POST /software/assignments`、`POST /software/uninstall`、`POST /platforms`（每個節點都在呼叫者是 owner 的同一個 Pool）、Platform 的 `PATCH`、`PUT /spec`、`DELETE`、`sync` 與 Kubernetes explorer、Change Plan 的核准與拒絕（Platform 的 plan）、Workflow 的 `cancel`、`rerun`、Task 重試、`POST /validation/runs`、`POST /validation/runs/{runId}/cancel`、Pool 的 members 與 access policy 的寫入、Pool 的 member candidates |
 | admin | User Role `admin` | 其他所有路由：`/overview`、Site 與 Integration 的寫入與 automation、`/users`、`/access/*`、Zone 與 Pool 目錄的寫入、`PUT /servers/{id}/placement`、`DELETE /servers/{id}`、Boot Media、Redfish probe、Power Configuration、virtual machines、`/provisioning` 的其餘路由（OS Image、template 的寫入、image verification、Provisioning Task、reconcile、HTTP Proxy、Subnet DNS、Boot ISO、VM enrollment、tag 的刪除與改名）、Deployment Key 與 `POST /ssh-keys/sync`、registry credentials、`POST /platforms/sync`、`PUT /platforms/deployment-requirements/slurm`、Change Plan 政策、`POST /workflows`、Validation Suite 的寫入與 Validation Schedule、alerts |
+
+- `provisioner-detail` 帶出 BMC 的連線資料（含帳號與密碼）。它屬於 Pool 範圍的操作：Pool 的 owner 被信任可以取得自己
+  Pool 的 Server 的 BMC；改寫 BMC 設定的 Power Configuration 仍只有 admin。
 
 ### 4.3 實作位置
 
@@ -155,7 +158,9 @@ flowchart LR
 ## 6. Pool Membership、Sudo Policy 與稽核
 
 - Pool Membership 以 `(poolId, userId)` 唯一。owner 與 admin 可以新增（以 username 指定既有的 User）、修改 Pool Role
-  與 sudo 覆寫、移除；owner 可以把別人設為 owner，也可以移除自己。Pool 刪除時刪除它的 membership 與 access policy
+  與 sudo 覆寫、移除；owner 可以把別人設為 owner，也可以移除自己。owner 不能列出 User（admin 的讀取），所以以 Pool
+  的 member candidates 找出要加入的人：不在 Pool 中的 User，只含 id 與 username，依 username 排序、最多 20 筆，可用
+  username 的片段過濾。Pool 刪除時刪除它的 membership 與 access policy
   （[pool-access](../../api-server/docs/development/api-contracts/api-server/pool-access.md) 契約）。
 - **Sudo Policy** 依序解析（glossary [Sudo Policy](glossaries/terms/sudo-policy.md)）：
   - admin：一律有 `sudo`，`adminSudoPasswordless` 決定是否免密碼（來源 `settings`）。

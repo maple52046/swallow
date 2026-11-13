@@ -1,8 +1,26 @@
-import { expect, test, type Route } from 'playwright/test'
+import { expect, test, type Page, type Route } from 'playwright/test'
 import { catalogImage, installApiFixtures, type CatalogImageFixture } from './fixtures'
 
 function json(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
+}
+
+/**
+ * Answers the Site-wide catalog read (`GET /image-catalogs`) with the fixture's two provisioners,
+ * MAAS Taipei (site-a) and MAAS Edge (site-b), each listing the images `imagesFor` gives it.
+ */
+async function routeImageCatalogs(page: Page, imagesFor: (integrationId: string) => unknown[]) {
+  const provisioners = [
+    { integrationId: 'maas-a', integrationName: 'MAAS Taipei', siteId: 'site-a' },
+    { integrationId: 'maas-b', integrationName: 'MAAS Edge', siteId: 'site-b' },
+  ]
+  await page.route('**/api/v1/provisioning/image-catalogs*', async (route) => {
+    const siteId = new URL(route.request().url()).searchParams.get('siteId')
+    const items = provisioners
+      .filter((provisioner) => !siteId || provisioner.siteId === siteId)
+      .map((provisioner) => ({ ...provisioner, images: imagesFor(provisioner.integrationId), error: null }))
+    return json(route, { items })
+  })
 }
 
 test.beforeEach(async ({ page }) => {
@@ -40,16 +58,18 @@ test('catalog overview stays scope-wide while discovery search resets selection'
   await expect(page.getByRole('region', { name: 'Deployment images' })).toContainText('Showing 1–1 of 1 images')
 })
 
-test('manual refresh keeps last-good images when the integration read fails', async ({ page }) => {
+test('manual refresh keeps last-good images when the catalog read fails', async ({ page }) => {
   let failRefresh = false
-  await page.route('**/api/v1/integrations?*', async (route) => {
-    const url = new URL(route.request().url())
-    if (route.request().method() !== 'GET' || url.searchParams.get('kind') !== 'provisioner') return route.fallback()
-    if (failRefresh) return json(route, { error: { code: 'unavailable', message: 'Integration registry unavailable.' } }, 503)
+  await page.route('**/api/v1/provisioning/image-catalogs*', async (route) => {
+    if (failRefresh) return json(route, { error: { code: 'internal', message: 'Catalog read failed.' } }, 500)
     return route.fallback()
   })
 
+  // The first read can run before the Site scope resolves; wait for the Site's own read so the
+  // refresh below is what fails.
+  const siteRead = page.waitForResponse((response) => response.url().includes('/image-catalogs?siteId=site-a'))
   await page.goto('/provisioning/images?site=site-a')
+  await siteRead
   const catalogRow = page.getByRole('row', { name: 'Ubuntu 22.04 LTS image', exact: true }).first()
   await expect(catalogRow).toBeVisible()
   failRefresh = true
@@ -111,20 +131,15 @@ test('deployment-test activity drives View, Review, Test, and Deploy actions wit
     updatedAt: '2026-08-27T02:05:00Z',
   })
 
-  await page.route('**/api/v1/provisioning/images?*', async (route) => {
-    const url = new URL(route.request().url())
-    if (route.request().method() !== 'GET') return route.fallback()
-    if (url.searchParams.get('integrationId') !== 'maas-a') {
-      return json(route, [image('custom/running', 'Running image test', 'custom')])
-    }
-    return json(route, [
-      image('ubuntu/jammy', 'Ubuntu 22.04 LTS', 'ubuntu'),
-      image('ubuntu/golden', 'Ubuntu Golden', 'ubuntu', { name: 'GPU baseline', tags: ['gpu', 'production', 'stable'], defaultUser: 'cloud-user' }),
-      image('custom/running', 'Running image test', 'custom'),
-      image('custom/attention', 'Attention image test', 'custom'),
-      image('custom/untested', 'Untested image', 'custom'),
-    ])
-  })
+  await routeImageCatalogs(page, (integrationId) => integrationId !== 'maas-a'
+    ? [image('custom/running', 'Running image test', 'custom')]
+    : [
+        image('ubuntu/jammy', 'Ubuntu 22.04 LTS', 'ubuntu'),
+        image('ubuntu/golden', 'Ubuntu Golden', 'ubuntu', { name: 'GPU baseline', tags: ['gpu', 'production', 'stable'], defaultUser: 'cloud-user' }),
+        image('custom/running', 'Running image test', 'custom'),
+        image('custom/attention', 'Attention image test', 'custom'),
+        image('custom/untested', 'Untested image', 'custom'),
+      ])
   await page.route('**/api/v1/workflows?*', async (route) => {
     const url = new URL(route.request().url())
     if (url.searchParams.get('kind') !== 'verify-os-image') return route.fallback()
@@ -264,11 +279,7 @@ test('out-of-range pages are corrected while display state and Site scope are pr
     builtinDefaultUser: 'ubuntu',
     sizeBytes: 1024 + index,
   }))
-  await page.route('**/api/v1/provisioning/images?*', async (route) => {
-    const url = new URL(route.request().url())
-    if (route.request().method() !== 'GET') return route.fallback()
-    return json(route, url.searchParams.get('integrationId') === 'maas-a' ? images : [])
-  })
+  await routeImageCatalogs(page, (integrationId) => integrationId === 'maas-a' ? images : [])
 
   await page.goto('/provisioning/images?site=site-a&tag=golden&group=provider&sort=name&dir=desc&page=99')
   await expect.poll(() => new URL(page.url()).searchParams.get('page')).toBe('2')

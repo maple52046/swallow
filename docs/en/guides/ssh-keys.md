@@ -31,13 +31,15 @@ swallow username; your home directory is created at your first login.
 
 swallow also registers the deployment key and the **admins'** access keys in each
 provisioner that can hold SSH keys (MAAS: the account that owns the Integration's API
-key), so admins can still get in if the Directory is down. Other users' keys show
-**Not registered** there. MAAS then writes the registered keys into the deployed
-image's default user. The page shows, per provisioner, whether each key is
-**Synced**, **Pending**, **Failed** (with the reason), or **Not supported**.
+key), so admins can still get in if the Directory is down. Other users' keys are not
+registered there, so their page shows the deployment key's public key and their own
+access keys without provisioner status. MAAS then writes the registered keys into the
+deployed image's default user. For an admin, the page shows, per provisioner, whether
+each key is **Synced**, **Pending**, **Failed** (with the reason), or **Not supported**.
 
 - Sync runs after every key change, every few minutes, and before each OS
-  deployment. **Sync to provisioners** requests one immediately.
+  deployment. An admin's **Sync to provisioners** requests one immediately; replacing
+  or regenerating the deployment key is also an admin's.
 - If swallow cannot register the deployment key in a MAAS right before a
   deployment, the deployment stops with `ssh_key_registration_failed`; retry it
   once MAAS is reachable.

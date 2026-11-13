@@ -809,6 +809,40 @@ test.describe('user interactions', () => {
     await expect(page.getByText('Ephemeral (memory-backed)', { exact: true })).toBeVisible()
   })
 
+  test('a Pool owner prepares Platform nodes through their own provisioner without reading Integrations', async ({ page }) => {
+    const integrationReads: string[] = []
+    const catalogReads: string[] = []
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname.startsWith('/api/v1/integrations')) integrationReads.push(request.url())
+    })
+    await installApiFixtures(page, {
+      identity: 'owner',
+      freePlatformCandidates: true,
+      readyServerCount: 2,
+      serverPlacements: { 'srv-1': { poolId: 'pool-research' }, 'srv-2': { poolId: 'pool-research' } },
+      onOSImageCatalogRequest: (integrationId) => catalogReads.push(integrationId),
+    })
+    await page.goto('/platforms/deploy/slurm?site=site-a')
+    await page.getByLabel('Platform name').fill('owner-slurm')
+    const next = page.getByRole('button', { name: 'Next' })
+    await next.click()
+
+    await page.getByRole('checkbox', { name: 'Run slurmctld on gpu-node-01' }).locator('..').click()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-01' }).locator('..').click()
+    await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
+    await expect(page.getByText('Resolving Site provisioner')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Manage integrations' })).toHaveCount(0)
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Slurm features' })).toBeVisible()
+    await next.click()
+
+    await expect(page.getByRole('heading', { name: 'Operating system', exact: true })).toBeVisible()
+    await chooseOSImage(page, 'Ubuntu 24.04 LTS')
+    await expect(page.getByRole('heading', { name: 'OS installation' })).toBeVisible()
+    expect(catalogReads).toContain('maas-a')
+    expect(integrationReads).toEqual([])
+  })
+
   test('Platform OS installation warns about an unsupported deploy mode without blocking Next', async ({ page }) => {
     await installApiFixtures(page, { freePlatformCandidates: true, readyServerCount: 1 })
     await page.goto('/platforms/deploy/kubernetes?site=site-a')

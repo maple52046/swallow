@@ -1,4 +1,4 @@
-import type { OSImage, OSImageMetadata } from "@/domain/site/types";
+import type { OSImage, OSImageMetadata, ProvisionerImageCatalog } from "@/domain/site/types";
 import type {
   BootISO,
   BootISOCatalog,
@@ -76,6 +76,13 @@ export interface ProvisioningRepository {
     input: CreateImageVerificationInput,
   ): Promise<ProvisioningOperationReference>;
   listOSImages(integrationId: string): Promise<OSImage[]>;
+  /**
+   * Reads the OS Image catalog of every provisioner of `siteId` (of every Site when omitted) in one
+   * reference read any user may make. Resolves with one catalog per provisioner, ordered by Site and
+   * name; a provisioner whose catalog could not be read is a catalog with an `error`, not a
+   * rejection. Rejects with the shared error envelope for an unknown Site or a failed request.
+   */
+  listOSImageCatalogs(siteId?: string): Promise<ProvisionerImageCatalog[]>;
   /**
    * Uploads a new provider-owned OS image to one provisioner and returns the created catalog
    * row once the provisioner reports it fully staged. The implementation first hashes the file

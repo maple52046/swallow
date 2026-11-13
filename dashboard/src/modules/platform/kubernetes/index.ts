@@ -33,10 +33,11 @@ export const kubernetesModule: PlatformModuleUI = {
         workflowId: platform.gpuOperator.lastWorkflowId,
       }]
     : [],
+  // Every explorer route, the reads included, is Pool operate (platforms-kubernetes.md).
   tabs: [
-    { value: 'applications', label: 'Applications', icon: AppWindow, available: explorerAvailable, Content: KubernetesApplicationsTab },
-    { value: 'namespaces', label: 'Namespaces', icon: Folders, available: explorerAvailable, Content: KubernetesNamespacesTab },
-    { value: 'cluster', label: 'Cluster', icon: Server, available: explorerAvailable, Content: KubernetesClusterTab },
+    { value: 'applications', label: 'Applications', icon: AppWindow, available: explorerAvailable, requiresOperate: true, Content: KubernetesApplicationsTab },
+    { value: 'namespaces', label: 'Namespaces', icon: Folders, available: explorerAvailable, requiresOperate: true, Content: KubernetesNamespacesTab },
+    { value: 'cluster', label: 'Cluster', icon: Server, available: explorerAvailable, requiresOperate: true, Content: KubernetesClusterTab },
   ],
   deploy: { icon: Boxes, namePlaceholder: 'lab-k0s', useForm: useKubernetesDeployForm },
   facts: kubernetesPlatformFacts,

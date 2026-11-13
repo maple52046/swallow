@@ -3,6 +3,7 @@ import { Box, Button, HStack, Stack, Table, Text, VisuallyHidden } from '@chakra
 import { FilePlus2, KeyRound, RefreshCw, Upload } from 'lucide-react'
 import { useApp } from '@/di/AppProvider'
 import type { SSHKey } from '@/domain/access/types'
+import { isAdmin } from '@/domain/user/access'
 import { CopyButton } from '@/presentation/components/CopyButton'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -13,6 +14,7 @@ import { PageHeader } from '@/presentation/components/PageHeader'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
 import { DescriptionList } from '@/presentation/components/ui/description-list'
 import { useToast } from '@/presentation/components/toast/toastContext'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { formatDateTime } from '@/shared/utils/time'
 import { DeleteSSHKeyDialog } from './DeleteSSHKeyDialog'
 import { DeploymentKeyDialog } from './DeploymentKeyDialog'
@@ -45,22 +47,25 @@ type DialogState =
 const SYNC_REFRESH_DELAY_MS = 3000
 
 /**
- * The signed-in admin's SSH key workspace (route `/account/ssh-keys`, decision 039).
+ * The signed-in user's SSH key workspace (route `/account/ssh-keys`, decision 039).
  *
  * It shows the system-owned Deployment Key swallow logs in to Servers with, and the caller's own
  * Access Keys, each with its realization status in every provisioner. All data comes from the
  * `ssh-keys.md` contract through the SSHKeyRepository port; provisioner names come from the
  * integrations list and fall back to ids if that read fails, so a missing name never hides keys.
+ * Only an admin's keys are registered with provisioners, and replacing the Deployment Key, syncing,
+ * and the integrations list are admin routes, so a user who is not an admin sees the Deployment
+ * Key's public key and its own Access Keys only; its keys reach Servers through the Directory.
  * The list is read once per visit and after each action; a key whose provisioner status is
  * `pending` is then followed on its own (usePendingSyncRefresh) and patched in place, so its
  * status settles without reloading the page or touching other rows.
  * No private key is ever loaded here: the only private key the page handles is the one-time result
  * of generating an Access Key, owned by GenerateSSHKeyDialog.
- *
- * Every endpoint requires `admin`; a non-admin reaching this route sees the API's error state.
  */
 export function SSHKeysPage() {
   const { sshKeys, sites } = useApp()
+  const { currentUser } = useAuth()
+  const admin = isAdmin(currentUser)
   const { showToast } = useToast()
   const [state, setState] = useState<PageState>({ status: 'loading' })
   const [dialog, setDialog] = useState<DialogState>(null)
@@ -78,7 +83,7 @@ export function SSHKeysPage() {
         const [keys, integrations] = await Promise.all([
           sshKeys.listSSHKeys(),
           // Names are cosmetic; a failed integrations read must not hide the keys.
-          sites.listIntegrations({ kind: 'provisioner' }).catch(() => []),
+          admin ? sites.listIntegrations({ kind: 'provisioner' }).catch(() => []) : Promise.resolve([]),
         ])
         if (cancelled) return
         setState({
@@ -96,7 +101,7 @@ export function SSHKeysPage() {
     return () => {
       cancelled = true
     }
-  }, [sshKeys, sites, reloadNonce])
+  }, [admin, sshKeys, sites, reloadNonce])
 
   // After a sync request, re-read once the backend pass has had time to run. The timer is cleared
   // if another request replaces it or the page unmounts.
@@ -161,10 +166,12 @@ export function SSHKeysPage() {
         title="SSH keys"
         subtitle="The deployment key swallow uses to manage Servers, and your own keys for logging in to them."
         actions={
-          <Button variant="outline" onClick={() => void requestSync()} loading={syncing} disabled={state.status !== 'ready'}>
-            <RefreshCw size={16} />
-            Sync to provisioners
-          </Button>
+          admin && (
+            <Button variant="outline" onClick={() => void requestSync()} loading={syncing} disabled={state.status !== 'ready'}>
+              <RefreshCw size={16} />
+              Sync to provisioners
+            </Button>
+          )
         }
       />
 
@@ -176,7 +183,7 @@ export function SSHKeysPage() {
             title="Deployment key"
             description="Generated when swallow was installed. Swallow logs in with it for SSH readiness and Ansible unless a Site overrides the key."
             actions={
-              state.data.deploymentKey && (
+              admin && state.data.deploymentKey && (
                 <HStack gap="2" wrap="wrap">
                   <Button
                     size="sm"
@@ -204,6 +211,7 @@ export function SSHKeysPage() {
                 sshKey={state.data.deploymentKey}
                 integrationName={integrationName}
                 following={followedKeyIds.has(state.data.deploymentKey.id)}
+                showProvisioners={admin}
               />
             ) : (
               <EmptyState
@@ -215,7 +223,9 @@ export function SSHKeysPage() {
 
           <SectionSurface
             title="Your access keys"
-            description="Public keys you log in with. Servers deployed after a key is synced accept it for their default user."
+            description={admin
+              ? 'Public keys you log in with. Servers deployed after a key is synced accept it for their default user.'
+              : 'Public keys you log in with. Servers of your Pools that you may log in to accept them for your own account.'}
             actions={
               <HStack gap="2" wrap="wrap">
                 <Button size="sm" variant="outline" onClick={() => setDialog({ kind: 'import' })}>
@@ -241,6 +251,7 @@ export function SSHKeysPage() {
                 accessKeys={accessKeys}
                 integrationName={integrationName}
                 followedKeyIds={followedKeyIds}
+                showProvisioners={admin}
                 onDelete={(key) => setDialog({ kind: 'delete', key })}
               />
             )}
@@ -263,11 +274,14 @@ function DeploymentKeyDetails({
   sshKey,
   integrationName,
   following,
+  showProvisioners,
 }: {
   sshKey: SSHKey
   integrationName: (id: string) => string
   /** The key has a pending entry that is being re-read. */
   following: boolean
+  /** Provisioners are an admin's concern; others see the key alone. */
+  showProvisioners: boolean
 }) {
   return (
     <Stack gap="5">
@@ -280,10 +294,12 @@ function DeploymentKeyDetails({
           { label: 'Last changed', value: formatDateTime(sshKey.status.updatedAt) },
         ]}
       />
-      <Box>
-        <Text fontWeight="semibold" mb="2">Provisioners</Text>
-        <SSHKeySyncStatus sshKey={sshKey} integrationName={integrationName} variant="list" following={following} />
-      </Box>
+      {showProvisioners && (
+        <Box>
+          <Text fontWeight="semibold" mb="2">Provisioners</Text>
+          <SSHKeySyncStatus sshKey={sshKey} integrationName={integrationName} variant="list" following={following} />
+        </Box>
+      )}
     </Stack>
   )
 }
@@ -306,12 +322,15 @@ function AccessKeyList({
   accessKeys,
   integrationName,
   followedKeyIds,
+  showProvisioners,
   onDelete,
 }: {
   accessKeys: SSHKey[]
   integrationName: (id: string) => string
   /** Ids of keys whose pending status is being re-read; their status cells show it. */
   followedKeyIds: ReadonlySet<string>
+  /** Only an admin's keys are registered with provisioners, so only an admin sees that column. */
+  showProvisioners: boolean
   onDelete: (key: SSHKey) => void
 }) {
   return (
@@ -324,7 +343,7 @@ function AccessKeyList({
                 <Table.ColumnHeader>Name</Table.ColumnHeader>
                 <Table.ColumnHeader>Type</Table.ColumnHeader>
                 <Table.ColumnHeader>Fingerprint</Table.ColumnHeader>
-                <Table.ColumnHeader>Provisioners</Table.ColumnHeader>
+                {showProvisioners && <Table.ColumnHeader>Provisioners</Table.ColumnHeader>}
                 <Table.ColumnHeader>Added</Table.ColumnHeader>
                 <Table.ColumnHeader>
                   <VisuallyHidden>Actions</VisuallyHidden>
@@ -344,9 +363,11 @@ function AccessKeyList({
                   <Table.Cell>
                     <Text as="span" className="sw-mono" fontSize="xs">{key.spec.fingerprint}</Text>
                   </Table.Cell>
-                  <Table.Cell>
-                    <SSHKeySyncStatus sshKey={key} integrationName={integrationName} variant="summary" following={followedKeyIds.has(key.id)} />
-                  </Table.Cell>
+                  {showProvisioners && (
+                    <Table.Cell>
+                      <SSHKeySyncStatus sshKey={key} integrationName={integrationName} variant="summary" following={followedKeyIds.has(key.id)} />
+                    </Table.Cell>
+                  )}
                   <Table.Cell>{formatDateTime(key.status.createdAt)}</Table.Cell>
                   <Table.Cell textAlign="end">
                     <Button size="xs" variant="outline" colorPalette="red" onClick={() => onDelete(key)}>
@@ -366,7 +387,7 @@ function AccessKeyList({
               key={key.id}
               title={key.spec.name}
               description={key.spec.fingerprint}
-              status={<SSHKeySyncStatus sshKey={key} integrationName={integrationName} variant="summary" following={followedKeyIds.has(key.id)} />}
+              status={showProvisioners ? <SSHKeySyncStatus sshKey={key} integrationName={integrationName} variant="summary" following={followedKeyIds.has(key.id)} /> : undefined}
               actions={
                 <HStack gap="2">
                   <CopyButton value={key.spec.publicKey} label={`Copy public key of ${key.spec.name}`} />

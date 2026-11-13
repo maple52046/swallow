@@ -351,8 +351,8 @@ Zone 與 Pool 是 swallow 擁有的 Server 分組，透過 Server 的 placement 
   pool 只在 Server 上顯示供參考。新發現的 Server 不在任何 Pool，直到 admin 把它放進 Pool。
 
 Pool 也決定誰可以使用它的 Server。它的 member 看得到這些 Server（以及上面的 Platform、Workflow 與 Validation Run），並以
-自己的 SSH key 登入；它的 owner 可以操作它們。在 **Pools** 中 Pool 那一列的 **Members** 動作，管理 Pool 的成員與 sudo
-預設值。只有 admin 能在 Pool 之間移動 Server，而且一個 Platform 的所有 Server 都在同一個 Pool：被 Platform claim 的
+自己的 SSH key 登入；它的 owner 可以操作它們。在 **Pools** 中點選 Pool 的名稱開啟它的頁面，在那裡管理成員與 sudo
+預設值；owner 與 admin 在 Pool 那一列也有 **Add member**。只有 admin 能在 Pool 之間移動 Server，而且一個 Platform 的所有 Server 都在同一個 Pool：被 Platform claim 的
 Server 只能移進那個 Platform 的 Pool，或移出所有 Pool（之後在它的 Server 重新都在同一個 Pool 之前，Platform 只有 admin
 能管理）。刪除 Pool 會一併刪除它的成員資格；還有 Server 在 Pool 中時拒絕刪除。
 

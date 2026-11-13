@@ -8,7 +8,8 @@ converge 到 requested result。
 
 ## 準備 image
 
-在 **OS Images**（側邊欄 **Infrastructure** 的上一項）：
+每個 user 都能開啟 **OS Images**，查看 image 與它們支援的 deploy mode，並佈署到自己是 owner 的 Pool 的 Server。
+準備 image 是 admin 的工作：在 **OS Images**（側邊欄 **Infrastructure** 的上一項）：
 
 1. 選擇 Site／provisioner catalog。
 2. 使用既有 provider image，或 upload supported custom image。
@@ -31,8 +32,8 @@ Deployment Template 保存可重用的 user choice，不是 executable automatio
 它可以預選 image 與 settings，但 deployment request 仍會驗證每個 current target。
 Template 絕不繞過目前 eligibility。
 
-Dashboard 的 template 功能仍在開發中；release build 會隱藏它，佈署使用 custom configuration。
-API 與 CLI 不受影響。
+admin 在側邊欄 OS Images 旁的 **Deployment Templates** 頁面管理 template。Dashboard 的 template 功能仍在開發中；
+release build 會隱藏它，佈署使用 custom configuration。API 與 CLI 不受影響。
 
 ## 佈署 OS
 

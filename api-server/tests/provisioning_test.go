@@ -2,6 +2,7 @@ package tests
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
@@ -9,8 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/maple52046/swallow/internal/adapters/osprovisioning/maas"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 )
 
 // deployOS accepts an OS deployment through the current route; the fixture's launcher runs the
@@ -270,6 +273,64 @@ func TestListImages_UnknownIntegration(t *testing.T) {
 		"GET", "/api/v1/provisioning/images?integrationId=nope", nil, f.adminAuth(t))
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+// A user who is not an admin may not list Integrations, but reads the images of every provisioner
+// of a Site in one reference read (provisioning.md "Image catalogs of a Site"). It learns only each
+// Integration's id, name, and Site, and a provisioner that cannot be read is reported beside the
+// ones that could instead of failing the request.
+func TestListImageCatalogs_UserReadsEveryProvisionerOfASite(t *testing.T) {
+	f := setupPlatform(t)
+	ctx := context.Background()
+	if err := f.sites.Create(ctx, &sitedomain.Site{ID: testSiteID, Name: "dc-east"}); err != nil {
+		t.Fatalf("seed site: %v", err)
+	}
+	seedProvisionerIntegration(t, f)
+	// A second provisioner the fake factory cannot open, so its catalog cannot be read.
+	if err := f.integrations.Create(ctx, &sitedomain.Integration{
+		ID: "integration-2", SiteID: testSiteID, Kind: sitedomain.IntegrationKindProvisioner,
+		ProviderKind: maas.ProviderKind, Name: "maas-west", Endpoint: "http://maas-west:5240/MAAS", Enabled: true,
+	}, "ck:tk:ts"); err != nil {
+		t.Fatalf("seed second provisioner: %v", err)
+	}
+	user := map[string]string{"Authorization": "Bearer " + userToken(t, f.jwtSvc)}
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/provisioning/image-catalogs?siteId="+testSiteID, nil, user)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	items, _ := parseBody(t, resp)["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("items = %v, want one catalog per provisioner", items)
+	}
+	east, west := items[0].(map[string]any), items[1].(map[string]any)
+	if east["integrationId"] != testIntegrationID || east["integrationName"] != "maas-east" || east["siteId"] != testSiteID || east["error"] != nil {
+		t.Fatalf("first catalog = %v, want maas-east read without error", east)
+	}
+	if images, _ := east["images"].([]any); len(images) != 1 || images[0].(map[string]any)["id"] != "ubuntu/jammy" {
+		t.Fatalf("maas-east images = %v, want ubuntu/jammy", east["images"])
+	}
+	if _, leaked := east["endpoint"]; leaked {
+		t.Fatalf("catalog carries the Integration's endpoint: %v", east)
+	}
+	if west["integrationName"] != "maas-west" || west["error"] == nil {
+		t.Fatalf("second catalog = %v, want maas-west with an error", west)
+	}
+	if images, _ := west["images"].([]any); len(images) != 0 {
+		t.Fatalf("maas-west images = %v, want none for an unreadable catalog", west["images"])
+	}
+}
+
+func TestListImageCatalogs_UnknownSite(t *testing.T) {
+	f := setupPlatform(t)
+
+	resp := doRequest(t, f.app, "GET", "/api/v1/provisioning/image-catalogs?siteId=nope", nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+	if code := errorCode(t, resp); code != "not_found" {
+		t.Fatalf("error code = %q, want not_found", code)
 	}
 }
 

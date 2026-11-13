@@ -352,6 +352,7 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 	// Delete names the Platform that claims a refused Server; its name reader is attached once the
 	// platform repository exists below.
 	deleteServerUC := provisioningapp.NewDeleteServerUseCase(serverRepo, providerFactory)
+	listImagesUC := provisioningapp.NewListOSImagesUseCase(providerFactory, osImageMetadataRepo, osImageVerificationRepo)
 	provisioningHandler := provisioningdelivery.NewProvisioningHandler(
 		deploymentsUC,
 		provisioningapp.NewDeploymentTargetPreflightService(serverRepo, providerFactory),
@@ -359,7 +360,8 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 		networkService,
 		taskService,
 		refreshServerUC,
-		provisioningapp.NewListOSImagesUseCase(providerFactory, osImageMetadataRepo, osImageVerificationRepo),
+		listImagesUC,
+		provisioningapp.NewListOSImageCatalogsUseCase(siteRepo, integrationRepo, listImagesUC),
 		reconcileUC,
 		provisioningapp.NewGetProvisionerDetailUseCase(serverRepo, providerFactory),
 		provisioningapp.NewGetProviderEventsUseCase(serverRepo, providerFactory),
@@ -1065,6 +1067,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 
 	provisioning := v1.Group("/provisioning")
 	provisioning.Get("/images", route(deps.provisioning.ListImages)...)
+	provisioning.Get("/image-catalogs", route(deps.provisioning.ListImageCatalogs)...)
 	provisioning.Delete("/images", adminRoute(deps.provisioning.DeleteImage)...)
 	// OS image upload (decision 027): record the intent, then stream the raw content, which the
 	// handler forwards to the provider as it arrives; the provider decides whether the result is a
@@ -1168,6 +1171,7 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	infrastructure.Post("/pools/:id/members", route(deps.access.handler.AddPoolMember)...)
 	infrastructure.Patch("/pools/:id/members/:userId", route(deps.access.handler.UpdatePoolMember)...)
 	infrastructure.Delete("/pools/:id/members/:userId", route(deps.access.handler.RemovePoolMember)...)
+	infrastructure.Get("/pools/:id/member-candidates", route(deps.access.handler.ListPoolMemberCandidates)...)
 	infrastructure.Get("/pools/:id/access-policy", route(deps.access.handler.GetPoolAccessPolicy)...)
 	infrastructure.Put("/pools/:id/access-policy", route(deps.access.handler.SetPoolAccessPolicy)...)
 

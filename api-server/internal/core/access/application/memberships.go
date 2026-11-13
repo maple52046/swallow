@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -106,6 +107,52 @@ func (s *MembershipService) Members(ctx context.Context, scope accessdomain.Scop
 		views = append(views, MemberView{Membership: *membership, Username: names[membership.UserID], Effective: accessdomain.ResolveSudo(*membership, policy)})
 	}
 	return views, nil
+}
+
+// maxMemberCandidates bounds a candidate list: enough to pick from while typing, small enough that
+// one request never pages through every User.
+const maxMemberCandidates = 20
+
+// MemberCandidate is a User an owner may add to a Pool. Only the id and username are exposed,
+// because an owner may not list Users (an admin read) and needs nothing else to add one.
+type MemberCandidate struct {
+	UserID   string
+	Username string
+}
+
+// Candidates lists the Users that are not members of the Pool, ordered by username and at most
+// maxMemberCandidates of them, keeping those whose username contains query case-insensitively (all
+// when query is empty). The caller must be an admin or an owner of the Pool, the same as for adding
+// a member: an unknown Pool or one the caller cannot read is ErrNotVisible, a member ErrForbidden.
+func (s *MembershipService) Candidates(ctx context.Context, scope accessdomain.Scope, poolID, query string) ([]MemberCandidate, error) {
+	if _, err := s.visiblePool(ctx, scope, accessdomain.Operate, poolID); err != nil {
+		return nil, err
+	}
+	memberships, err := s.memberships.ListByPool(ctx, poolID)
+	if err != nil {
+		return nil, err
+	}
+	members := make(map[string]bool, len(memberships))
+	for _, membership := range memberships {
+		members[membership.UserID] = true
+	}
+	users, err := s.users.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(users, func(i, j int) bool { return users[i].Username < users[j].Username })
+	needle := strings.ToLower(strings.TrimSpace(query))
+	candidates := make([]MemberCandidate, 0, min(len(users), maxMemberCandidates))
+	for _, user := range users {
+		if members[user.ID] || !strings.Contains(strings.ToLower(user.Username), needle) {
+			continue
+		}
+		candidates = append(candidates, MemberCandidate{UserID: user.ID, Username: user.Username})
+		if len(candidates) == maxMemberCandidates {
+			break
+		}
+	}
+	return candidates, nil
 }
 
 // AddMember adds an existing User to a Pool. The caller must be an admin or an owner of the Pool. An

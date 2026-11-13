@@ -4,6 +4,7 @@ import {
   Boxes,
   ChartLine,
   Disc3,
+  FileStack,
   LayoutDashboard,
   Network,
   Package,
@@ -46,7 +47,8 @@ interface NavEntry {
 /**
  * Primary destinations in workflow order, in sections the sidebar separates with an unlabelled
  * rule: the Overview; the fleet and what runs on it; what happens to it; what the Site is set up
- * with, the OS images it deploys and its wiring, and who may use it.
+ * with, the OS images it deploys and the Deployment Templates built on them, its wiring, and who may
+ * use it. OS Images is every user's (images are reference data); its templates are an admin's.
  */
 const NAVIGATION: ReadonlyArray<readonly NavEntry[]> = [
   [{ label: 'Overview', path: '/', icon: LayoutDashboard, activeFor: ['/'], adminOnly: true }],
@@ -61,7 +63,15 @@ const NAVIGATION: ReadonlyArray<readonly NavEntry[]> = [
     { label: 'Validation', path: '/validation/runs', icon: ShieldCheck, activeFor: ['/validation'] },
   ],
   [
-    { label: 'OS Images', path: '/provisioning/images', icon: Disc3, activeFor: ['/provisioning'], adminOnly: true },
+    { label: 'OS Images', path: '/provisioning/images', icon: Disc3, activeFor: ['/provisioning/images'] },
+    {
+      label: 'Deployment Templates',
+      path: '/provisioning/templates',
+      icon: FileStack,
+      activeFor: ['/provisioning/templates'],
+      feature: 'deploymentTemplates',
+      adminOnly: true,
+    },
     { label: 'Infrastructure', path: '/infrastructure/sites', icon: Network, activeFor: ['/infrastructure'], adminOnly: true },
     { label: 'Pools', path: '/pools', icon: UsersRound, activeFor: ['/pools'] },
     { label: 'Users', path: '/users', icon: UserCog, activeFor: ['/users'], adminOnly: true },

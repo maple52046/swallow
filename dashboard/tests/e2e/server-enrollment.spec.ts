@@ -106,6 +106,22 @@ test('a Site without a provisioner is sent to connect one', async ({ page }) => 
   await expect(page).toHaveURL(/\/infrastructure\/integrations\?site=site-a/)
 })
 
+test('a user who is not an admin and sees no Servers is not sent to connect a provisioner', async ({ page }) => {
+  const integrationReads: string[] = []
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/v1/integrations') integrationReads.push(request.url())
+  })
+  await installApiFixtures(page, { fleetSize: 0, noProvisioners: true, identity: 'member' })
+  await page.goto('/servers?site=site-a')
+
+  await expect(page.getByText('No servers available')).toBeVisible()
+  await expect(page.getByText('Servers appear here when an admin places them in a Pool you belong to.')).toBeVisible()
+  await expect(page.getByText('No provisioner connected')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Connect a provisioner' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Add servers' })).toHaveCount(0)
+  expect(integrationReads).toEqual([])
+})
+
 test('hardware inspection waiting for attention points to Boot Media and the Workflow', async ({ page }) => {
   await installApiFixtures(page, { inspectionAttentionServerIds: ['srv-2'] })
   await page.goto('/servers?site=site-a')

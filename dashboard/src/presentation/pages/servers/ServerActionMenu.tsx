@@ -6,9 +6,11 @@ import { useApp } from '@/di/AppProvider'
 import type { ProvisionerCapabilities, ProvisioningActionResult, ReleaseServerInput, Server } from '@/domain/server/types'
 import { serverDisplayName } from '@/domain/server/types'
 import { softwareInstallBlocker } from '@/domain/software/targets'
+import { canOperatePool, isAdmin } from '@/domain/user/access'
 import { knownPowerState, powerStateLabel } from '@/presentation/components/axisBadgeUtils'
 import { failureOf, failureText } from '@/presentation/components/failure'
 import { useToast } from '@/presentation/components/toast/toastContext'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { usePlatformNames } from '@/presentation/hooks/usePlatformNames'
 import { useViewWorkflowToastAction } from '@/presentation/hooks/useViewWorkflowToastAction'
@@ -34,7 +36,8 @@ import {
 /**
  * Capability-gated command surface for one Server on the detail page.
  *
- * swallow-owned placement and tags live in a separate Edit menu. Provider operations reuse
+ * swallow-owned placement and tags live in a separate Edit menu, offered to the users who may change
+ * them: placement to an admin, tags also to an owner of the Server's Pool. Provider operations reuse
  * the shared nested Take-action menu so list and detail never drift. Destructive lifecycle
  * commands keep their existing confirmation, diagnostics, and refresh contracts. Install
  * software opens the shared install dialog with this Server as the fixed target, gated by the
@@ -69,6 +72,10 @@ export function ServerActionMenu({
   const serverId = server.id
   const serverName = serverDisplayName(server)
   const { servers, provisioning } = useApp()
+  const { currentUser } = useAuth()
+  // Placement is an admin route; tags are a Pool owner's (identity-and-access.md §4.2).
+  const canPlace = isAdmin(currentUser)
+  const canEditTags = canOperatePool(currentUser, server.spec.poolId)
   const { showToast } = useToast()
   const navigate = useNavigate()
   const { scopedHref } = useSiteScope()
@@ -183,27 +190,31 @@ export function ServerActionMenu({
   return (
     <>
       <HStack gap="2" className="sw-server-header-actions">
-        <Menu.Root positioning={{ placement: 'bottom-end' }}>
-          <Menu.Trigger asChild>
-            <Button variant="outline" disabled={busy}>
-              <Pencil size={16} />
-              Edit
-              <ChevronDown size={16} />
-            </Button>
-          </Menu.Trigger>
-          <Portal>
-            <Menu.Positioner>
-              <Menu.Content minW="13rem">
-                <Menu.Item value="set-placement" onSelect={() => setPlacementOpen(true)}>
-                  <ServerActionMenuRow icon={MapPinned} label="Set zone / pool" />
-                </Menu.Item>
-                <Menu.Item value="edit-tags" onSelect={() => setTagEditorOpen(true)}>
-                  <ServerActionMenuRow icon={Tags} label="Edit tags" />
-                </Menu.Item>
-              </Menu.Content>
-            </Menu.Positioner>
-          </Portal>
-        </Menu.Root>
+        {canEditTags && (
+          <Menu.Root positioning={{ placement: 'bottom-end' }}>
+            <Menu.Trigger asChild>
+              <Button variant="outline" disabled={busy}>
+                <Pencil size={16} />
+                Edit
+                <ChevronDown size={16} />
+              </Button>
+            </Menu.Trigger>
+            <Portal>
+              <Menu.Positioner>
+                <Menu.Content minW="13rem">
+                  {canPlace && (
+                    <Menu.Item value="set-placement" onSelect={() => setPlacementOpen(true)}>
+                      <ServerActionMenuRow icon={MapPinned} label="Set zone / pool" />
+                    </Menu.Item>
+                  )}
+                  <Menu.Item value="edit-tags" onSelect={() => setTagEditorOpen(true)}>
+                    <ServerActionMenuRow icon={Tags} label="Edit tags" />
+                  </Menu.Item>
+                </Menu.Content>
+              </Menu.Positioner>
+            </Portal>
+          </Menu.Root>
+        )}
 
         <ServerTakeActionMenu
           targets={[server]}

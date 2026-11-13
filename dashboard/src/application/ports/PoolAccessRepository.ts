@@ -1,4 +1,4 @@
-import type { PoolAccessPolicy, PoolMember, SudoSetting } from '@/domain/access/accounts'
+import type { PoolAccessPolicy, PoolMember, PoolMemberCandidate, SudoSetting } from '@/domain/access/accounts'
 import type { PoolRole } from '@/domain/user/types'
 
 /**
@@ -14,6 +14,12 @@ import type { PoolRole } from '@/domain/user/types'
 export interface PoolAccessRepository {
   /** The Pool's memberships with their resolved Sudo Policy, ordered by username. */
   listMembers(poolId: string): Promise<PoolMember[]>
+  /**
+   * The Users that are not members of the Pool, at most 20 ordered by username, keeping those whose
+   * username contains `query` (case-insensitive). Needs `admin` or the Pool's `owner` role, like
+   * adding a member; it is how an owner, who may not list Users, finds the one to add.
+   */
+  listCandidates(poolId: string, query: string): Promise<PoolMemberCandidate[]>
   /** Adds an existing User; an omitted sudo setting is `inherit`. */
   addMember(
     poolId: string,

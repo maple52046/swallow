@@ -172,6 +172,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		deployments: deployments,
 		release:     provisioningapp.NewReleaseServerUseCase(servers, factory, nil),
 	}
+	listImages := provisioningapp.NewListOSImagesUseCase(factory, osImageMetadata, osImageVerifications)
 	provisioningHandler := provisioningdelivery.NewProvisioningHandler(
 		deployments,
 		provisioningapp.NewDeploymentTargetPreflightService(servers, factory),
@@ -183,7 +184,8 @@ func setupPlatform(t *testing.T) *platformFixture {
 		nil,
 		nil,
 		provisioningapp.NewRefreshServerUseCase(servers, factory, osImageMetadata),
-		provisioningapp.NewListOSImagesUseCase(factory, osImageMetadata, osImageVerifications),
+		listImages,
+		provisioningapp.NewListOSImageCatalogsUseCase(sites, integrations, listImages),
 		reconcileUC,
 		provisioningapp.NewGetProvisionerDetailUseCase(servers, factory),
 		provisioningapp.NewGetProviderEventsUseCase(servers, factory),
@@ -359,6 +361,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 
 	provisioningGroup := v1.Group("/provisioning")
 	provisioningGroup.Get("/images", route(provisioningHandler.ListImages)...)
+	provisioningGroup.Get("/image-catalogs", route(provisioningHandler.ListImageCatalogs)...)
 	provisioningGroup.Delete("/images", adminRoute(provisioningHandler.DeleteImage)...)
 	provisioningGroup.Post("/image-uploads", adminRoute(provisioningHandler.CreateImageUpload)...)
 	provisioningGroup.Put("/image-uploads/:id/content", adminRoute(provisioningHandler.SendImageUploadContent)...)

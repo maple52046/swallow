@@ -982,6 +982,42 @@ paths:
       summary: Replace a Pool's Sudo Policy defaults.
       tags:
         - access
+  /api/v1/infrastructure/pools/{id}/member-candidates:
+    get:
+      description: 'Pool operate: an admin or an `owner` of the Pool (a member gets `403`, any other caller `404`). Returns the Users that are not members of the Pool, ordered by username, at most 20, with only their id and username, so an owner, who may not list Users, can find the one to add.'
+      operationId: listPoolMemberCandidates
+      parameters:
+        - description: Keep the Users whose username contains this text, case-insensitively.
+          in: query
+          name: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PoolMemberCandidateList'
+          description: The matching Users that are not members yet.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: List the Users an owner may add to a Pool.
+      tags:
+        - access
+    parameters:
+      - description: The Pool's id.
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
   /api/v1/infrastructure/pools/{id}/members:
     get:
       description: Requires role `admin` or any Pool Role in the Pool; any other caller gets `404`.
@@ -3732,6 +3768,37 @@ paths:
         default:
           $ref: '#/components/responses/Error'
       summary: Check, without side effects, whether Servers can be OS deployment targets now.
+      tags:
+        - provisioning
+  /api/v1/provisioning/image-catalogs:
+    get:
+      description: 'Reference: any authenticated User. Reads the catalog of each provisioner Integration in the scope, enabled or not, at most two at a time; each catalog''s images are what `GET /images` returns for that Integration. A catalog that cannot be read carries an error message and no images, and the request still answers 200. Carries only the Integration''s id, name, and Site.'
+      operationId: listOsImageCatalogs
+      parameters:
+        - description: Only this Site's provisioners; every Site's when omitted.
+          in: query
+          name: siteId
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OsImageCatalogList'
+          description: One catalog per provisioner Integration, ordered by Site id and Integration name.
+        "401":
+          $ref: '#/components/responses/Error'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`not_found`: the Site does not exist.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: List the OS Image catalogs of every provisioner of a Site, or of every Site.
       tags:
         - provisioning
   /api/v1/provisioning/image-uploads:
@@ -13060,6 +13127,41 @@ components:
         - spec
         - status
       type: object
+    OsImageCatalog:
+      description: 'One provisioner Integration''s OS Image catalog: the Integration''s id, name, and Site only, and its images as `GET /images` returns them, or why they could not be read.'
+      properties:
+        error:
+          description: Why the catalog could not be read, for a person to read; null when it was read.
+          nullable: true
+          type: string
+        images:
+          description: Empty when the catalog could not be read.
+          items:
+            $ref: '#/components/schemas/OsImage'
+          type: array
+        integrationId:
+          type: string
+        integrationName:
+          type: string
+        siteId:
+          type: string
+      required:
+        - integrationId
+        - integrationName
+        - siteId
+        - images
+        - error
+      type: object
+    OsImageCatalogList:
+      description: The OS Image catalogs of the provisioners in the scope.
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/OsImageCatalog'
+          type: array
+      required:
+        - items
+      type: object
     OsImageMetadataRequest:
       description: The whole metadata swallow keeps for one OS Image. Every field is optional and trimmed; an empty or omitted field clears it.
       properties:
@@ -14240,6 +14342,27 @@ components:
         - sudoPasswordless
         - createdAt
         - updatedAt
+      type: object
+    PoolMemberCandidate:
+      description: A User that is not a member of the Pool; only its id and username are shown.
+      properties:
+        userId:
+          type: string
+        username:
+          type: string
+      required:
+        - userId
+        - username
+      type: object
+    PoolMemberCandidateList:
+      properties:
+        items:
+          description: At most 20 Users, ordered by username.
+          items:
+            $ref: '#/components/schemas/PoolMemberCandidate'
+          type: array
+      required:
+        - items
       type: object
     PoolMemberList:
       properties:

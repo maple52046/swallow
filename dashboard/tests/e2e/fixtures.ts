@@ -479,6 +479,10 @@ export interface FixtureOptions {
   driftedServerIds?: string[]
   /** Overrides a Server's placement spec (Zone and Pool ids; null is the provisioner's default). */
   serverPlacements?: Record<string, { zoneId?: string | null; poolId?: string | null }>
+  /** The Pool each seeded Platform reports in `status.poolId` by Platform id; omitted Platforms have none. */
+  platformPools?: Record<string, string | null>
+  /** Adds a custom image (`Golden Custom`) that no deployment test has passed on either Deploy Target. */
+  untestedCustomImage?: boolean
   serverListFailuresAfterInitial?: number
   serverListFailureRequestNumbers?: number[]
   onServerListRequest?: (requestCount: number) => void
@@ -1393,6 +1397,9 @@ export async function approvePlatformInstall(page: Page, platformId = 'platform-
 export async function installApiFixtures(page: Page, options: FixtureOptions = {}) {
   const imageCatalog = [
     ...osImages,
+    ...(options.untestedCustomImage
+      ? [catalogImage({ id: 'golden-custom', name: 'Golden Custom', osSystem: 'custom', release: 'golden', spec: { tags: ['golden'] } })]
+      : []),
     ...Array.from({ length: options.extraOSImageCount ?? 0 }, (_, index) => {
       const release = `validation-${String(index + 1).padStart(2, '0')}`
       const name = `Validation Linux ${String(index + 1).padStart(2, '0')}`
@@ -2121,7 +2128,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     const spec = fixturePlatformSpec(platform)
     // A planned Platform's install has not run, so no deployment Workflow records its topology yet.
     const deployment = platform.lifecycleState === 'planned' ? null : platform.deployment
-    const seeded = { ...platform, deployment, generation: 1, spec, status: fixturePlatformStatus(platform.lifecycleState, spec) }
+    const seeded = {
+      ...platform, deployment, generation: 1, spec,
+      status: { ...fixturePlatformStatus(platform.lifecycleState, spec), poolId: options.platformPools?.[platform.id] ?? null },
+    }
     const removal = options.platformRemovals?.[platform.id]
     return removal ? pendingRemoval(seeded, removal) : seeded
   })
@@ -3199,6 +3209,29 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         }),
         201,
       )
+    }
+    // The Site-wide read (provisioning.md "Image catalogs of a Site"): every provisioner of the Site,
+    // each reporting its own failure inside the 200, carrying only the Integration's id, name, and Site.
+    if (path === '/api/v1/provisioning/image-catalogs') {
+      const siteId = url.searchParams.get('siteId')
+      if (siteId && !siteItems.some((site) => site.id === siteId)) {
+        return json(route, { error: { code: 'not_found', message: 'Site not found.' } }, 404)
+      }
+      const items = integrationItems
+        .filter((integration) => integration.kind === 'provisioner' && (!siteId || integration.siteId === siteId))
+        .sort((left, right) => left.siteId.localeCompare(right.siteId) || left.name.localeCompare(right.name))
+        .map((integration) => {
+          options.onOSImageCatalogRequest?.(integration.id)
+          const failed = options.failImageIntegrationIds?.includes(integration.id)
+          return {
+            integrationId: integration.id,
+            integrationName: integration.name,
+            siteId: integration.siteId,
+            images: failed ? [] : imageCatalog,
+            error: failed ? 'Image provider is unavailable' : null,
+          }
+        })
+      return json(route, { items })
     }
     if (path === '/api/v1/provisioning/images') {
       const integrationId = url.searchParams.get('integrationId') ?? ''

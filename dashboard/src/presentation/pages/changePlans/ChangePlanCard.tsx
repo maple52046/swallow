@@ -22,6 +22,8 @@ interface ChangePlanCardProps {
   names: ChangePlanNames
   /** Time of the last read, so "expired" is judged without reading the clock during render. */
   now: number
+  /** Whether the user may approve or reject this plan; without it the card says who can. */
+  canDecide: boolean
   onApprove: (plan: ChangePlan) => void
   onReject: (plan: ChangePlan) => void
 }
@@ -35,11 +37,11 @@ interface ChangePlanCardProps {
  * and the plan id is shown with a copy button so a plan can be found again in the CLI
  * (`swallow plans`) or the API. Approve is disabled with its reason spelled out when the plan has
  * blockers, is past `expiresAt`, or is not waiting for approval; the buttons only open a
- * confirmation, never decide directly. A waiting plan says why it waits (`changePlanStateReasonText`).
+ * confirmation, never decide directly, and a user who may not decide the plan sees who can instead. A waiting plan says why it waits (`changePlanStateReasonText`).
  * A decided or applied plan shows who decided it — the user who confirmed the change, for one
  * approved with its request — and links its Workflow.
  */
-export function ChangePlanCard({ plan, names, now, onApprove, onReject }: ChangePlanCardProps) {
+export function ChangePlanCard({ plan, names, now, canDecide, onApprove, onReject }: ChangePlanCardProps) {
   const resource = changePlanResourceLabel(plan.resource, names)
   const resourceNamed = changePlanResourceName(plan.resource, names) !== null
   const approvalBlocker = changePlanApprovalBlocker(plan, now)
@@ -104,7 +106,14 @@ export function ChangePlanCard({ plan, names, now, onApprove, onReject }: Change
           </Text>
         )}
 
-        {unfinished && (
+        {unfinished && !canDecide && (
+          <Text fontSize="sm" color="fg.muted">
+            {plan.resource.kind === 'platform'
+              ? 'Only an owner of the Platform’s Pool or an admin can approve or reject this plan.'
+              : 'Only an admin can approve or reject this plan.'}
+          </Text>
+        )}
+        {unfinished && canDecide && (
           <Stack gap="2">
             <HStack gap="2" wrap="wrap">
               <Button

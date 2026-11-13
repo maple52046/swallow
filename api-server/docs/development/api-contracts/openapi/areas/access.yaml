@@ -222,6 +222,44 @@ paths:
                 $ref: '#/components/schemas/Error'
         default:
           $ref: '#/components/responses/Error'
+  /api/v1/infrastructure/pools/{id}/member-candidates:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The Pool's id.
+        schema:
+          type: string
+    get:
+      tags: [access]
+      operationId: listPoolMemberCandidates
+      summary: List the Users an owner may add to a Pool.
+      description: >-
+        Pool operate: an admin or an `owner` of the Pool (a member gets `403`, any other caller
+        `404`). Returns the Users that are not members of the Pool, ordered by username, at most 20,
+        with only their id and username, so an owner, who may not list Users, can find the one to add.
+      parameters:
+        - name: query
+          in: query
+          required: false
+          description: Keep the Users whose username contains this text, case-insensitively.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The matching Users that are not members yet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PoolMemberCandidateList'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /api/v1/infrastructure/pools/{id}/members/{userId}:
     parameters:
       - name: id
@@ -562,6 +600,24 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PoolMember'
+    PoolMemberCandidateList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          description: At most 20 Users, ordered by username.
+          items:
+            $ref: '#/components/schemas/PoolMemberCandidate'
+    PoolMemberCandidate:
+      type: object
+      description: A User that is not a member of the Pool; only its id and username are shown.
+      required: [userId, username]
+      properties:
+        userId:
+          type: string
+        username:
+          type: string
     AddPoolMemberRequest:
       type: object
       required: [username, role]

@@ -231,8 +231,14 @@
   gap: 0.2rem;
 }
 
+/* A user who is not an admin reads the provisioner and Site as text instead of links. */
+.sw-os-image-source > span:first-child {
+  font-weight: var(--chakra-font-weights-semibold);
+}
+
 .sw-os-image-artifact-line,
-.sw-os-image-source > a:last-child {
+.sw-os-image-source > a:last-child,
+.sw-os-image-source > span:last-child {
   overflow: hidden;
   max-width: 100%;
   color: var(--chakra-colors-fg-muted);

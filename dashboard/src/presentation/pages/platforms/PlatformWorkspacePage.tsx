@@ -7,6 +7,7 @@ import type { Operation } from '@/domain/operation/types'
 import { platformMemberCounts } from '@/domain/platform/membership'
 import { wantsPlatformGrafana } from '@/domain/platform/monitoring'
 import type { Platform } from '@/domain/platform/types'
+import { canOperatePlatform } from '@/domain/user/access'
 import { platformModuleUI } from '@/modules/registry'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -16,6 +17,7 @@ import { PageHeader } from '@/presentation/components/PageHeader'
 import { WorkspaceTabs, type WorkspaceTabItem } from '@/presentation/components/WorkspaceTabs'
 import { Alert } from '@/presentation/components/ui/alert'
 import { useToast } from '@/presentation/components/toast/toastContext'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { PlatformLifecycleActions } from './PlatformLifecycleActions'
 import { PlatformLifecycleBadge } from './PlatformLifecycleBadge'
@@ -68,6 +70,7 @@ export function PlatformWorkspacePage() {
   const { siteId, sites, scopedHref } = useSiteScope()
   const initialTransition = (location.state as WorkspaceLocationState | null)?.platformTransition
   const state = usePlatformWorkspace(id, siteId, initialTransition)
+  const { currentUser } = useAuth()
 
   if (state.status === 'loading') {
     return <><PageHeader title="Platform" /><LoadingState rows={7} /></>
@@ -83,7 +86,8 @@ export function PlatformWorkspacePage() {
   const module = platformModuleUI(platform.type)
   const Icon = module?.icon ?? Boxes
   const siteName = sites.find((site) => site.id === platform.siteId)?.name ?? platform.siteId
-  const nativeRoutes = (module?.tabs ?? []).filter((route) => route.available(platform))
+  const operable = canOperatePlatform(currentUser, platform)
+  const nativeRoutes = (module?.tabs ?? []).filter((route) => route.available(platform) && (!route.requiresOperate || operable))
   const context: PlatformWorkspaceContextValue = {
     platform,
     lifecycleOperation,
@@ -107,7 +111,7 @@ export function PlatformWorkspacePage() {
               <Text color="fg.muted" fontSize="sm">{siteName}</Text>
             </HStack>
           }
-          actions={<WorkspaceActions platform={platform} lifecycleOperation={lifecycleOperation} reload={reload} />}
+          actions={<WorkspaceActions platform={platform} lifecycleOperation={lifecycleOperation} operable={operable} reload={reload} />}
         />
         <Text className="sw-platform-workspace__summary" color="fg.muted">
           {runtimeSummary(platform, module?.label ?? platform.type)}
@@ -148,13 +152,19 @@ function runtimeSummary(platform: Platform, moduleLabel: string): string {
   return `${moduleLabel} runtime control plane`
 }
 
+/**
+ * The header's Workflow and Grafana links, and for a user who may manage the Platform (an admin or an
+ * owner of its Pool), Sync and the lifecycle actions.
+ */
 function WorkspaceActions({
   platform,
   lifecycleOperation,
+  operable,
   reload,
 }: {
   platform: Platform
   lifecycleOperation?: Operation
+  operable: boolean
   reload: (transition?: PlatformTransition) => void
 }) {
   const { platforms } = useApp()
@@ -197,15 +207,19 @@ function WorkspaceActions({
           <a href={grafana.url} target="_blank" rel="noreferrer" aria-label="Open Platform Grafana">Grafana<ExternalLink size={14} aria-hidden /></a>
         </Button>
       )}
-      <Button variant="outline" onClick={() => void sync()} loading={syncing} disabled={syncing || !platform.integrationId}>
-        <RefreshCw size={16} />Sync
-      </Button>
-      <PlatformLifecycleActions
-        platform={platform}
-        operation={lifecycleOperation}
-        targetServerIds={lifecycleOperation?.targetServerIds}
-        onChanged={reload}
-      />
+      {operable && (
+        <>
+          <Button variant="outline" onClick={() => void sync()} loading={syncing} disabled={syncing || !platform.integrationId}>
+            <RefreshCw size={16} />Sync
+          </Button>
+          <PlatformLifecycleActions
+            platform={platform}
+            operation={lifecycleOperation}
+            targetServerIds={lifecycleOperation?.targetServerIds}
+            onChanged={reload}
+          />
+        </>
+      )}
     </>
   )
 }

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Button } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import type { BootMediaLiveState, Server, ServerBootMedia, ServerPowerConfiguration } from '@/domain/server/types'
+import { canOperatePool, isAdmin } from '@/domain/user/access'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
@@ -24,6 +25,7 @@ import {
 import { findTable } from '@/presentation/components/serverSummary/detailTableUtils'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { primaryImageArchitecture } from '@/presentation/pages/provisioning/osImageListPresentation'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useAsyncData, type AsyncData } from '@/presentation/hooks/useAsyncData'
@@ -116,6 +118,12 @@ export function ServerSummaryTab() {
   const { servers } = useApp()
   const { showToast } = useToast()
   const { scopedHref } = useSiteScope()
+  const { currentUser } = useAuth()
+  // Power Configuration and Boot Media are admin routes; the default user and tags are written by
+  // an admin or an owner of the Server's Pool (identity-and-access.md §4.2). Other users see the
+  // Server without those panels and controls, and nothing is read that would only be refused.
+  const admin = isAdmin(currentUser)
+  const canOperate = canOperatePool(currentUser, server.spec.poolId)
   const [tagEditorOpen, setTagEditorOpen] = useState(false)
   const [defaultUserOpen, setDefaultUserOpen] = useState(false)
   const [powerDialogOpen, setPowerDialogOpen] = useState(false)
@@ -128,7 +136,7 @@ export function ServerSummaryTab() {
   const storage = detail ? findTable(detail.tables, 'Storage') : undefined
   const deployedImageHref = deployedImageCatalogHref(server, scopedHref)
   // Unknown until the provisioner detail arrives; only an explicit false skips the read.
-  const powerSupported = detail?.capabilities.powerConfiguration !== false
+  const powerSupported = admin && detail?.capabilities.powerConfiguration !== false
   const powerConfiguration = useAsyncData(
     async () => (powerSupported ? servers.getPowerConfiguration(server.id) : null),
     [servers, server.id, powerSupported],
@@ -141,7 +149,7 @@ export function ServerSummaryTab() {
   // Only a virsh driver the user controls (not a provisioner VM host's) can name a swallow
   // Hypervisor; whether it does is the Boot Media read's answer (`libvirt.support`).
   const throughHypervisor = virtualMachines && power.status === 'ready' && power.data.family === 'virsh' && !server.status.providerPod
-  const readsBootMedia = hasBMC || throughHypervisor
+  const readsBootMedia = admin && (hasBMC || throughHypervisor)
   const bootMedia = useAsyncData(
     async () => (readsBootMedia ? servers.getBootMedia(server.id) : null),
     [servers, server.id, readsBootMedia],
@@ -233,7 +241,7 @@ export function ServerSummaryTab() {
         <ConnectionCard
           server={server}
           imageHref={deployedImageHref}
-          loginUserAction={
+          loginUserAction={canOperate && (
             <Button
               size="xs"
               variant="outline"
@@ -242,12 +250,12 @@ export function ServerSummaryTab() {
             >
               {server.status.defaultUser ? 'Change' : 'Set default user'}
             </Button>
-          }
+          )}
         />
         <ManagementControllerCard
           hasBMC={hasBMC}
           management={management}
-          power={
+          power={admin && (
             <PowerConfigurationPanel
               state={power}
               compact={hasBMC}
@@ -263,7 +271,7 @@ export function ServerSummaryTab() {
                 </Button>
               )}
             />
-          }
+          )}
           bootMedia={readsBootMedia && (
             <BootMediaPanel state={bootMediaPanelState(bootMedia, bootMediaData)} live={live} actions={bootMediaActions} />
           )}
@@ -273,10 +281,10 @@ export function ServerSummaryTab() {
         <HardwareProfileCard server={server} system={system} />
       </div>
       <div className="sw-server-summary-grid sw-server-summary-grid--expand-single">
-        <DetailsCard server={server} onEditTags={() => setTagEditorOpen(true)} />
+        <DetailsCard server={server} onEditTags={canOperate ? () => setTagEditorOpen(true) : undefined} />
       </div>
       {/* Renders nothing while the Validation area is hidden (an experimental feature). */}
-      <RecentValidationRuns serverId={server.id} />
+      <RecentValidationRuns serverId={server.id} canRun={canOperate} />
       {tagEditorOpen && (
         <ServerTagEditor
           servers={[server]}

@@ -36,14 +36,24 @@ async function choiceGeometry(dialog: Locator) {
   })
 }
 
-test('Provisioning opens OS Images without a Deploy OS tab', async ({ page }) => {
+test('Provisioning opens OS Images, a page without tabs', async ({ page }) => {
   await installApiFixtures(page, { singleSite: true })
   await page.goto('/provisioning?site=site-a')
 
   await expect(page).toHaveURL('/provisioning/images?site=site-a')
   await expect(page.getByRole('heading', { name: 'OS Images', exact: true })).toBeVisible()
-  await expect(page.getByRole('tab', { name: 'Deploy OS', exact: true })).toHaveCount(0)
-  await expect(page.getByRole('tab', { name: 'OS images', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tab')).toHaveCount(0)
+})
+
+test('Deployment Templates is its own page without tabs, reached from the sidebar', async ({ page }) => {
+  await installApiFixtures(page, { singleSite: true })
+  await page.goto('/provisioning/images?site=site-a')
+  await page.getByTestId('desktop-navigation').getByRole('link', { name: 'Deployment Templates' }).click()
+
+  await expect(page).toHaveURL('/provisioning/templates?site=site-a')
+  await expect(page.getByRole('heading', { name: 'Deployment Templates', level: 1 })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Create template' })).toBeVisible()
+  await expect(page.getByRole('tab')).toHaveCount(0)
 })
 
 test('the retired Deploy OS URL returns to Site Servers and discards obsolete draft inputs', async ({ page }) => {
@@ -63,11 +73,6 @@ const invalidProvisioners: Array<{
     name: 'missing',
     options: { noProvisioners: true },
     title: 'Connect a provisioner',
-  },
-  {
-    name: 'multiple',
-    options: { multipleProvisioners: true },
-    title: 'Site configuration conflict',
   },
   {
     name: 'disabled',
@@ -98,6 +103,67 @@ for (const scenario of invalidProvisioners) {
     expect(deploymentWrites).toBe(0)
   })
 }
+
+test('a Site with several provisioners deploys through the one the Server records', async ({ page }) => {
+  const catalogReads: string[] = []
+  await installApiFixtures(page, {
+    multipleProvisioners: true,
+    readyServerCount: 1,
+    onOSImageCatalogRequest: (integrationId) => catalogReads.push(integrationId),
+  })
+  await page.goto('/servers/srv-1/summary?site=site-a')
+  await page.getByRole('button', { name: 'Take action' }).click()
+  await page.getByRole('menuitem', { name: 'Deploy OS', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Deploy OS' })
+  await expect(dialog.getByRole('heading', { name: 'Operating system', exact: true })).toBeVisible()
+  await expect.poll(() => catalogReads).toContain('maas-a')
+  expect(catalogReads).not.toContain('maas-a-secondary')
+})
+
+test('a Pool owner deploys an OS without reading Integrations, through the Server\'s own provisioner', async ({ page }) => {
+  const integrationReads: string[] = []
+  const catalogReads: string[] = []
+  let deploymentWrites = 0
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname.startsWith('/api/v1/integrations')) integrationReads.push(request.url())
+  })
+  await installApiFixtures(page, {
+    identity: 'owner',
+    readyServerCount: 1,
+    serverPlacements: { 'srv-1': { poolId: 'pool-research' } },
+    onOSImageCatalogRequest: (integrationId) => catalogReads.push(integrationId),
+    onDeploymentRequest: () => { deploymentWrites += 1 },
+  })
+  await page.goto('/servers?site=site-a')
+
+  await page.getByRole('button', { name: 'Deploy OS for gpu-node-01' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Deploy OS' })
+  await expect(dialog.getByRole('heading', { name: 'Operating system', exact: true })).toBeVisible()
+  await chooseOSImage(page, 'Ubuntu 22.04 LTS')
+  await dialog.getByRole('button', { name: 'Next' }).click()
+  await expect(dialog.getByRole('heading', { name: 'Installation', exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Next' }).click()
+  await expect(dialog.getByRole('heading', { name: 'Networking', exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Next' }).click()
+  await expect(dialog.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
+  await expect(dialog.getByText('The Servers’ own provisioner')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Deploy OS', exact: true }).click()
+  await expect.poll(() => deploymentWrites).toBe(1)
+  await expect(page.getByText('OS deployment started')).toBeVisible()
+  expect(catalogReads).toContain('maas-a')
+  expect(integrationReads).toEqual([])
+})
+
+test('a member of a Pool is not offered Deploy OS for its Servers', async ({ page }) => {
+  await installApiFixtures(page, {
+    identity: 'member',
+    readyServerCount: 1,
+    serverPlacements: { 'srv-1': { poolId: 'pool-research' } },
+  })
+  await page.goto('/servers?site=site-a')
+  await expect(page.getByRole('link', { name: 'gpu-node-01' }).first()).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Deploy OS for gpu-node-01' })).toHaveCount(0)
+})
 
 test('a fixed Server from another Integration shows inconsistent source without provider calls', async ({ page }) => {
   const catalogReads: string[] = []

@@ -421,8 +421,9 @@ through its placement action (**Set zone / pool**).
 
 A Pool is also who may use its Servers. Its members see them (and the Platforms,
 Workflows, and Validation Runs on them) and log in to them with their SSH keys; its
-owners operate them. Manage a Pool's members and sudo defaults with the **Members**
-action on its row under **Pools**. Only an admin moves Servers between Pools, and all
+owners operate them. Under **Pools**, select a Pool's name to open its page, where its
+members and sudo defaults are managed; owners and admins also find **Add member** on the
+Pool's row. Only an admin moves Servers between Pools, and all
 the Servers of a Platform stay in one Pool: a Server a Platform claims can only move
 into that Platform's Pool or out of every Pool (which leaves the Platform to admins
 until its Servers are in one Pool again). Deleting a Pool also deletes its memberships,

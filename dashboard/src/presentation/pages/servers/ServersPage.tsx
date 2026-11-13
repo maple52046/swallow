@@ -27,6 +27,7 @@ import type { Integration, Site } from '@/domain/site/types'
 import { serverGPUsByKind } from '@/domain/server/gpu'
 import type { HealthState, ReleaseServerInput, Server } from '@/domain/server/types'
 import { serverDisplayName, serverPrimaryAddress } from '@/domain/server/types'
+import { canOperatePool, isAdmin } from '@/domain/user/access'
 import { PageHeader } from '@/presentation/components/PageHeader'
 import { InventorySurface, SelectionToolbar, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { ResourceCard, ResourceCardField, ResponsiveDataView } from '@/presentation/components/ResponsiveDataView'
@@ -50,6 +51,7 @@ import { DebouncedSearchInput } from '@/presentation/components/ui/debounced-sea
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { ServerHardwareSummary } from '@/presentation/components/ServerHardwareSummary'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { usePlatformNames } from '@/presentation/hooks/usePlatformNames'
 import { formatQuantity } from '@/shared/utils/quantity'
@@ -440,6 +442,10 @@ function ServerFleetOverview({ servers }: { servers: readonly Server[] }) {
 export function ServersPage() {
   const { sites: siteRepository, servers: serverRepository } = useApp()
   const { sites, siteId, scopedHref } = useSiteScope()
+  const { currentUser } = useAuth()
+  // Provisioner Integrations are admin reads (sites-integrations.md); a user who is not an admin sees
+  // only the Servers of its Pools and has nothing to connect or add, so they are not read for it.
+  const admin = isAdmin(currentUser)
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -471,7 +477,7 @@ export function ServersPage() {
   } | null>(null)
   const [deploymentTargets, setDeploymentTargets] = useState<Server[] | null>(null)
   const siteKey = siteId ?? ''
-  const provisionersLoaded = provisionerState.siteKey === siteKey
+  const provisionersLoaded = !admin || provisionerState.siteKey === siteKey
   const provisioners = provisionersLoaded ? provisionerState.items : EMPTY_INTEGRATIONS
   // The tag manager acts on one Site's provisioner at a time, so it offers the Sites in scope that
   // have an enabled one (the same provisioner the tag list reads).
@@ -551,6 +557,7 @@ export function ServersPage() {
   const bulk = useServerBulkActions()
 
   useEffect(() => {
+    if (!admin) return
     let cancelled = false
     const key = siteId ?? ''
     siteRepository.listIntegrations({ siteId, kind: 'provisioner' })
@@ -565,7 +572,7 @@ export function ServersPage() {
     return () => {
       cancelled = true
     }
-  }, [siteId, siteRepository])
+  }, [admin, siteId, siteRepository])
 
 
   const activeProjectionTargetKey = useMemo(() => workingSet
@@ -674,7 +681,10 @@ export function ServersPage() {
   const actionTargets = workingSet.filter((server) => selected.has(server.id))
   const targetIntegrations = new Set(actionTargets.map((server) => server.status.source.integrationId))
   const targetSites = new Set(actionTargets.map((server) => server.status.source.siteId))
-  const deployDisabledReason = selected.size > 100
+  const targetsOperable = actionTargets.every((server) => canOperatePool(currentUser, server.spec.poolId))
+  const deployDisabledReason = !targetsOperable
+    ? 'Only an owner of every selected Server’s Pool can deploy them.'
+    : selected.size > 100
     ? 'Deploy OS supports at most 100 Servers.'
     : actionTargets.some((server) => server.status.absent)
       ? 'Absent Servers cannot be deployed.'
@@ -878,9 +888,16 @@ export function ServersPage() {
 
       {(state.status === 'loading' || (state.status === 'ready' && workingSet.length === 0 && !provisionersLoaded)) && <LoadingState rows={8} />}
       {/* The empty inventory explains how to add Servers. Only a scope without any provisioner
-          sends the user to connect one, because Servers can only come from a provisioner. */}
+          sends the user to connect one, because Servers can only come from a provisioner. A user
+          who is not an admin can do neither: it sees the Servers of its Pools, so it is told only
+          that none is available to it. */}
       {state.status === 'ready' && workingSet.length === 0 && provisionersLoaded && (
-        provisioners.length > 0 ? (
+        !admin ? (
+          <EmptyState
+            title="No servers available"
+            message="Servers appear here when an admin places them in a Pool you belong to."
+          />
+        ) : provisioners.length > 0 ? (
           <EmptyState
             title="No servers yet"
             action={{ label: 'Add servers', onClick: () => setAddingServers(true) }}
@@ -1002,7 +1019,7 @@ export function ServersPage() {
                   </Button>
                 </span>
               </Tooltip>
-              <Button variant="outline" size="sm" onClick={() => setTagEditorTargets(actionTargets)}><Tags size={16} />Edit tags</Button>
+              {targetsOperable && <Button variant="outline" size="sm" onClick={() => setTagEditorTargets(actionTargets)}><Tags size={16} />Edit tags</Button>}
               <ServerTakeActionMenu
                 targets={actionTargets}
                 includeSingleOnly={false}
@@ -1460,6 +1477,8 @@ function ServerIdentity({
   onEditTags: () => void
   onOpenPower: () => void
 }) {
+  const { currentUser } = useAuth()
+  const operable = canOperatePool(currentUser, server.spec.poolId)
   const name = serverDisplayName(server)
   return (
     <div className="sw-server-identity">
@@ -1479,8 +1498,8 @@ function ServerIdentity({
           <CopyButton value={name} label="Copy Server name" />
         </HStack>
         <div className="sw-server-identity__metadata">
-          <ServerPowerButton server={server} onOpen={onOpenPower} />
-          <TagSummary server={server} onEdit={onEditTags} />
+          <ServerPowerButton server={server} onOpen={operable ? onOpenPower : undefined} />
+          <TagSummary server={server} onEdit={operable ? onEditTags : undefined} />
         </div>
         {server.status.absent && <Badge colorPalette="gray" variant="subtle">Absent</Badge>}
         <ServerSyncBadge server={server} />
@@ -1567,9 +1586,10 @@ const POWER_CONTROL_BUTTON_PRESENTATION = {
  * The short state label and tinted background make the current fact scannable; the accessible name
  * and tooltip retain the complete action and state wording. A Server whose projected power control
  * is `none` or `manual` says so instead of `UNKNOWN`, and its tooltip and accessible name say the
- * button sets up the Power Configuration.
+ * button sets up the Power Configuration. Without `onOpen` (a reader who may not act on the
+ * Server) only the state is shown.
  */
-function ServerPowerButton({ server, onOpen }: { server: Server; onOpen: () => void }) {
+function ServerPowerButton({ server, onOpen }: { server: Server; onOpen?: () => void }) {
   const fullLabel = powerStateLabel(server.status.provisioning?.powerState ?? null)
   if (!server.status.provisioning) {
     return (
@@ -1582,6 +1602,14 @@ function ServerPowerButton({ server, onOpen }: { server: Server; onOpen: () => v
   const control = projectedPowerControl(server)
   const withoutDriver = control === 'none' || control === 'manual' ? POWER_CONTROL_BUTTON_PRESENTATION[control] : null
   const presentation = withoutDriver ?? POWER_BUTTON_PRESENTATION[server.status.provisioning.powerState]
+  if (!onOpen) {
+    return (
+      <span className="sw-server-power-unavailable" aria-label={fullLabel}>
+        <ServerPowerIndicator server={server} />
+        <span>{presentation.label}</span>
+      </span>
+    )
+  }
   const ramDeployment = server.status.provisioning.ephemeral
   const tooltip = withoutDriver ? `Set power configuration (${withoutDriver.detail})` : `Power actions (${fullLabel})`
   return (
@@ -1606,7 +1634,8 @@ function ServerPowerButton({ server, onOpen }: { server: Server; onOpen: () => v
 
 /**
  * The Deployment field of a list row and mobile card stays dedicated to the OS lifecycle and its
- * contextual next step; provider-owned power remains with Server identity.
+ * contextual next step; provider-owned power remains with Server identity. Deploy OS is offered only
+ * to a user who may deploy the Server (an admin or an owner of its Pool).
  */
 function ServerDeployment({
   server,
@@ -1617,7 +1646,9 @@ function ServerDeployment({
   scopedHref: (path: string) => string
   onDeploy: () => void
 }) {
-  const action = serverContextAction(server)
+  const { currentUser } = useAuth()
+  const suggested = serverContextAction(server)
+  const action = suggested?.label === 'Deploy OS' && !canOperatePool(currentUser, server.spec.poolId) ? null : suggested
   const { axis, provider } = serverDeploymentCellInputs(server)
   return <DeploymentSummary
     axis={axis}
@@ -1684,9 +1715,23 @@ function ServerContextActionLink({
   )
 }
 
-/** Compact discovery tags with a direct, keyboard-accessible editing shortcut. */
-function TagSummary({ server, onEdit }: { server: Server; onEdit: () => void }) {
+/**
+ * Compact discovery tags with a direct, keyboard-accessible editing shortcut. Without `onEdit` (a
+ * reader who may not tag the Server) only the tags are shown.
+ */
+function TagSummary({ server, onEdit }: { server: Server; onEdit?: () => void }) {
   const tags = sortedServerTags(server)
+  if (!onEdit) {
+    if (tags.length === 0) return null
+    return (
+      <HStack className="sw-server-tag-summary" gap="1" wrap="wrap">
+        {tags.slice(0, 2).map((tag) => <ResourceTag key={tag}>{tag}</ResourceTag>)}
+        {tags.length > 2 && (
+          <Tooltip content={tags.join(', ')}><ResourceTag ariaLabel={`${tags.length - 2} more tags`}>+{tags.length - 2}</ResourceTag></Tooltip>
+        )}
+      </HStack>
+    )
+  }
   return (
     <HStack className="sw-server-tag-summary" gap="1" wrap="wrap">
       {tags.length === 0 ? (

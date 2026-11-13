@@ -16,6 +16,8 @@ import { DeploymentBadge, HealthBadge, LockBadge, MembershipBadge } from '@/pres
 import { serverDisplayName } from '@/domain/server/types'
 import { isProvisioningInProgress } from '@/domain/server/types'
 import { hasSwallowInstalledDocker } from '@/domain/software/docker'
+import { canOperatePool } from '@/domain/user/access'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { ServerActionMenu } from './ServerActionMenu'
 import { DeploymentFailureAlert } from './DeploymentFailureAlert'
 import { ProviderFailureAlert } from './ProviderFailureAlert'
@@ -37,6 +39,8 @@ interface ServerDetailTab extends WorkspaceTabItem {
    * reachable and explains why it is empty, so a bookmarked URL never breaks.
    */
   requiresDockerCE?: boolean
+  /** Listed only to a user who may operate the Server (an admin or an owner of its Pool). */
+  requiresOperate?: boolean
 }
 
 // Icons supplement persistent text labels; the route segment remains the stable deep-link key.
@@ -44,7 +48,7 @@ const TABS: readonly ServerDetailTab[] = [
   { value: 'summary', label: 'Summary', icon: LayoutDashboard },
   { value: 'activity', label: 'Activity', icon: Activity },
   { value: 'monitoring', label: 'Monitoring', icon: ChartLine },
-  { value: 'containers', label: 'Containers', icon: Container, requiresDockerCE: true },
+  { value: 'containers', label: 'Containers', icon: Container, requiresDockerCE: true, requiresOperate: true },
   { value: 'network', label: 'Networking', icon: Network },
   { value: 'storage', label: 'Storage', icon: HardDrive },
   { value: 'pci', label: 'PCI devices', icon: CircuitBoard },
@@ -65,6 +69,7 @@ export function ServerDetailPage() {
   const location = useLocation()
   const { scopedHref } = useSiteScope()
   const { enabled: features } = useExperimentalFeatures()
+  const { currentUser } = useAuth()
   const state = useServerDetail(id)
   // This Server's inspect-hardware Workflow waiting for attention (decision 053), if any.
   const inspectionAttention = useInspectionAttention({ serverId: id })
@@ -154,7 +159,9 @@ export function ServerDetailPage() {
   if (state.status === 'not-found') return <EmptyState title="Server not found" />
   const { server, detail, reload } = state.data
   const dockerInstalled = docker.status === 'ready' && hasSwallowInstalledDocker(docker.assignment)
-  const tabs = TABS.filter((tab) => (!tab.feature || features[tab.feature]) && (!tab.requiresDockerCE || dockerInstalled))
+  const operable = canOperatePool(currentUser, server.spec.poolId)
+  const tabs = TABS.filter((tab) =>
+    (!tab.feature || features[tab.feature]) && (!tab.requiresDockerCE || dockerInstalled) && (!tab.requiresOperate || operable))
   const segment = location.pathname.split('/').pop() ?? ''
   const current = tabs.some((tab) => tab.value === segment) ? segment : 'summary'
   const headerContext = [server.status.fqdn || server.status.addresses[0], server.status.architecture, server.status.providerZone].filter(Boolean).join(' · ')

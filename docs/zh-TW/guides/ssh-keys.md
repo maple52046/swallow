@@ -23,11 +23,12 @@ swallow 會登入它所佈署的 Server，以確認 SSH 就緒並執行 Ansible�
 佈署。你以 swallow 的 username 登入，home 目錄在第一次登入時建立。
 
 swallow 也把 deployment key 與 **admin** 的 access key 註冊到能保存 SSH key 的 provisioner（MAAS：擁有該 Integration
-API key 的帳號），讓 Directory 故障時 admin 仍能進入；其他 user 的 key 在那裡顯示 **Not registered**。MAAS 佈署時再把
-註冊的 key 寫入 image 的 default user。頁面會依 provisioner 顯示每把 key 的狀態：
-**Synced**、**Pending**、**Failed**（附原因）或 **Not supported**。
+API key 的帳號），讓 Directory 故障時 admin 仍能進入；其他 user 的 key 不會註冊到那裡，所以他們的頁面只顯示 deployment
+key 的公鑰與自己的 access key，沒有 provisioner 狀態。MAAS 佈署時再把註冊的 key 寫入 image 的 default user。admin 的頁面
+會依 provisioner 顯示每把 key 的狀態：**Synced**、**Pending**、**Failed**（附原因）或 **Not supported**。
 
-- 每次 key 變更後、每隔幾分鐘，以及每次 OS 佈署前都會同步；**Sync to provisioners** 可立即要求同步。
+- 每次 key 變更後、每隔幾分鐘，以及每次 OS 佈署前都會同步；admin 的 **Sync to provisioners** 可立即要求同步；替換或
+  重新產生 deployment key 也只有 admin 能做。
 - 若佈署前 swallow 無法把 deployment key 註冊到 MAAS，該佈署會以 `ssh_key_registration_failed` 停下；
   MAAS 恢復後重試即可。
 - 你自己在 MAAS 加入的 key，swallow 絕不會移除。

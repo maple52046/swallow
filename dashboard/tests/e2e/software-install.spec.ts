@@ -681,6 +681,7 @@ test('only an admin is offered Uninstall for software swallow keeps installed', 
   await installApiFixtures(page, {
     fleetSize: 5,
     identity: 'owner',
+    serverPlacements: { 'srv-5': { poolId: 'pool-research' } },
     softwareAssignments: [assignment('srv-5', 'node-exporter', 'installed')],
   })
   await page.goto('/software/node-exporter?site=site-a')

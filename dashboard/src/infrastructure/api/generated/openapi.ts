@@ -487,6 +487,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/infrastructure/pools/{id}/member-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Pool's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * List the Users an owner may add to a Pool.
+         * @description Pool operate: an admin or an `owner` of the Pool (a member gets `403`, any other caller `404`). Returns the Users that are not members of the Pool, ordered by username, at most 20, with only their id and username, so an owner, who may not list Users, can find the one to add.
+         */
+        get: operations["listPoolMemberCandidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/infrastructure/pools/{id}/members": {
         parameters: {
             query?: never;
@@ -1768,6 +1791,26 @@ export interface paths {
          * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Read-only: checks target identity, presence, Ready, same-Integration, and the live Server Lock; it does not inspect the network, validate an image, reserve a Server, or start a deployment. A completed check answers `200` even when targets are not ready. Names no deploy target, so it never reports `inspection_required`.
          */
         post: operations["preflightOsDeploymentTargets"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/provisioning/image-catalogs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the OS Image catalogs of every provisioner of a Site, or of every Site.
+         * @description Reference: any authenticated User. Reads the catalog of each provisioner Integration in the scope, enabled or not, at most two at a time; each catalog's images are what `GET /images` returns for that Integration. A catalog that cannot be read carries an error message and no images, and the request still answers 200. Carries only the Integration's id, name, and Site.
+         */
+        get: operations["listOsImageCatalogs"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5973,6 +6016,20 @@ export interface components {
                 verifiedDeployTargets: ("disk" | "ram")[];
             };
         };
+        /** @description One provisioner Integration's OS Image catalog: the Integration's id, name, and Site only, and its images as `GET /images` returns them, or why they could not be read. */
+        OsImageCatalog: {
+            /** @description Why the catalog could not be read, for a person to read; null when it was read. */
+            error: string | null;
+            /** @description Empty when the catalog could not be read. */
+            images: components["schemas"]["OsImage"][];
+            integrationId: string;
+            integrationName: string;
+            siteId: string;
+        };
+        /** @description The OS Image catalogs of the provisioners in the scope. */
+        OsImageCatalogList: {
+            items: components["schemas"]["OsImageCatalog"][];
+        };
         /** @description The whole metadata swallow keeps for one OS Image. Every field is optional and trimmed; an empty or omitted field clears it. */
         OsImageMetadataRequest: {
             /** @description A POSIX login name (`^[a-z_][a-z0-9_-]{0,31}$`), or empty to clear. */
@@ -6491,6 +6548,15 @@ export interface components {
             updatedAt: components["schemas"]["Timestamp"];
             userId: string;
             username: string;
+        };
+        /** @description A User that is not a member of the Pool; only its id and username are shown. */
+        PoolMemberCandidate: {
+            userId: string;
+            username: string;
+        };
+        PoolMemberCandidateList: {
+            /** @description At most 20 Users, ordered by username. */
+            items: components["schemas"]["PoolMemberCandidate"][];
         };
         PoolMemberList: {
             items: components["schemas"]["PoolMember"][];
@@ -9371,6 +9437,36 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listPoolMemberCandidates: {
+        parameters: {
+            query?: {
+                /** @description Keep the Users whose username contains this text, case-insensitively. */
+                query?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The Pool's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The matching Users that are not members yet. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolMemberCandidateList"];
+                };
+            };
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
@@ -12511,6 +12607,40 @@ export interface operations {
             };
             /** @description `provider_unavailable`: the live lock state cannot be read from the provisioner. */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listOsImageCatalogs: {
+        parameters: {
+            query?: {
+                /** @description Only this Site's provisioners; every Site's when omitted. */
+                siteId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One catalog per provisioner Integration, ordered by Site id and Integration name. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OsImageCatalogList"];
+                };
+            };
+            401: components["responses"]["Error"];
+            /** @description `not_found`: the Site does not exist. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

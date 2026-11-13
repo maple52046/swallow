@@ -31,6 +31,7 @@ type ProvisioningHandler struct {
 	tasks           *application.ProvisioningTaskService
 	refresh         *application.RefreshServerUseCase
 	images          *application.ListOSImagesUseCase
+	imageCatalogs   *application.ListOSImageCatalogsUseCase
 	reconcile       *application.ReconcileUseCase
 	detail          *application.GetProvisionerDetailUseCase
 	events          *application.GetProviderEventsUseCase
@@ -60,6 +61,7 @@ func NewProvisioningHandler(
 	tasks *application.ProvisioningTaskService,
 	refresh *application.RefreshServerUseCase,
 	images *application.ListOSImagesUseCase,
+	imageCatalogs *application.ListOSImageCatalogsUseCase,
 	reconcile *application.ReconcileUseCase,
 	detail *application.GetProvisionerDetailUseCase,
 	events *application.GetProviderEventsUseCase,
@@ -82,6 +84,7 @@ func NewProvisioningHandler(
 		tasks:           tasks,
 		refresh:         refresh,
 		images:          images,
+		imageCatalogs:   imageCatalogs,
 		reconcile:       reconcile,
 		detail:          detail,
 		events:          events,
@@ -446,6 +449,71 @@ func (h *ProvisioningHandler) ListImages(c *fiber.Ctx) error {
 		return RespondError(c, err)
 	}
 	return c.JSON(items)
+}
+
+// imageCatalogResponse is one catalog of GET /image-catalogs: the Integration's id, name, and Site
+// only, its images, and why they could not be read (null when they were).
+type imageCatalogResponse struct {
+	IntegrationID   string                    `json:"integrationId"`
+	IntegrationName string                    `json:"integrationName"`
+	SiteID          string                    `json:"siteId"`
+	Images          []application.OSImageItem `json:"images"`
+	Error           *string                   `json:"error"`
+}
+
+// ListImageCatalogs answers GET /image-catalogs: the OS Image catalog of every provisioner of the
+// optional `siteId` (of every Site without it). It is reference data, so any authenticated User may
+// call it; an unknown Site is 404 through RespondError, and a catalog that cannot be read is
+// reported inside the 200 instead of failing the whole read.
+func (h *ProvisioningHandler) ListImageCatalogs(c *fiber.Ctx) error {
+	catalogs, err := h.imageCatalogs.Execute(c.Context(), c.Query("siteId"))
+	if err != nil {
+		return RespondError(c, err)
+	}
+	items := make([]imageCatalogResponse, len(catalogs))
+	for i, catalog := range catalogs {
+		items[i] = imageCatalogResponse{
+			IntegrationID: catalog.IntegrationID, IntegrationName: catalog.IntegrationName, SiteID: catalog.SiteID,
+			Images: catalog.Images, Error: imageCatalogFailure(c, catalog),
+		}
+	}
+	return c.JSON(fiber.Map{"items": items})
+}
+
+// imageCatalogFailure turns why one catalog could not be read into the message the contract shows a
+// person, or nil when it was read. Only client-safe text reaches the wire: a provider error's
+// adapter-written Detail, the fixed credential message, and an unsupported provider kind's own
+// message; anything else is logged with the request ID and reported generically, because it can
+// carry store or driver details.
+func imageCatalogFailure(c *fiber.Ctx, catalog application.OSImageCatalogItem) *string {
+	if catalog.Err == nil {
+		return nil
+	}
+	message := "The provisioner's image catalog could not be read."
+	var provErr *provisioningdomain.ProviderError
+	switch {
+	case errors.As(catalog.Err, &provErr):
+		slog.Warn("provisioning provider catalog read failed",
+			"requestId", c.GetRespHeader(fiber.HeaderXRequestID),
+			"integrationId", catalog.IntegrationID,
+			"providerErrorKind", provErr.Kind,
+			"detail", provErr.Detail,
+		)
+		if provErr.Detail != "" {
+			message = provErr.Detail
+		}
+	case errors.Is(catalog.Err, sitedomain.ErrCredentialNotSet):
+		message = "This integration has no credential configured."
+	case errors.Is(catalog.Err, provisioningdomain.ErrProviderKindUnsupported):
+		message = catalog.Err.Error()
+	default:
+		slog.Error("provisioning catalog read failed",
+			"requestId", c.GetRespHeader(fiber.HeaderXRequestID),
+			"integrationId", catalog.IntegrationID,
+			"error", catalog.Err,
+		)
+	}
+	return &message
 }
 
 // DeleteImage removes one provider-owned OS image. The image is selected by the same

@@ -28,6 +28,7 @@ import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useTargetLockProtection } from '@/presentation/hooks/useTargetLockProtection'
+import { useTargetsOperable } from '@/presentation/hooks/useTargetsOperable'
 import { formatDateTime } from '@/shared/utils/time'
 import { OperationEventWorkspace } from './OperationEventWorkspace'
 import { OperationLogWorkspace } from './OperationLogWorkspace'
@@ -50,7 +51,8 @@ interface DurableOperationDetailProps {
 /**
  * Step-first debugger for one schema-v3 Workflow on its detail route: its details (including the
  * resources it owns, which the API lists only while it runs), Steps grouped by Job, the selected
- * Step's diagnostics, and the timeline. Cancel and Step retry are the only commands; a background
+ * Step's diagnostics, and the timeline. Cancel and Step retry are the only commands, offered to a
+ * user who may operate every target (an admin, or an owner of each target's Pool); a background
  * refresh failure keeps the last-good Workflow on screen with a warning. On a phone the header
  * stacks its commands under the title and truncates the Workflow id breadcrumb.
  */
@@ -61,6 +63,12 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
   const status = operationStatus(operation)
   const steps = useMemo(() => operation.steps ?? [], [operation])
   const targetProtection = useTargetLockProtection(operation.targetServerIds)
+  // Cancel and Task retry need the Pool operate class on every target (workflows.md).
+  const targetPlatformIds = useMemo(() => [...new Set([
+    ...(operation.platformId ? [operation.platformId] : []),
+    ...(operation.targetResources ?? []).filter((target) => target.kind === 'platform').map((target) => target.id),
+  ])], [operation.platformId, operation.targetResources])
+  const operable = useTargetsOperable(operation.targetServerIds, targetPlatformIds)
   const retryDisabledReason = targetProtection.checking
     ? 'Checking target protection.'
     : targetProtection.error
@@ -161,7 +169,7 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
   // Renders one Step row. Extracted so the flat (no-Job) and Job-grouped paths share one row, and
   // so a grouped row can be indented under its Job header.
   const renderStepRow = (step: OperationStep, indented: boolean) => {
-    const retryable = (step.status === 'failed' || step.status === 'requires_attention') && step.error?.retryable
+    const retryable = operable && (step.status === 'failed' || step.status === 'requires_attention') && step.error?.retryable
     return (
       <Table.Row key={step.id} bg={selectedStep?.id === step.id ? 'bg.subtle' : undefined}>
         <Table.Cell className={indented ? 'sw-operation-step-nested' : undefined}>
@@ -262,7 +270,7 @@ export function DurableOperationDetail({ operation, reload, refreshError }: Dura
               <RefreshCw size={16} />
               Refresh
             </Button>
-            {!isTerminalStatus(status) && (
+            {operable && !isTerminalStatus(status) && (
               <Button colorPalette="red" onClick={() => setCancelOpen(true)}>
                 <Ban size={16} />
                 Cancel

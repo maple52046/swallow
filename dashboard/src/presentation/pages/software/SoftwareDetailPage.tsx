@@ -7,8 +7,8 @@ import {
   type SoftwareDetailWorkingSet,
 } from '@/application/usecases/software/loadSoftwareWorkspace'
 import { useApp } from '@/di/AppProvider'
-import { serverDisplayName } from '@/domain/server/types'
-import { isAdmin } from '@/domain/user/access'
+import { serverDisplayName, type Server } from '@/domain/server/types'
+import { canOperatePool, isAdmin, ownsAnyPool } from '@/domain/user/access'
 import type { SoftwareAssignment } from '@/domain/software/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ModuleSettingsDetails } from '@/presentation/components/ModuleSettings'
@@ -138,6 +138,11 @@ export function SoftwareDetailPage() {
   // A kind swallow keeps installed is uninstalled only by an admin (software.md); the API refuses
   // anyone else, so the action is not offered to them.
   const canUninstall = !detailEntry?.keptInstalled || isAdmin(currentUser)
+  // Installing, reconfiguring, and uninstalling are Pool operate on the Server (software.md).
+  const operates = (server: Server) => canOperatePool(currentUser, server.spec.poolId)
+  const rowActions = (row: SoftwareDeploymentRow) => operates(row.server)
+    ? { onReconfigure: () => setInstallTarget(row), onUninstall: canUninstall ? () => setUninstalling(row.assignment) : undefined }
+    : {}
   const { state: settingsSchemaState } = useModuleSpecSchema(
     'software',
     detailEntry && !hasDedicatedSoftwareSettings(detailEntry) ? detailEntry.kind : undefined,
@@ -219,7 +224,8 @@ export function SoftwareDetailPage() {
         stackActionsOnMobile
         actions={
           <>
-            {presentation.hasSettings && (
+            {/* A kind's settings (Docker CE's registry credentials) are admin routes. */}
+            {presentation.hasSettings && isAdmin(currentUser) && (
               <Button asChild variant="outline">
                 <RouterLink to={scopedHref(softwareSettingsPath(entry.kind))}>
                   <Settings size={16} aria-hidden />
@@ -227,10 +233,12 @@ export function SoftwareDetailPage() {
                 </RouterLink>
               </Button>
             )}
-            <Button colorPalette="brand" onClick={() => setInstallTarget('new')}>
-              <Plus size={16} aria-hidden />
-              Install software
-            </Button>
+            {ownsAnyPool(currentUser) && (
+              <Button colorPalette="brand" onClick={() => setInstallTarget('new')}>
+                <Plus size={16} aria-hidden />
+                Install software
+              </Button>
+            )}
           </>
         }
       />
@@ -334,8 +342,7 @@ export function SoftwareDetailPage() {
                           showSite={!siteId}
                           siteName={siteName(row.server.status.source.siteId)}
                           scopedHref={scopedHref}
-                          onReconfigure={() => setInstallTarget(row)}
-                          onUninstall={canUninstall ? () => setUninstalling(row.assignment) : undefined}
+                          {...rowActions(row)}
                           onViewSettings={settingsSchema ? () => setViewingSettings(row) : undefined}
                         />
                       ))}
@@ -353,8 +360,7 @@ export function SoftwareDetailPage() {
                       showSite={!siteId}
                       siteName={siteName(row.server.status.source.siteId)}
                       scopedHref={scopedHref}
-                      onReconfigure={() => setInstallTarget(row)}
-                      onUninstall={canUninstall ? () => setUninstalling(row.assignment) : undefined}
+                      {...rowActions(row)}
                       onViewSettings={settingsSchema ? () => setViewingSettings(row) : undefined}
                     />
                   ))}
@@ -379,7 +385,7 @@ export function SoftwareDetailPage() {
         <InstallSoftwareDialog
           catalog={state.data.catalog}
           assignments={state.data.assignments}
-          servers={installTarget === 'new' ? state.data.servers : [installTarget.server]}
+          servers={installTarget === 'new' ? state.data.servers.filter(operates) : [installTarget.server]}
           fixedKind={entry.kind}
           fixedServer={installTarget === 'new' ? undefined : installTarget.server}
           onClose={() => setInstallTarget(null)}
@@ -424,10 +430,11 @@ interface DeploymentPresentationProps {
   showSite: boolean
   siteName: string
   scopedHref: (path: string) => string
-  onReconfigure: () => void
+  /** Opens the install dialog for this Server; absent when the caller may not operate the Server. */
+  onReconfigure?: () => void
   /**
-   * Opens the uninstall confirmation; absent when the caller may not uninstall this kind (one
-   * swallow keeps installed, for a user who is not an admin), so the action is not offered.
+   * Opens the uninstall confirmation; absent when the caller may not operate the Server, or may not
+   * uninstall this kind (one swallow keeps installed, for a user who is not an admin).
    */
   onUninstall?: () => void
   /** Opens the recorded settings; set only for a kind whose module declares a spec schema. */
@@ -442,7 +449,7 @@ interface DeploymentPresentationProps {
 function SoftwareDeploymentActions({ row, managedByPlatformId, scopedHref, onReconfigure, onUninstall, onViewSettings }: DeploymentPresentationProps) {
   const { assignment, server } = row
   const changing = isSoftwareAssignmentChanging(assignment)
-  const canChange = !changing && !managedByPlatformId
+  const canChange = !changing && !managedByPlatformId && Boolean(onReconfigure || onUninstall)
   return (
     <HStack gap="2" justify="flex-end" wrap="wrap">
       {assignment.state === 'installed' ? (
@@ -464,7 +471,7 @@ function SoftwareDeploymentActions({ row, managedByPlatformId, scopedHref, onRec
           <Menu.Trigger asChild><Button size="sm" variant="ghost">More <ChevronDown size={14} aria-hidden /></Button></Menu.Trigger>
           <Portal><Menu.Positioner><Menu.Content>
             {onViewSettings && <Menu.Item value="settings" onSelect={onViewSettings}>View settings</Menu.Item>}
-            {canChange && <Menu.Item value="configure" onSelect={onReconfigure}>{assignment.state === 'failed' ? 'Retry install' : 'Reconfigure'}</Menu.Item>}
+            {canChange && onReconfigure && <Menu.Item value="configure" onSelect={onReconfigure}>{assignment.state === 'failed' ? 'Retry install' : 'Reconfigure'}</Menu.Item>}
             {canChange && onUninstall && <Menu.Item value="uninstall" color="red.fg" onSelect={onUninstall}>Uninstall</Menu.Item>}
           </Menu.Content></Menu.Positioner></Portal>
         </Menu.Root>

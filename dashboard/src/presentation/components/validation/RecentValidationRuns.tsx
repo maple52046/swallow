@@ -17,20 +17,24 @@ import { ValidationRunList } from './ValidationRunList'
 /** How many of the newest runs the section lists; All runs opens the rest. */
 const RECENT_RUNS = 5
 
-type RecentValidationRunsProps =
+type RecentValidationRunsProps = (
   | { serverId: string; platformId?: never }
   | { platformId: string; serverId?: never }
+) & {
+  /** Whether the user may run a suite on this Server or Platform (Pool operate). */
+  canRun: boolean
+}
 
 /**
  * The Validation section of a Server's or a Platform's page: its newest Validation Runs (runs
  * whose targets or members include the Server, or the Platform's runs), each linking to its
- * detail, with All runs opening the Runs list filtered to it and Run a suite opening the run
- * dialog with it as the target. The catalog is read when the dialog opens.
+ * detail, with All runs opening the Runs list filtered to it and, for a user who may operate it, Run
+ * a suite opening the run dialog with it as the target. The catalog is read when the dialog opens.
  *
  * The list follows unfinished runs in place (`useValidationRuns`); a failed read is shown with a
  * retry, and a non-admin sees the API's refusal there.
  */
-export function RecentValidationRuns({ serverId, platformId }: RecentValidationRunsProps) {
+export function RecentValidationRuns({ serverId, platformId, canRun }: RecentValidationRunsProps) {
   const { validation } = useApp()
   const { scopedHref } = useSiteScope()
   const { showToast } = useToast()
@@ -59,7 +63,7 @@ export function RecentValidationRuns({ serverId, platformId }: RecentValidationR
       description={`The newest Validation Runs of this ${subject}.`}
       actions={
         <HStack gap="2">
-          <Button size="sm" variant="outline" onClick={() => void openDialog()} loading={opening}>Run a suite</Button>
+          {canRun && <Button size="sm" variant="outline" onClick={() => void openDialog()} loading={opening}>Run a suite</Button>}
           <Button asChild size="sm" variant="ghost">
             <RouterLink to={scopedHref(`/validation/runs?${allRuns}`)}>All runs</RouterLink>
           </Button>
