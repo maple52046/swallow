@@ -109,6 +109,10 @@ type CatalogEntry struct {
 	ContainerRuntimes []Kind
 	// SpecFields lists the kind-specific spec keys the API accepts, for documentation and UI.
 	SpecFields []string
+	// KeptInstalled marks a kind swallow keeps installed by itself on every Server its policy
+	// covers (an ensure controller). Only an admin may uninstall it, and swallow installs it again
+	// afterwards; locking the Server or turning its Site's automation off keeps it off.
+	KeptInstalled bool
 	// DirectoryClient marks the kind that makes a Server read its accounts, SSH keys, and sudo
 	// rules from the installation's Directory (decision 082). Its install needs a configured
 	// Directory and receives the Directory's connection settings as trusted variables and the

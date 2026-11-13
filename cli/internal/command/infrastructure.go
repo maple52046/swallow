@@ -3,8 +3,9 @@ package command
 import "github.com/spf13/cobra"
 
 // newInfrastructureCommand groups the swallow-owned Zone and Pool records
-// (infrastructure.md). Zones and Pools share an identical shape and behavior, so
-// both subtrees are generated from one builder; a Pool also has members and sudo
+// (infrastructure.md). Both have the same list/get/create/update/delete routes, so
+// both subtrees are generated from one builder; a Zone belongs to one Site while a
+// Pool belongs to the whole installation, and a Pool also has members and sudo
 // defaults (pool-access.md). Server placement lives under `swallow servers
 // placement` because it is addressed by serverId.
 func newInfrastructureCommand() *cobra.Command {
@@ -12,10 +13,10 @@ func newInfrastructureCommand() *cobra.Command {
 		Use:   "infrastructure",
 		Short: "Manage Zones and Pools",
 	}
-	pools := groupingCmd("pools", "Pool")
+	pools := groupingCmd("pools", "Pool", false)
 	pools.AddCommand(poolMembersCmd(), poolAccessPolicyCmd())
 	cmd.AddCommand(
-		groupingCmd("zones", "Zone"),
+		groupingCmd("zones", "Zone", true),
 		pools,
 	)
 	return cmd
@@ -23,8 +24,10 @@ func newInfrastructureCommand() *cobra.Command {
 
 // groupingCmd builds the list/get/create/update/delete subtree for a Zone or
 // Pool. resource is the path segment ("zones"/"pools"); label is the singular
-// noun used in help text.
-func groupingCmd(resource, label string) *cobra.Command {
+// noun used in help text. siteScoped adds the list's Site filter and names siteId
+// in the create body, which only a Zone has: the Pool list takes no query
+// parameters (infrastructure.md).
+func groupingCmd(resource, label string, siteScoped bool) *cobra.Command {
 	base := "infrastructure/" + resource
 	cmd := &cobra.Command{
 		Use:   resource,
@@ -33,14 +36,20 @@ func groupingCmd(resource, label string) *cobra.Command {
 
 	list := &cobra.Command{
 		Use:   "list",
-		Short: "List " + label + " records, optionally filtered by Site",
+		Short: "List every " + label,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if !siteScoped {
+				return getJSON(cmd, base, nil)
+			}
 			site, _ := cmd.Flags().GetString("site-id")
 			q := newQuery().set("siteId", defaultSite(site)).build()
 			return getJSON(cmd, base, q)
 		},
 	}
-	list.Flags().String("site-id", "", "filter by Site (defaults to the global --site)")
+	if siteScoped {
+		list.Short = "List " + label + " records, optionally filtered by Site"
+		list.Flags().String("site-id", "", "filter by Site (defaults to the global --site)")
+	}
 	cmd.AddCommand(list)
 
 	cmd.AddCommand(&cobra.Command{
@@ -63,7 +72,11 @@ func groupingCmd(resource, label string) *cobra.Command {
 			return sendJSON(cmd, "POST", base, nil, body)
 		},
 	}
-	addFileFlag(create, label+" definition (siteId, name, description)")
+	if siteScoped {
+		addFileFlag(create, label+" definition (siteId, name, description)")
+	} else {
+		addFileFlag(create, label+" definition (name, description)")
+	}
 	cmd.AddCommand(create)
 
 	update := &cobra.Command{

@@ -65,9 +65,9 @@ export function PoolAccessPage() {
     const [policy, members, pools] = await Promise.all([
       poolAccess.getPolicy(id),
       poolAccess.listMembers(id),
-      infrastructure.listGroups('pool'),
+      infrastructure.listPools(),
     ])
-    const name = pools.find((pool) => pool.id === id)?.spec.name ?? id
+    const name = pools.find((pool) => pool.id === id)?.name ?? id
     return { name, policy, members }
   }, [poolAccess, infrastructure, id], { unavailableStatuses: [404] })
 

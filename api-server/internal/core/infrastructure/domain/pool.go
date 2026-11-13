@@ -5,46 +5,37 @@ import (
 	"time"
 )
 
-// Pool is a swallow-owned, Site-scoped resource pool: a grouping of Servers used to partition
-// resources for allocation and organization (glossary: Pool).
+// Pool is a swallow-owned, installation-wide grouping of Servers used to partition resources for
+// allocation and access (glossary: Pool; decision 082).
 //
-// It mirrors Zone's shape and ownership rules but is a distinct concept: a Zone groups for
-// availability/fault/organization, a Pool partitions for allocation. Name is unique within
-// SiteID. The catalog controller realizes it as a resource pool on every grouping-capable
-// provisioner of the Site.
+// A Pool belongs to no Site, so its Servers may be in several Sites, and it exists only in swallow:
+// no provisioner holds it, and a provisioner's own resource pools are only observed on each Server.
+// It needs no realization, so it has no generation or status. Name is unique within the
+// installation. Its memberships and Sudo Policy belong to the access context, keyed by ID.
 type Pool struct {
 	// ID is swallow-issued and stable; every swallow reference uses it.
 	ID string
-	// SiteID is the owning Site. A Pool never spans Sites.
-	SiteID string
-	// Generation counts spec changes: 1 when created, +1 on every rename or description change.
-	Generation int64
-	// Name is user-facing and unique within SiteID.
+	// Name is user-facing and unique within the installation.
 	Name string
 	// Description is an optional user note.
 	Description string
-	// Status is written only by the catalog controller.
-	Status    GroupStatus
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
-// PoolRepository persists swallow-owned Pools, with the same contract as ZoneRepository and
-// ErrPoolNameTaken / ErrPoolNotFound in place of the Zone errors.
+// PoolRepository persists swallow-owned Pools.
+//
+// Implementations must be safe for concurrent use and must enforce name uniqueness across the
+// installation: Create and Update return ErrPoolNameTaken when a different Pool already holds the
+// name. FindByID and Update return ErrPoolNotFound for an unknown Pool. Delete joins the caller's
+// store transaction through ctx, so a Pool and its access records go together. Production
+// implementations must use durable storage; in-memory implementations are limited to tests.
 type PoolRepository interface {
 	Create(ctx context.Context, pool *Pool) error
 	FindByID(ctx context.Context, id string) (*Pool, error)
-	FindByName(ctx context.Context, siteID, name string) (*Pool, error)
-	// List returns Pools sorted by name. An empty siteID returns every Pool across Sites.
-	List(ctx context.Context, siteID string) ([]*Pool, error)
-	// UpdateSpec stores pool's name and description and increments its generation, writing the
-	// new generation and updatedAt back onto pool.
-	UpdateSpec(ctx context.Context, pool *Pool) error
-	// AdoptSpec makes a Pool that has no generation yet (one migrated from before desired state)
-	// desired state at its first observation: it stores description and sets generation 1. It
-	// does nothing when the Pool already has a generation or no longer exists.
-	AdoptSpec(ctx context.Context, id, description string, at time.Time) error
-	// SetStatus replaces the controller-written status; nothing else changes.
-	SetStatus(ctx context.Context, id string, status GroupStatus) error
+	// List returns every Pool sorted by name.
+	List(ctx context.Context) ([]*Pool, error)
+	// Update stores pool's name, description, and updatedAt.
+	Update(ctx context.Context, pool *Pool) error
 	Delete(ctx context.Context, id string) error
 }

@@ -674,3 +674,19 @@ test('an NFS install cannot be configured until its settings form loads', async 
   await expect(dialog.getByRole('button', { name: 'Retry' })).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Install', exact: true })).toBeDisabled()
 })
+
+// swallow keeps the Node Exporter installed, so only an admin may uninstall it: an owner sees no
+// Uninstall for it, while an admin still does.
+test('only an admin is offered Uninstall for software swallow keeps installed', async ({ page }) => {
+  await installApiFixtures(page, {
+    fleetSize: 5,
+    identity: 'owner',
+    softwareAssignments: [assignment('srv-5', 'node-exporter', 'installed')],
+  })
+  await page.goto('/software/node-exporter?site=site-a')
+  const row = page.getByRole('table', { name: 'Node Exporter deployments' }).getByRole('row', { name: /compute-node-005/ })
+  await row.getByRole('button', { name: 'More' }).click()
+  await expect(page.getByRole('menuitem', { name: 'Reconfigure' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: 'Uninstall' })).toHaveCount(0)
+})
+

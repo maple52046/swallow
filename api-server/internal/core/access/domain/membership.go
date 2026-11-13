@@ -37,11 +37,10 @@ func (s SudoSetting) Valid() bool { return s == SudoInherit || s == SudoOn || s 
 // Membership is one User's Pool Membership (glossary Pool Membership): desired state written only
 // through the API by an admin or an owner of the Pool. Invariants: (PoolID, UserID) is unique; Role
 // is valid; Sudo and SudoPasswordless are valid settings (the Sudo override of an owner is kept but
-// ignored, because owners always have sudo). SiteID is the Pool's Site, recorded for listing.
+// ignored, because owners always have sudo).
 type Membership struct {
 	ID               string
 	PoolID           string
-	SiteID           string
 	UserID           string
 	Role             PoolRole
 	Sudo             SudoSetting

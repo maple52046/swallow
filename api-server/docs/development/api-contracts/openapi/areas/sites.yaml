@@ -1,13 +1,13 @@
 # Sites and their provider Integrations, each Site's Automation Configuration, swallow-owned Zones
 # and Pools with Server placement, and the swallow-owned HTTP proxy and subnet DNS settings of one
 # provisioner Integration (contracts sites-integrations.md, site-automation.md, infrastructure.md,
-# provisioner-http-proxy.md, provisioner-subnet-dns.md; decisions 071, 032, 039, and 058).
+# provisioner-http-proxy.md, provisioner-subnet-dns.md; decisions 071, 082, 032, 039, and 058).
 tags:
   - name: sites
     description: >-
       Sites and the provider Integrations attached to them (credentials write-only), each Site's
-      Automation Configuration for embedded Ansible, Site-scoped Zones and Pools and a Server's
-      placement in them, and the HTTP proxy and subnet DNS settings swallow keeps on a
+      Automation Configuration for embedded Ansible, Site-scoped Zones, installation-wide Pools, a
+      Server's placement in them, and the HTTP proxy and subnet DNS settings swallow keeps on a
       provisioner Integration.
 paths:
   /api/v1/sites:
@@ -16,7 +16,7 @@ paths:
       operationId: listSites
       summary: List every Site.
       description: >-
-        Requires role `admin`. Returns a plain array ordered by `name` (the set is small and
+        Reference: any authenticated User. Returns a plain array ordered by `name` (the set is small and
         bounded).
       responses:
         '200':
@@ -90,7 +90,7 @@ paths:
       tags: [sites]
       operationId: getSite
       summary: Read one Site.
-      description: Requires role `admin`.
+      description: 'Reference: any authenticated User.'
       responses:
         '200':
           description: The Site.
@@ -649,7 +649,7 @@ paths:
       tags: [sites]
       operationId: listZones
       summary: List Zones, optionally of one Site.
-      description: Requires role `admin`. Returns a plain array ordered by `name` (small and bounded).
+      description: 'Reference: any authenticated User. Returns a plain array ordered by `name` (small and bounded).'
       parameters:
         - name: siteId
           in: query
@@ -743,7 +743,7 @@ paths:
       tags: [sites]
       operationId: getZone
       summary: Read one Zone.
-      description: Requires role `admin`.
+      description: 'Reference: any authenticated User.'
       responses:
         '200':
           description: The Zone.
@@ -865,18 +865,11 @@ paths:
     get:
       tags: [sites]
       operationId: listPools
-      summary: List Pools, optionally of one Site.
-      description: Requires role `admin`. Returns a plain array ordered by `name` (small and bounded).
-      parameters:
-        - name: siteId
-          in: query
-          required: false
-          description: Restrict to one Site; omitted returns the Pools of every Site.
-          schema:
-            type: string
+      summary: List every Pool of the installation.
+      description: 'Reference: any authenticated User. Returns a plain array ordered by `name` (small and bounded).'
       responses:
         '200':
-          description: The matching Pools.
+          description: Every Pool.
           content:
             application/json:
               schema:
@@ -892,27 +885,23 @@ paths:
     post:
       tags: [sites]
       operationId: createPool
-      summary: Create a Pool; the catalog controller creates it on the Site's provisioners.
+      summary: Create a Pool.
       description: >-
-        Requires role `admin` (infrastructure.md). Stores the spec at generation 1 and answers at
-        once; the Pool's conditions report when every grouping-capable provisioner of the Site holds
-        it. No provisioner is called.
+        Requires role `admin` (infrastructure.md). A Pool belongs to the installation, not to a
+        Site, and exists only in swallow: no provisioner is called.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [siteId, name]
+              required: [name]
               properties:
-                siteId:
-                  type: string
-                  minLength: 1
                 name:
                   type: string
                   minLength: 1
                   maxLength: 100
-                  description: Unique within the Site; trimmed, and at most 100 characters after trimming.
+                  description: Unique within the installation; trimmed, and at most 100 characters after trimming.
                 description:
                   type: string
       responses:
@@ -924,8 +913,8 @@ paths:
                 $ref: '#/components/schemas/Pool'
         '400':
           description: >-
-            `validation_error`: the body is not valid JSON; `siteId` or `name` is missing, blank, or
-            `name` is longer than 100 characters.
+            `validation_error`: the body is not valid JSON; `name` is missing, blank, or longer than
+            100 characters.
           content:
             application/json:
               schema:
@@ -934,14 +923,8 @@ paths:
           $ref: '#/components/responses/Error'
         '403':
           $ref: '#/components/responses/Error'
-        '404':
-          description: '`not_found`: the Site does not exist.'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
         '409':
-          description: '`conflict`: a Pool with this `name` already exists in the Site.'
+          description: '`conflict`: a Pool with this `name` already exists.'
           content:
             application/json:
               schema:
@@ -960,7 +943,7 @@ paths:
       tags: [sites]
       operationId: getPool
       summary: Read one Pool.
-      description: Requires role `admin`.
+      description: 'Reference: any authenticated User.'
       responses:
         '200':
           description: The Pool.
@@ -985,9 +968,8 @@ paths:
       operationId: updatePool
       summary: Rename a Pool or change its description.
       description: >-
-        Requires role `admin`. Only present fields change, and a change increments the generation; a
-        request that changes nothing answers the stored Pool. The catalog controller then renames
-        the group on the Site's provisioners, so the machines in it stay there.
+        Requires role `admin`. Only present fields change; a request that changes nothing answers
+        the stored Pool. The Pool keeps its members, Sudo Policy, and POSIX group names.
       requestBody:
         required: true
         content:
@@ -1027,7 +1009,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: '`conflict`: another Pool in the Site already has this `name`.'
+          description: '`conflict`: another Pool already has this `name`.'
           content:
             application/json:
               schema:
@@ -1037,21 +1019,13 @@ paths:
     delete:
       tags: [sites]
       operationId: deletePool
-      summary: Delete a Pool, removing it from the provisioners that hold it first.
+      summary: Delete a Pool with its memberships and Sudo Policy.
       description: >-
-        Requires role `admin`. Refused while a Server's placement spec names the Pool. Otherwise the
-        resource pool is removed from every provisioner that holds it (a provisioner's default
-        resource pool stays), then the record. A provisioner that refuses (for example one still
-        holding machines) aborts the delete, so the record stays.
+        Requires role `admin`. Refused while a Server's placement spec names the Pool. No
+        provisioner is called.
       responses:
         '204':
           description: The Pool was deleted.
-        '400':
-          description: '`validation_error`: the provisioner refused to delete the pool (the message carries its explanation).'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/Error'
         '403':
@@ -1064,14 +1038,6 @@ paths:
                 $ref: '#/components/schemas/Error'
         '404':
           description: '`not_found`: the Pool does not exist.'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          description: >-
-            `provider_unavailable`: the Site's provisioner could not be reached, refused the
-            credential, or has no credential.
           content:
             application/json:
               schema:
@@ -1089,14 +1055,14 @@ paths:
     put:
       tags: [sites]
       operationId: assignServerPlacement
-      summary: Set a Server's Zone and/or Pool; its controller moves the machine.
+      summary: Set a Server's Zone and/or Pool; its controller moves the machine to the Zone.
       description: >-
         Requires role `admin` (infrastructure.md). Writes the placement into the Server's spec,
-        conditional on its generation, and answers at once; the Server controller moves the machine,
-        and the Server's conditions report when it has. An omitted field is unchanged and `null`
-        returns the Server to its provisioner's default group; at least one field must be given. A
-        referenced Zone or Pool must belong to the Server's Site. A provisioner that cannot group
-        keeps the spec and reports `capability_missing`.
+        conditional on its generation, and answers at once. An omitted field is unchanged; at least
+        one field must be given. A Zone must belong to the Server's Site; the Server controller
+        moves the machine to it and the Server's conditions report when it has (a provisioner that
+        cannot group keeps the spec and reports `capability_missing`). A Pool may be of any Site's
+        Servers and takes effect at once; nothing changes in the provisioner.
       requestBody:
         required: true
         content:
@@ -1111,7 +1077,7 @@ paths:
                 poolId:
                   type: string
                   nullable: true
-                  description: The swallow id of the Pool; `null` returns the Server to the provisioner's default pool.
+                  description: The swallow id of the Pool; `null` takes the Server out of every Pool.
       responses:
         '200':
           description: The Server's placement spec after the request.
@@ -1122,7 +1088,7 @@ paths:
         '400':
           description: >-
             `validation_error`: the body is not valid JSON or a field is not a string or `null`;
-            neither `zoneId` nor `poolId` is given; or the Zone or Pool belongs to another Site.
+            neither `zoneId` nor `poolId` is given; or the Zone belongs to another Site.
           content:
             application/json:
               schema:
@@ -1587,25 +1553,26 @@ components:
     Pool:
       type: object
       description: >-
-        A swallow-owned, Site-scoped resource pool (glossary Pool) as a migrated resource, with the
-        same shape and meaning as a Zone.
-      required: [id, siteId, generation, spec, status]
+        A swallow-owned, installation-wide grouping of Servers (glossary Pool; infrastructure.md,
+        decision 082). It belongs to no Site, exists only in swallow, and needs no realization, so it
+        has no generation or conditions.
+      required: [id, name, description, createdAt, updatedAt]
       properties:
         id:
           type: string
-        siteId:
+        name:
           type: string
-        generation:
-          type: integer
-          format: int64
-          description: Counts spec changes; 1 when created.
-        spec:
-          $ref: '#/components/schemas/GroupSpec'
-        status:
-          $ref: '#/components/schemas/GroupStatus'
+          description: Unique within the installation.
+        description:
+          type: string
+          description: '`""` when none was given.'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
     GroupSpec:
       type: object
-      description: The desired name and description of a Zone or Pool.
+      description: The desired name and description of a Zone.
       required: [name, description]
       properties:
         name:
@@ -1617,9 +1584,9 @@ components:
     GroupStatus:
       type: object
       description: >-
-        The catalog controller's report on a Zone or Pool. The conditions summarize the
-        provisioners: `realized` is `true` only when every provisioner of the Site holds the
-        current spec, and `true` for a Site with no provisioner.
+        The catalog controller's report on a Zone. The conditions summarize the provisioners:
+        `realized` is `true` only when every provisioner of the Site holds the current spec, and
+        `true` for a Site with no provisioner.
       required: [observedGeneration, conditions, provisioners, createdAt, updatedAt]
       properties:
         observedGeneration:
@@ -1642,14 +1609,14 @@ components:
           $ref: '#/components/schemas/Timestamp'
     GroupRealization:
       type: object
-      description: A Zone's or Pool's realization on one provisioner Integration.
+      description: A Zone's realization on one provisioner Integration.
       required: [integrationId, providerName, observedGeneration, observedAt, conditions]
       properties:
         integrationId:
           type: string
         providerName:
           type: string
-          description: The group's name on that provisioner; `""` until it exists there.
+          description: The zone's name on that provisioner; `""` until it exists there.
         observedGeneration:
           type: integer
           format: int64
@@ -1680,7 +1647,7 @@ components:
         poolId:
           type: string
           nullable: true
-          description: The Pool the Server must be in; `null` for the provisioner's default pool.
+          description: The Pool the Server is in; `null` for no Pool.
     ProvisionerHTTPProxyMode:
       type: string
       description: >-

@@ -13,7 +13,7 @@ paths:
       operationId: listModules
       summary: List the modules compiled into the running build.
       description: >-
-        Requires the `admin` role. The list is fixed for the running build, ordered by kind and
+        Reference: any authenticated User. The list is fixed for the running build, ordered by kind and
         then id, and not paginated.
       responses:
         '200':

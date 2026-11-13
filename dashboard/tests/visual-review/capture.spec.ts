@@ -57,6 +57,7 @@ const visualCases = [
   { name: 'platform-detail-uninstall-starting', path: '/platforms/platform-a?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
   { name: 'platform-selector', path: '/platforms/deploy?site=site-a', heading: 'Deploy platform', authenticated: true, representative: false },
   { name: 'infrastructure', path: '/infrastructure/sites?site=site-a', heading: 'Infrastructure', authenticated: true, representative: false },
+  { name: 'infrastructure-zones', path: '/infrastructure/zones?site=site-a', heading: 'Infrastructure', authenticated: true, representative: false },
   { name: 'validation-runs', path: '/validation/runs?site=site-a', heading: 'Validation', authenticated: true, representative: false },
   { name: 'validation-run-detail', path: '/validation/runs/run-failed?site=site-a', heading: 'Host baseline', authenticated: true, representative: false },
   { name: 'validation-suites', path: '/validation/suites?site=site-a', heading: 'Validation', authenticated: true, representative: false },
@@ -71,7 +72,7 @@ const visualCases = [
 
 /** Cases whose header carries tabs (an area's or a detail page's); see the phone `-top` capture. */
 const TAB_HEADER_CASES: ReadonlySet<string> = new Set([
-  'workflow-list', 'change-plans', 'os-image-list', 'os-image-templates', 'boot-isos', 'infrastructure',
+  'workflow-list', 'change-plans', 'os-image-list', 'os-image-templates', 'boot-isos', 'infrastructure', 'infrastructure-zones',
   'server-detail', 'platform-detail', 'platform-detail-kubernetes-cluster', 'platform-detail-slurm-deployed',
   'validation-runs', 'validation-suites', 'validation-schedules',
 ])

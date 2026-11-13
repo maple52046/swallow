@@ -268,7 +268,7 @@ export interface paths {
         };
         /**
          * List Change Plans, newest first.
-         * @description Requires role `admin`. `resourceKind` and `resourceId` narrow the list to one resource; `state` may repeat. The list is small (plans of the resources a user changed), so it is not paginated.
+         * @description Pool read: any authenticated User; the result holds only what the caller may read. `resourceKind` and `resourceId` narrow the list to one resource; `state` may repeat. The list is small (plans of the resources a user changed), so it is not paginated.
          */
         get: operations["listChangePlans"];
         put?: never;
@@ -290,7 +290,7 @@ export interface paths {
         };
         /**
          * Read one Change Plan.
-         * @description Requires role `admin`.
+         * @description Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to.
          */
         get: operations["getChangePlan"];
         put?: never;
@@ -314,7 +314,7 @@ export interface paths {
         put?: never;
         /**
          * Approve a pending plan as a whole; its controller then applies it.
-         * @description Requires role `admin`. Approval freezes the plan. A plan that is not `pending_approval`, has blockers, or is past `expiresAt` (which expires it) is `409 conflict`.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Approval freezes the plan. A plan that is not `pending_approval`, has blockers, or is past `expiresAt` (which expires it) is `409 conflict`.
          */
         post: operations["approveChangePlan"];
         delete?: never;
@@ -336,7 +336,7 @@ export interface paths {
         put?: never;
         /**
          * Reject a plan that has not been applied.
-         * @description Requires role `admin`. A plan that is not `pending_approval` or `approved`, or is past `expiresAt`, is `409 conflict`.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. A plan that is not `pending_approval` or `approved`, or is past `expiresAt`, is `409 conflict`.
          */
         post: operations["rejectChangePlan"];
         delete?: never;
@@ -413,14 +413,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Pools, optionally of one Site.
-         * @description Requires role `admin`. Returns a plain array ordered by `name` (small and bounded).
+         * List every Pool of the installation.
+         * @description Reference: any authenticated User. Returns a plain array ordered by `name` (small and bounded).
          */
         get: operations["listPools"];
         put?: never;
         /**
-         * Create a Pool; the catalog controller creates it on the Site's provisioners.
-         * @description Requires role `admin` (infrastructure.md). Stores the spec at generation 1 and answers at once; the Pool's conditions report when every grouping-capable provisioner of the Site holds it. No provisioner is called.
+         * Create a Pool.
+         * @description Requires role `admin` (infrastructure.md). A Pool belongs to the installation, not to a Site, and exists only in swallow: no provisioner is called.
          */
         post: operations["createPool"];
         delete?: never;
@@ -441,21 +441,21 @@ export interface paths {
         };
         /**
          * Read one Pool.
-         * @description Requires role `admin`.
+         * @description Reference: any authenticated User.
          */
         get: operations["getPool"];
         put?: never;
         post?: never;
         /**
-         * Delete a Pool, removing it from the provisioners that hold it first.
-         * @description Requires role `admin`. Refused while a Server's placement spec names the Pool. Otherwise the resource pool is removed from every provisioner that holds it (a provisioner's default resource pool stays), then the record. A provisioner that refuses (for example one still holding machines) aborts the delete, so the record stays.
+         * Delete a Pool with its memberships and Sudo Policy.
+         * @description Requires role `admin`. Refused while a Server's placement spec names the Pool. No provisioner is called.
          */
         delete: operations["deletePool"];
         options?: never;
         head?: never;
         /**
          * Rename a Pool or change its description.
-         * @description Requires role `admin`. Only present fields change, and a change increments the generation; a request that changes nothing answers the stored Pool. The catalog controller then renames the group on the Site's provisioners, so the machines in it stay there.
+         * @description Requires role `admin`. Only present fields change; a request that changes nothing answers the stored Pool. The Pool keeps its members, Sudo Policy, and POSIX group names.
          */
         patch: operations["updatePool"];
         trace?: never;
@@ -552,7 +552,7 @@ export interface paths {
         };
         /**
          * List Zones, optionally of one Site.
-         * @description Requires role `admin`. Returns a plain array ordered by `name` (small and bounded).
+         * @description Reference: any authenticated User. Returns a plain array ordered by `name` (small and bounded).
          */
         get: operations["listZones"];
         put?: never;
@@ -579,7 +579,7 @@ export interface paths {
         };
         /**
          * Read one Zone.
-         * @description Requires role `admin`.
+         * @description Reference: any authenticated User.
          */
         get: operations["getZone"];
         put?: never;
@@ -685,7 +685,7 @@ export interface paths {
         };
         /**
          * List the modules compiled into the running build.
-         * @description Requires the `admin` role. The list is fixed for the running build, ordered by kind and then id, and not paginated.
+         * @description Reference: any authenticated User. The list is fixed for the running build, ordered by kind and then id, and not paginated.
          */
         get: operations["listModules"];
         put?: never;
@@ -745,7 +745,7 @@ export interface paths {
         };
         /**
          * Read the current value of named metrics for explicit Servers.
-         * @description Requires the `admin` role. Evaluates each requested named query at the current instant. `items` has one entry per requested Server in the requested order; a metric with no data is absent from that Server's `metrics`, never zero (server-metrics.md, Current Values).
+         * @description Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. Evaluates each requested named query at the current instant. `items` has one entry per requested Server in the requested order; a metric with no data is absent from that Server's `metrics`, never zero (server-metrics.md, Current Values).
          */
         get: operations["getMetricValues"];
         put?: never;
@@ -765,7 +765,7 @@ export interface paths {
         };
         /**
          * List the fixed set of metric names a client may request.
-         * @description Requires the `admin` role. A plain array in user scan order; the order is not significant to a consumer (server-metrics.md, Metric Names).
+         * @description Reference: any authenticated User. A plain array in user scan order; the order is not significant to a consumer (server-metrics.md, Metric Names).
          */
         get: operations["listMetricNames"];
         put?: never;
@@ -785,7 +785,7 @@ export interface paths {
         };
         /**
          * Read bounded usage history of named metrics over a scope of Servers.
-         * @description Requires the `admin` role. Exactly one scope parameter (`serverIds`, `poolId`, `zoneId`, or `platformId`) must be sent; a grouping resolves to its current non-absent members when the request is served. swallow chooses the step (about 180 points, a multiple of 30 s). A scope resolving to zero Servers answers 200 without contacting the backend (server-metrics.md, Usage History).
+         * @description Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. Exactly one scope parameter (`serverIds`, `poolId`, `zoneId`, or `platformId`) must be sent; a grouping resolves to its current non-absent members when the request is served. swallow chooses the step (about 180 points, a multiple of 30 s). A scope resolving to zero Servers answers 200 without contacting the backend (server-metrics.md, Usage History).
          */
         get: operations["getMetricRange"];
         put?: never;
@@ -1004,13 +1004,13 @@ export interface paths {
         };
         /**
          * List Platforms, optionally of one Site.
-         * @description Requires the `admin` role. Returns a plain array (Platforms are few, so the list is not paginated). Lifecycle fields are read for the whole list in one batch.
+         * @description Pool read: any authenticated User; the result holds only what the caller may read. Returns a plain array (Platforms are few, so the list is not paginated). Lifecycle fields are read for the whole list in one batch.
          */
         get: operations["listPlatforms"];
         put?: never;
         /**
          * Create a Platform from its spec and propose its install as a Change Plan.
-         * @description Requires the `admin` role. The spec is validated as a deployment would be (the Deployment Key, topology, targets, network, and features) before anything is written; then the Platform is stored at generation 1 with its members claimed, and its install is the returned Change Plan (platforms.md, Create A Platform): approved with the request when it sends `approve=true` and the policy allows it, waiting for approval otherwise. Nothing touches a machine until the plan is approved. 400 for an invalid body, spec, topology, target, network, or feature; 404 for an unknown Site; 409 when the installation has no Deployment Key, the Site's Local Repository serves deployments and is not ready (local-repository.md), the name is taken, or a target is claimed, locked, or held by another Workflow; 503 when Site automation is not configured.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The spec is validated as a deployment would be (the Deployment Key, topology, targets, network, and features) before anything is written; then the Platform is stored at generation 1 with its members claimed, and its install is the returned Change Plan (platforms.md, Create A Platform): approved with the request when it sends `approve=true` and the policy allows it, waiting for approval otherwise. Nothing touches a machine until the plan is approved. 400 for an invalid body, spec, topology, target, network, or feature; 404 for an unknown Site; 409 when the installation has no Deployment Key, the Site's Local Repository serves deployments and is not ready (local-repository.md), the name is taken, or a target is claimed, locked, or held by another Workflow; 503 when Site automation is not configured.
          */
         post: operations["createPlatform"];
         delete?: never;
@@ -1031,21 +1031,21 @@ export interface paths {
         };
         /**
          * Read one Platform.
-         * @description Requires the `admin` role. 404 for an unknown Platform.
+         * @description Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. 404 for an unknown Platform.
          */
         get: operations["getPlatform"];
         put?: never;
         post?: never;
         /**
          * Declare a Platform absent, proposing its uninstall as a Change Plan.
-         * @description Requires the `admin` role. Marks the spec absent with the optional removal choices and proposes the uninstall as a Change Plan, approved with the request when it sends `approve=true` and the policy allows it; the record is deleted once the uninstall succeeds (platforms.md, Delete A Platform). A Platform whose deployment runs or failed is uninstalled the same way. Deleting a Platform already marked absent returns the plan it waits on when the removal choices are the same, approving it when the request sends `approve=true`; different choices, or no plan waiting (it was rejected or expired, or the uninstall failed), propose the uninstall again. While the uninstall runs, the request changes nothing (200). A Platform with nothing installed (its install never started, or its uninstall succeeded) is deleted at once (204). With `recordOnly=true` only the record is removed: in-flight Workflows are canceled, then membership, Platform Claims, and a swallow-owned credential Integration are cleared, and hosts are never touched (204). 404 for an unknown Platform; 409 when the Platform has no spec yet.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Marks the spec absent with the optional removal choices and proposes the uninstall as a Change Plan, approved with the request when it sends `approve=true` and the policy allows it; the record is deleted once the uninstall succeeds (platforms.md, Delete A Platform). A Platform whose deployment runs or failed is uninstalled the same way. Deleting a Platform already marked absent returns the plan it waits on when the removal choices are the same, approving it when the request sends `approve=true`; different choices, or no plan waiting (it was rejected or expired, or the uninstall failed), propose the uninstall again. While the uninstall runs, the request changes nothing (200). A Platform with nothing installed (its install never started, or its uninstall succeeded) is deleted at once (204). With `recordOnly=true` only the record is removed: in-flight Workflows are canceled, then membership, Platform Claims, and a swallow-owned credential Integration are cleared, and hosts are never touched (204). 404 for an unknown Platform; 409 when the Platform has no spec yet.
          */
         delete: operations["deletePlatform"];
         options?: never;
         head?: never;
         /**
          * Change a Platform's name, ownership policies, or Monitoring Links.
-         * @description Requires the `admin` role. Omitted fields do not change; `monitoringLinks` replaces the whole list. Every field is validated before anything is written. 400 for an invalid value; 404 for an unknown Platform; 409 when the name is taken at the Site, or when `gpuStackOwner` is set to `provisioning` while swallow manages a GPU Operator on the Platform. The GPU Operator and the credential Integration cannot be changed here.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Omitted fields do not change; `monitoringLinks` replaces the whole list. Every field is validated before anything is written. 400 for an invalid value; 404 for an unknown Platform; 409 when the name is taken at the Site, or when `gpuStackOwner` is set to `provisioning` while swallow manages a GPU Operator on the Platform. The GPU Operator and the credential Integration cannot be changed here.
          */
         patch: operations["updatePlatform"];
         trace?: never;
@@ -1062,7 +1062,7 @@ export interface paths {
         };
         /**
          * Read the live summary of a deployed Kubernetes Platform.
-         * @description Requires the `admin` role. Counts are observed at read time.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Counts are observed at read time.
          */
         get: operations["getKubernetesClusterSummary"];
         put?: never;
@@ -1085,7 +1085,7 @@ export interface paths {
         };
         /**
          * List Kubernetes Applications (aggregated workloads).
-         * @description Requires the `admin` role. The list items carry no `pods`.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The list items carry no `pods`.
          */
         get: operations["listKubernetesApplications"];
         put?: never;
@@ -1114,14 +1114,14 @@ export interface paths {
         };
         /**
          * Read one Kubernetes Application with the Pods it owns.
-         * @description Requires the `admin` role. An unsupported `kind` is 400 before any cluster call; a workload the cluster reports missing is 404, with the cluster's reason.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. An unsupported `kind` is 400 before any cluster call; a workload the cluster reports missing is 404, with the cluster's reason.
          */
         get: operations["getKubernetesApplication"];
         put?: never;
         post?: never;
         /**
          * Delete the workload object (or bare Pod) behind an Application.
-         * @description Requires the `admin` role. An unsupported `kind` is 400 before any cluster call.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. An unsupported `kind` is 400 before any cluster call.
          */
         delete: operations["deleteKubernetesApplication"];
         options?: never;
@@ -1149,7 +1149,7 @@ export interface paths {
         put?: never;
         /**
          * Trigger a rolling restart of a Deployment, DaemonSet, or StatefulSet.
-         * @description Requires the `admin` role. An unsupported `kind` is 400 before any cluster call; a bare Pod is 400 (delete it instead).
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. An unsupported `kind` is 400 before any cluster call; a bare Pod is 400 (delete it instead).
          */
         post: operations["restartKubernetesApplication"];
         delete?: never;
@@ -1178,7 +1178,7 @@ export interface paths {
         put?: never;
         /**
          * Set a Deployment's or StatefulSet's replica count.
-         * @description Requires the `admin` role. A missing `replicas` or an unsupported `kind` is 400 before any cluster call; a DaemonSet, a bare Pod, or a negative count is 400.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. A missing `replicas` or an unsupported `kind` is 400 before any cluster call; a DaemonSet, a bare Pod, or a negative count is 400.
          */
         post: operations["scaleKubernetesApplication"];
         delete?: never;
@@ -1201,7 +1201,7 @@ export interface paths {
         put?: never;
         /**
          * Server-side apply a YAML manifest of one or more documents.
-         * @description Requires the `admin` role. A missing or blank `manifest` is 400 before any cluster call. A document the cluster rejects is 400 with the cluster's reason in `error.message`; nothing past the first rejected document is applied.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. A missing or blank `manifest` is 400 before any cluster call. A document the cluster rejects is 400 with the cluster's reason in `error.message`; nothing past the first rejected document is applied.
          */
         post: operations["applyKubernetesManifest"];
         delete?: never;
@@ -1222,7 +1222,7 @@ export interface paths {
         };
         /**
          * List ConfigMaps with their data key names (read-only).
-         * @description Requires the `admin` role. Create and update go through apply.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Create and update go through apply.
          */
         get: operations["listKubernetesConfigMaps"];
         put?: never;
@@ -1245,7 +1245,7 @@ export interface paths {
         };
         /**
          * List Ingresses (read-only).
-         * @description Requires the `admin` role. Create and update go through apply.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Create and update go through apply.
          */
         get: operations["listKubernetesIngresses"];
         put?: never;
@@ -1268,13 +1268,13 @@ export interface paths {
         };
         /**
          * List the cluster's namespaces, system namespaces flagged.
-         * @description Requires the `admin` role.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to.
          */
         get: operations["listKubernetesNamespaces"];
         put?: never;
         /**
          * Create a namespace.
-         * @description Requires the `admin` role. A missing or blank name is 400 before any cluster call; a name the cluster refuses is 400 and one that already exists is 409, with the cluster's reason.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. A missing or blank name is 400 before any cluster call; a name the cluster refuses is 400 and one that already exists is 409, with the cluster's reason.
          */
         post: operations["createKubernetesNamespace"];
         delete?: never;
@@ -1300,7 +1300,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a namespace.
-         * @description Requires the `admin` role. A system namespace (`kube-system`, `kube-public`, `kube-node-lease`) is refused with 409 before any cluster call.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. A system namespace (`kube-system`, `kube-public`, `kube-node-lease`) is refused with 409 before any cluster call.
          */
         delete: operations["deleteKubernetesNamespace"];
         options?: never;
@@ -1320,7 +1320,7 @@ export interface paths {
         };
         /**
          * List the cluster's nodes correlated to Server identity.
-         * @description Requires the `admin` role. Separate from membership sync: it never writes the membership axis.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Separate from membership sync: it never writes the membership axis.
          */
         get: operations["listKubernetesNodes"];
         put?: never;
@@ -1347,7 +1347,7 @@ export interface paths {
         put?: never;
         /**
          * Mark a node unschedulable.
-         * @description Requires the `admin` role. Does not drain (evict) Pods. The returned node carries no Server correlation and no DRA count (`serverId` and `gpu.draDevices` are null).
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Does not drain (evict) Pods. The returned node carries no Server correlation and no DRA count (`serverId` and `gpu.draDevices` are null).
          */
         post: operations["cordonKubernetesNode"];
         delete?: never;
@@ -1372,7 +1372,7 @@ export interface paths {
         put?: never;
         /**
          * Clear a node's unschedulable flag.
-         * @description Requires the `admin` role. The returned node carries no Server correlation and no DRA count (`serverId` and `gpu.draDevices` are null).
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The returned node carries no Server correlation and no DRA count (`serverId` and `gpu.draDevices` are null).
          */
         post: operations["uncordonKubernetesNode"];
         delete?: never;
@@ -1393,7 +1393,7 @@ export interface paths {
         };
         /**
          * List PersistentVolumeClaims (read-only).
-         * @description Requires the `admin` role. Create and update go through apply.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Create and update go through apply.
          */
         get: operations["listKubernetesPersistentVolumeClaims"];
         put?: never;
@@ -1416,7 +1416,7 @@ export interface paths {
         };
         /**
          * List Pods.
-         * @description Requires the `admin` role.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to.
          */
         get: operations["listKubernetesPods"];
         put?: never;
@@ -1446,7 +1446,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a Pod (its controller recreates it).
-         * @description Requires the `admin` role.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to.
          */
         delete: operations["deleteKubernetesPod"];
         options?: never;
@@ -1470,7 +1470,7 @@ export interface paths {
         };
         /**
          * Read a bounded snapshot of one container's logs (not a stream).
-         * @description Requires the `admin` role. A `tailLines` that is not a positive integer is 400 before any cluster call.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. A `tailLines` that is not a positive integer is 400 before any cluster call.
          */
         get: operations["getKubernetesPodLogs"];
         put?: never;
@@ -1493,7 +1493,7 @@ export interface paths {
         };
         /**
          * List Secrets with their data key names only (read-only).
-         * @description Requires the `admin` role. Secret values are never returned. Create and update go through apply.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Secret values are never returned. Create and update go through apply.
          */
         get: operations["listKubernetesSecrets"];
         put?: never;
@@ -1516,7 +1516,7 @@ export interface paths {
         };
         /**
          * List Services (read-only).
-         * @description Requires the `admin` role. Create and update go through apply.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Create and update go through apply.
          */
         get: operations["listKubernetesServices"];
         put?: never;
@@ -1539,7 +1539,7 @@ export interface paths {
         };
         /**
          * Read a Slurm Platform's live controllers, partitions, and nodes from slurmrestd.
-         * @description Requires the `admin` role. Read on demand; writes nothing. 400 for a Kubernetes Platform or a Slurm Platform without a recorded slurmrestd Integration; 404 for an unknown Platform or when the read is not wired; 503 when slurmrestd cannot be reached or rejects the credential.
+         * @description Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. Read on demand; writes nothing. 400 for a Kubernetes Platform or a Slurm Platform without a recorded slurmrestd Integration; 404 for an unknown Platform or when the read is not wired; 503 when slurmrestd cannot be reached or rejects the credential.
          */
         get: operations["getSlurmClusterState"];
         put?: never;
@@ -1563,7 +1563,7 @@ export interface paths {
         get?: never;
         /**
          * Replace a Platform's spec at the generation it was read.
-         * @description Requires the `admin` role. A non-destructive change (for example a new member) is written and converged by the platform controller (200); a destructive one is written with a Change Plan (202), approved with the request when it sends `approve=true` and the policy allows it, and carrying a blocker when swallow cannot carry the change out yet (platforms.md, Change A Platform). An omitted user data value keeps the stored one. 400 for an invalid body or spec; 404 for an unknown Platform; 409 when `generation` is no longer current, an immutable field changes, a non-destructive change cannot be carried out yet, the uninstall has started, the Platform has no spec yet, or a new member is claimed, locked, or busy.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. A non-destructive change (for example a new member) is written and converged by the platform controller (200); a destructive one is written with a Change Plan (202), approved with the request when it sends `approve=true` and the policy allows it, and carrying a blocker when swallow cannot carry the change out yet (platforms.md, Change A Platform). An omitted user data value keeps the stored one. 400 for an invalid body or spec; 404 for an unknown Platform; 409 when `generation` is no longer current, an immutable field changes, a non-destructive change cannot be carried out yet, the uninstall has started, the Platform has no spec yet, or a new member is claimed, locked, or busy.
          */
         put: operations["replacePlatformSpec"];
         post?: never;
@@ -1587,7 +1587,7 @@ export interface paths {
         put?: never;
         /**
          * Read one Platform's membership now.
-         * @description Requires the `admin` role. A failure to read the Platform's API is reported in the report's `error` with status 200, not as an error status. 404 for an unknown Platform.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. A failure to read the Platform's API is reported in the report's `error` with status 200, not as an error status. 404 for an unknown Platform.
          */
         post: operations["syncPlatformMembership"];
         delete?: never;
@@ -1605,7 +1605,7 @@ export interface paths {
         };
         /**
          * Read the system-wide Slurm Minimum Resource Requirement.
-         * @description Requires the `admin` role. A requirement that was never stored is returned as the disabled representation, not 404.
+         * @description Reference: any authenticated User. A requirement that was never stored is returned as the disabled representation, not 404.
          */
         get: operations["getSlurmDeploymentRequirement"];
         /**
@@ -1629,7 +1629,7 @@ export interface paths {
         };
         /**
          * List the AMD GPU Operator releases swallow ships, newest first.
-         * @description Requires the `admin` role. A GPU Operator setting's `version` and `draDriverVersion` must come from this catalog.
+         * @description Reference: any authenticated User. A GPU Operator setting's `version` and `draDriverVersion` must come from this catalog.
          */
         get: operations["listGPUOperatorReleases"];
         put?: never;
@@ -1745,7 +1745,7 @@ export interface paths {
         put?: never;
         /**
          * Accept a multi-Server OS deployment as one durable Workflow.
-         * @description Requires role `admin`. Runs the complete side-effect-free preflight, then persists one Workflow (one `provision-os` Task per Server, plus its `configure-ntp` and, with Boot Media, `ensure-boot-media` Tasks). Progress is read through the Workflows contract.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Runs the complete side-effect-free preflight, then persists one Workflow (one `provision-os` Task per Server, plus its `configure-ntp` and, with Boot Media, `ensure-boot-media` Tasks). Progress is read through the Workflows contract.
          */
         post: operations["createDeploymentOperation"];
         delete?: never;
@@ -1765,7 +1765,7 @@ export interface paths {
         put?: never;
         /**
          * Check, without side effects, whether Servers can be OS deployment targets now.
-         * @description Requires role `admin`. Read-only: checks target identity, presence, Ready, same-Integration, and the live Server Lock; it does not inspect the network, validate an image, reserve a Server, or start a deployment. A completed check answers `200` even when targets are not ready. Names no deploy target, so it never reports `inspection_required`.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Read-only: checks target identity, presence, Ready, same-Integration, and the live Server Lock; it does not inspect the network, validate an image, reserve a Server, or start a deployment. A completed check answers `200` even when targets are not ready. Names no deploy target, so it never reports `inspection_required`.
          */
         post: operations["preflightOsDeploymentTargets"];
         delete?: never;
@@ -1846,7 +1846,7 @@ export interface paths {
         };
         /**
          * List the OS Images one provisioner can deploy, with swallow's metadata merged.
-         * @description Requires role `admin`. Reads the provisioner's catalog live and merges swallow's OS Image metadata and verification records onto it. Returns a plain array; it contains only resources the provisioner accepts for OS deployment.
+         * @description Reference: any authenticated User. Reads the provisioner's catalog live and merges swallow's OS Image metadata and verification records onto it. Returns a plain array; it contains only resources the provisioner accepts for OS deployment.
          */
         get: operations["listOsImages"];
         put?: never;
@@ -2017,7 +2017,7 @@ export interface paths {
         put?: never;
         /**
          * Read the live Network Configuration and a deployment suggestion for 1–100 Servers.
-         * @description Requires role `admin`. Read-only and bounded independently from deployment preflight. Targets of different Integrations are reported as `integration_mismatch` issues with an empty `targets` list instead of being read.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Read-only and bounded independently from deployment preflight. Targets of different Integrations are reported as `integration_mismatch` issues with an empty `targets` list instead of being read.
          */
         post: operations["inspectDeploymentNetworks"];
         delete?: never;
@@ -2057,7 +2057,7 @@ export interface paths {
         put?: never;
         /**
          * Accept a return to Ready of 1–100 Servers in a not-usable state as one durable Workflow.
-         * @description Requires role `admin`. Same validation as Release, then one `recover-server` Task per Server. Allowed from `failed`, `broken`, `rescue`, `deployed`, and `allocated`; a target already `ready` succeeds immediately. A `deployed` target a Platform claims is refused.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Same validation as Release, then one `recover-server` Task per Server. Allowed from `failed`, `broken`, `rescue`, `deployed`, and `allocated`; a target already `ready` succeeds immediately. A `deployed` target a Platform claims is refused.
          */
         post: operations["createRecoverOperation"];
         delete?: never;
@@ -2077,7 +2077,7 @@ export interface paths {
         put?: never;
         /**
          * Accept a Release of 1–100 Servers as one durable Workflow.
-         * @description Requires role `admin`. Validates presence, recoverable state, Site, duplicates, active work, and the live Server Lock before persisting one `release-os` Task per Server. A Server a Platform claims is refused for the whole batch.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Validates presence, recoverable state, Site, duplicates, active work, and the live Server Lock before persisting one `release-os` Task per Server. A Server a Platform claims is refused for the whole batch.
          */
         post: operations["createReleaseOperation"];
         delete?: never;
@@ -2095,13 +2095,13 @@ export interface paths {
         };
         /**
          * List the tags known for a Site, with each tag's kind and how many Servers carry it.
-         * @description Requires role `admin`. The provisioner's tag catalog plus the spec tags it does not hold yet. A Site with no enabled provisioner, including an unknown Site, answers an empty `tags` array. 400 for a missing `siteId` or a provisioner refusal; 503 when the provisioner cannot be reached or has no credential.
+         * @description Reference: any authenticated User. The provisioner's tag catalog plus the spec tags it does not hold yet. A Site with no enabled provisioner, including an unknown Site, answers an empty `tags` array. 400 for a missing `siteId` or a provisioner refusal; 503 when the provisioner cannot be reached or has no credential.
          */
         get: operations["listServerTags"];
         put?: never;
         /**
          * Write a tri-state tag edit into the spec of one or more Servers.
-         * @description Requires role `admin`. Not gated on Server Lock. The spec part is atomic across the listed Servers and the provisioner converges it asynchronously (the Servers' conditions report it); an automatic tag in `remove` is removed by the provisioner before the response. 400 for an invalid body, empty `serverIds`, no `add` or `remove`, an invalid or contradictory tag name, an automatic tag in `add`, or a non-removable automatic tag in `remove`; 404 for an unknown Server; 409 when a Server is not adopted yet or its spec changed during the edit; 503 when removing an automatic tag could not reach the provisioner (the specs are written; repeat the request).
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Not gated on Server Lock. The spec part is atomic across the listed Servers and the provisioner converges it asynchronously (the Servers' conditions report it); an automatic tag in `remove` is removed by the provisioner before the response. 400 for an invalid body, empty `serverIds`, no `add` or `remove`, an invalid or contradictory tag name, an automatic tag in `add`, or a non-removable automatic tag in `remove`; 404 for an unknown Server; 409 when a Server is not adopted yet or its spec changed during the edit; 503 when removing an automatic tag could not reach the provisioner (the specs are written; repeat the request).
          */
         post: operations["editServerTags"];
         delete?: never;
@@ -2195,7 +2195,7 @@ export interface paths {
         };
         /**
          * List Deployment Templates, optionally narrowed to a Site and an Integration.
-         * @description Requires role `admin`. Filters are conjunctive; a Site and Integration that do not match yield an empty list. Returns a plain array; user data is never returned.
+         * @description Reference: any authenticated User. Filters are conjunctive; a Site and Integration that do not match yield an empty list. Returns a plain array; user data is never returned.
          */
         get: operations["listDeploymentTemplates"];
         put?: never;
@@ -2222,7 +2222,7 @@ export interface paths {
         };
         /**
          * Read one Deployment Template's metadata, without its user data.
-         * @description Requires role `admin`.
+         * @description Reference: any authenticated User.
          */
         get: operations["getDeploymentTemplate"];
         put?: never;
@@ -2297,7 +2297,7 @@ export interface paths {
         };
         /**
          * List Server projections with filtering and pagination.
-         * @description Requires role `admin`. Filters are conjunctive. An unknown filter value matches nothing (200 with no items) rather than failing; a `page` or `pageSize` that is not a positive integer, or a `pageSize` above 100, falls back to its default instead of being refused. The route is also served with a trailing slash (`/api/v1/servers/`).
+         * @description Pool read: any authenticated User; the result holds only what the caller may read. Filters are conjunctive. An unknown filter value matches nothing (200 with no items) rather than failing; a `page` or `pageSize` that is not a positive integer, or a `pageSize` above 100, falls back to its default instead of being refused. The route is also served with a trailing slash (`/api/v1/servers/`).
          */
         get: operations["listServers"];
         put?: never;
@@ -2320,7 +2320,7 @@ export interface paths {
         };
         /**
          * Read one Server projection.
-         * @description Requires role `admin`. An unknown Server is 404.
+         * @description Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. An unknown Server is 404.
          */
         get: operations["getServer"];
         put?: never;
@@ -2349,7 +2349,7 @@ export interface paths {
         put?: never;
         /**
          * Stop an in-progress inspection, test, or deployment (needs `hardwareValidation`).
-         * @description Requires role `admin`. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
          */
         post: operations["abortServerLifecycleAction"];
         delete?: never;
@@ -2398,13 +2398,13 @@ export interface paths {
         get?: never;
         /**
          * Set the Server Default User, optionally installing the Deployment Key first.
-         * @description Requires role `admin`. The value is saved only after a Deployment Key login as `user` succeeds. 400 when `user` is not a login name or the host rejected the password; 404 for an unknown Server; 409 when the Server is not deployed, has no address, or is locked, the installation has no Deployment Key, or the host rejected the key; 503 when the host is unreachable or the lock state is unavailable.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The value is saved only after a Deployment Key login as `user` succeeds. 400 when `user` is not a login name or the host rejected the password; 404 for an unknown Server; 409 when the Server is not deployed, has no address, or is locked, the installation has no Deployment Key, or the host rejected the key; 503 when the host is unreachable or the lock state is unavailable.
          */
         put: operations["setServerDefaultUser"];
         post?: never;
         /**
          * Clear the Server Default User set on the Server.
-         * @description Requires role `admin`. Succeeds also when nothing was set and never touches the host. 404 for an unknown Server; 409 for a locked Server; 503 when the lock state is unavailable.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Succeeds also when nothing was set and never touches the host. 404 for an unknown Server; 409 for a locked Server; 503 when the lock state is unavailable.
          */
         delete: operations["clearServerDefaultUser"];
         options?: never;
@@ -2424,7 +2424,7 @@ export interface paths {
         };
         /**
          * Read the live header of a Server's Docker Engine.
-         * @description Requires the `admin` role. Read route of the Docker Host Explorer: available on a locked Server. Eligibility and Engine error mapping are in servers-docker.md.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Read route of the Docker Host Explorer: available on a locked Server. Eligibility and Engine error mapping are in servers-docker.md.
          */
         get: operations["getDockerEngineSummary"];
         put?: never;
@@ -2447,13 +2447,13 @@ export interface paths {
         };
         /**
          * List every container on the host, running or not, by name.
-         * @description Requires the `admin` role. Read route; available on a locked Server.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Read route; available on a locked Server.
          */
         get: operations["listDockerContainers"];
         put?: never;
         /**
          * Create a container from a local image and, by default, start it.
-         * @description Requires the `admin` role. Write route: refused on a locked Server. The request rules (servers-docker.md, Create Container) are checked before eligibility. When the container was created but could not be started, the container remains and the response is the start failure's error.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. The request rules (servers-docker.md, Create Container) are checked before eligibility. When the container was created but could not be started, the container remains and the response is the start failure's error.
          */
         post: operations["createDockerContainer"];
         delete?: never;
@@ -2479,7 +2479,7 @@ export interface paths {
         post?: never;
         /**
          * Remove one container.
-         * @description Requires the `admin` role. Write route: refused on a locked Server. Removing a running container without `force` is `409`. Named volumes are never removed.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. Removing a running container without `force` is `409`. Named volumes are never removed.
          */
         delete: operations["removeDockerContainer"];
         options?: never;
@@ -2501,7 +2501,7 @@ export interface paths {
         };
         /**
          * Read a bounded snapshot of a container's standard output and standard error.
-         * @description Requires the `admin` role. Read route; available on a locked Server. A snapshot, not a stream: both streams in arrival order, truncated at 4 MiB.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Read route; available on a locked Server. A snapshot, not a stream: both streams in arrival order, truncated at 4 MiB.
          */
         get: operations["getDockerContainerLogs"];
         put?: never;
@@ -2528,7 +2528,7 @@ export interface paths {
         put?: never;
         /**
          * Restart a container.
-         * @description Requires the `admin` role. Write route: refused on a locked Server. Stops with the same 10-second grace as stop, then starts. Takes no body.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. Stops with the same 10-second grace as stop, then starts. Takes no body.
          */
         post: operations["restartDockerContainer"];
         delete?: never;
@@ -2553,7 +2553,7 @@ export interface paths {
         put?: never;
         /**
          * Start a container.
-         * @description Requires the `admin` role. Write route: refused on a locked Server. A container that is already running is a success. Takes no body.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. A container that is already running is a success. Takes no body.
          */
         post: operations["startDockerContainer"];
         delete?: never;
@@ -2578,7 +2578,7 @@ export interface paths {
         put?: never;
         /**
          * Stop a container.
-         * @description Requires the `admin` role. Write route: refused on a locked Server. Waits up to 10 seconds before the Engine kills the process; a container already stopped is a success. Takes no body.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. Waits up to 10 seconds before the Engine kills the process; a container already stopped is a success. Takes no body.
          */
         post: operations["stopDockerContainer"];
         delete?: never;
@@ -2599,7 +2599,7 @@ export interface paths {
         };
         /**
          * List the host's local images, newest first.
-         * @description Requires the `admin` role. Read route; available on a locked Server.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Read route; available on a locked Server.
          */
         get: operations["listDockerImages"];
         put?: never;
@@ -2627,7 +2627,7 @@ export interface paths {
         post?: never;
         /**
          * Remove one image from the host.
-         * @description Requires the `admin` role. Write route: refused on a locked Server. An image used by a running container is `409` with or without `force`.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. An image used by a running container is `409` with or without `force`.
          */
         delete: operations["removeDockerImage"];
         options?: never;
@@ -2649,7 +2649,7 @@ export interface paths {
         put?: never;
         /**
          * Pull one image reference onto the host, synchronously.
-         * @description Requires the `admin` role. Write route: refused on a locked Server. The reference is validated before eligibility. A reference without a tag or digest pulls `latest`. When a Registry Credential exists for the resolved registry it is sent to the Engine for this pull only. Bounded to 55 minutes; a timeout is `503`. A failure's `error.message` ends with the credential the pull used.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. The reference is validated before eligibility. A reference without a tag or digest pulls `latest`. When a Registry Credential exists for the resolved registry it is sent to the Engine for this pull only. Bounded to 55 minutes; a timeout is `503`. A failure's `error.message` ends with the credential the pull used.
          */
         post: operations["pullDockerImage"];
         delete?: never;
@@ -2670,13 +2670,13 @@ export interface paths {
         };
         /**
          * List the host's networks by name.
-         * @description Requires the `admin` role. Read route; available on a locked Server.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Read route; available on a locked Server.
          */
         get: operations["listDockerNetworks"];
         put?: never;
         /**
          * Create a network.
-         * @description Requires the `admin` role. Write route: refused on a locked Server. The request rules are checked before eligibility. A taken name is `409`.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. The request rules are checked before eligibility. A taken name is `409`.
          */
         post: operations["createDockerNetwork"];
         delete?: never;
@@ -2702,7 +2702,7 @@ export interface paths {
         post?: never;
         /**
          * Remove one network.
-         * @description Requires the `admin` role. Write route: refused on a locked Server. A predefined network (`bridge`, `host`, `none`) is `409`: by name before eligibility is checked, by id when the Engine refuses it. A network with attached containers is `409`.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. A predefined network (`bridge`, `host`, `none`) is `409`: by name before eligibility is checked, by id when the Engine refuses it. A network with attached containers is `409`.
          */
         delete: operations["removeDockerNetwork"];
         options?: never;
@@ -2722,13 +2722,13 @@ export interface paths {
         };
         /**
          * List the host's volumes by name.
-         * @description Requires the `admin` role. Read route; available on a locked Server.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Read route; available on a locked Server.
          */
         get: operations["listDockerVolumes"];
         put?: never;
         /**
          * Create a volume.
-         * @description Requires the `admin` role. Write route: refused on a locked Server. The name rule is checked before eligibility.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. The name rule is checked before eligibility.
          */
         post: operations["createDockerVolume"];
         delete?: never;
@@ -2754,7 +2754,7 @@ export interface paths {
         post?: never;
         /**
          * Remove one volume.
-         * @description Requires the `admin` role. Write route: refused on a locked Server. A volume used by a container is `409`.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. A volume used by a container is `409`.
          */
         delete: operations["removeDockerVolume"];
         options?: never;
@@ -2774,7 +2774,7 @@ export interface paths {
         };
         /**
          * Read the recent machine history the provisioner retains.
-         * @description Requires role `admin`. A provisioner without machine events answers 200 with `supported: false`. 400 for a `limit` outside 1-100 or a provisioner refusal; 404 for an unknown Server or Machine; 503 when the provisioner is unavailable.
+         * @description Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. A provisioner without machine events answers 200 with `supported: false`. 400 for a `limit` outside 1-100 or a provisioner refusal; 404 for an unknown Server or Machine; 503 when the provisioner is unavailable.
          */
         get: operations["listServerProviderEvents"];
         put?: never;
@@ -2799,7 +2799,7 @@ export interface paths {
         put?: never;
         /**
          * Exit Rescue Mode, restoring the state the Machine had before it.
-         * @description Requires role `admin`. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
          */
         post: operations["exitServerRescueMode"];
         delete?: never;
@@ -2822,7 +2822,7 @@ export interface paths {
         put?: never;
         /**
          * Inspect the Server's hardware through an inspect-hardware Workflow.
-         * @description Requires role `admin`. Starts an inspect-hardware Workflow, or retries the one waiting in `requires_attention`. 404 for an unknown Server; 409 when the Server is locked, its provisioning state does not allow inspection, or a Workflow already holds it; 503 when the lock state is unavailable.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Starts an inspect-hardware Workflow, or retries the one waiting in `requires_attention`. 404 for an unknown Server; 409 when the Server is locked, its provisioning state does not allow inspection, or a Workflow already holds it; 503 when the lock state is unavailable.
          */
         post: operations["inspectServer"];
         delete?: never;
@@ -2845,7 +2845,7 @@ export interface paths {
         put?: never;
         /**
          * Lock the Server in its provisioner (Server Lock); only a deployed Server.
-         * @description Requires role `admin`. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
          */
         post: operations["lockServer"];
         delete?: never;
@@ -2868,7 +2868,7 @@ export interface paths {
         put?: never;
         /**
          * Mark the Machine broken in its provisioner.
-         * @description Requires role `admin`. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
          */
         post: operations["markServerBroken"];
         delete?: never;
@@ -2891,7 +2891,7 @@ export interface paths {
         put?: never;
         /**
          * Mark a broken Machine fixed in its provisioner.
-         * @description Requires role `admin`. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
          */
         post: operations["markServerFixed"];
         delete?: never;
@@ -2912,7 +2912,7 @@ export interface paths {
         };
         /**
          * Read the Server's typed, live Network Configuration.
-         * @description Requires role `admin`. The same target shape as `POST /api/v1/provisioning/networks/inspect` (provisioning.md, Network Inspection). 400 when the provisioner refused or cannot configure networks; 404 for an unknown Server or Machine; 503 when the provisioner is unavailable.
+         * @description Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. The same target shape as `POST /api/v1/provisioning/networks/inspect` (provisioning.md, Network Inspection). 400 when the provisioner refused or cannot configure networks; 404 for an unknown Server or Machine; 503 when the provisioner is unavailable.
          */
         get: operations["getServerNetwork"];
         put?: never;
@@ -2939,7 +2939,7 @@ export interface paths {
         put?: never;
         /**
          * Create one explicit subnet link on a NIC of a Ready Server.
-         * @description Requires role `admin`. The provider state is read back and verified before the refreshed Network Configuration is returned. 400 for an invalid body, mode, or address, an unknown interface or subnet, or a provisioner that cannot configure networks; 404 for an unknown Server or Machine; 409 when the Server is not a present, unlocked `ready` Server; 503 when the provisioner or the lock state is unavailable.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The provider state is read back and verified before the refreshed Network Configuration is returned. 400 for an invalid body, mode, or address, an unknown interface or subnet, or a provisioner that cannot configure networks; 404 for an unknown Server or Machine; 409 when the Server is not a present, unlocked `ready` Server; 503 when the provisioner or the lock state is unavailable.
          */
         post: operations["createServerNetworkLink"];
         delete?: never;
@@ -2965,13 +2965,13 @@ export interface paths {
         get?: never;
         /**
          * Replace exactly one subnet link on a NIC of a Ready Server.
-         * @description Requires role `admin`. Unrelated links are retained. Errors as for creating a link; an unknown link is also 400.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Unrelated links are retained. Errors as for creating a link; an unknown link is also 400.
          */
         put: operations["replaceServerNetworkLink"];
         post?: never;
         /**
          * Unbind exactly one subnet link on a NIC of a Ready Server.
-         * @description Requires role `admin`. No request body. Errors as for replacing a link.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. No request body. Errors as for replacing a link.
          */
         delete: operations["deleteServerNetworkLink"];
         options?: never;
@@ -2993,7 +2993,7 @@ export interface paths {
         put?: never;
         /**
          * Accept the Server despite failed hardware tests (needs `hardwareValidation`).
-         * @description Requires role `admin`. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
          */
         post: operations["overrideServerFailedTesting"];
         delete?: never;
@@ -3014,8 +3014,8 @@ export interface paths {
         };
         get?: never;
         /**
-         * Set a Server's Zone and/or Pool; its controller moves the machine.
-         * @description Requires role `admin` (infrastructure.md). Writes the placement into the Server's spec, conditional on its generation, and answers at once; the Server controller moves the machine, and the Server's conditions report when it has. An omitted field is unchanged and `null` returns the Server to its provisioner's default group; at least one field must be given. A referenced Zone or Pool must belong to the Server's Site. A provisioner that cannot group keeps the spec and reports `capability_missing`.
+         * Set a Server's Zone and/or Pool; its controller moves the machine to the Zone.
+         * @description Requires role `admin` (infrastructure.md). Writes the placement into the Server's spec, conditional on its generation, and answers at once. An omitted field is unchanged; at least one field must be given. A Zone must belong to the Server's Site; the Server controller moves the machine to it and the Server's conditions report when it has (a provisioner that cannot group keeps the spec and reports `capability_missing`). A Pool may be of any Site's Servers and takes effect at once; nothing changes in the provisioner.
          */
         put: operations["assignServerPlacement"];
         post?: never;
@@ -3066,7 +3066,7 @@ export interface paths {
         put?: never;
         /**
          * Ask the provisioner to power the Server off.
-         * @description Requires role `admin`. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
          */
         post: operations["powerOffServer"];
         delete?: never;
@@ -3089,7 +3089,7 @@ export interface paths {
         put?: never;
         /**
          * Ask the provisioner to power the Server on.
-         * @description Requires role `admin`. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
          */
         post: operations["powerOnServer"];
         delete?: never;
@@ -3110,7 +3110,7 @@ export interface paths {
         };
         /**
          * Read the Server's power state live from the provisioner.
-         * @description Requires role `admin`. Changes nothing and is not gated on Server Lock. 400 when the provisioner offers no power control or refused; 404 for an unknown Server or Machine; 503 when the provisioner is unavailable.
+         * @description Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. Changes nothing and is not gated on Server Lock. 400 when the provisioner offers no power control or refused; 404 for an unknown Server or Machine; 503 when the provisioner is unavailable.
          */
         get: operations["getServerPowerState"];
         put?: never;
@@ -3133,7 +3133,7 @@ export interface paths {
         };
         /**
          * Read the Machine's live provisioner detail and the provisioner's capabilities.
-         * @description Requires role `admin`. Read live from the provisioner and sent with `Cache-Control: no-store`, because an allowlisted BMC section may carry the BMC password for manual administration. 400 when the provisioner refused; 404 for an unknown Server or Machine; 503 when the provisioner is unavailable.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Read live from the provisioner and sent with `Cache-Control: no-store`, because an allowlisted BMC section may carry the BMC password for manual administration. 400 when the provisioner refused; 404 for an unknown Server or Machine; 503 when the provisioner is unavailable.
          */
         get: operations["getServerProvisionerDetail"];
         put?: never;
@@ -3156,7 +3156,7 @@ export interface paths {
         };
         /**
          * List the Server's Provisioning Tasks, newest first.
-         * @description Requires role `admin`. The task shape of `GET /api/v1/provisioning/tasks/{id}` (provisioning.md, Provisioning Tasks); a plain array. 404 for an unknown Server.
+         * @description Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. The task shape of `GET /api/v1/provisioning/tasks/{id}` (provisioning.md, Provisioning Tasks); a plain array. 404 for an unknown Server.
          */
         get: operations["listServerProvisioningTasks"];
         put?: never;
@@ -3204,7 +3204,7 @@ export interface paths {
         put?: never;
         /**
          * Read the Server's Machine live and update its provisioning axis and addresses.
-         * @description Requires role `admin`. One targeted provider read; not a full inventory reconciliation. 400 when the provisioner refused; 404 for an unknown Server or Machine; 503 when the provisioner is unavailable.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. One targeted provider read; not a full inventory reconciliation. 400 when the provisioner refused; 404 for an unknown Server or Machine; 503 when the provisioner is unavailable.
          */
         post: operations["refreshServer"];
         delete?: never;
@@ -3227,7 +3227,7 @@ export interface paths {
         put?: never;
         /**
          * Enter the provider's Rescue Mode.
-         * @description Requires role `admin`. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
          */
         post: operations["enterServerRescueMode"];
         delete?: never;
@@ -3250,7 +3250,7 @@ export interface paths {
         put?: never;
         /**
          * Run the provider's hardware tests on the Server (needs `hardwareValidation`).
-         * @description Requires role `admin`. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
          */
         post: operations["testServer"];
         delete?: never;
@@ -3273,7 +3273,7 @@ export interface paths {
         put?: never;
         /**
          * Unlock the Server in its provisioner; never resumes work.
-         * @description Requires role `admin`. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The response is the provisioning snapshot the provisioner returned on accepting the action; the reconciler tracks it from there. 400 when the provisioner does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a locked Server or a provisioning state that does not allow the action; 503 when the provisioner or the lock state is unavailable.
          */
         post: operations["unlockServer"];
         delete?: never;
@@ -3314,7 +3314,7 @@ export interface paths {
         };
         /**
          * Stream Server projection changes as Server-Sent Events.
-         * @description Requires role `admin`. A browser EventSource that cannot send an Authorization header passes a Session access token as `access_token` instead; an API Key is never accepted there (a value starting with `swk_` is ignored, so the request is 401). The header wins when both are present. The body opens with the comment `: connected`, sends `: ping` heartbeats, and carries one `data:` line per change whose JSON payload is a `ServerChange`. Authentication and authorization failures are returned as the JSON error envelope before the stream starts.
+         * @description Pool read: any authenticated User; the result holds only what the caller may read. A browser EventSource that cannot send an Authorization header passes a Session access token as `access_token` instead; an API Key is never accepted there (a value starting with `swk_` is ignored, so the request is 401). The header wins when both are present. The body opens with the comment `: connected`, sends `: ping` heartbeats, and carries one `data:` line per change whose JSON payload is a `ServerChange`. Authentication and authorization failures are returned as the JSON error envelope before the stream starts.
          */
         get: operations["streamServerChanges"];
         put?: never;
@@ -3334,7 +3334,7 @@ export interface paths {
         };
         /**
          * List every Site.
-         * @description Requires role `admin`. Returns a plain array ordered by `name` (the set is small and bounded).
+         * @description Reference: any authenticated User. Returns a plain array ordered by `name` (the set is small and bounded).
          */
         get: operations["listSites"];
         put?: never;
@@ -3361,7 +3361,7 @@ export interface paths {
         };
         /**
          * Read one Site.
-         * @description Requires role `admin`.
+         * @description Reference: any authenticated User.
          */
         get: operations["getSite"];
         put?: never;
@@ -3531,13 +3531,13 @@ export interface paths {
         };
         /**
          * List Software Assignments, optionally filtered by Server and kind.
-         * @description Requires the `admin` role. Ordered by `serverId`, then `kind`; not paginated (one record per Server per kind). `absent` assignments are omitted unless `includeAbsent=true`.
+         * @description Pool read: any authenticated User; the result holds only what the caller may read. Ordered by `serverId`, then `kind`; not paginated (one record per Server per kind). `absent` assignments are omitted unless `includeAbsent=true`.
          */
         get: operations["listSoftwareAssignments"];
         put?: never;
         /**
          * Install one software kind on one or more deployed Servers.
-         * @description Requires the `admin` role. Creates a durable Workflow and records a `pending` Software Assignment per target; progress is read through the workflows surface. Installing a kind that is already present is a convergent re-apply whose `spec` replaces the recorded one. The per-kind `spec` rules are in software.md.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Creates a durable Workflow and records a `pending` Software Assignment per target; progress is read through the workflows surface. Installing a kind that is already present is a convergent re-apply whose `spec` replaces the recorded one. The per-kind `spec` rules are in software.md.
          */
         post: operations["installSoftware"];
         delete?: never;
@@ -3555,7 +3555,7 @@ export interface paths {
         };
         /**
          * List the installable software kinds and their rules.
-         * @description Requires the `admin` role. The catalog is fixed and small, so it is not paginated.
+         * @description Reference: any authenticated User. The catalog is fixed and small, so it is not paginated.
          */
         get: operations["getSoftwareCatalog"];
         put?: never;
@@ -3628,7 +3628,7 @@ export interface paths {
         put?: never;
         /**
          * Uninstall one software kind from one or more Servers.
-         * @description Requires the `admin` role. Creates a durable Workflow that runs the kind's uninstall playbook, marks the assignments `uninstalling`, and marks them `absent` on success. Duplicate `serverIds` are ignored.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to; a kind whose catalog entry is `keptInstalled` needs the `admin` role (403 otherwise). Creates a durable Workflow that runs the kind's uninstall playbook, marks the assignments `uninstalling`, and marks them `absent` on success. Duplicate `serverIds` are ignored.
          */
         post: operations["uninstallSoftware"];
         delete?: never;
@@ -3832,13 +3832,13 @@ export interface paths {
         };
         /**
          * List Validation Runs, newest first.
-         * @description Requires the `admin` role. Runs sorted by `requestedAt` descending, paged, without their results (read a run for them). Every filter is optional and exact-match.
+         * @description Pool read: any authenticated User; the result holds only what the caller may read. Runs sorted by `requestedAt` descending, paged, without their results (read a run for them). Every filter is optional and exact-match.
          */
         get: operations["listValidationRuns"];
         put?: never;
         /**
          * Start a Validation Run of a suite against deployed Servers or a Platform.
-         * @description Requires the `admin` role. Accepts the run and its `run-validation` Workflow in one transaction and returns 202 with the `pending` run; progress is read on the run (and its Workflow).
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Accepts the run and its `run-validation` Workflow in one transaction and returns 202 with the `pending` run; progress is read on the run (and its Workflow).
          */
         post: operations["startValidationRun"];
         delete?: never;
@@ -3858,7 +3858,7 @@ export interface paths {
         };
         /**
          * Read one Validation Run with its results.
-         * @description Requires the `admin` role.
+         * @description Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to.
          */
         get: operations["getValidationRun"];
         put?: never;
@@ -3882,7 +3882,7 @@ export interface paths {
         put?: never;
         /**
          * Cancel a report-mode Validation Run.
-         * @description Requires the `admin` role. Writes the cancel of the run's Workflow and returns 202 with the run; it ends `canceled` once the Workflow's cancel path finished.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Writes the cancel of the run's Workflow and returns 202 with the run; it ends `canceled` once the Workflow's cancel path finished.
          */
         post: operations["cancelValidationRun"];
         delete?: never;
@@ -3954,7 +3954,7 @@ export interface paths {
         };
         /**
          * List the Validation Suite catalog.
-         * @description Requires the `admin` role. Module suites first (by id), then user suites (by name); not paginated. Retired user suites are omitted unless `includeRetired=true`.
+         * @description Reference: any authenticated User. Module suites first (by id), then user suites (by name); not paginated. Retired user suites are omitted unless `includeRetired=true`.
          */
         get: operations["listValidationSuites"];
         put?: never;
@@ -3981,7 +3981,7 @@ export interface paths {
         };
         /**
          * Read one Validation Suite.
-         * @description Requires the `admin` role. A retired user suite is still readable.
+         * @description Reference: any authenticated User. A retired user suite is still readable.
          */
         get: operations["getValidationSuite"];
         /**
@@ -4009,7 +4009,7 @@ export interface paths {
         };
         /**
          * List Workflows, newest first.
-         * @description Requires the `admin` role. Workflows sorted by `requestedAt` descending, paged. Every filter is optional and exact-match.
+         * @description Pool read: any authenticated User; the result holds only what the caller may read. Workflows sorted by `requestedAt` descending, paged. Every filter is optional and exact-match.
          */
         get: operations["listWorkflows"];
         put?: never;
@@ -4036,7 +4036,7 @@ export interface paths {
         };
         /**
          * Read one Workflow.
-         * @description Requires the `admin` role. The Workflow, including the resources it currently owns.
+         * @description Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. The Workflow, including the resources it currently owns.
          */
         get: operations["getWorkflow"];
         put?: never;
@@ -4061,7 +4061,7 @@ export interface paths {
         put?: never;
         /**
          * Cancel an unfinished Workflow.
-         * @description Requires the `admin` role. Returns 202 once the cancel request is stored; the worker delivers it, resuming the Workflow when its execution is gone, and the Workflow records `canceling` then `canceled`.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Returns 202 once the cancel request is stored; the worker delivers it, resuming the Workflow when its execution is gone, and the Workflow records `canceling` then `canceled`.
          */
         post: operations["cancelWorkflow"];
         delete?: never;
@@ -4084,7 +4084,7 @@ export interface paths {
         put?: never;
         /**
          * Recover a Workflow that cannot advance by launching a new one for the same intent.
-         * @description Requires the `admin` role. Accepted for a `failed`, `partially_succeeded`, `canceled`, or `requires_attention` Workflow; the new Workflow's `retryOfOperationId` names the original. A `requires_attention` original is canceled in the same request. The new Workflow owns no resources yet, so `leases` is null in this response.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Accepted for a `failed`, `partially_succeeded`, `canceled`, or `requires_attention` Workflow; the new Workflow's `retryOfOperationId` names the original. A `requires_attention` original is canceled in the same request. The new Workflow owns no resources yet, so `leases` is null in this response.
          */
         post: operations["rerunWorkflow"];
         delete?: never;
@@ -4107,7 +4107,7 @@ export interface paths {
         };
         /**
          * List a Task's retained artifact metadata.
-         * @description Requires the `admin` role. Metadata only; artifact bytes and server-side paths are never returned.
+         * @description Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. Metadata only; artifact bytes and server-side paths are never returned.
          */
         get: operations["listWorkflowTaskArtifacts"];
         put?: never;
@@ -4132,7 +4132,7 @@ export interface paths {
         };
         /**
          * Read an Ansible Task's per-host results, live while it runs.
-         * @description Requires the `admin` role. A non-Ansible Task, or one whose run has not started, returns an empty `events` list with an empty `runId`. Task output is never included.
+         * @description Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. A non-Ansible Task, or one whose run has not started, returns an empty `events` list with an empty `runId`. Task output is never included.
          */
         get: operations["getWorkflowTaskEvents"];
         put?: never;
@@ -4157,7 +4157,7 @@ export interface paths {
         };
         /**
          * Read an Ansible Task's retained runner output.
-         * @description Requires the `admin` role. UTF-8 plain text; empty for a non-Ansible Task or one whose run has not started.
+         * @description Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. UTF-8 plain text; empty for a non-Ansible Task or one whose run has not started.
          */
         get: operations["getWorkflowTaskLogs"];
         put?: never;
@@ -4184,7 +4184,7 @@ export interface paths {
         put?: never;
         /**
          * Retry one failed, retryable Task in place, at its next attempt.
-         * @description Requires the `admin` role. Accepted only when the Task is `failed` or `requires_attention` and its normalized error has `retryable` true. The retry is stored and applied by the Workflow, also after its execution was lost; a Task in a Job that retries as a whole runs that Job again.
+         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Accepted only when the Task is `failed` or `requires_attention` and its normalized error has `retryable` true. The retry is stored and applied by the Workflow, also after its execution was lost; a Task in a Job that retries as a whole runs that Job again.
          */
         post: operations["retryWorkflowTask"];
         delete?: never;
@@ -4207,7 +4207,7 @@ export interface paths {
         };
         /**
          * Read an Ansible Task's error-only report.
-         * @description Requires the `admin` role. UTF-8 plain text with one block per failed or unreachable ansible task; empty when the Task recorded no failure or is not an Ansible Task.
+         * @description Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. UTF-8 plain text with one block per failed or unreachable ansible task; empty when the Task recorded no failure or is not an Ansible Task.
          */
         get: operations["getWorkflowTaskStderr"];
         put?: never;
@@ -4230,7 +4230,7 @@ export interface paths {
         };
         /**
          * Read a Workflow's normalized, immutable state-transition events.
-         * @description Requires the `admin` role. Events are ordered by `createdAt`, then ID.
+         * @description Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. Events are ordered by `createdAt`, then ID.
          */
         get: operations["getWorkflowTimeline"];
         put?: never;
@@ -4806,7 +4806,6 @@ export interface components {
              * @enum {string}
              */
             role: "owner" | "member";
-            siteId: string;
         };
         DeploymentKeyReplaceRequest: {
             /** @description Omitted or blank keeps the current name; otherwise import's name rules. */
@@ -5204,7 +5203,7 @@ export interface components {
             /** @description Unencrypted OpenSSH private key, returned exactly once; swallow keeps no copy. */
             privateKey: string;
         };
-        /** @description A Zone's or Pool's realization on one provisioner Integration. */
+        /** @description A Zone's realization on one provisioner Integration. */
         GroupRealization: {
             conditions: components["schemas"]["Condition"][];
             integrationId: string;
@@ -5212,17 +5211,17 @@ export interface components {
             observedAt: components["schemas"]["Timestamp"] | null;
             /** Format: int64 */
             observedGeneration: number;
-            /** @description The group's name on that provisioner; `""` until it exists there. */
+            /** @description The zone's name on that provisioner; `""` until it exists there. */
             providerName: string;
         };
-        /** @description The desired name and description of a Zone or Pool. */
+        /** @description The desired name and description of a Zone. */
         GroupSpec: {
             /** @description `""` when none was given. */
             description: string;
             /** @description Unique within the Site. */
             name: string;
         };
-        /** @description The catalog controller's report on a Zone or Pool. The conditions summarize the provisioners: `realized` is `true` only when every provisioner of the Site holds the current spec, and `true` for a Site with no provisioner. */
+        /** @description The catalog controller's report on a Zone. The conditions summarize the provisioners: `realized` is `true` only when every provisioner of the Site holds the current spec, and `true` for a Site with no provisioner. */
         GroupStatus: {
             /** @description Empty until the controller first judged the group. */
             conditions: components["schemas"]["Condition"][];
@@ -6452,17 +6451,15 @@ export interface components {
             /** @description Trimmed; must not be empty. */
             name?: string;
         };
-        /** @description A swallow-owned, Site-scoped resource pool (glossary Pool) as a migrated resource, with the same shape and meaning as a Zone. */
+        /** @description A swallow-owned, installation-wide grouping of Servers (glossary Pool; infrastructure.md, decision 082). It belongs to no Site, exists only in swallow, and needs no realization, so it has no generation or conditions. */
         Pool: {
-            /**
-             * Format: int64
-             * @description Counts spec changes; 1 when created.
-             */
-            generation: number;
+            createdAt: components["schemas"]["Timestamp"];
+            /** @description `""` when none was given. */
+            description: string;
             id: string;
-            siteId: string;
-            spec: components["schemas"]["GroupSpec"];
-            status: components["schemas"]["GroupStatus"];
+            /** @description Unique within the installation. */
+            name: string;
+            updatedAt: components["schemas"]["Timestamp"];
         };
         /** @description A Pool's Sudo Policy defaults. */
         PoolAccessPolicy: {
@@ -6980,7 +6977,7 @@ export interface components {
              * @description The Server's spec generation after the request.
              */
             generation: number;
-            /** @description The Pool the Server must be in; `null` for the provisioner's default pool. */
+            /** @description The Pool the Server is in; `null` for no Pool. */
             poolId: string | null;
             serverId: string;
             /** @description The Zone the Server must be in; `null` for the provisioner's default zone. */
@@ -7338,6 +7335,8 @@ export interface components {
             containerRuntimes: components["schemas"]["SoftwareKind"][];
             /** @description The kind's install methods, the first being the default; empty for a kind with one built-in way. */
             installMethods: components["schemas"]["SoftwareInstallMethod"][];
+            /** @description swallow installs the kind by itself on every Server its policy covers and installs it again after an uninstall; only an admin may uninstall it. */
+            keptInstalled: boolean;
             kind: components["schemas"]["SoftwareKind"];
             /** @description User-facing name. */
             label: string;
@@ -9113,17 +9112,14 @@ export interface operations {
     };
     listPools: {
         parameters: {
-            query?: {
-                /** @description Restrict to one Site; omitted returns the Pools of every Site. */
-                siteId?: string;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description The matching Pools. */
+            /** @description Every Pool. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9148,9 +9144,8 @@ export interface operations {
             content: {
                 "application/json": {
                     description?: string;
-                    /** @description Unique within the Site; trimmed, and at most 100 characters after trimming. */
+                    /** @description Unique within the installation; trimmed, and at most 100 characters after trimming. */
                     name: string;
-                    siteId: string;
                 };
             };
         };
@@ -9164,7 +9159,7 @@ export interface operations {
                     "application/json": components["schemas"]["Pool"];
                 };
             };
-            /** @description `validation_error`: the body is not valid JSON; `siteId` or `name` is missing, blank, or `name` is longer than 100 characters. */
+            /** @description `validation_error`: the body is not valid JSON; `name` is missing, blank, or longer than 100 characters. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -9175,16 +9170,7 @@ export interface operations {
             };
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
-            /** @description `not_found`: the Site does not exist. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description `conflict`: a Pool with this `name` already exists in the Site. */
+            /** @description `conflict`: a Pool with this `name` already exists. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9250,15 +9236,6 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description `validation_error`: the provisioner refused to delete the pool (the message carries its explanation). */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             /** @description `not_found`: the Pool does not exist. */
@@ -9272,15 +9249,6 @@ export interface operations {
             };
             /** @description `conflict`: a Server is still placed in it. */
             409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description `provider_unavailable`: the Site's provisioner could not be reached, refused the credential, or has no credential. */
-            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9339,7 +9307,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `conflict`: another Pool in the Site already has this `name`. */
+            /** @description `conflict`: another Pool already has this `name`. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -15275,7 +15243,7 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** @description The swallow id of the Pool; `null` returns the Server to the provisioner's default pool. */
+                    /** @description The swallow id of the Pool; `null` takes the Server out of every Pool. */
                     poolId?: string | null;
                     /** @description The swallow id of the Zone; `null` returns the Server to the provisioner's default zone. */
                     zoneId?: string | null;
@@ -15292,7 +15260,7 @@ export interface operations {
                     "application/json": components["schemas"]["ServerPlacement"];
                 };
             };
-            /** @description `validation_error`: the body is not valid JSON or a field is not a string or `null`; neither `zoneId` nor `poolId` is given; or the Zone or Pool belongs to another Site. */
+            /** @description `validation_error`: the body is not valid JSON or a field is not a string or `null`; neither `zoneId` nor `poolId` is given; or the Zone belongs to another Site. */
             400: {
                 headers: {
                     [name: string]: unknown;

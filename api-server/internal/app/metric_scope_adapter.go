@@ -17,16 +17,18 @@ import (
 // It lives in the wiring layer because it bridges four contexts that must not import each
 // other: monitoring only knows server_id, the infrastructure context owns the Zone/Pool
 // catalog, the platform context owns Platforms, and the Server projection carries the
-// observed placement and membership. Membership rules match the published contracts:
+// placement and membership. Membership rules match the published contracts (server-metrics.md):
 //
-//   - a Zone or Pool contains the non-absent Servers of its Site whose provider-observed zone or
-//     resource pool equals the grouping's name (infrastructure.md: placement is observed on the
-//     Server, not stored on the grouping);
+//   - a Pool contains the non-absent Servers whose placement spec names it, in any Site (a Pool is
+//     installation-wide and not realized in the provisioner, decision 082);
+//   - a Zone contains the non-absent Servers of its Site whose provider-observed zone equals the
+//     Zone's name (the observed effect of a placement);
 //   - a Platform contains the non-absent Servers whose membership axis names it, the same set as
 //     GET /servers?platformId=.
 //
-// Each call lists the Site's Servers once (no pagination) and filters in memory; the repository
-// has no placement filter, and a Site's fleet fits comfortably in one read.
+// A Zone lists its Site's Servers once (no pagination) and filters in memory, because the
+// repository has no observed-zone filter and a Site's fleet fits comfortably in one read; a Pool
+// and a Platform use the repository's own filters.
 type metricScopeResolver struct {
 	zones     zoneFinder
 	pools     poolFinder
@@ -73,16 +75,16 @@ func (r metricScopeResolver) ResolveScope(
 		})
 
 	case monitoringdomain.ScopePool:
-		pool, err := r.pools.FindByID(ctx, id)
-		if errors.Is(err, infradomain.ErrPoolNotFound) {
+		if _, err := r.pools.FindByID(ctx, id); errors.Is(err, infradomain.ErrPoolNotFound) {
 			return nil, fmt.Errorf("%w: pool %q", monitoringdomain.ErrScopeNotFound, id)
+		} else if err != nil {
+			return nil, err
 		}
+		result, err := r.servers.List(ctx, serverdomain.ListFilter{PoolIDs: []string{id}, RestrictPools: true})
 		if err != nil {
 			return nil, err
 		}
-		return r.siteMembers(ctx, pool.SiteID, func(server *serverdomain.Server) bool {
-			return server.Observed.ProviderResourcePool == pool.Name
-		})
+		return memberIDs(result.Servers, nil), nil
 
 	case monitoringdomain.ScopePlatform:
 		if _, err := r.platforms.FindByID(ctx, id); errors.Is(err, platformdomain.ErrPlatformNotFound) {

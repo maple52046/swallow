@@ -34,7 +34,7 @@ type SiteReader interface {
 	Exists(ctx context.Context, siteID string) (bool, error)
 }
 
-// GroupStatus is what the catalog controller reports for a Zone or Pool. ObservedGeneration is the
+// GroupStatus is what the catalog controller reports for a Zone. ObservedGeneration is the
 // generation realized on every target; Conditions summarize the targets (realized only when every
 // target is), and Provisioners holds one realization per provisioner Integration of the Site.
 type GroupStatus struct {
@@ -43,9 +43,9 @@ type GroupStatus struct {
 	Provisioners       []GroupRealization
 }
 
-// GroupRealization is a Zone's or Pool's realization on one provisioner (TargetID is the
-// provisioner Integration id). ProviderName is the name the group carries there, "" until swallow
-// has created or recognized it, so a rename knows which provider group to rename.
+// GroupRealization is a Zone's realization on one provisioner (TargetID is the provisioner
+// Integration id). ProviderName is the name the zone carries there, "" until swallow has created or
+// recognized it, so a rename knows which provider zone to rename.
 type GroupRealization struct {
 	convergence.TargetStatus
 	ProviderName string
@@ -61,8 +61,8 @@ func (s GroupStatus) Realization(integrationID string) GroupRealization {
 	return GroupRealization{TargetStatus: convergence.TargetStatus{TargetID: integrationID}}
 }
 
-// GroupingTargets resolves the provisioners Zones and Pools are realized on: every enabled
-// provisioner Integration of a Site.
+// GroupingTargets resolves the provisioners Zones are realized on: every enabled provisioner
+// Integration of a Site.
 type GroupingTargets interface {
 	// ForSite returns the enabled provisioner Integration ids of one Site.
 	ForSite(ctx context.Context, siteID string) ([]string, error)
@@ -77,8 +77,9 @@ type PlacementReferences interface {
 	CountPool(ctx context.Context, poolID string) (int, error)
 }
 
-// ServerPlacement is a Server's placement spec: the Zone and Pool it must be in, "" meaning the
-// provisioner's default group.
+// ServerPlacement is a Server's placement spec: the Zone it must be in ("" for the provisioner's
+// default zone) and the Pool it is in ("" for no Pool). SiteID is the Server's Site, which a Zone
+// must share.
 type ServerPlacement struct {
 	ServerID   string
 	SiteID     string

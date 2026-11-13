@@ -103,6 +103,10 @@ RETIRED_TERMS = {
     "serveDeployments": (
         "the Local Repository spec has a mode: upstream, cache, or offline (local-repository.md §2.1)"
     ),
+    "zone-pool-catalog": (
+        "Pools are not realized in the provisioner; the catalog controller is zone-catalog"
+        " (os-provisioning.md §8)"
+    ),
 }
 # Documents whose purpose is to record the retirement itself: a contract change note, the public
 # compatibility page, or the decision and spec section that state a mechanism is retired.

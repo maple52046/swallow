@@ -18,8 +18,8 @@ type ServerItem struct {
 }
 
 // ServerSpecItem is the published Server spec. Tags is the complete set of manual tags the Server
-// must carry (server-tags.md); ZoneID and PoolID are its placement (infrastructure.md), null for
-// the provisioner's default group.
+// must carry (server-tags.md); ZoneID and PoolID are its placement (infrastructure.md), ZoneID null
+// for the provisioner's default zone and PoolID null for no Pool.
 type ServerSpecItem struct {
 	Tags   []string `json:"tags"`
 	ZoneID *string  `json:"zoneId"`

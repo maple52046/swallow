@@ -1,15 +1,15 @@
 // Package domain defines swallow's Infrastructure grouping model: Zone and Pool.
 //
-// Zone and Pool are swallow-owned, Site-scoped groupings of Servers (decision 071). swallow owns
-// their catalog as desired state; the catalog controller realizes it on every grouping-capable
-// provisioner of the Site, and the concept exists in swallow regardless of provider support. This
-// package holds the entities and their status, their persistence ports, the ports onto Site
-// provisioners and Server placements, and the domain errors — no MongoDB, HTTP, or provider
-// vocabulary.
+// Both are swallow-owned groupings of Servers. A Zone is Site-scoped desired state that the catalog
+// controller realizes on every grouping-capable provisioner of its Site (decision 071), and the
+// concept exists in swallow regardless of provider support. A Pool is installation-wide and exists
+// only in swallow (decision 082). This package holds the entities and the Zone status, their
+// persistence ports, the ports onto Site provisioners and Server placements, and the domain errors —
+// no MongoDB, HTTP, or provider vocabulary.
 //
 // This is not a Clean Architecture infrastructure layer. "Infrastructure" here is the
-// user-facing area (the dashboard's Infrastructure section) whose domain is Zones and Pools;
-// the provisioner realizes them through the composition adapters in internal/app.
+// user-facing area whose domain is Zones and Pools; the provisioner realizes Zones through the
+// composition adapters in internal/app.
 package domain
 
 import "errors"
@@ -23,23 +23,25 @@ var (
 
 	// ErrPoolNotFound means no Pool has the requested id.
 	ErrPoolNotFound = errors.New("pool not found")
-	// ErrPoolNameTaken means a Pool with this name already exists in the Site.
-	ErrPoolNameTaken = errors.New("pool name already exists in site")
+	// ErrPoolNameTaken means a Pool with this name already exists. Pool names are unique across the
+	// installation because a Pool belongs to no Site.
+	ErrPoolNameTaken = errors.New("pool name already exists")
 
-	// ErrInvalidGroup marks a Zone/Pool whose name or Site reference is not acceptable, such
-	// as an empty name or a name that only differs by surrounding whitespace.
+	// ErrInvalidGroup marks a Zone/Pool whose name, or a Zone whose Site reference, is not
+	// acceptable, such as an empty name or a name that only differs by surrounding whitespace.
 	ErrInvalidGroup = errors.New("invalid zone or pool")
 
-	// ErrSiteNotFound means the Site a Zone/Pool would belong to does not exist. A grouping
-	// must hang off an existing Site, per the Site glossary term.
+	// ErrSiteNotFound means the Site a Zone would belong to does not exist. A Zone must hang off an
+	// existing Site, per the Site glossary term.
 	ErrSiteNotFound = errors.New("site not found")
 
 	// ErrServerNotFound means the Server addressed by a placement request does not exist.
 	ErrServerNotFound = errors.New("server not found")
 
-	// ErrGroupingSiteMismatch means a placement referenced a Zone or Pool that belongs to a
-	// different Site than the Server. Assigning across Sites is refused rather than realized.
-	ErrGroupingSiteMismatch = errors.New("zone or pool belongs to a different site than the server")
+	// ErrGroupingSiteMismatch means a placement referenced a Zone that belongs to a different Site
+	// than the Server. Assigning across Sites is refused rather than realized; a Pool may hold
+	// Servers of any Site.
+	ErrGroupingSiteMismatch = errors.New("zone belongs to a different site than the server")
 
 	// ErrNothingToAssign means a placement request named neither a Zone nor a Pool, so there
 	// is no state change to make.

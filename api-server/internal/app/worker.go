@@ -381,8 +381,8 @@ func assembleWorker(cfg config.APIConfig, modules composedModules, mongoClient *
 		controllers := []convergence.Controller{
 			workflowapp.NewDispatcher(operations, engine, executor, cfg.WorkflowResyncInterval),
 			provisioningapp.NewServerController(servers, servers, providers, serverWorkflowHolds{leases: ownership},
-				serverGroupCatalog{zones: zones, pools: pools}, convergenceEvents),
-			infrastructureapp.NewCatalogController(zones, pools, groupingTargets{integrations: integrations}, providers, convergenceEvents),
+				serverGroupCatalog{zones: zones}, convergenceEvents),
+			infrastructureapp.NewCatalogController(zones, groupingTargets{integrations: integrations}, providers, convergenceEvents),
 			provisioningapp.NewHTTPProxyController(provisionerIntegrations{integrations: integrations}, providers,
 				provisioningstore.NewMongoHTTPProxyRepo(db), convergenceEvents),
 			provisioningapp.NewSubnetDNSController(provisionerIntegrations{integrations: integrations}, providers,

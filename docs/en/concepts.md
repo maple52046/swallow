@@ -74,15 +74,18 @@ Writing a spec returns once swallow has stored it; the change is applied
 afterwards, so read the conditions and `status.observedGeneration` to see
 whether it took effect. When a provisioner cannot realize a field, `realized` is
 `false` with the reason `capability_missing`, and your spec is kept. Server tags
-and placement, Zones and Pools, SSH keys, and the provisioner's HTTP proxy and
+and Zone placement, Zones, SSH keys, and the provisioner's HTTP proxy and
 Subnet DNS settings work this way; other resources keep the behavior their
 guides describe.
 
 ## Zone, Pool, tag, and lock
 
-Zones and Pools are user-defined infrastructure grouping. Tags add
-capability or policy metadata. A Server's manual tags and its Zone and Pool are
-part of its spec, and the provisioner realizes them; tags the provisioner
+Zones and Pools are user-defined groupings of Servers. A Zone belongs to one Site
+and groups its Servers for availability or organization; a Pool belongs to the
+whole installation, may hold Servers of any Site, and decides who may use them.
+Tags add capability or policy metadata. A Server's manual tags, its Zone, and its
+Pool are part of its spec. The provisioner realizes the tags and the Zone; a Pool
+exists only in swallow and takes effect as soon as it is set. Tags the provisioner
 computes or maintains itself (automatic tags) are observed only, and you can
 remove or delete them but not assign them. A provisioner without the capability reports
 `capability_missing` instead of swallow keeping a substitute copy.

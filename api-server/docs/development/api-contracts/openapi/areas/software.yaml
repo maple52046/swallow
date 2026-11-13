@@ -15,7 +15,7 @@ paths:
       operationId: getSoftwareCatalog
       summary: List the installable software kinds and their rules.
       description: >-
-        Requires the `admin` role. The catalog is fixed and small, so it is not paginated.
+        Reference: any authenticated User. The catalog is fixed and small, so it is not paginated.
       responses:
         '200':
           description: Every catalog entry.
@@ -35,7 +35,7 @@ paths:
       operationId: listSoftwareAssignments
       summary: List Software Assignments, optionally filtered by Server and kind.
       description: >-
-        Requires the `admin` role. Ordered by `serverId`, then `kind`; not paginated (one record
+        Pool read: any authenticated User; the result holds only what the caller may read. Ordered by `serverId`, then `kind`; not paginated (one record
         per Server per kind). `absent` assignments are omitted unless `includeAbsent=true`.
       parameters:
         - name: serverId
@@ -79,7 +79,7 @@ paths:
       operationId: installSoftware
       summary: Install one software kind on one or more deployed Servers.
       description: >-
-        Requires the `admin` role. Creates a durable Workflow and records a `pending` Software
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Creates a durable Workflow and records a `pending` Software
         Assignment per target; progress is read through the workflows surface. Installing a kind
         that is already present is a convergent re-apply whose `spec` replaces the recorded one.
         The per-kind `spec` rules are in software.md.
@@ -149,7 +149,8 @@ paths:
       operationId: uninstallSoftware
       summary: Uninstall one software kind from one or more Servers.
       description: >-
-        Requires the `admin` role. Creates a durable Workflow that runs the kind's uninstall
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to; a kind whose
+        catalog entry is `keptInstalled` needs the `admin` role (403 otherwise). Creates a durable Workflow that runs the kind's uninstall
         playbook, marks the assignments `uninstalling`, and marks them `absent` on success.
         Duplicate `serverIds` are ignored.
       requestBody:
@@ -336,7 +337,7 @@ paths:
       operationId: getDockerEngineSummary
       summary: Read the live header of a Server's Docker Engine.
       description: >-
-        Requires the `admin` role. Read route of the Docker Host Explorer: available on a locked
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Read route of the Docker Host Explorer: available on a locked
         Server. Eligibility and Engine error mapping are in servers-docker.md.
       responses:
         '200':
@@ -366,7 +367,7 @@ paths:
       tags: [software]
       operationId: listDockerImages
       summary: List the host's local images, newest first.
-      description: Requires the `admin` role. Read route; available on a locked Server.
+      description: 'Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Read route; available on a locked Server.'
       responses:
         '200':
           description: The host's images.
@@ -396,7 +397,7 @@ paths:
       operationId: pullDockerImage
       summary: Pull one image reference onto the host, synchronously.
       description: >-
-        Requires the `admin` role. Write route: refused on a locked Server. The reference is
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. The reference is
         validated before eligibility. A reference without a tag or digest pulls `latest`. When a
         Registry Credential exists for the resolved registry it is sent to the Engine for this
         pull only. Bounded to 55 minutes; a timeout is `503`. A failure's `error.message` ends
@@ -442,7 +443,7 @@ paths:
       operationId: removeDockerImage
       summary: Remove one image from the host.
       description: >-
-        Requires the `admin` role. Write route: refused on a locked Server. An image used by a
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. An image used by a
         running container is `409` with or without `force`.
       parameters:
         - name: force
@@ -482,7 +483,7 @@ paths:
       tags: [software]
       operationId: listDockerContainers
       summary: List every container on the host, running or not, by name.
-      description: Requires the `admin` role. Read route; available on a locked Server.
+      description: 'Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Read route; available on a locked Server.'
       responses:
         '200':
           description: The host's containers.
@@ -509,7 +510,7 @@ paths:
       operationId: createDockerContainer
       summary: Create a container from a local image and, by default, start it.
       description: >-
-        Requires the `admin` role. Write route: refused on a locked Server. The request rules
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. The request rules
         (servers-docker.md, Create Container) are checked before eligibility. When the container
         was created but could not be started, the container remains and the response is the start
         failure's error.
@@ -549,7 +550,7 @@ paths:
       operationId: removeDockerContainer
       summary: Remove one container.
       description: >-
-        Requires the `admin` role. Write route: refused on a locked Server. Removing a running
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. Removing a running
         container without `force` is `409`. Named volumes are never removed.
       parameters:
         - name: force
@@ -596,7 +597,7 @@ paths:
       operationId: startDockerContainer
       summary: Start a container.
       description: >-
-        Requires the `admin` role. Write route: refused on a locked Server. A container that is
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. A container that is
         already running is a success. Takes no body.
       responses:
         '200':
@@ -628,7 +629,7 @@ paths:
       operationId: stopDockerContainer
       summary: Stop a container.
       description: >-
-        Requires the `admin` role. Write route: refused on a locked Server. Waits up to 10
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. Waits up to 10
         seconds before the Engine kills the process; a container already stopped is a success.
         Takes no body.
       responses:
@@ -661,7 +662,7 @@ paths:
       operationId: restartDockerContainer
       summary: Restart a container.
       description: >-
-        Requires the `admin` role. Write route: refused on a locked Server. Stops with the same
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. Stops with the same
         10-second grace as stop, then starts. Takes no body.
       responses:
         '200':
@@ -693,7 +694,7 @@ paths:
       operationId: getDockerContainerLogs
       summary: Read a bounded snapshot of a container's standard output and standard error.
       description: >-
-        Requires the `admin` role. Read route; available on a locked Server. A snapshot, not a
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Read route; available on a locked Server. A snapshot, not a
         stream: both streams in arrival order, truncated at 4 MiB.
       parameters:
         - name: tailLines
@@ -734,7 +735,7 @@ paths:
       tags: [software]
       operationId: listDockerVolumes
       summary: List the host's volumes by name.
-      description: Requires the `admin` role. Read route; available on a locked Server.
+      description: 'Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Read route; available on a locked Server.'
       responses:
         '200':
           description: The host's volumes.
@@ -761,7 +762,7 @@ paths:
       operationId: createDockerVolume
       summary: Create a volume.
       description: >-
-        Requires the `admin` role. Write route: refused on a locked Server. The name rule is
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. The name rule is
         checked before eligibility.
       requestBody:
         required: true
@@ -804,7 +805,7 @@ paths:
       operationId: removeDockerVolume
       summary: Remove one volume.
       description: >-
-        Requires the `admin` role. Write route: refused on a locked Server. A volume used by a
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. A volume used by a
         container is `409`.
       parameters:
         - name: force
@@ -842,7 +843,7 @@ paths:
       tags: [software]
       operationId: listDockerNetworks
       summary: List the host's networks by name.
-      description: Requires the `admin` role. Read route; available on a locked Server.
+      description: 'Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Read route; available on a locked Server.'
       responses:
         '200':
           description: The host's networks.
@@ -869,7 +870,7 @@ paths:
       operationId: createDockerNetwork
       summary: Create a network.
       description: >-
-        Requires the `admin` role. Write route: refused on a locked Server. The request rules are
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. The request rules are
         checked before eligibility. A taken name is `409`.
       requestBody:
         required: true
@@ -912,7 +913,7 @@ paths:
       operationId: removeDockerNetwork
       summary: Remove one network.
       description: >-
-        Requires the `admin` role. Write route: refused on a locked Server. A predefined network
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Write route: refused on a locked Server. A predefined network
         (`bridge`, `host`, `none`) is `409`: by name before eligibility is checked, by id when
         the Engine refuses it. A network with attached containers is `409`.
       responses:
@@ -1053,6 +1054,7 @@ components:
         - refusedForKubernetesMembers
         - refusedForClaimedServers
         - requiresAmdComputeGpu
+        - keptInstalled
         - installMethods
         - containerRuntimes
         - specFields
@@ -1081,6 +1083,11 @@ components:
         requiresAmdComputeGpu:
           type: boolean
           description: Every target must list AMD `compute` GPUs in its GPU Inventory.
+        keptInstalled:
+          type: boolean
+          description: >-
+            swallow installs the kind by itself on every Server its policy covers and installs it
+            again after an uninstall; only an admin may uninstall it.
         installMethods:
           type: array
           description: The kind's install methods, the first being the default; empty for a kind with one built-in way.

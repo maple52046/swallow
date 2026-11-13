@@ -133,7 +133,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 ### Infrastructure Grouping
 
 - [Zone](terms/zone.md): A Site-scoped grouping of Servers for availability/fault/organization, held by every grouping-capable provisioner of the Site (MAAS physical zone); a Server's placement in it is part of the Server's spec.
-- [Pool](terms/pool.md): A Site-scoped resource pool for allocation grouping, held by every grouping-capable provisioner of the Site (MAAS resource pool); not the "available pool" of Release.
+- [Pool](terms/pool.md): An installation-wide, swallow-only grouping of Servers for allocation and access, which may span Sites; not a provisioner resource pool, and not the "available pool" of Release.
 
 ### Access
 

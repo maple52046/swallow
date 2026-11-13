@@ -8,6 +8,7 @@ import {
 } from '@/application/usecases/software/loadSoftwareWorkspace'
 import { useApp } from '@/di/AppProvider'
 import { serverDisplayName } from '@/domain/server/types'
+import { isAdmin } from '@/domain/user/access'
 import type { SoftwareAssignment } from '@/domain/software/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ModuleSettingsDetails } from '@/presentation/components/ModuleSettings'
@@ -23,6 +24,7 @@ import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { useToast } from '@/presentation/components/toast/toastContext'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useModuleSpecSchema } from '@/presentation/hooks/useModuleSpecSchema'
 import { formatDateTime } from '@/shared/utils/time'
@@ -63,6 +65,7 @@ const VALID_LENSES = new Set<SoftwareDeploymentLens>(['all', 'installed', 'chang
 export function SoftwareDetailPage() {
   const { kind: requestedKind } = useParams<{ kind: string }>()
   const { software, servers } = useApp()
+  const { currentUser } = useAuth()
   const { siteId, sites, scopedHref } = useSiteScope()
   const { showToast } = useToast()
   const navigate = useNavigate()
@@ -132,6 +135,9 @@ export function SoftwareDetailPage() {
   const hasChanging = scopedRows.some(({ assignment }) => isSoftwareAssignmentChanging(assignment))
   // A kind configured through its module's spec schema also shows its recorded settings by it.
   const detailEntry = state.status === 'ready' ? state.data.entry : null
+  // A kind swallow keeps installed is uninstalled only by an admin (software.md); the API refuses
+  // anyone else, so the action is not offered to them.
+  const canUninstall = !detailEntry?.keptInstalled || isAdmin(currentUser)
   const { state: settingsSchemaState } = useModuleSpecSchema(
     'software',
     detailEntry && !hasDedicatedSoftwareSettings(detailEntry) ? detailEntry.kind : undefined,
@@ -329,7 +335,7 @@ export function SoftwareDetailPage() {
                           siteName={siteName(row.server.status.source.siteId)}
                           scopedHref={scopedHref}
                           onReconfigure={() => setInstallTarget(row)}
-                          onUninstall={() => setUninstalling(row.assignment)}
+                          onUninstall={canUninstall ? () => setUninstalling(row.assignment) : undefined}
                           onViewSettings={settingsSchema ? () => setViewingSettings(row) : undefined}
                         />
                       ))}
@@ -348,7 +354,7 @@ export function SoftwareDetailPage() {
                       siteName={siteName(row.server.status.source.siteId)}
                       scopedHref={scopedHref}
                       onReconfigure={() => setInstallTarget(row)}
-                      onUninstall={() => setUninstalling(row.assignment)}
+                      onUninstall={canUninstall ? () => setUninstalling(row.assignment) : undefined}
                       onViewSettings={settingsSchema ? () => setViewingSettings(row) : undefined}
                     />
                   ))}
@@ -419,7 +425,11 @@ interface DeploymentPresentationProps {
   siteName: string
   scopedHref: (path: string) => string
   onReconfigure: () => void
-  onUninstall: () => void
+  /**
+   * Opens the uninstall confirmation; absent when the caller may not uninstall this kind (one
+   * swallow keeps installed, for a user who is not an admin), so the action is not offered.
+   */
+  onUninstall?: () => void
   /** Opens the recorded settings; set only for a kind whose module declares a spec schema. */
   onViewSettings?: () => void
 }
@@ -455,7 +465,7 @@ function SoftwareDeploymentActions({ row, managedByPlatformId, scopedHref, onRec
           <Portal><Menu.Positioner><Menu.Content>
             {onViewSettings && <Menu.Item value="settings" onSelect={onViewSettings}>View settings</Menu.Item>}
             {canChange && <Menu.Item value="configure" onSelect={onReconfigure}>{assignment.state === 'failed' ? 'Retry install' : 'Reconfigure'}</Menu.Item>}
-            {canChange && <Menu.Item value="uninstall" color="red.fg" onSelect={onUninstall}>Uninstall</Menu.Item>}
+            {canChange && onUninstall && <Menu.Item value="uninstall" color="red.fg" onSelect={onUninstall}>Uninstall</Menu.Item>}
           </Menu.Content></Menu.Positioner></Portal>
         </Menu.Root>
       )}

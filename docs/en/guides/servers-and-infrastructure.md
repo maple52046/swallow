@@ -405,19 +405,33 @@ Servers carry it, and whether it is automatic:
 
 ## Zones and Pools
 
-Zones and Pools are swallow-owned grouping resources managed under
-**Infrastructure**. Assign a Server through its placement action. A capable
-provisioner realizes the grouping; a provisioner without grouping support
-reports it on the Server instead of swallow keeping a separate copy.
+Zones and Pools are swallow-owned groupings of Servers. Assign a Server to them
+through its placement action (**Set zone / pool**).
+
+- A **Zone** belongs to one Site and is managed under **Infrastructure → Zones**. A
+  capable provisioner realizes it (a MAAS physical zone) and swallow moves the machine
+  into it; a provisioner without grouping support reports it on the Server instead of
+  swallow keeping a separate copy.
+- A **Pool** belongs to the whole installation, like a user account, so one Pool can
+  hold Servers of several Sites. Admins create, rename, and delete Pools under
+  **Pools**. A Pool exists only in swallow: creating one or placing a Server in it
+  changes nothing in MAAS, and the MAAS resource pool a machine is in is shown on the
+  Server only as information. A newly discovered Server is in no Pool until an admin
+  places it.
 
 A Pool is also who may use its Servers. Its members see them (and the Platforms,
 Workflows, and Validation Runs on them) and log in to them with their SSH keys; its
-owners operate them. Manage a Pool's members and sudo defaults under **Pools**, or
-with the **Members** action on the Pool's row under **Infrastructure → Pools**. Only
-an admin moves Servers between Pools, and all the Servers of a Platform stay in one
-Pool: a Server a Platform claims can only move into that Platform's Pool or out of
-every Pool (which leaves the Platform to admins until its Servers are in one Pool
-again). Deleting a Pool also deletes its memberships.
+owners operate them. Manage a Pool's members and sudo defaults with the **Members**
+action on its row under **Pools**. Only an admin moves Servers between Pools, and all
+the Servers of a Platform stay in one Pool: a Server a Platform claims can only move
+into that Platform's Pool or out of every Pool (which leaves the Platform to admins
+until its Servers are in one Pool again). Deleting a Pool also deletes its memberships,
+and is refused while a Server is still placed in it.
+
+Upgrading to the release that made Pools installation-wide merges every Site's Pool
+named `default` into one Pool and deletes every other Pool with its members; the
+upgrade asks for a confirmed backup first when there is such a Pool. Re-create the
+Pools you need afterwards and place their Servers again.
 
 ## Locks and destructive actions
 

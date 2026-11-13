@@ -165,7 +165,7 @@ func TestAssignServer_WritesThePlacementSpec(t *testing.T) {
 		t.Fatalf("AssignServer: %v", err)
 	}
 	if result.Generation != 2 || result.ZoneID == nil || *result.ZoneID != "z1" || result.PoolID != nil {
-		t.Errorf("result = %+v, want generation 2, zone z1, pool cleared to the default", result)
+		t.Errorf("result = %+v, want generation 2, zone z1, out of every Pool", result)
 	}
 	if len(f.provider.calls) != 0 {
 		t.Errorf("placement drove the provisioner: %v", f.provider.calls)
@@ -215,8 +215,8 @@ func realizedOn(integrationID, providerName string, generation int64) infradomai
 func TestAssignServer_KeepsAClaimedServerInItsPlatformsPool(t *testing.T) {
 	f := newServiceFixture(t)
 	ctx := context.Background()
-	f.pools.byID["p-a"] = &infradomain.Pool{ID: "p-a", SiteID: "site-a", Name: "a"}
-	f.pools.byID["p-b"] = &infradomain.Pool{ID: "p-b", SiteID: "site-a", Name: "b"}
+	f.pools.byID["p-a"] = &infradomain.Pool{ID: "p-a", Name: "a"}
+	f.pools.byID["p-b"] = &infradomain.Pool{ID: "p-b", Name: "b"}
 	f.placements.current.PoolID = "p-a"
 	f.placements.current.PlatformID = "plat-1"
 	f.platformPools["plat-1"] = "p-a"
@@ -236,14 +236,78 @@ func TestAssignServer_KeepsAClaimedServerInItsPlatformsPool(t *testing.T) {
 	}
 }
 
-// Deleting a Pool also deletes its memberships and Sudo Policy.
+// Deleting a Pool also deletes its memberships and Sudo Policy, refuses while a Server is placed in
+// it, and never calls a provisioner.
 func TestDeletePool_RemovesItsAccess(t *testing.T) {
 	f := newServiceFixture(t)
-	f.pools.byID["p-a"] = &infradomain.Pool{ID: "p-a", SiteID: "site-a", Name: "a"}
+	f.pools.byID["p-a"] = &infradomain.Pool{ID: "p-a", Name: "a"}
+
+	f.references.pools["p-a"] = 1
+	if err := f.service.DeletePool(context.Background(), "p-a"); !errors.Is(err, infradomain.ErrGroupInUse) {
+		t.Fatalf("delete of a placed Pool: err = %v, want ErrGroupInUse", err)
+	}
+	delete(f.references.pools, "p-a")
+
 	if err := f.service.DeletePool(context.Background(), "p-a"); err != nil {
 		t.Fatalf("DeletePool: %v", err)
 	}
 	if len(f.cleaned.deleted) != 1 || f.cleaned.deleted[0] != "p-a" {
 		t.Errorf("access cleaned for %v, want p-a", f.cleaned.deleted)
+	}
+	if _, err := f.pools.FindByID(context.Background(), "p-a"); !errors.Is(err, infradomain.ErrPoolNotFound) {
+		t.Errorf("the Pool record must be gone: err = %v", err)
+	}
+	if len(f.provider.calls) != 0 {
+		t.Errorf("deleting a Pool drove the provisioner: %v", f.provider.calls)
+	}
+}
+
+// A Pool belongs to the installation: its name is unique across it, it names no Site, and nothing
+// reaches a provisioner.
+func TestCreatePool_IsInstallationWide(t *testing.T) {
+	f := newServiceFixture(t)
+	ctx := context.Background()
+
+	created, err := f.service.CreatePool(ctx, CreatePoolInput{Name: " research ", Description: "GPU team"})
+	if err != nil {
+		t.Fatalf("CreatePool: %v", err)
+	}
+	if created.Name != "research" || created.Description != "GPU team" || created.CreatedAt == "" {
+		t.Errorf("created = %+v, want the trimmed name with its description", created)
+	}
+	if _, err := f.service.CreatePool(ctx, CreatePoolInput{Name: "research"}); !errors.Is(err, infradomain.ErrPoolNameTaken) {
+		t.Errorf("a second Pool named research: err = %v, want ErrPoolNameTaken", err)
+	}
+	if _, err := f.service.CreatePool(ctx, CreatePoolInput{Name: "  "}); !errors.Is(err, infradomain.ErrInvalidGroup) {
+		t.Errorf("blank name: err = %v, want ErrInvalidGroup", err)
+	}
+	renamed := "research-2"
+	updated, err := f.service.UpdatePool(ctx, created.ID, UpdateGroupInput{Name: &renamed})
+	if err != nil || updated.ID != created.ID || updated.Name != "research-2" {
+		t.Errorf("rename = %+v, %v; want the same Pool named research-2", updated, err)
+	}
+	if len(f.provider.calls) != 0 {
+		t.Errorf("Pool writes drove the provisioner: %v", f.provider.calls)
+	}
+}
+
+// A Pool may hold Servers of any Site; only a Zone must share the Server's Site.
+func TestAssignServer_PoolOfAnySite(t *testing.T) {
+	f := newServiceFixture(t)
+	f.pools.byID["p-a"] = &infradomain.Pool{ID: "p-a", Name: "a"}
+
+	result, err := f.service.AssignServer(context.Background(), AssignServerInput{
+		ServerID: "srv-1", Pool: PlacementChange{Set: true, ID: "p-a"},
+	})
+	if err != nil {
+		t.Fatalf("AssignServer: %v", err)
+	}
+	if result.PoolID == nil || *result.PoolID != "p-a" {
+		t.Errorf("result = %+v, want pool p-a", result)
+	}
+	if _, err := f.service.AssignServer(context.Background(), AssignServerInput{
+		ServerID: "srv-1", Pool: PlacementChange{Set: true, ID: "missing"},
+	}); !errors.Is(err, infradomain.ErrPoolNotFound) {
+		t.Errorf("unknown Pool: err = %v, want ErrPoolNotFound", err)
 	}
 }

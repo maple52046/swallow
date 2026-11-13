@@ -23,20 +23,17 @@ type ServerWorkflowHolds interface {
 	HeldByWorkflow(ctx context.Context, serverID string) (bool, error)
 }
 
-// ServerGroupCatalog resolves a Server's placement against the Zone and Pool catalog, on the
-// Server's own provisioner. It is a narrow read port over the infrastructure feature.
+// ServerGroupCatalog resolves a Server's Zone placement against the Zone catalog, on the Server's
+// own provisioner. It is a narrow read port over the infrastructure feature. A Pool placement needs
+// no realization (decision 082), so the port has nothing for Pools.
 type ServerGroupCatalog interface {
 	// ZoneOn returns the name the Zone with this id has on the provisioner integrationID.
 	// realized is false while the catalog controller has not created it there yet; found is false
 	// when no such Zone exists.
 	ZoneOn(ctx context.Context, zoneID, integrationID string) (name string, realized, found bool, err error)
-	// PoolOn is ZoneOn for a Pool.
-	PoolOn(ctx context.Context, poolID, integrationID string) (name string, realized, found bool, err error)
 	// ZoneNamed returns the id of the Site's Zone known as name, by its catalog name or by its
 	// name on the provisioner integrationID; found is false when the catalog has none.
 	ZoneNamed(ctx context.Context, siteID, integrationID, name string) (id string, found bool, err error)
-	// PoolNamed is ZoneNamed for a Pool.
-	PoolNamed(ctx context.Context, siteID, integrationID, name string) (id string, found bool, err error)
 }
 
 // serverField is one provisioner-realized part of a Server's spec (decision 071). The controller
@@ -89,7 +86,7 @@ type ServerController struct {
 var _ convergence.Controller = (*ServerController)(nil)
 
 // NewServerController wires the Server repository and its desired-state store, the provider
-// factory, the Workflow lease reader, the Zone and Pool catalog, and the convergence timeline.
+// factory, the Workflow lease reader, the Zone catalog, and the convergence timeline.
 func NewServerController(
 	servers serverdomain.ServerRepository,
 	desired serverdomain.ServerConvergenceStore,
@@ -98,7 +95,7 @@ func NewServerController(
 	catalog ServerGroupCatalog,
 	events convergence.EventRecorder,
 ) *ServerController {
-	defaults := &groupDefaults{providers: providers, names: map[string][2]string{}}
+	defaults := &groupDefaults{providers: providers, names: map[string]string{}}
 	return &ServerController{
 		servers: servers, store: desired, providers: providers, holds: holds, catalog: catalog, events: events,
 		fields: []serverField{
@@ -255,13 +252,14 @@ func (c *ServerController) Reconcile(ctx context.Context, request convergence.Re
 }
 
 // adopt takes the first observation as the spec (desired-state-model.md §6.5): the observed manual
-// tags, plus any a schema migration carried into the spec, and the observed zone and pool as
-// catalog ids ("" for the provisioner's default). A group the catalog does not hold yet makes
-// adoption wait for the catalog controller to adopt it, so the spec never moves a machine out of a
-// group swallow has not seen. When the API wrote a spec first, adoption does nothing and the
-// Server is re-read.
+// tags, plus any a schema migration carried into the spec, and the observed zone as a catalog id
+// ("" for the provisioner's default). A zone the catalog does not hold yet makes adoption wait for
+// the catalog controller to adopt it, so the spec never moves a machine out of a zone swallow has
+// not seen. The adopted Server is in no Pool: the provisioner's resource pool is not a Pool
+// (decision 082), and only an admin grants access to a Server. When the API wrote a spec first,
+// adoption does nothing and the Server is re-read.
 func (c *ServerController) adopt(ctx context.Context, server *serverdomain.Server) (*serverdomain.Server, error) {
-	zoneID, poolID, err := c.adoptedPlacement(ctx, server)
+	zoneID, err := c.adoptedZone(ctx, server)
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +271,7 @@ func (c *ServerController) adopt(ctx context.Context, server *serverdomain.Serve
 			carried = true
 		}
 	}
-	spec := serverdomain.ServerSpec{Tags: tags, ZoneID: zoneID, PoolID: poolID}
+	spec := serverdomain.ServerSpec{Tags: tags, ZoneID: zoneID}
 	adopted, err := c.store.AdoptSpec(ctx, server.ID, spec)
 	if err != nil {
 		return nil, err
@@ -295,38 +293,24 @@ func (c *ServerController) adopt(ctx context.Context, server *serverdomain.Serve
 	return server, nil
 }
 
-// adoptedPlacement resolves the observed zone and pool names onto catalog ids.
-func (c *ServerController) adoptedPlacement(ctx context.Context, server *serverdomain.Server) (zoneID, poolID string, err error) {
-	zone, pool := server.Observed.ProviderZone, server.Observed.ProviderResourcePool
-	if zone == "" && pool == "" {
-		return "", "", nil
+// adoptedZone resolves the observed zone name onto a catalog id.
+func (c *ServerController) adoptedZone(ctx context.Context, server *serverdomain.Server) (string, error) {
+	zone := server.Observed.ProviderZone
+	if zone == "" {
+		return "", nil
 	}
-	defaultZone, defaultPool, capable, err := c.defaults.of(ctx, server.Source.IntegrationID)
-	if err != nil || !capable {
-		return "", "", err
+	defaultZone, capable, err := c.defaults.of(ctx, server.Source.IntegrationID)
+	if err != nil || !capable || zone == defaultZone {
+		return "", err
 	}
-	site, integration := server.Source.SiteID, server.Source.IntegrationID
-	if zone != "" && zone != defaultZone {
-		id, found, err := c.catalog.ZoneNamed(ctx, site, integration, zone)
-		if err != nil {
-			return "", "", err
-		}
-		if !found {
-			return "", "", fmt.Errorf("server %s: zone %q is not in the catalog yet; adoption waits for it", server.ID, zone)
-		}
-		zoneID = id
+	id, found, err := c.catalog.ZoneNamed(ctx, server.Source.SiteID, server.Source.IntegrationID, zone)
+	if err != nil {
+		return "", err
 	}
-	if pool != "" && pool != defaultPool {
-		id, found, err := c.catalog.PoolNamed(ctx, site, integration, pool)
-		if err != nil {
-			return "", "", err
-		}
-		if !found {
-			return "", "", fmt.Errorf("server %s: pool %q is not in the catalog yet; adoption waits for it", server.ID, pool)
-		}
-		poolID = id
+	if !found {
+		return "", fmt.Errorf("server %s: zone %q is not in the catalog yet; adoption waits for it", server.ID, zone)
 	}
-	return zoneID, poolID, nil
+	return id, nil
 }
 
 func (c *ServerController) markRealized(ctx context.Context, server *serverdomain.Server, s *serverStatus, pending, corrected bool) {
@@ -555,88 +539,62 @@ func tagDifference(want, have []string) (missing, extra []string) {
 	return missing, extra
 }
 
-// serverPlacement is the Zone and Pool field: the spec names catalog groups by id ("" for the
-// provisioner's default), and the machine must be in the group's name on its own provisioner.
+// serverPlacement is the Zone field: the spec names a catalog Zone by id ("" for the provisioner's
+// default zone), and the machine must be in the zone's name on its own provisioner. A Pool
+// placement is part of the same spec but needs no realization (decision 082), so it is never judged
+// here; the machine's resource pool is only observed.
 type serverPlacement struct {
 	store    serverdomain.ServerConvergenceStore
 	catalog  ServerGroupCatalog
 	defaults *groupDefaults
 }
 
-// placementTarget is the provider group name a Server must be in, or why it cannot be judged.
-type placementTarget struct {
-	name     string
-	missing  bool // the referenced catalog group no longer exists
-	pending  bool // the catalog group is not on the provisioner yet
-	capable  bool
-	observed string
-	label    string
+// zoneTarget is the provider zone name a Server must be in, or why it cannot be judged.
+type zoneTarget struct {
+	name    string
+	missing bool // the referenced catalog Zone no longer exists
+	pending bool // the catalog Zone is not on the provisioner yet
+	capable bool
 }
 
 func (serverPlacement) name() string { return "placement" }
 
-func (f serverPlacement) targets(ctx context.Context, server *serverdomain.Server) ([2]placementTarget, error) {
-	defaultZone, defaultPool, capable, err := f.defaults.of(ctx, server.Source.IntegrationID)
+func (f serverPlacement) target(ctx context.Context, server *serverdomain.Server) (zoneTarget, error) {
+	defaultZone, capable, err := f.defaults.of(ctx, server.Source.IntegrationID)
 	if err != nil {
-		return [2]placementTarget{}, err
+		return zoneTarget{}, err
 	}
-	integration := server.Source.IntegrationID
-	zone := placementTarget{name: defaultZone, capable: capable, observed: server.Observed.ProviderZone, label: "zone"}
-	if server.Spec.ZoneID != "" {
-		zone.name, zone.pending, zone.missing, err = resolveGroup(ctx, f.catalog.ZoneOn, server.Spec.ZoneID, integration)
-		if err != nil {
-			return [2]placementTarget{}, err
-		}
+	target := zoneTarget{name: defaultZone, capable: capable}
+	if server.Spec.ZoneID == "" {
+		return target, nil
 	}
-	pool := placementTarget{name: defaultPool, capable: capable, observed: server.Observed.ProviderResourcePool, label: "pool"}
-	if server.Spec.PoolID != "" {
-		pool.name, pool.pending, pool.missing, err = resolveGroup(ctx, f.catalog.PoolOn, server.Spec.PoolID, integration)
-		if err != nil {
-			return [2]placementTarget{}, err
-		}
+	name, realized, found, err := f.catalog.ZoneOn(ctx, server.Spec.ZoneID, server.Source.IntegrationID)
+	if err != nil {
+		return zoneTarget{}, err
 	}
-	return [2]placementTarget{zone, pool}, nil
+	target.name, target.pending, target.missing = name, found && !realized, !found
+	return target, nil
 }
 
-func resolveGroup(
-	ctx context.Context,
-	lookup func(context.Context, string, string) (string, bool, bool, error),
-	id, integrationID string,
-) (name string, pending, missing bool, err error) {
-	name, realized, found, err := lookup(ctx, id, integrationID)
-	if err != nil {
-		return "", false, false, err
-	}
-	return name, found && !realized, !found, nil
-}
-
-// drift reports a machine outside its spec placement. A provisioner without grouping reports no
-// groups, so only a spec that names a group can differ there.
+// drift reports a machine outside its spec zone. A provisioner without grouping reports no zone,
+// so only a spec that names a Zone can differ there.
 func (f serverPlacement) drift(ctx context.Context, server *serverdomain.Server) (string, error) {
-	if server.Spec.ZoneID == "" && server.Spec.PoolID == "" && server.Observed.ProviderZone == "" && server.Observed.ProviderResourcePool == "" {
+	if server.Spec.ZoneID == "" && server.Observed.ProviderZone == "" {
 		return "", nil
 	}
-	targets, err := f.targets(ctx, server)
+	t, err := f.target(ctx, server)
 	if err != nil {
 		return "", err
 	}
-	var parts []string
-	for _, t := range targets {
-		switch {
-		case t.missing:
-			parts = append(parts, fmt.Sprintf("its %s no longer exists in the catalog", t.label))
-		case t.pending:
-			parts = append(parts, fmt.Sprintf("its %s is not on the provisioner yet", t.label))
-		case !t.capable && t.name == "":
-			continue
-		case t.observed != t.name:
-			parts = append(parts, fmt.Sprintf("%s is %q, the spec wants %q", t.label, t.observed, t.name))
-		}
-	}
-	if len(parts) == 0 {
+	switch {
+	case t.missing:
+		return "Placement differs from the spec (its zone no longer exists in the catalog).", nil
+	case t.pending:
+		return "Placement differs from the spec (its zone is not on the provisioner yet).", nil
+	case !t.capable && t.name == "", server.Observed.ProviderZone == t.name:
 		return "", nil
 	}
-	return "Placement differs from the spec (" + strings.Join(parts, "; ") + ").", nil
+	return fmt.Sprintf("Placement differs from the spec (zone is %q, the spec wants %q).", server.Observed.ProviderZone, t.name), nil
 }
 
 func (serverPlacement) capable(provider provisioningdomain.OSProvisioningProvider) bool {
@@ -644,41 +602,31 @@ func (serverPlacement) capable(provider provisioningdomain.OSProvisioningProvide
 	return ok && provider.Capabilities().Grouping
 }
 
-// realize moves the machine into the spec's zone and pool. A group the catalog no longer holds is
-// a rejection (the spec must change); one the catalog controller has not created on the
-// provisioner yet is transient.
+// realize moves the machine into the spec's zone. A Zone the catalog no longer holds is a
+// rejection (the spec must change); one the catalog controller has not created on the provisioner
+// yet is transient.
 func (f serverPlacement) realize(ctx context.Context, provider provisioningdomain.OSProvisioningProvider, server *serverdomain.Server) error {
-	controller := provider.(provisioningdomain.GroupingController)
-	targets, err := f.targets(ctx, server)
+	t, err := f.target(ctx, server)
 	if err != nil {
 		return err
 	}
-	machine := server.Source.ProviderMachineID
-	for i, t := range targets {
-		switch {
-		case t.missing:
-			return &provisioningdomain.ProviderError{
-				Kind:   provisioningdomain.ProviderErrorRejected,
-				Detail: fmt.Sprintf("The %s in this Server's placement no longer exists; choose another.", t.label),
-			}
-		case t.pending:
-			return fmt.Errorf("server %s: its %s is not on the provisioner yet", server.ID, t.label)
-		case t.observed == t.name:
-			continue
+	switch {
+	case t.missing:
+		return &provisioningdomain.ProviderError{
+			Kind:   provisioningdomain.ProviderErrorRejected,
+			Detail: "The zone in this Server's placement no longer exists; choose another.",
 		}
-		var setErr error
-		if i == 0 {
-			_, setErr = controller.SetMachineZone(ctx, machine, t.name)
-		} else {
-			_, setErr = controller.SetMachinePool(ctx, machine, t.name)
-		}
-		if setErr != nil {
-			return setErr
-		}
+	case t.pending:
+		return fmt.Errorf("server %s: its zone is not on the provisioner yet", server.ID)
+	case server.Observed.ProviderZone == t.name:
+		return nil
 	}
-	return nil
+	_, err = provider.(provisioningdomain.GroupingController).SetMachineZone(ctx, server.Source.ProviderMachineID, t.name)
+	return err
 }
 
+// observe re-reads the machine's zone and resource pool; both are recorded, though only the zone is
+// judged against the spec.
 func (f serverPlacement) observe(ctx context.Context, provider provisioningdomain.OSProvisioningProvider, server *serverdomain.Server) error {
 	machine, err := provider.GetMachine(ctx, server.Source.ProviderMachineID)
 	if err != nil {
@@ -688,31 +636,31 @@ func (f serverPlacement) observe(ctx context.Context, provider provisioningdomai
 	return f.store.SetObservedPlacement(ctx, server.ID, machine.Zone, machine.ResourcePool)
 }
 
-// groupDefaults caches each provisioner's default zone and pool names, which never change for a
+// groupDefaults caches each provisioner's default zone name, which never changes for a
 // provisioner, so judging a placement does not rebuild a provider for every Server.
 type groupDefaults struct {
 	providers provisioningdomain.ProviderFactory
 	mu        sync.Mutex
-	names     map[string][2]string
+	names     map[string]string
 	incapable map[string]bool
 }
 
-// of returns the provisioner's default zone and pool names and whether it can group at all.
-func (d *groupDefaults) of(ctx context.Context, integrationID string) (zone, pool string, capable bool, err error) {
+// of returns the provisioner's default zone name and whether it can group at all.
+func (d *groupDefaults) of(ctx context.Context, integrationID string) (zone string, capable bool, err error) {
 	d.mu.Lock()
-	if names, ok := d.names[integrationID]; ok {
+	if name, ok := d.names[integrationID]; ok {
 		d.mu.Unlock()
-		return names[0], names[1], true, nil
+		return name, true, nil
 	}
 	if d.incapable[integrationID] {
 		d.mu.Unlock()
-		return "", "", false, nil
+		return "", false, nil
 	}
 	d.mu.Unlock()
 
 	provider, err := d.providers.For(ctx, integrationID)
 	if err != nil {
-		return "", "", false, err
+		return "", false, err
 	}
 	controller, ok := provider.(provisioningdomain.GroupingController)
 	d.mu.Lock()
@@ -722,9 +670,9 @@ func (d *groupDefaults) of(ctx context.Context, integrationID string) (zone, poo
 			d.incapable = map[string]bool{}
 		}
 		d.incapable[integrationID] = true
-		return "", "", false, nil
+		return "", false, nil
 	}
-	zone, pool = controller.DefaultGroupNames()
-	d.names[integrationID] = [2]string{zone, pool}
-	return zone, pool, true, nil
+	zone = controller.DefaultZoneName()
+	d.names[integrationID] = zone
+	return zone, true, nil
 }

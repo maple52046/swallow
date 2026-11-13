@@ -16,7 +16,7 @@ paths:
       operationId: listOsImages
       summary: List the OS Images one provisioner can deploy, with swallow's metadata merged.
       description: >-
-        Requires role `admin`. Reads the provisioner's catalog live and merges swallow's OS Image
+        Reference: any authenticated User. Reads the provisioner's catalog live and merges swallow's OS Image
         metadata and verification records onto it. Returns a plain array; it contains only
         resources the provisioner accepts for OS deployment.
       parameters:
@@ -315,7 +315,7 @@ paths:
       operationId: listDeploymentTemplates
       summary: List Deployment Templates, optionally narrowed to a Site and an Integration.
       description: >-
-        Requires role `admin`. Filters are conjunctive; a Site and Integration that do not match
+        Reference: any authenticated User. Filters are conjunctive; a Site and Integration that do not match
         yield an empty list. Returns a plain array; user data is never returned.
       parameters:
         - name: siteId
@@ -424,7 +424,7 @@ paths:
       tags: [provisioning]
       operationId: getDeploymentTemplate
       summary: Read one Deployment Template's metadata, without its user data.
-      description: Requires role `admin`.
+      description: 'Reference: any authenticated User.'
       responses:
         '200':
           description: The template.
@@ -587,7 +587,7 @@ paths:
       operationId: preflightOsDeploymentTargets
       summary: Check, without side effects, whether Servers can be OS deployment targets now.
       description: >-
-        Requires role `admin`. Read-only: checks target identity, presence, Ready, same-Integration,
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Read-only: checks target identity, presence, Ready, same-Integration,
         and the live Server Lock; it does not inspect the network, validate an image, reserve a
         Server, or start a deployment. A completed check answers `200` even when targets are not
         ready. Names no deploy target, so it never reports `inspection_required`.
@@ -636,7 +636,7 @@ paths:
       operationId: createDeploymentOperation
       summary: Accept a multi-Server OS deployment as one durable Workflow.
       description: >-
-        Requires role `admin`. Runs the complete side-effect-free preflight, then persists one
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Runs the complete side-effect-free preflight, then persists one
         Workflow (one `provision-os` Task per
         Server, plus its `configure-ntp` and, with Boot Media, `ensure-boot-media` Tasks). Progress
         is read through the Workflows contract.
@@ -702,7 +702,7 @@ paths:
       operationId: createReleaseOperation
       summary: Accept a Release of 1–100 Servers as one durable Workflow.
       description: >-
-        Requires role `admin`. Validates presence, recoverable state, Site, duplicates, active work,
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Validates presence, recoverable state, Site, duplicates, active work,
         and the live Server Lock before persisting one `release-os` Task per Server. A Server a
         Platform claims is refused for the whole batch.
       requestBody:
@@ -759,7 +759,7 @@ paths:
       operationId: createRecoverOperation
       summary: Accept a return to Ready of 1–100 Servers in a not-usable state as one durable Workflow.
       description: >-
-        Requires role `admin`. Same validation as Release, then one `recover-server` Task per
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Same validation as Release, then one `recover-server` Task per
         Server. Allowed from `failed`, `broken`, `rescue`, `deployed`, and `allocated`; a target
         already `ready` succeeds immediately. A `deployed` target a Platform claims is refused.
       requestBody:
@@ -875,7 +875,7 @@ paths:
       operationId: inspectDeploymentNetworks
       summary: Read the live Network Configuration and a deployment suggestion for 1–100 Servers.
       description: >-
-        Requires role `admin`. Read-only and bounded independently from deployment preflight.
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Read-only and bounded independently from deployment preflight.
         Targets of different Integrations are reported as `integration_mismatch` issues with an
         empty `targets` list instead of being read.
       requestBody:

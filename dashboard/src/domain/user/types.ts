@@ -15,13 +15,13 @@ export type PoolRole = 'owner' | 'member'
 
 /**
  * One of the signed-in user's Pool Memberships as auth-me reports it, with the Pool's name for
- * display. The dashboard uses it only to decide which actions to offer; the server judges every
- * request itself.
+ * display. A Pool belongs to the installation, not to a Site, so a membership applies to its Servers
+ * in every Site. The dashboard uses it only to decide which actions to offer; the server judges
+ * every request itself.
  */
 export interface PoolMembership {
   poolId: string
   poolName: string
-  siteId: string
   role: PoolRole
 }
 

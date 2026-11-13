@@ -48,8 +48,9 @@ swallow records what you want, and the systems that own the facts report what
 is:
 
 - **Desired state** is what a user asks for, such as a Server's tags and
-  Zone and Pool placement, the Zones, Pools, and SSH keys swallow registers
-  with the provisioner, a Platform, or the software assigned to a Server.
+  Zone and Pool placement, the Zones and SSH keys swallow registers with the
+  provisioner, the Pools that decide who uses which Servers, a Platform, or the
+  software assigned to a Server.
   swallow owns it and is its only source of truth.
 - **Observed state** is what a provider reports: machine and hardware facts from
   MAAS, membership and live state from Kubernetes or Slurm, health from

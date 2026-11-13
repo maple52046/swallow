@@ -21,8 +21,8 @@ user 看得到 Servers、Platforms、Software、Activity、Validation 與 Pools�
 | Monitoring | Fleet health、勾選 Server／Pool／Zone／Platform 的用量圖表、current metrics、選用的 Grafana link，以及（開發中的）alert 與 silence |
 | Activity | 兩個分頁。**Workflows**：durable execution、Job、Task、event、log、cancel、rerun 與 retry。**Change Plans**：Platform 破壞性變更的計畫，包括等待核准或拒絕的 plan、已核准 plan 的紀錄，以及安全開關 |
 | OS Images | 佈署 Server 所用的 OS image：catalog、upload、deploy mode 驗證與 deployment template（分頁 **OS images** 與 **Templates**） |
-| Infrastructure | Site、Integration、Zone、Pool、credential、automation settings、Site 的 local repository（deployment 從哪裡取得 artifact、來源、同步狀態與內容，見[初始設定](initial-setup.md#4-註冊-local-repository)），以及 [Boot ISO](#boot-iso-與-server-boot-media) |
-| Pools | 你所屬的 Pool（admin 看得到每個 Pool）；每個 Pool 的成員、Pool Role，以及誰在它的 Server 上有 sudo |
+| Infrastructure | Site、Integration、Zone、credential、automation settings、Site 的 local repository（deployment 從哪裡取得 artifact、來源、同步狀態與內容，見[初始設定](initial-setup.md#4-註冊-local-repository)），以及 [Boot ISO](#boot-iso-與-server-boot-media) |
+| Pools | 你所屬的 Pool（admin 看得到 installation 的每個 Pool，並在這裡建立、改名與刪除）；每個 Pool 的成員、Pool Role，以及誰在它的 Server 上有 sudo |
 | Users（admin） | 帳號、存取設定、Directory 的狀態與最近的存取變更 |
 | SSH keys（account menu） | Deployment key、你的 access keys 及其 provisioner sync 狀態，見 [SSH key](ssh-keys.md) |
 | API keys（account menu） | 讓 script、CI 與 CLI 不需要密碼即可以你的身分呼叫 swallow 的 key，見 [API key](api-keys.md) |
@@ -174,7 +174,8 @@ presentation guidance；authorization 仍以 API 為準。
   每個 Platform。admin 可以登入每台 Server 並在上面使用 sudo。
 - 其他 **user** 的權限只來自 Pool Membership。Pool 的 **member** 看得到它的 Server、Platform、Workflow 與 Validation
   Run，並以自己的 SSH key 登入它的 Server；**owner** 還能操作它們（電源、OS 佈署、軟體、Platform、Validation），並在
-  **Pools** 管理 Pool 的成員與 sudo 預設值。不在任何 Pool 的 Server 只屬於 admin。
+  **Pools** 管理 Pool 的成員與 sudo 預設值。Pool 與它的成員資格涵蓋它在每個 Site 的 Server。不在任何 Pool 的 Server
+  只屬於 admin。
 - 只有 admin 建立帳號（**Users → Create user**）；owner 以 username 把既有的帳號加入自己的 Pool。Pool 的
   **Sudo defaults** 決定 member 有沒有 sudo、sudo 要不要密碼，每個 member 可以個別覆寫。owner 一律有 sudo。Platform
   可以收窄 member 在它的節點上能做的事：在 Slurm 叢集上 member 只能登入 login node，而且沒有 sudo。

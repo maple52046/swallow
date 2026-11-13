@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Button, Field, Input, Stack, Textarea } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
-import { type GroupKind, type GroupingResource, groupKindLabel } from '@/domain/infrastructure/types'
+import type { Zone } from '@/domain/infrastructure/types'
 import type { Site } from '@/domain/site/types'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
@@ -9,38 +9,33 @@ import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
 
-interface GroupDialogProps {
-  /** Whether this dialog manages a Zone or a Pool; drives labels and the target endpoint. */
-  kind: GroupKind
-  /** The group being edited, or undefined when creating. */
-  group?: GroupingResource
-  /** Sites the user may attach a new group to; used only in the create flow. */
+interface ZoneDialogProps {
+  /** The Zone being edited, or undefined when creating. */
+  zone?: Zone
+  /** Sites the user may attach a new Zone to; used only in the create flow. */
   sites: Site[]
   /** Preselected Site for the create flow, typically the active global Site scope. */
   defaultSiteId?: string
   onClose: () => void
-  onSaved: (group: GroupingResource) => void
+  onSaved: (zone: Zone) => void
 }
 
 /**
- * Creates or edits one swallow-owned Zone or Pool.
+ * Creates or edits one swallow-owned Zone.
  *
- * One dialog serves both resources because they are structurally identical; the `kind` selects
- * the wording and the endpoint. A group is Site-scoped, so create requires a Site (defaulted to
- * the active scope); editing keeps the Site fixed because a group cannot move between Sites.
- * Submit stays disabled until a Site and name are present, and dismissal is blocked while the
- * save is in flight so a double submit cannot occur.
+ * A Zone is Site-scoped, so create requires a Site (defaulted to the active scope); editing keeps
+ * the Site fixed because a Zone cannot move between Sites. Submit stays disabled until a Site and
+ * name are present, and dismissal is blocked while the save is in flight so a double submit cannot
+ * occur.
  */
-export function GroupDialog({ kind, group, sites, defaultSiteId, onClose, onSaved }: GroupDialogProps) {
+export function ZoneDialog({ zone, sites, defaultSiteId, onClose, onSaved }: ZoneDialogProps) {
   const { infrastructure } = useApp()
-  const [siteId, setSiteId] = useState(group?.siteId ?? defaultSiteId ?? '')
-  const [name, setName] = useState(group?.spec.name ?? '')
-  const [description, setDescription] = useState(group?.spec.description ?? '')
+  const [siteId, setSiteId] = useState(zone?.siteId ?? defaultSiteId ?? '')
+  const [name, setName] = useState(zone?.spec.name ?? '')
+  const [description, setDescription] = useState(zone?.spec.description ?? '')
   const [error, setError] = useState<DisplayedFailure | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const editing = Boolean(group)
-  const label = groupKindLabel(kind)
-  const noun = label.toLowerCase()
+  const editing = Boolean(zone)
   const valid = Boolean(siteId && name.trim())
 
   const close = () => {
@@ -52,12 +47,12 @@ export function GroupDialog({ kind, group, sites, defaultSiteId, onClose, onSave
     setSubmitting(true)
     setError(null)
     try {
-      const saved = group
-        ? await infrastructure.updateGroup(kind, group.id, { name: name.trim(), description: description.trim() })
-        : await infrastructure.createGroup(kind, { siteId, name: name.trim(), description: description.trim() })
+      const saved = zone
+        ? await infrastructure.updateZone(zone.id, { name: name.trim(), description: description.trim() })
+        : await infrastructure.createZone({ siteId, name: name.trim(), description: description.trim() })
       onSaved(saved)
     } catch (caught) {
-      setError(failureOf(caught, `${label} could not be saved.`))
+      setError(failureOf(caught, 'Zone could not be saved.'))
     } finally {
       setSubmitting(false)
     }
@@ -68,12 +63,8 @@ export function GroupDialog({ kind, group, sites, defaultSiteId, onClose, onSave
       open
       onClose={close}
       closeOnInteractOutside={!submitting}
-      title={editing ? `Edit ${noun}` : `Create ${noun}`}
-      description={
-        kind === 'zone'
-          ? 'A Zone groups servers for availability or organization, realized in the provisioner when it supports zones.'
-          : 'A Pool partitions servers for allocation, realized in the provisioner when it supports resource pools.'
-      }
+      title={editing ? 'Edit zone' : 'Create zone'}
+      description="A Zone groups servers of one site for availability or organization, realized in the provisioner when it supports zones."
       onSubmit={(event) => {
         event.preventDefault()
         void submit()
@@ -84,14 +75,14 @@ export function GroupDialog({ kind, group, sites, defaultSiteId, onClose, onSave
             Cancel
           </Button>
           <Button type="submit" colorPalette="brand" loading={submitting} disabled={!valid || submitting}>
-            {editing ? 'Save changes' : `Create ${noun}`}
+            {editing ? 'Save changes' : 'Create zone'}
           </Button>
         </>
       }
     >
       <Stack gap="4">
         {error && (
-          <Alert status="error" title={`${label} could not be saved`}>
+          <Alert status="error" title="Zone could not be saved">
             <FailureMessage failure={error} />
           </Alert>
         )}
@@ -108,7 +99,7 @@ export function GroupDialog({ kind, group, sites, defaultSiteId, onClose, onSave
             onChange={setSiteId}
             options={sites.map((site) => ({ value: site.id, label: site.name }))}
           />
-          {editing && <Field.HelperText>A {noun} cannot move between Sites.</Field.HelperText>}
+          {editing && <Field.HelperText>A zone cannot move between Sites.</Field.HelperText>}
         </Field.Root>
         <Field.Root required>
           <Field.Label>

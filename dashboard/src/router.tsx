@@ -60,7 +60,7 @@ import {
   IntegrationHttpProxyTab,
   IntegrationSubnetDnsTab,
 } from './presentation/pages/infrastructure/IntegrationSettingsTabs'
-import { GroupingPage } from './presentation/pages/infrastructure/GroupingPage'
+import { ZonesPage } from './presentation/pages/infrastructure/ZonesPage'
 import { LocalRepositoryPage } from './presentation/pages/infrastructure/LocalRepositoryPage'
 import { SSHKeysPage } from './presentation/pages/account/SSHKeysPage'
 import { ApiKeysPage } from './presentation/pages/account/ApiKeysPage'
@@ -181,13 +181,16 @@ export const router = createBrowserRouter([
           { path: 'subnet-dns', element: <IntegrationSubnetDnsTab /> },
         ],
       },
-      { path: 'infrastructure/zones', element: <AdminRoute><GroupingPage kind="zone" /></AdminRoute> },
-      { path: 'infrastructure/pools', element: <AdminRoute><GroupingPage kind="pool" /></AdminRoute> },
+      { path: 'infrastructure/zones', element: <AdminRoute><ZonesPage /></AdminRoute> },
+      // Pools belong to the installation, not to a Site's infrastructure (decision 082); the old
+      // address opens the Pools page, where they are managed now.
+      { path: 'infrastructure/pools', element: <Navigate to="/pools" replace /> },
       // One Site's Local Repository (decision 078): Site-scoped through the URL like the pages above.
       { path: 'infrastructure/local-repository', element: <AdminRoute><LocalRepositoryPage /></AdminRoute> },
       { path: 'infrastructure/boot-isos', element: <AdminRoute><BootISOsPage /></AdminRoute> },
-      // Pool access (decision 082): every user's own Pools, an admin's every Pool, and one Pool's
-      // members and Sudo Policy, which its members read and its owners and admins change.
+      // Pools (decision 082): every user's own Pools, an admin's every Pool (which admins also create,
+      // rename, and delete here), and one Pool's members and Sudo Policy, which its members read and
+      // its owners and admins change.
       { path: 'pools', element: <PoolsPage /> },
       { path: 'pools/:id', element: <PoolAccessPage /> },
       // Account administration (decision 082), admins only.

@@ -13,7 +13,7 @@ paths:
       operationId: listChangePlans
       summary: List Change Plans, newest first.
       description: >-
-        Requires role `admin`. `resourceKind` and `resourceId` narrow the list to one resource;
+        Pool read: any authenticated User; the result holds only what the caller may read. `resourceKind` and `resourceId` narrow the list to one resource;
         `state` may repeat. The list is small (plans of the resources a user changed), so it
         is not paginated.
       parameters:
@@ -55,7 +55,7 @@ paths:
       tags: [change-plans]
       operationId: getChangePlan
       summary: Read one Change Plan.
-      description: Requires role `admin`.
+      description: 'Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to.'
       responses:
         '200':
           description: The plan.
@@ -79,7 +79,7 @@ paths:
       operationId: approveChangePlan
       summary: Approve a pending plan as a whole; its controller then applies it.
       description: >-
-        Requires role `admin`. Approval freezes the plan. A plan that is not `pending_approval`,
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Approval freezes the plan. A plan that is not `pending_approval`,
         has blockers, or is past `expiresAt` (which expires it) is `409 conflict`.
       responses:
         '200':
@@ -106,7 +106,7 @@ paths:
       operationId: rejectChangePlan
       summary: Reject a plan that has not been applied.
       description: >-
-        Requires role `admin`. A plan that is not `pending_approval` or `approved`, or is past
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. A plan that is not `pending_approval` or `approved`, or is past
         `expiresAt`, is `409 conflict`.
       responses:
         '200':

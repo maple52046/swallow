@@ -425,7 +425,7 @@ swallow servers network delete-link srv1 <interfaceId> <linkId>
 
 # Placement（Zone／Pool）— flags 或 --file
 swallow servers placement srv1 --zone zone1 --pool pool1
-swallow servers placement srv1 --clear-zone --clear-pool   # 回到 provisioner 預設的 zone 與 pool
+swallow servers placement srv1 --clear-zone --clear-pool   # 回到 provisioner 預設的 zone；移出所有 Pool（只剩 admin）
 swallow servers placement srv1 -f placement.yaml   # { zoneId, poolId }
 
 # Boot Media：Server 優先從所屬 provisioner 的 Boot ISO 開機。方式依 Power Configuration 而定：
@@ -620,9 +620,9 @@ swallow infrastructure zones create -f zone.yaml      # { siteId, name, descript
 swallow infrastructure zones update zone1 -f patch.yaml
 swallow infrastructure zones delete zone1
 
-# pools 使用相同 verbs：
-swallow infrastructure pools list --site-id site1
-swallow infrastructure pools create -f pool.yaml
+# pools 屬於整個 installation（沒有 Site），其餘 verbs 相同：
+swallow infrastructure pools list
+swallow infrastructure pools create -f pool.yaml      # { name, description }
 
 # Pool 成員與 sudo 預設值（成員可讀；owner 與 admin 可改）
 swallow infrastructure pools members list pool1
@@ -634,6 +634,8 @@ swallow infrastructure pools access-policy get pool1
 swallow infrastructure pools access-policy set pool1 --member-sudo=false --sudo-passwordless=false
 ```
 
+Zone 由它所在 Site 的 provisioner 實現；Pool 只存在於 Swallow，可以有任何 Site 的 Server，把 Server 放進 Pool
+不會改變 provisioner 中的任何東西。
 成員以自己的 SSH key 登入 Pool 的 Server。`members list` 顯示每個 sudo 值的實際結果與其來源（`role`、
 `pool` 或 `member`）；owner 一律有 sudo。見
 [pool-access.md](../../api-server/docs/development/api-contracts/api-server/pool-access.md)。

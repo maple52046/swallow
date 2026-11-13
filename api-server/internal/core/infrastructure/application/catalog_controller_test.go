@@ -15,16 +15,15 @@ import (
 type catalogFixture struct {
 	controller *CatalogController
 	zones      *fakeZoneRepo
-	pools      *fakePoolRepo
 	provider   *fakeGroupingProvider
 	factory    *fakeFactory
 }
 
 func newCatalogFixture(t *testing.T) *catalogFixture {
 	t.Helper()
-	f := &catalogFixture{zones: newFakeZoneRepo(), pools: newFakePoolRepo(), provider: newFakeGroupingProvider()}
+	f := &catalogFixture{zones: newFakeZoneRepo(), provider: newFakeGroupingProvider()}
 	f.factory = &fakeFactory{providers: map[string]provisioningdomain.OSProvisioningProvider{"maas-a": f.provider}}
-	f.controller = NewCatalogController(f.zones, f.pools, fakeTargets{bySite: map[string][]string{"site-a": {"maas-a"}}}, f.factory, nil)
+	f.controller = NewCatalogController(f.zones, fakeTargets{bySite: map[string][]string{"site-a": {"maas-a"}}}, f.factory, nil)
 	f.controller.now = func() time.Time { return time.Date(2026, 10, 31, 1, 0, 0, 0, time.UTC) }
 	ids := 0
 	f.controller.newID = func() string { ids++; return "adopted-" + string(rune('0'+ids)) }
@@ -161,15 +160,14 @@ func TestCatalog_UnreachableProvisionerIsRetried(t *testing.T) {
 	assertGroupCondition(t, f.zones.get("z-rack-a").Status.Conditions, convergence.ConditionRealized, convergence.ConditionFalse, convergence.ReasonProviderUnreachable)
 }
 
-// Groups that exist only in the provisioner join the catalog without a provisioner write; the
-// provisioner's default and groups the catalog already names are left out.
+// Zones that exist only in the provisioner join the catalog without a provisioner write; the
+// provisioner's default and zones the catalog already names are left out.
 func TestCatalog_AdoptsProvisionerOnlyGroups(t *testing.T) {
 	f := newCatalogFixture(t)
 	f.addZone("rack-a", "")
 	f.provider.zones = append(f.provider.zones,
 		provisioningdomain.ProviderGroup{Name: "rack-a"},
 		provisioningdomain.ProviderGroup{Name: "rack-z", Description: "made in MAAS"})
-	f.provider.pools = append(f.provider.pools, provisioningdomain.ProviderGroup{Name: "gpu"})
 
 	f.mustReconcile(t, "adopt:site-a", convergence.TriggerResync)
 
@@ -186,24 +184,21 @@ func TestCatalog_AdoptsProvisionerOnlyGroups(t *testing.T) {
 		t.Fatalf("adopted zone = %+v, %v", adopted, err)
 	}
 	assertGroupCondition(t, adopted.Status.Conditions, convergence.ConditionRealized, convergence.ConditionTrue, convergence.ReasonConverged)
-	if pools, _ := f.pools.List(context.Background(), "site-a"); len(pools) != 1 || pools[0].Name != "gpu" {
-		t.Fatalf("pools after adoption = %+v, want [gpu]", pools)
-	}
 	if len(f.provider.calls) != 0 {
 		t.Errorf("adoption drove the provisioner: %v", f.provider.calls)
 	}
 }
 
-// A group migrated without a generation adopts the provisioner's description at its first
+// A zone migrated without a generation adopts the provisioner's description at its first
 // observation, even on a resync, and the provisioner is not written.
 func TestCatalog_AdoptsAMigratedGroupAtFirstObservation(t *testing.T) {
 	f := newCatalogFixture(t)
 	f.zones.byID["z-default"] = &infradomain.Zone{ID: "z-default", SiteID: "site-a", Name: "default", Description: "swallow's copy"}
-	f.pools.byID["p-research"] = &infradomain.Pool{ID: "p-research", SiteID: "site-a", Name: "research", Description: "stale"}
-	f.provider.pools = append(f.provider.pools, provisioningdomain.ProviderGroup{Name: "research", Description: "Research allocations"})
+	f.zones.byID["z-rack-r"] = &infradomain.Zone{ID: "z-rack-r", SiteID: "site-a", Name: "rack-r", Description: "stale"}
+	f.provider.zones = append(f.provider.zones, provisioningdomain.ProviderGroup{Name: "rack-r", Description: "Research racks"})
 
 	f.mustReconcile(t, "zone:z-default", convergence.TriggerResync)
-	f.mustReconcile(t, "pool:p-research", convergence.TriggerResync)
+	f.mustReconcile(t, "zone:z-rack-r", convergence.TriggerResync)
 
 	if len(f.provider.calls) != 0 {
 		t.Fatalf("adoption drove the provisioner: %v", f.provider.calls)
@@ -213,11 +208,11 @@ func TestCatalog_AdoptsAMigratedGroupAtFirstObservation(t *testing.T) {
 		t.Fatalf("zone = %+v, want generation 1 with the provisioner's empty description, realized", zone)
 	}
 	assertGroupCondition(t, zone.Status.Conditions, convergence.ConditionRealized, convergence.ConditionTrue, convergence.ReasonConverged)
-	pool, _ := f.pools.FindByID(context.Background(), "p-research")
-	if pool.Generation != 1 || pool.Description != "Research allocations" {
-		t.Fatalf("pool = %+v, want generation 1 with the provisioner's description", pool)
+	rack := f.zones.get("z-rack-r")
+	if rack.Generation != 1 || rack.Description != "Research racks" {
+		t.Fatalf("zone = %+v, want generation 1 with the provisioner's description", rack)
 	}
-	assertGroupCondition(t, pool.Status.Conditions, convergence.ConditionDrifted, convergence.ConditionFalse, convergence.ReasonInSync)
+	assertGroupCondition(t, rack.Status.Conditions, convergence.ConditionDrifted, convergence.ConditionFalse, convergence.ReasonInSync)
 }
 
 // A migrated group that no provisioner holds keeps its own description as the spec and is created.
@@ -263,16 +258,27 @@ func TestCatalog_SteadyStateWritesNothing(t *testing.T) {
 	}
 }
 
-func TestCatalog_KeysCoverAdoptionAndEveryGroup(t *testing.T) {
+func TestCatalog_KeysCoverAdoptionAndEveryZone(t *testing.T) {
 	f := newCatalogFixture(t)
 	f.addZone("rack-a", "")
-	f.pools.byID["p1"] = &infradomain.Pool{ID: "p1", SiteID: "site-a", Generation: 1, Name: "gpu"}
 
 	keys, err := f.controller.Keys(context.Background())
 	if err != nil {
 		t.Fatalf("Keys: %v", err)
 	}
-	if !slices.Equal(keys, []string{"adopt:site-a", "zone:z-rack-a", "pool:p1"}) {
+	if !slices.Equal(keys, []string{"adopt:site-a", "zone:z-rack-a"}) {
 		t.Errorf("keys = %v", keys)
+	}
+}
+
+// Pools are not realized in a provisioner, so a Pool change wakes nothing and no key names a Pool.
+func TestCatalog_IgnoresPools(t *testing.T) {
+	f := newCatalogFixture(t)
+
+	if slices.Contains(f.controller.Collections(), "pools") {
+		t.Fatalf("Collections() = %v, want no pools", f.controller.Collections())
+	}
+	if err := f.reconcile(t, "pool:p1", convergence.TriggerChange); err == nil {
+		t.Error("Reconcile(pool:p1) succeeded, want an unknown-key error")
 	}
 }

@@ -53,8 +53,9 @@ interface FleetUsageChartsProps {
 }
 
 /**
- * Monitoring console section that charts aggregated usage for the selected Servers, a Pool, a
- * Zone, or a Platform of the current Site.
+ * Monitoring console section that charts aggregated usage for the selected Servers, a Pool, or a
+ * Zone or Platform of the current Site. A Pool may span Sites; the backend refuses an aggregate
+ * across Sites, and that refusal is shown like any other chart failure.
  *
  * Scope and window are URL-owned (`chartScope`, `chartScopeId`, `chartWindow`) so a link
  * reproduces the view — Platform detail links here with a Platform preselected. The backend
@@ -75,13 +76,13 @@ export function FleetUsageCharts({ selectedServerIds, onClearSelection, refreshK
   const requestedWindow = searchParams.get('chartWindow')
   const window: MetricRangeWindow = isMetricRangeWindow(requestedWindow) ? requestedWindow : '1h'
 
-  // Lists the Site's groupings once per Site. Answers are stored with their Site key and the
-  // cleanup marks a superseded request stale, so a slow answer for the previous Site never fills
-  // the pickers.
+  // Lists the Site's Zones and Platforms, and every Pool (a Pool belongs to no Site), once per Site.
+  // Answers are stored with their Site key and the cleanup marks a superseded request stale, so a
+  // slow answer for the previous Site never fills the pickers.
   useEffect(() => {
     if (siteScopeLoading) return
     let cancelled = false
-    Promise.all([infrastructure.listGroups('zone', siteId), infrastructure.listGroups('pool', siteId), platforms.listPlatforms(siteId)])
+    Promise.all([infrastructure.listZones(siteId), infrastructure.listPools(), platforms.listPlatforms(siteId)])
       .then(([zones, pools, platformList]) => {
         if (cancelled) return
         setSettledOptions({
@@ -89,7 +90,7 @@ export function FleetUsageCharts({ selectedServerIds, onClearSelection, refreshK
           state: {
             status: 'ready',
             zone: zones.map((zone) => ({ id: zone.id, name: zone.spec.name })),
-            pool: pools.map((pool) => ({ id: pool.id, name: pool.spec.name })),
+            pool: pools.map((pool) => ({ id: pool.id, name: pool.name })),
             platform: platformList.map((platform) => ({ id: platform.id, name: platform.name })),
           },
         })

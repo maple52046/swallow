@@ -22,7 +22,7 @@ func TestMemberships_UniquePerPoolAndUser(t *testing.T) {
 		t.Fatalf("NewMongoMemberships: %v", err)
 	}
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	alice := &accessdomain.Membership{ID: "m1", PoolID: "p1", SiteID: "s", UserID: "alice", Role: accessdomain.RoleOwner,
+	alice := &accessdomain.Membership{ID: "m1", PoolID: "p1", UserID: "alice", Role: accessdomain.RoleOwner,
 		Sudo: accessdomain.SudoInherit, SudoPasswordless: accessdomain.SudoOn, CreatedAt: now, UpdatedAt: now}
 	if err := repo.Create(ctx, alice); err != nil {
 		t.Fatalf("Create: %v", err)

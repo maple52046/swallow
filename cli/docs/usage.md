@@ -440,7 +440,7 @@ swallow servers network delete-link srv1 <interfaceId> <linkId>
 
 # Placement (Zone/Pool) — flags or --file
 swallow servers placement srv1 --zone zone1 --pool pool1
-swallow servers placement srv1 --clear-zone --clear-pool   # back to the provisioner's default zone and pool
+swallow servers placement srv1 --clear-zone --clear-pool   # provisioner's default zone; out of every Pool (admins only)
 swallow servers placement srv1 -f placement.yaml   # { zoneId, poolId }
 
 # Boot Media: the Server boots a Boot ISO of its own provisioner first. The method follows its
@@ -649,9 +649,9 @@ swallow infrastructure zones create -f zone.yaml      # { siteId, name, descript
 swallow infrastructure zones update zone1 -f patch.yaml
 swallow infrastructure zones delete zone1
 
-# pools are identical:
-swallow infrastructure pools list --site-id site1
-swallow infrastructure pools create -f pool.yaml
+# pools belong to the whole installation (no Site), with the same commands otherwise:
+swallow infrastructure pools list
+swallow infrastructure pools create -f pool.yaml      # { name, description }
 
 # Pool members and sudo defaults (members read; owners and admins change)
 swallow infrastructure pools members list pool1
@@ -663,6 +663,8 @@ swallow infrastructure pools access-policy get pool1
 swallow infrastructure pools access-policy set pool1 --member-sudo=false --sudo-passwordless=false
 ```
 
+A Zone is realized in its Site's provisioner; a Pool exists only in Swallow, may hold Servers of any
+Site, and placing a Server in it changes nothing in the provisioner.
 Members log in to the Pool's Servers with their SSH keys. `members list` shows each sudo value
 with its effective result and where it came from (`role`, `pool`, or `member`); an owner always
 has sudo. See [pool-access.md](../../api-server/docs/development/api-contracts/api-server/pool-access.md).

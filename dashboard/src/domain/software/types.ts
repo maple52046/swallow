@@ -50,6 +50,12 @@ export interface SoftwareCatalogEntry {
   /** Whether every target must list AMD compute GPUs. Absent (an older API) reads as false. */
   requiresAmdComputeGpu?: boolean
   /**
+   * Whether swallow keeps this kind installed by itself on every Server its policy covers (the Node
+   * Exporter, the directory client): only an admin may uninstall it, and swallow installs it again
+   * afterwards. Absent (an older API) reads as false.
+   */
+  keptInstalled?: boolean
+  /**
    * Ways this kind can be installed, the default first (`container`, `native`). Empty for a kind
    * with one built-in way. Always an array.
    */

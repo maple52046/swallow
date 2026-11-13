@@ -44,7 +44,7 @@ Platform 或 GPU 廠商的知識。兩種組件把它組合成開箱即用的 da
 swallow 記錄你要的狀態，由擁有事實的系統回報實際狀態：
 
 - **Desired state** 是 user 要求的樣子，例如 Server 的 tag 與 Zone／Pool
-  placement、swallow 登錄到 provisioner 的 Zone、Pool 與 SSH key、一個
+  placement、swallow 登錄到 provisioner 的 Zone 與 SSH key、決定誰使用哪些 Server 的 Pool、一個
   Platform，或指派到 Server 的 software。swallow 擁有它，是它唯一的真相來源。
 - **Observed state** 是 provider 回報的樣子：MAAS 的 machine 與 hardware facts、
   Kubernetes／Slurm 的 membership 與 live state、Prometheus 的 health。每筆

@@ -381,7 +381,8 @@ func TestMigrateV5ToV6_MakesZonesAndPoolsResources(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed zones: %v", err)
 	}
-	if _, err := db.Collection("pools").InsertOne(ctx, bson.M{"_id": "p1", "siteId": "s", "name": "gpu", "providerRealized": false}); err != nil {
+	// Named default so that v16, which deletes every other Pool, keeps it for the checks below.
+	if _, err := db.Collection("pools").InsertOne(ctx, bson.M{"_id": "p1", "siteId": "s", "name": "default", "providerRealized": false}); err != nil {
 		t.Fatalf("seed pools: %v", err)
 	}
 	if _, err := db.Collection("schema_metadata").InsertOne(ctx, bson.M{
@@ -804,5 +805,178 @@ func TestMigrateV14ToV15_TurnsServeDeploymentsIntoTheMode(t *testing.T) {
 	}
 	if got := schemaVersion(t, ctx, db); got != CurrentSchemaVersion {
 		t.Errorf("schema version = %d, want %d", got, CurrentSchemaVersion)
+	}
+}
+
+// seedV15Pools lays down two Sites' Pools at schema v15: a `default` Pool in each Site (site-a's the
+// older), a `gpu` Pool, their memberships and Sudo Policies, and Servers placed in each.
+func seedV15Pools(t *testing.T, ctx context.Context, db *mongo.Database) {
+	t.Helper()
+	older, newer := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	status := bson.M{"observedGeneration": int64(1), "provisioners": []any{bson.M{"targetId": "maas", "providerName": "default"}}}
+	if _, err := db.Collection("pools").InsertMany(ctx, []any{
+		bson.M{"_id": "default-a", "siteId": "site-a", "generation": int64(1), "name": "default", "status": status, "createdAt": older},
+		bson.M{"_id": "default-b", "siteId": "site-b", "generation": int64(1), "name": "default", "status": status, "createdAt": newer},
+		bson.M{"_id": "gpu-a", "siteId": "site-a", "generation": int64(2), "name": "gpu", "createdAt": older},
+	}); err != nil {
+		t.Fatalf("seed pools: %v", err)
+	}
+	mustIndex(t, ctx, db.Collection("pools"), mongo.IndexModel{
+		Keys: bson.D{{Key: "siteId", Value: 1}, {Key: "name", Value: 1}}, Options: options.Index().SetUnique(true).SetName("pool_site_name"),
+	})
+	if _, err := db.Collection("pool_memberships").InsertMany(ctx, []any{
+		bson.M{"_id": "m-alice-a", "poolId": "default-a", "siteId": "site-a", "userId": "alice", "role": "member", "sudo": "on"},
+		bson.M{"_id": "m-alice-b", "poolId": "default-b", "siteId": "site-b", "userId": "alice", "role": "owner", "sudo": "off"},
+		bson.M{"_id": "m-bob-b", "poolId": "default-b", "siteId": "site-b", "userId": "bob", "role": "member", "sudo": "inherit"},
+		bson.M{"_id": "m-carol-gpu", "poolId": "gpu-a", "siteId": "site-a", "userId": "carol", "role": "owner", "sudo": "inherit"},
+	}); err != nil {
+		t.Fatalf("seed memberships: %v", err)
+	}
+	if _, err := db.Collection("pool_access_policies").InsertMany(ctx, []any{
+		bson.M{"_id": "default-a", "memberSudo": true, "sudoPasswordless": true},
+		bson.M{"_id": "default-b", "memberSudo": true, "sudoPasswordless": false},
+		bson.M{"_id": "gpu-a", "memberSudo": true, "sudoPasswordless": true},
+	}); err != nil {
+		t.Fatalf("seed policies: %v", err)
+	}
+	if _, err := db.Collection("servers").InsertMany(ctx, []any{
+		bson.M{"_id": "srv-a", "generation": int64(3), "spec": bson.M{"poolId": "default-a", "tags": []string{"gpu"}}},
+		bson.M{"_id": "srv-b", "generation": int64(2), "spec": bson.M{"poolId": "default-b"}},
+		bson.M{"_id": "srv-gpu", "generation": int64(5), "spec": bson.M{"poolId": "gpu-a", "zoneId": "z1"}},
+		bson.M{"_id": "srv-none", "generation": int64(1), "spec": bson.M{}},
+	}); err != nil {
+		t.Fatalf("seed servers: %v", err)
+	}
+	if _, err := db.Collection("schema_metadata").InsertOne(ctx, bson.M{
+		"_id": "database", "version": 15, "updatedAt": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed schema marker: %v", err)
+	}
+}
+
+// v16 merges every Site's `default` Pool into the oldest one and deletes every other Pool with its
+// memberships, Sudo Policy, and placements; it refuses to run without a backup confirmation while
+// there is a Pool to delete, and a second run changes nothing.
+func TestMigrateV15ToV16_MakesPoolsInstallationWide(t *testing.T) {
+	db := testDatabase(t)
+	ctx := ctxFor(t)
+	seedV15Pools(t, ctx, db)
+
+	if err := Migrate(ctx, db); err == nil {
+		t.Fatal("Migrate without backup confirmation must refuse to delete Pools")
+	}
+	if got := count(t, ctx, db.Collection("pools"), bson.M{}); got != 3 {
+		t.Fatalf("a refused migration changed the Pools: %d left, want 3", got)
+	}
+	for run := 1; run <= 2; run++ {
+		if err := Migrate(ctx, db, true); err != nil {
+			t.Fatalf("Migrate run %d: %v", run, err)
+		}
+	}
+
+	var pools []bson.M
+	cursor, err := db.Collection("pools").Find(ctx, bson.M{})
+	if err != nil {
+		t.Fatalf("read pools: %v", err)
+	}
+	if err := cursor.All(ctx, &pools); err != nil {
+		t.Fatalf("decode pools: %v", err)
+	}
+	if len(pools) != 1 || pools[0]["_id"] != "default-a" {
+		t.Fatalf("pools = %v, want only default-a", pools)
+	}
+	for _, field := range []string{"siteId", "generation", "status"} {
+		if _, present := pools[0][field]; present {
+			t.Errorf("the kept Pool still has %s", field)
+		}
+	}
+	if indexNames(t, ctx, db.Collection("pools"))["pool_site_name"] {
+		t.Error("the per-Site unique index on Pools survived")
+	}
+
+	memberships := map[string]bson.M{}
+	cursor, err = db.Collection("pool_memberships").Find(ctx, bson.M{})
+	if err != nil {
+		t.Fatalf("read memberships: %v", err)
+	}
+	var docs []bson.M
+	if err := cursor.All(ctx, &docs); err != nil {
+		t.Fatalf("decode memberships: %v", err)
+	}
+	for _, doc := range docs {
+		if doc["poolId"] != "default-a" {
+			t.Errorf("membership %v names a Pool other than default-a", doc["_id"])
+		}
+		if _, present := doc["siteId"]; present {
+			t.Errorf("membership %v still has siteId", doc["_id"])
+		}
+		memberships[doc["userId"].(string)] = doc
+	}
+	if len(memberships) != 2 {
+		t.Fatalf("memberships = %v, want alice and bob in default-a", memberships)
+	}
+	if alice := memberships["alice"]; alice["_id"] != "m-alice-a" || alice["role"] != "owner" || alice["sudo"] != "on" {
+		t.Errorf("alice = %v, want her default-a membership raised to owner with its own sudo override", alice)
+	}
+	if bob := memberships["bob"]; bob["_id"] != "m-bob-b" || bob["role"] != "member" {
+		t.Errorf("bob = %v, want his membership moved to default-a", bob)
+	}
+
+	var policy struct {
+		MemberSudo       bool `bson:"memberSudo"`
+		SudoPasswordless bool `bson:"sudoPasswordless"`
+	}
+	if err := db.Collection("pool_access_policies").FindOne(ctx, bson.M{"_id": "default-a"}).Decode(&policy); err != nil {
+		t.Fatalf("read the kept policy: %v", err)
+	}
+	if !policy.MemberSudo || policy.SudoPasswordless {
+		t.Errorf("policy = %+v, want member sudo kept and passwordless sudo off (the stricter values)", policy)
+	}
+	if got := count(t, ctx, db.Collection("pool_access_policies"), bson.M{}); got != 1 {
+		t.Errorf("policies left = %d, want only default-a's", got)
+	}
+
+	for id, want := range map[string]any{"srv-a": "default-a", "srv-b": "default-a", "srv-gpu": nil, "srv-none": nil} {
+		var server struct {
+			Generation int64  `bson:"generation"`
+			Spec       bson.M `bson:"spec"`
+		}
+		if err := db.Collection("servers").FindOne(ctx, bson.M{"_id": id}).Decode(&server); err != nil {
+			t.Fatalf("read %s: %v", id, err)
+		}
+		if server.Spec["poolId"] != want {
+			t.Errorf("%s poolId = %v, want %v", id, server.Spec["poolId"], want)
+		}
+	}
+	var gpu struct {
+		Spec bson.M `bson:"spec"`
+	}
+	if err := db.Collection("servers").FindOne(ctx, bson.M{"_id": "srv-gpu"}).Decode(&gpu); err != nil || gpu.Spec["zoneId"] != "z1" {
+		t.Errorf("srv-gpu spec = %v, %v; want its Zone kept", gpu.Spec, err)
+	}
+	if got := schemaVersion(t, ctx, db); got != CurrentSchemaVersion {
+		t.Errorf("schema version = %d, want %d", got, CurrentSchemaVersion)
+	}
+}
+
+// A database whose only Pools are named default loses nothing in v16, so it needs no backup
+// confirmation.
+func TestMigrateV15ToV16_MergingDefaultsNeedsNoConfirmation(t *testing.T) {
+	db := testDatabase(t)
+	ctx := ctxFor(t)
+	if _, err := db.Collection("pools").InsertOne(ctx, bson.M{"_id": "default-a", "siteId": "site-a", "name": "default"}); err != nil {
+		t.Fatalf("seed pools: %v", err)
+	}
+	if _, err := db.Collection("schema_metadata").InsertOne(ctx, bson.M{
+		"_id": "database", "version": 15, "updatedAt": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed schema marker: %v", err)
+	}
+
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	if got := count(t, ctx, db.Collection("pools"), bson.M{"_id": "default-a", "siteId": bson.M{"$exists": false}}); got != 1 {
+		t.Errorf("default-a without siteId = %d, want 1", got)
 	}
 }

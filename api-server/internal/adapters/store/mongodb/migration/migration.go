@@ -13,8 +13,8 @@
 // Recovery model: every upgrade step is written to be idempotent and safe to retry.
 // A step's version marker is advanced only after its data changes complete, so an
 // interrupted migration can be rerun and will resume from the last completed version.
-// The v2 -> v3 rename and the v10 removal of the schema-v2 Operation records are gated
-// behind an explicit backup confirmation because there is no automatic rollback: if a
+// The v2 -> v3 rename, the v10 removal of the schema-v2 Operation records, and a v16 that deletes
+// Pools are gated behind an explicit backup confirmation because there is no automatic rollback: if a
 // step fails partway, or the removed records are needed again, the user restores the
 // verified backup and reruns, rather than the migration attempting to reverse
 // partially applied writes.
@@ -93,7 +93,12 @@ import (
 // v15 replaces each Local Repository spec's boolean serveDeployments with its mode (true becomes
 // offline, false upstream) and records each observed source's serving, so every Site keeps fetching
 // where it did.
-const CurrentSchemaVersion = 15
+//
+// v16 makes Pools installation-wide and swallow-only (decision 082): each Site's Pool named
+// `default` is merged into one, every other Pool is deleted with its memberships, Sudo Policy, and
+// the placements that named it, and Pools lose their Site, generation, and status. It needs backup
+// confirmation when it would delete a Pool.
+const CurrentSchemaVersion = 16
 
 // OldestUpgradableSchemaVersion is the oldest schema Migrate upgrades from; an older database
 // has no supported upgrade path. A release's manifest lists every schema from this one up to
@@ -165,9 +170,10 @@ func Check(ctx context.Context, db *mongo.Database) error {
 // updated with an optimistic guard on the previous version, so the command is safe to
 // retry after an interruption and fails loudly if another migrator raced it. The
 // v2 -> v3 rename rewrites Platform data in place and v10 deletes the schema-v2 Operation
-// records, so any upgrade through either requires an explicit backupConfirmed flag:
-// callers must create and verify a MongoDB backup first, because a failed step is
-// recovered by restoring that backup, not by automatic rollback.
+// records, so any upgrade through either requires an explicit backupConfirmed flag; so does an
+// upgrade through v16 when the database holds a Pool v16 would delete. Callers must create and
+// verify a MongoDB backup first, because a failed step is recovered by restoring that backup, not
+// by automatic rollback.
 func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) error {
 	var state metadata
 	err := db.Collection("schema_metadata").FindOne(ctx, bson.M{"_id": "database"}).Decode(&state)
@@ -190,6 +196,15 @@ func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) e
 	}
 	if state.Version < 10 && !confirmed {
 		return errors.New("schema v10 deletes the schema-v2 Operation records; create and verify a MongoDB backup, then rerun with backup confirmation")
+	}
+	if state.Version < 16 && !confirmed {
+		lossy, err := v16DeletesPools(ctx, db)
+		if err != nil {
+			return err
+		}
+		if lossy {
+			return errors.New("schema v16 deletes every Pool not named default, with its memberships; create and verify a MongoDB backup, then rerun with backup confirmation")
+		}
 	}
 
 	for state.Version < CurrentSchemaVersion {
@@ -259,6 +274,11 @@ func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) e
 				return fmt.Errorf("migrate schema v14 to v15: %w", err)
 			}
 			state.Version = 15
+		case 15:
+			if err := migrateV15ToV16(ctx, db); err != nil {
+				return fmt.Errorf("migrate schema v15 to v16: %w", err)
+			}
+			state.Version = 16
 		default:
 			return fmt.Errorf("database schema version %d has no supported upgrade path", state.Version)
 		}

@@ -230,7 +230,7 @@ paths:
       operationId: getMetricValues
       summary: Read the current value of named metrics for explicit Servers.
       description: >-
-        Requires the `admin` role. Evaluates each requested named query at the current instant.
+        Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. Evaluates each requested named query at the current instant.
         `items` has one entry per requested Server in the requested order; a metric with no data
         is absent from that Server's `metrics`, never zero (server-metrics.md, Current Values).
       parameters:
@@ -299,7 +299,7 @@ paths:
       operationId: getMetricRange
       summary: Read bounded usage history of named metrics over a scope of Servers.
       description: >-
-        Requires the `admin` role. Exactly one scope parameter (`serverIds`, `poolId`, `zoneId`,
+        Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. Exactly one scope parameter (`serverIds`, `poolId`, `zoneId`,
         or `platformId`) must be sent; a grouping resolves to its current non-absent members when
         the request is served. swallow chooses the step (about 180 points, a multiple of 30 s). A
         scope resolving to zero Servers answers 200 without contacting the backend
@@ -432,7 +432,7 @@ paths:
       operationId: listMetricNames
       summary: List the fixed set of metric names a client may request.
       description: >-
-        Requires the `admin` role. A plain array in user scan order; the order is not
+        Reference: any authenticated User. A plain array in user scan order; the order is not
         significant to a consumer (server-metrics.md, Metric Names).
       responses:
         '200':

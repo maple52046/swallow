@@ -86,7 +86,7 @@ flowchart LR
 - **worker**：Temporal worker（task queue `swallow-operations`，driver workflow 與 provisioner、internal Runner 的
   activity），以及 desired-state controller（`internal/app/controllers.go`）。每個 controller 以 `controller_leases`
   的 lease 保證同時只有一個 instance 執行，由 change feed 與定期 resync 觸發：`workflow-dispatch`（派發與取消 Workflow，
-  [workflow-execution.md](workflow-execution.md) §10）、`server`（tag 與 Zone／Pool placement）、`zone-pool-catalog`、
+  [workflow-execution.md](workflow-execution.md) §10）、`server`（tag 與 Zone placement）、`zone-catalog`、
   `http-proxy`、`subnet-dns`、`ssh-keys`、`auto-inspect`（為新 enroll 的 Server 建立 `inspect-hardware` Workflow）、
   `platform`（Platform spec 與 Change Plan 的 apply）、`change-plan-expiry`、`node-exporter`（讓每台受政策涵蓋的
   Server 都有運作中的 Node Exporter，以 `configure-node-exporter` Workflow 安裝，[software-deployment.md](software-deployment.md)
@@ -195,7 +195,7 @@ collection 可能由多個 process 寫入，但每個欄位只有一個寫入者
 | provisioning | `os_image_verifications`、`provisioning_tasks` | OS Image 的驗證證據、release 後的網路清理 | worker；api（刪除、重試） |
 | provisioning | `os_image_uploads` | OS Image 上傳的意圖：只用一次、未使用時以 TTL 過期，不含 artifact | api |
 | provisioning | `provisioner_http_proxies`、`provisioner_subnet_dns` | HTTP Proxy 與 Subnet DNS 的 spec 與 status | api（spec）；worker（controller） |
-| infrastructure | `zones`、`pools` | Zone、Pool 的 spec 與 status | api（spec）；worker（catalog controller） |
+| infrastructure | `zones`、`pools` | Zone 的 spec 與 status；Pool（installation 層級，只有名稱與說明） | api（spec、Pool）；worker（Zone 的 catalog controller） |
 | platform | `platforms`、`platform_deployment_requirements` | Platform 的 spec、status 與功能狀態；Slurm 部署需求 | api（spec、按需同步）；worker（membership 的同步狀態、controller、投影）；ansible-executor（credential 與功能結果） |
 | software | `software_assignments`、`software_registry_credentials` | 哪台 Server 裝了什麼；registry 的封存密碼 | api（受理時的 `pending`、`uninstalling`）；worker（Node Exporter、directory client 的 controller 與 platform controller 受理安裝時的 `pending`；reconcile 觀察到機器沒有 OS 時標 `absent`）；worker 與 ansible-executor（Task 的記錄與失敗標記、拿走 OS 的 Task 標 `absent`） |
 | sshkey | `ssh_keys`、`ssh_key_provider_syncs` | Deployment Key 與 Access Key；各 provisioner 的同步紀錄 | api（金鑰）；worker（同步） |

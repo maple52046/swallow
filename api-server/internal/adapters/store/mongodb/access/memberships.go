@@ -19,7 +19,6 @@ const membershipCollection = "pool_memberships"
 type membershipDoc struct {
 	ID               string    `bson:"_id"`
 	PoolID           string    `bson:"poolId"`
-	SiteID           string    `bson:"siteId"`
 	UserID           string    `bson:"userId"`
 	Role             string    `bson:"role"`
 	Sudo             string    `bson:"sudo"`
@@ -144,14 +143,14 @@ func (r *MongoMemberships) DeleteByPool(ctx context.Context, poolID string) erro
 
 func toMembershipDoc(m *accessdomain.Membership) membershipDoc {
 	return membershipDoc{
-		ID: m.ID, PoolID: m.PoolID, SiteID: m.SiteID, UserID: m.UserID, Role: string(m.Role),
+		ID: m.ID, PoolID: m.PoolID, UserID: m.UserID, Role: string(m.Role),
 		Sudo: string(m.Sudo), SudoPasswordless: string(m.SudoPasswordless), CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt,
 	}
 }
 
 func toMembership(doc membershipDoc) *accessdomain.Membership {
 	return &accessdomain.Membership{
-		ID: doc.ID, PoolID: doc.PoolID, SiteID: doc.SiteID, UserID: doc.UserID, Role: accessdomain.PoolRole(doc.Role),
+		ID: doc.ID, PoolID: doc.PoolID, UserID: doc.UserID, Role: accessdomain.PoolRole(doc.Role),
 		Sudo: accessdomain.SudoSetting(doc.Sudo), SudoPasswordless: accessdomain.SudoSetting(doc.SudoPasswordless),
 		CreatedAt: doc.CreatedAt, UpdatedAt: doc.UpdatedAt,
 	}

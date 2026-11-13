@@ -81,9 +81,10 @@ OS Provisioning bounded context 的參與者、上下游關係與翻譯方式見
 | 部署網路意圖 | swallow | 部署時、或修改 Ready Server 的網路時套用（§6） | Template 與 Workflow 的 intent snapshot |
 | NIC、subnet、link、IP 分配 | provisioner | live read，每次 mutation 前重新驗證 | 不存；provider id 只當 live reference |
 | Subnet DNS、Provisioner HTTP Proxy | swallow | spec；controller 寫入 provisioner 並讀回（§6、§7） | `provisioner_subnet_dns`、`provisioner_http_proxies` |
-| Zone 與 Pool 的 catalog | swallow | spec；catalog controller 在 Site 的每個 provisioner 實現（§8） | `zones`、`pools` |
-| Server 的 placement（Zone／Pool） | swallow | Server 的 spec；Server controller 收斂（§8） | `servers` 的 `spec.zoneId`、`spec.poolId` |
-| Server 的 observed zone／pool | provisioner | reconcile 鏡射 | mirrored |
+| Zone 的 catalog | swallow | spec；catalog controller 在 Site 的每個 provisioner 實現（§8） | `zones` |
+| Pool 的 catalog | swallow | installation 層級，只存在於 swallow，不由 provisioner 實現（§8） | `pools` |
+| Server 的 placement（Zone／Pool） | swallow | Server 的 spec；Server controller 收斂 Zone，Pool 不需要實現（§8） | `servers` 的 `spec.zoneId`、`spec.poolId` |
+| Server 的 observed zone 與 resource pool | provisioner | reconcile 鏡射；resource pool 只觀察，swallow 不寫入 | mirrored |
 | Server 的手動 tag | swallow | Server 的 spec；Server controller 收斂、resync 修正 drift（[desired-state-model.md](desired-state-model.md) §4.4）；Site 範圍的刪除與改名先改寫所有 spec，再同步呼叫 provisioner | `servers` 的 `spec.tags` |
 | Server 的自動 tag（provisioner 自己算或自己維護的，例如 MAAS 帶 definition 的 tag、commissioning 維護的 `virtual`） | provisioner | reconcile 鏡射，只觀察，provisioner 加上或再加回來都不是 drift；從 Server 移除或刪除整個 tag 由 swallow 驅動，是一次性的動作 | `servers` 的 `observed.automaticTags` |
 | Provider recovery policy | swallow | 單一 domain 矩陣（§11） | — |
@@ -371,37 +372,49 @@ decision 071。
 
 ## 8. Zone 與 Pool
 
-[Zone](glossaries/terms/zone.md) 與 [Pool](glossaries/terms/pool.md) 是 swallow 擁有、Site 範圍的受管分組，以 desired
-state 管理（[desired-state-model.md](desired-state-model.md) §4.4）。API 見
+[Zone](glossaries/terms/zone.md) 與 [Pool](glossaries/terms/pool.md) 是 swallow 擁有的受管分組，以 desired state 管理
+（[desired-state-model.md](desired-state-model.md) §4.4）。Zone 屬於一個 Site，由 provisioner 實現；Pool 屬於整個
+installation，只存在於 swallow。API 見
 [infrastructure.md](../../api-server/docs/development/api-contracts/api-server/infrastructure.md)。
 
-- **catalog**：spec 是名稱與說明，名稱在 Site 內唯一。API 的建立與修改只寫 spec（generation 加一）並立即回應，不呼叫
-  provisioner。worker 中的 catalog controller 讓 Site 的每個 provisioner 都持有它：
-  - 每個 provisioner Integration 各有一份 realization（`status.provisioners[]`），記錄該 group 在那裡的名稱；資源的
+- **Zone 的 catalog**：spec 是名稱與說明，名稱在 Site 內唯一。API 的建立與修改只寫 spec（generation 加一）並立即回應，
+  不呼叫 provisioner。worker 中的 catalog controller（`zone-catalog`）讓 Site 的每個 provisioner 都持有它：
+  - 每個 provisioner Integration 各有一份 realization（`status.provisioners[]`），記錄該 zone 在那裡的名稱；資源的
     conditions 是它們的總和，只有全部都持有目前的 spec 才是 `realized`。Site 沒有 provisioner 時沒有東西要實現。
-  - 缺少就建立（provider 已有同名 group 視為已存在）；改名時改名 provider 上原本那個 group，machine 留在裡面；
+  - 缺少就建立（provider 已有同名 zone 視為已存在）；改名時改名 provider 上原本那個 zone，machine 留在裡面；
     說明不同時改寫。spec 變更與第一次看到的 provisioner（包括之後才加入的）立即收斂。
   - 在 provisioner 刪除、改名或改說明是 drift：立刻回報，在定期 resync 修正。provisioner 沒有 grouping 能力時保留
     spec、回報 `capability_missing`；provisioner 拒絕時該 provisioner `requires_attention`，直到 spec 改變。
-  - 只存在於 provisioner 的 group（在 MAAS UI 建立，或 swallow 管理 Site 之前就有）在第一次被看到時接管進 catalog，
-    以 provider 的名稱與說明為 spec，不寫入 provisioner。provider 的預設 group（MAAS 的 `default`）永遠不進 catalog。
+  - 只存在於 provisioner 的 zone（在 MAAS UI 建立，或 swallow 管理 Site 之前就有）在第一次被看到時接管進 catalog，
+    以 provider 的名稱與說明為 spec，不寫入 provisioner。provider 的預設 zone（MAAS 的 `default`）永遠不進 catalog。
   - **刪除**是唯一同步呼叫 provisioner 的寫入：有 Server 的 placement spec 指向它時以 `409` 拒絕；否則先從每個持有它
-    的 provisioner 刪除（provider 的預設 group 保留），再刪除紀錄。provisioner 拒絕（例如 group 仍有 machine）就中止，
+    的 provisioner 刪除（provider 的預設 zone 保留），再刪除紀錄。provisioner 拒絕（例如 zone 仍有 machine）就中止，
     紀錄保留。
-- **Server placement**：Server spec 的 `zoneId`、`poolId`，以 id 指向 catalog；`null` 代表 provisioner 的預設 group，
-  清除 placement 就是回到預設。`PUT /servers/{id}/placement` 以 generation 條件寫入 spec；被指派的 Zone／Pool 必須與
-  Server 同 Site。Server controller 使用該 group 在這台 Server 的 provisioner 上的名稱移動 machine，所以改名後 Server
-  會跟著 group 走；group 還沒在 provisioner 建立時等待；被指向的 group 已不存在時 `requires_attention`。在 MAAS UI 搬動
-  machine 是 drift，在 resync 時搬回。Server 接管時，observed 的 zone／pool 以名稱對應到 catalog 的 id（預設 group 對應到
-  `null`）；catalog 尚未有該 group 時等 catalog controller 接管後再接管，避免把 machine 搬回預設 group。
-- Server 上的 observed zone／pool 是 provider 的鏡射，由 reconcile 與 Server controller 更新。
+- **Pool 的 catalog**：名稱與說明，名稱在 installation 內唯一；不屬於任何 Site，一個 Pool 可以有不同 Site 的 Server。
+  不由 provisioner 實現，所以沒有 controller、`generation` 與 conditions：建立、改名與刪除只寫 store，不建立、改名或刪除
+  provisioner 的 resource pool。有 Server 的 placement spec 指向它時刪除以 `409` 拒絕；刪除時一併刪除它的 Pool
+  Membership 與 Sudo Policy（[identity-and-access.md](identity-and-access.md) §6）。
+- **Server placement**：Server spec 的 `zoneId`、`poolId`，以 id 指向 catalog。`PUT /servers/{id}/placement` 以
+  generation 條件寫入 spec。
+  - Zone：必須與 Server 同 Site；`null` 代表 provisioner 的預設 zone。Server controller 使用該 zone 在這台 Server 的
+    provisioner 上的名稱移動 machine，所以改名後 Server 會跟著 zone 走；zone 還沒在 provisioner 建立時等待；被指向的
+    zone 已不存在時 `requires_attention`。在 MAAS UI 搬動 machine 是 drift，在 resync 時搬回。Server 接管時，observed
+    的 zone 以名稱對應到 catalog 的 id（預設 zone 對應到 `null`）；catalog 尚未有該 zone 時等 catalog controller 接管
+    後再接管，避免把 machine 搬回預設 zone。
+  - Pool：可以是任何 Pool；`null` 代表不在任何 Pool（只有 admin 能讀取與操作，identity-and-access.md §4.1）。Pool 的
+    placement 不需要實現，寫入即生效，Server controller 不搬動 machine 的 resource pool。Server 接管時不在任何 Pool，
+    不由 provisioner 的 resource pool 推導。
+- Server 上的 observed zone 與 resource pool 是 provider 的鏡射，由 reconcile 與 Server controller 更新；resource pool
+  只觀察，在 MAAS UI 搬動不是 drift。
 - `infrastructure` feature 只依賴 `provisioning` 的 domain port（`ProviderFactory`、`GroupingController`）與自己的
   port（Site 的 provisioner、Server placement），MAAS 詞彙只在 provisioning adapter。
 
-**設計理由**：user 需要在 swallow 管理分組並搬動 Server，不論 provisioner 是否支援，也不希望 MAAS 上的分組與 swallow
-不一致；所以 Zone／Pool 與 placement 是 swallow 的 desired state，由 controller 在每個 provisioner 實現。只存在於
-provisioner 的 group 被接管而不是被刪除，因為它可能仍有 machine。見
-decision 071。
+**設計理由**：user 需要在 swallow 管理 Zone 並搬動 Server，不論 provisioner 是否支援，也不希望 MAAS 上的 zone 與 swallow
+不一致；所以 Zone 與它的 placement 是 swallow 的 desired state，由 controller 在每個 provisioner 實現。只存在於
+provisioner 的 zone 被接管而不是被刪除，因為它可能仍有 machine。見 decision 071。Pool 是存取與分配的單位，屬於整個
+installation 而且可以跨 Site，在每個 Site 的 provisioner 維持同名的 resource pool 沒有用處，存取也不應取決於
+provisioner 能不能搬動 machine，所以 Pool 只存在於 swallow
+（[decision 082](../decisions/082-accounts-pool-access-and-directory.md)（accounts, pool access, and directory））。
 
 ---
 
@@ -648,7 +661,7 @@ decision 033。
 | 驗證紀錄 Task（`record-image-verification*`） | `internal/app/platform_workflow_step_executor.go` |
 | 取消驗證時的歸還 | `internal/app/provisioning_operation_adapter.go`（`recover-server` 宣告 `OnCancel: {Run: true}`）、`internal/adapters/executor/temporalworkflow/driver.go`（`cancelWorkflow`） |
 | MAAS adapter（狀態對應、網路、上傳、event、grouping、proxy、subnet DNS） | `internal/adapters/osprovisioning/maas/`（`mapping.go`、`network.go`、`provider.go`、`events.go`、`grouping.go`、`http_proxy.go`、`subnet_dns.go`） |
-| Zone／Pool 與 placement | `internal/core/infrastructure/application/service.go`、`internal/core/infrastructure/application/catalog_controller.go`、`internal/core/provisioning/application/server_controller.go`（`serverPlacement`）、`internal/app/grouping_adapters.go` |
+| Zone／Pool 與 placement | `internal/core/infrastructure/application/service.go`、`internal/core/infrastructure/application/catalog_controller.go`（Zone）、`internal/core/provisioning/application/server_controller.go`（`serverPlacement`，Zone）、`internal/app/grouping_adapters.go` |
 | 上傳的 size 上限、request body 的 stream 設定與其他 route 的 body 上限 | `config/defaults.go`、`config/env.go`（`SWALLOW_API_IMAGE_UPLOAD_MAX_BYTES`）；`internal/app/api.go`（Fiber 的 `StreamRequestBody`、`DisablePreParseMultipartForm`）、`internal/app/request_body.go`、`internal/shared/middleware/body_limit.go`；nginx 的上傳內容 location 在 `deploy/production/nginx.conf` |
 
 ### `dashboard`

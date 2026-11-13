@@ -20,7 +20,7 @@ test('Boot ISOs is an Infrastructure tab, and the former Provisioning URL redire
   await expect(page).toHaveURL('/infrastructure/boot-isos?site=site-a#boot-iso-setup-title')
   await expect(page.getByRole('heading', { name: 'Infrastructure', level: 1 })).toBeVisible()
   const tabs = page.getByRole('tablist', { name: 'Infrastructure navigation' })
-  await expect(tabs.getByRole('tab')).toHaveText(['Sites', 'Integrations', 'Zones', 'Pools', 'Local repository', 'Boot ISOs'])
+  await expect(tabs.getByRole('tab')).toHaveText(['Sites', 'Integrations', 'Zones', 'Local repository', 'Boot ISOs'])
   await expect(tabs.getByRole('tab', { name: 'Boot ISOs' })).toHaveAttribute('aria-selected', 'true')
   await expect(bootISOCard(page, 'taipei-rack')).toBeVisible()
   // The sidebar marks Infrastructure as the current area.

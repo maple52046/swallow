@@ -73,6 +73,48 @@ test('An admin sees the Directory and confirms the admin sudo setting before it 
   await expect(page.getByText('Admins use sudo without a password: off')).toBeVisible()
 })
 
+test('An admin creates, renames, and deletes an installation-wide Pool on the Pools page', async ({ page }) => {
+  let created: Record<string, unknown> | undefined
+  await installApiFixtures(page)
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/infrastructure/pools') created = request.postDataJSON() as Record<string, unknown>
+  })
+  await page.goto('/pools?site=site-a')
+
+  const table = page.getByRole('table', { name: 'Pools' })
+  await expect(table.getByRole('row', { name: /research/ })).toContainText('Admin (not a member)')
+  await expect(table.getByRole('columnheader', { name: 'Site' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Create pool' }).first().click()
+  const dialog = page.getByRole('dialog', { name: 'Create pool' })
+  await expect(dialog.getByRole('combobox', { name: 'Site' })).toHaveCount(0)
+  await dialog.getByRole('textbox', { name: 'Name' }).fill('research')
+  await dialog.getByRole('button', { name: 'Create pool' }).click()
+  await expect(dialog).toContainText('A pool with this name already exists.')
+  await dialog.getByRole('textbox', { name: 'Name' }).fill('gpu')
+  await dialog.getByRole('button', { name: 'Create pool' }).click()
+  await expect(page.getByText('Pool created')).toBeVisible()
+  expect(created).toEqual({ name: 'gpu', description: '' })
+
+  await table.getByRole('button', { name: 'Edit gpu' }).click()
+  await page.getByRole('dialog', { name: 'Edit pool' }).getByRole('textbox', { name: 'Name' }).fill('gpu-shared')
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  await expect(page.getByText('Pool updated')).toBeVisible()
+  await expect(table.getByRole('row', { name: /gpu-shared/ })).toBeVisible()
+
+  await table.getByRole('button', { name: 'Delete gpu-shared' }).click()
+  const confirm = page.getByRole('alertdialog')
+  await expect(confirm).toContainText('with its members and sudo defaults; nothing changes in the provisioner')
+  await confirm.getByRole('textbox', { name: 'Pool name confirmation' }).fill('gpu-shared')
+  await confirm.getByRole('button', { name: 'Delete pool' }).click()
+  await expect(page.getByText('Pool deleted')).toBeVisible()
+  await expect(table.getByRole('row', { name: /gpu-shared/ })).toHaveCount(0)
+
+  // The Infrastructure area no longer has a Pools tab; its old address opens this page.
+  await page.goto('/infrastructure/pools?site=site-a')
+  await expect(page).toHaveURL(/\/pools$/)
+})
+
 test('An owner adds a member, overrides its sudo, and sees the effective values from the API', async ({ page }) => {
   await installApiFixtures(page, { identity: 'owner' })
   await page.goto('/pools?site=site-a')

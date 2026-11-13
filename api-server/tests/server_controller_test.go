@@ -69,20 +69,14 @@ func (s *countingConvergenceStore) SetConvergence(ctx context.Context, id string
 	return s.fakeServerRepo.SetConvergence(ctx, id, status)
 }
 
-// fakeGroupCatalog answers the Server controller's catalog lookups from fixed Zones and Pools:
-// each maps a catalog id to its name on the provisioner ("" while not realized there).
+// fakeGroupCatalog answers the Server controller's catalog lookups from fixed Zones: each maps a
+// catalog id to its name on the provisioner ("" while not realized there).
 type fakeGroupCatalog struct {
 	zones map[string]string
-	pools map[string]string
 }
 
 func (c *fakeGroupCatalog) ZoneOn(_ context.Context, id, _ string) (string, bool, bool, error) {
 	name, found := c.zones[id]
-	return name, name != "", found, nil
-}
-
-func (c *fakeGroupCatalog) PoolOn(_ context.Context, id, _ string) (string, bool, bool, error) {
-	name, found := c.pools[id]
 	return name, name != "", found, nil
 }
 
@@ -95,16 +89,7 @@ func (c *fakeGroupCatalog) ZoneNamed(_ context.Context, _, _, name string) (stri
 	return "", false, nil
 }
 
-func (c *fakeGroupCatalog) PoolNamed(_ context.Context, _, _, name string) (string, bool, error) {
-	for id, pool := range c.pools {
-		if pool == name {
-			return id, true, nil
-		}
-	}
-	return "", false, nil
-}
-
-// groupingFakeProvider is fakeProvider with zones and pools: assigning one moves the machine.
+// groupingFakeProvider is fakeProvider with zones: assigning one moves the machine.
 type groupingFakeProvider struct {
 	*fakeProvider
 }
@@ -119,28 +104,15 @@ func (p *groupingFakeProvider) ListZones(context.Context) ([]provisioningdomain.
 	return nil, nil
 }
 
-func (p *groupingFakeProvider) ListPools(context.Context) ([]provisioningdomain.ProviderGroup, error) {
-	return nil, nil
-}
-
-func (p *groupingFakeProvider) DefaultGroupNames() (string, string) { return "default", "default" }
+func (p *groupingFakeProvider) DefaultZoneName() string { return "default" }
 
 func (p *groupingFakeProvider) EnsureZone(context.Context, string, string) error         { return nil }
 func (p *groupingFakeProvider) RenameZone(context.Context, string, string, string) error { return nil }
 func (p *groupingFakeProvider) DeleteZone(context.Context, string) error                 { return nil }
-func (p *groupingFakeProvider) EnsurePool(context.Context, string, string) error         { return nil }
-func (p *groupingFakeProvider) RenamePool(context.Context, string, string, string) error { return nil }
-func (p *groupingFakeProvider) DeletePool(context.Context, string) error                 { return nil }
 
 func (p *groupingFakeProvider) SetMachineZone(_ context.Context, machineID, zone string) (*provisioningdomain.Machine, error) {
 	p.actions = append(p.actions, "setZone "+zone)
 	p.machines[machineID].Zone = zone
-	return p.machines[machineID], nil
-}
-
-func (p *groupingFakeProvider) SetMachinePool(_ context.Context, machineID, pool string) (*provisioningdomain.Machine, error) {
-	p.actions = append(p.actions, "setPool "+pool)
-	p.machines[machineID].ResourcePool = pool
 	return p.machines[machineID], nil
 }
 
@@ -179,7 +151,7 @@ func setupServerController(t *testing.T, observedTags ...string) *serverControll
 	store := &countingConvergenceStore{fakeServerRepo: servers}
 	holds := &fakeServerHolds{held: map[string]bool{}}
 	events := &fakeConvergenceEvents{}
-	catalog := &fakeGroupCatalog{zones: map[string]string{}, pools: map[string]string{}}
+	catalog := &fakeGroupCatalog{zones: map[string]string{}}
 	return &serverControllerFixture{
 		servers: servers, store: store, provider: provider, factory: factory, catalog: catalog,
 		machine: machine, holds: holds, events: events,
@@ -187,8 +159,8 @@ func setupServerController(t *testing.T, observedTags ...string) *serverControll
 	}
 }
 
-// withGrouping makes the provisioner hold zones and pools, with the machine observed in the given
-// ones. It must run before the first reconcile, which caches the provisioner's default groups.
+// withGrouping makes the provisioner hold zones, with the machine observed in the given zone and
+// resource pool. It must run before the first reconcile, which caches the provisioner's default zone.
 func (f *serverControllerFixture) withGrouping(zone, pool string) *serverControllerFixture {
 	f.factory.providers[testIntegrationID] = &groupingFakeProvider{fakeProvider: f.provider}
 	f.machine.Zone, f.machine.ResourcePool = zone, pool
@@ -501,16 +473,16 @@ func TestServerController_SteadyStateWritesNothing(t *testing.T) {
 	}
 }
 
-// Adoption maps the observed zone and pool onto catalog ids (the provisioner's default onto "")
-// without moving the machine.
+// Adoption maps the observed zone onto a catalog id (the provisioner's default onto "") without
+// moving the machine, and leaves the Server in no Pool whatever resource pool it is in.
 func TestServerController_AdoptsThePlacementAsCatalogIDs(t *testing.T) {
-	f := setupServerController(t, "gpu").withGrouping("rack-a", "default")
+	f := setupServerController(t, "gpu").withGrouping("rack-a", "research")
 	f.catalog.zones["z1"] = "rack-a"
 
 	f.mustReconcile(t, convergence.TriggerResync)
 
 	if spec := f.server().Spec; spec.ZoneID != "z1" || spec.PoolID != "" {
-		t.Fatalf("adopted placement = %+v, want zone z1 and the default pool", spec)
+		t.Fatalf("adopted placement = %+v, want zone z1 and no Pool", spec)
 	}
 	f.assertCondition(t, convergence.ConditionRealized, convergence.ConditionTrue, convergence.ReasonConverged)
 	if len(f.provider.actions) != 0 {
@@ -518,8 +490,8 @@ func TestServerController_AdoptsThePlacementAsCatalogIDs(t *testing.T) {
 	}
 }
 
-// A machine in a group the catalog does not hold yet waits for the catalog controller to adopt it,
-// rather than adopting a spec that would move the machine to the default group.
+// A machine in a zone the catalog does not hold yet waits for the catalog controller to adopt it,
+// rather than adopting a spec that would move the machine to the default zone.
 func TestServerController_AdoptionWaitsForTheCatalog(t *testing.T) {
 	f := setupServerController(t).withGrouping("rack-new", "default")
 
@@ -537,21 +509,21 @@ func TestServerController_AdoptionWaitsForTheCatalog(t *testing.T) {
 	}
 }
 
-// A placement change moves the machine at once; clearing it returns the machine to the default.
+// A Zone placement moves the machine at once and clearing it returns the machine to the default
+// zone; a Pool placement is realized without touching the provisioner.
 func TestServerController_ConvergesAndClearsThePlacement(t *testing.T) {
 	f := setupServerController(t).withGrouping("default", "default")
 	f.catalog.zones["z1"] = "rack-a"
-	f.catalog.pools["p1"] = "gpu"
 	f.mustReconcile(t, convergence.TriggerResync)
 
 	f.setPlacement(t, "z1", "p1")
 	f.mustReconcile(t, convergence.TriggerChange)
 
-	if !slices.Equal(f.provider.actions, []string{"setZone rack-a", "setPool gpu"}) {
-		t.Fatalf("actions = %v, want the machine moved to rack-a and gpu", f.provider.actions)
+	if !slices.Equal(f.provider.actions, []string{"setZone rack-a"}) {
+		t.Fatalf("actions = %v, want only the machine moved to rack-a", f.provider.actions)
 	}
-	if observed := f.server().Observed; observed.ProviderZone != "rack-a" || observed.ProviderResourcePool != "gpu" {
-		t.Errorf("observed placement = %q/%q, want rack-a/gpu", observed.ProviderZone, observed.ProviderResourcePool)
+	if observed := f.server().Observed; observed.ProviderZone != "rack-a" || observed.ProviderResourcePool != "default" {
+		t.Errorf("observed placement = %q/%q, want rack-a/default", observed.ProviderZone, observed.ProviderResourcePool)
 	}
 	f.assertCondition(t, convergence.ConditionRealized, convergence.ConditionTrue, convergence.ReasonConverged)
 
@@ -561,6 +533,24 @@ func TestServerController_ConvergesAndClearsThePlacement(t *testing.T) {
 	if got := f.provider.actions[len(f.provider.actions)-1]; got != "setZone default" {
 		t.Fatalf("last action = %q, want the machine back in the default zone", got)
 	}
+}
+
+// Moving a Server between Pools changes nothing in the provisioner, and a machine moved to another
+// resource pool in the provisioner is not drift.
+func TestServerController_PoolNeedsNoRealization(t *testing.T) {
+	f := setupServerController(t).withGrouping("default", "default")
+	f.mustReconcile(t, convergence.TriggerResync)
+
+	f.setPlacement(t, "", "p1")
+	f.mustReconcile(t, convergence.TriggerChange)
+	f.machine.ResourcePool, f.server().Observed.ProviderResourcePool = "gpu", "gpu"
+	f.mustReconcile(t, convergence.TriggerResync)
+
+	if len(f.provider.actions) != 0 {
+		t.Fatalf("actions = %v, want the provisioner untouched", f.provider.actions)
+	}
+	f.assertCondition(t, convergence.ConditionRealized, convergence.ConditionTrue, convergence.ReasonConverged)
+	f.assertCondition(t, convergence.ConditionDrifted, convergence.ConditionFalse, convergence.ReasonInSync)
 }
 
 // A Zone the catalog controller has not created on the provisioner yet is transient; a Zone that

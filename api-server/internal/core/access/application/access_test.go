@@ -55,7 +55,7 @@ func newAccessFixture(t *testing.T) *accessFixture {
 	f.members, err = NewMembershipService(MembershipServiceDeps{
 		Transactor: &storetest.Transactor{}, Users: f.users, Memberships: f.memberships, Policies: f.policies,
 		Settings: &memSettings{}, Audit: f.audit,
-		Pools: fixedPools{"pool-a": {ID: "pool-a", SiteID: "site-1", Name: "Research"}, "pool-b": {ID: "pool-b", SiteID: "site-1", Name: "Prod"}},
+		Pools: fixedPools{"pool-a": {ID: "pool-a", Name: "Research"}, "pool-b": {ID: "pool-b", Name: "Prod"}},
 	})
 	if err != nil {
 		t.Fatalf("NewMembershipService: %v", err)

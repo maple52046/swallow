@@ -19,7 +19,7 @@ Policy、主機端的 directory client，以及安裝時需要的設定。決策
   access settings 與稽核；API 授權與列表過濾；Platform 的 Pool；Directory provider 與它的 controller；Host Access 與
   sudo 規則；directory client（Managed Software kind `sssd`）；Platform Module 的 Host Access 限制；安裝設定。
 - **範圍外（只連結）**：Session、API Key 與 Access Key 的保存（[access-and-credentials.md](access-and-credentials.md)）；
-  Pool 目錄與 Server placement 的收斂（[os-provisioning.md](os-provisioning.md) §8）；Slurm 的家目錄與共享儲存（尚未決定）；
+  Pool 目錄與 Server placement 的規則（[os-provisioning.md](os-provisioning.md) §8）；Slurm 的家目錄與共享儲存（尚未決定）；
   外部目錄（組織既有的 LDAP、Active Directory）與 Kubernetes 的帳號整合（後續）。
 
 ---
@@ -102,7 +102,10 @@ flowchart LR
 ### 4.1 規則
 
 - **admin** 可以做所有事。**user** 的權限只來自 Pool Membership；沒有 membership 的 user 只能使用自己的帳號功能。
-- Server 屬於它的 placement（`spec.poolId`）指向的 Pool；沒有 Pool 的 Server 只有 admin 能讀取與操作。
+- User 與 Pool 都屬於整個 installation：Pool 不屬於任何 Site，一個 Pool 可以有不同 Site 的 Server，Pool 的 owner 與
+  member 在每個 Site 都是同一套權限。Pool 只存在於 swallow，不是 provisioner 的 resource pool。
+- Server 屬於它的 placement（`spec.poolId`）指向的 Pool；placement 寫入即生效。沒有 Pool 的 Server（新 Server 一律
+  如此，直到 admin 把它放進 Pool）只有 admin 能讀取與操作。
 - Platform 屬於「它的每個節點都在」的那個 Pool（§5）；沒有這樣的 Pool 時只有 admin 能讀取與管理。
 - Workflow 屬於它的目標：每個目標 Server（與目標 Platform）都能讀取時才能讀取；每個目標都能操作時才能取消、rerun 或
   重試。沒有任何目標的 Workflow 只有 admin。
@@ -247,8 +250,8 @@ base DN 預設 `dc=swallow,dc=internal`。swallow 只管理 `ou=people`、`ou=gr
   Workflow 紀錄與 artifact）。沒有 Directory 時拒絕安裝（`409 conflict`）。
 - desired 由政策推導：設定了 Directory 且 `directoryClientEnsure`（預設開）時，Node Exporter 的同一套 coverage（存在、
   `deployed`、沒有 lock、Site 啟用 automation）涵蓋的每台 Server 都應該有它，由 worker 的 ensure controller（名稱
-  `sssd`）安裝（[software-deployment.md](software-deployment.md)）；也可以由 user 單獨安裝。user 的 uninstall 讓那台
-  Server 退出（opt out），直到有人再安裝。目前只支援 Ubuntu。
+  `sssd`）安裝（[software-deployment.md](software-deployment.md)）；也可以由 owner 單獨安裝。只有 admin 能 uninstall，
+  而且 uninstall 之後 controller 會再安裝（要讓某台 Server 不裝，lock 它或關閉 Site 的 automation）。目前只支援 Ubuntu。
 - 安裝內容（idempotent），在 SSSD 讀得到 Directory、本地帳號檢查通過之前不改任何登入路徑：
   - OS 不是 Ubuntu 時 `[sssd_unsupported_os]`；沒有收到 Directory 的設定時 `[sssd_settings_missing]`。
   - 套件 `sssd-ldap`、`libnss-sss`、`libpam-sss`、`libsss-sudo`；installation CA；`/etc/sssd/sssd.conf`（0600；
@@ -310,7 +313,9 @@ base DN 預設 `dc=swallow,dc=internal`。swallow 只管理 `ou=people`、`ou=gr
 
 ## 12. 設計理由
 
-- Pool 已經是 swallow 擁有、在 provisioner 實現的 Server 分組，以它作為存取的單位，不需要另一個要保持一致的分組。
+- Pool 已經是 swallow 擁有的 Server 分組，以它作為存取的單位，不需要另一個要保持一致的分組。它和 User 一樣屬於整個
+  installation，同一個團隊在不同 Site 的 Server 才能由一個 Pool 管理；它不在 provisioner 實現，存取不取決於
+  provisioner 能不能搬動 machine。
 - 主機讀 Directory 而不是由 Ansible 推送檔案：membership、key、placement 的每個變更都不必在每台主機跑 Workflow，離線的
   主機也不會漏掉變更；主機的設定是靜態的，只在安裝 directory client 時寫一次。
 - swallow 是 Directory 唯一的寫入者，Directory 可以完整重建：備份只需要 swallow 的 store，controller 能修正任何偏差。

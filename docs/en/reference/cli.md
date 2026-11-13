@@ -88,9 +88,9 @@ and follow each link into the complete usage manual.
 - [`access`](../../../cli/docs/usage.md#access) — `settings get|set`, `audit`,
   and `directory get|sync` (admin).
 - [`infrastructure`](../../../cli/docs/usage.md#infrastructure-zones-and-pools)
-  — `zones` and `pools` expose `list`, `get`, `create`, `update`, and `delete`;
-  `pools members` and `pools access-policy` manage a Pool's members and sudo
-  defaults.
+  — `zones` (per Site) and `pools` (for the whole installation) expose `list`,
+  `get`, `create`, `update`, and `delete`; `pools members` and
+  `pools access-policy` manage a Pool's members and sudo defaults.
 - [`platforms`](../../../cli/docs/usage.md#platforms) — `list`, `get`, `create`,
   `set-spec`, `update`, `delete`, `sync`, and `sync-all`; read live Slurm
   (`slurm`), manage `slurm-requirements`, `gpu-operator`, and Omnistat's

@@ -51,7 +51,7 @@ paths:
       operationId: listWorkflows
       summary: List Workflows, newest first.
       description: >-
-        Requires the `admin` role. Workflows sorted by `requestedAt` descending, paged. Every
+        Pool read: any authenticated User; the result holds only what the caller may read. Workflows sorted by `requestedAt` descending, paged. Every
         filter is optional and exact-match.
       parameters:
         - $ref: '#/components/parameters/WorkflowSiteIdFilter'
@@ -83,7 +83,7 @@ paths:
       operationId: getWorkflow
       summary: Read one Workflow.
       description: >-
-        Requires the `admin` role. The Workflow, including the resources it currently owns.
+        Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. The Workflow, including the resources it currently owns.
       responses:
         '200':
           description: The Workflow.
@@ -107,7 +107,7 @@ paths:
       operationId: getWorkflowTimeline
       summary: Read a Workflow's normalized, immutable state-transition events.
       description: >-
-        Requires the `admin` role. Events are ordered by `createdAt`, then ID.
+        Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. Events are ordered by `createdAt`, then ID.
       responses:
         '200':
           description: The timeline; an empty array when nothing has been recorded.
@@ -133,7 +133,7 @@ paths:
       operationId: cancelWorkflow
       summary: Cancel an unfinished Workflow.
       description: >-
-        Requires the `admin` role. Returns 202 once the cancel request is stored; the worker delivers
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Returns 202 once the cancel request is stored; the worker delivers
         it, resuming the Workflow when its execution is gone, and the Workflow records `canceling`
         then `canceled`.
       responses:
@@ -161,7 +161,7 @@ paths:
       operationId: rerunWorkflow
       summary: Recover a Workflow that cannot advance by launching a new one for the same intent.
       description: >-
-        Requires the `admin` role. Accepted for a `failed`, `partially_succeeded`, `canceled`, or
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Accepted for a `failed`, `partially_succeeded`, `canceled`, or
         `requires_attention` Workflow; the new Workflow's `retryOfOperationId` names the original.
         A `requires_attention` original is canceled in the same request. The new Workflow owns no
         resources yet, so `leases` is null in this response.
@@ -193,7 +193,7 @@ paths:
       operationId: retryWorkflowTask
       summary: Retry one failed, retryable Task in place, at its next attempt.
       description: >-
-        Requires the `admin` role. Accepted only when the Task is `failed` or
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Accepted only when the Task is `failed` or
         `requires_attention` and its normalized error has `retryable` true. The retry is stored
         and applied by the Workflow, also after its execution was lost; a Task in a Job that
         retries as a whole runs that Job again.
@@ -223,7 +223,7 @@ paths:
       operationId: getWorkflowTaskLogs
       summary: Read an Ansible Task's retained runner output.
       description: >-
-        Requires the `admin` role. UTF-8 plain text; empty for a non-Ansible Task or one whose
+        Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. UTF-8 plain text; empty for a non-Ansible Task or one whose
         run has not started.
       responses:
         '200':
@@ -249,7 +249,7 @@ paths:
       operationId: getWorkflowTaskStderr
       summary: Read an Ansible Task's error-only report.
       description: >-
-        Requires the `admin` role. UTF-8 plain text with one block per failed or unreachable
+        Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. UTF-8 plain text with one block per failed or unreachable
         ansible task; empty when the Task recorded no failure or is not an Ansible Task.
       responses:
         '200':
@@ -275,7 +275,7 @@ paths:
       operationId: getWorkflowTaskEvents
       summary: Read an Ansible Task's per-host results, live while it runs.
       description: >-
-        Requires the `admin` role. A non-Ansible Task, or one whose run has not started, returns
+        Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. A non-Ansible Task, or one whose run has not started, returns
         an empty `events` list with an empty `runId`. Task output is never included.
       responses:
         '200':
@@ -300,7 +300,7 @@ paths:
       tags: [workflows]
       operationId: listWorkflowTaskArtifacts
       summary: List a Task's retained artifact metadata.
-      description: Requires the `admin` role. Metadata only; artifact bytes and server-side paths are never returned.
+      description: 'Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. Metadata only; artifact bytes and server-side paths are never returned.'
       responses:
         '200':
           description: The artifact metadata; an empty array when the Task retained none.

@@ -1,45 +1,60 @@
 import type {
   AssignServerPlacementInput,
-  CreateGroupInput,
+  CreatePoolInput,
+  CreateZoneInput,
   InfrastructureRepository,
   UpdateGroupInput,
 } from '@/application/ports/InfrastructureRepository'
-import type { GroupKind, GroupingResource, ServerPlacement } from '@/domain/infrastructure/types'
+import type { Pool, ServerPlacement, Zone } from '@/domain/infrastructure/types'
 import { apiRequest } from './client'
 
 /**
  * Maps the Active Infrastructure HTTP contract (`/api/v1/infrastructure` and
- * `PUT /api/v1/servers/{id}/placement`) onto the admin grouping port.
+ * `PUT /api/v1/servers/{id}/placement`) onto the grouping port.
  *
- * Zone and Pool share one shape and one set of routes distinguished only by a path segment, so
- * the kind selects `zones` or `pools`. The contract's JSON fields already match
- * {@link GroupingResource} and {@link ServerPlacement}, so responses are returned directly; no
- * secret material crosses this boundary.
+ * Zones (Site-scoped, `?siteId=` filter) and Pools (installation-wide, no filter) have their own
+ * routes and shapes. The contract's JSON fields already match {@link Zone}, {@link Pool}, and
+ * {@link ServerPlacement}, so responses are returned directly (contractCompatibility.ts checks
+ * this at compile time); no secret material crosses this boundary.
  */
 export class ApiInfrastructureRepository implements InfrastructureRepository {
-  async listGroups(kind: GroupKind, siteId?: string): Promise<GroupingResource[]> {
+  async listZones(siteId?: string): Promise<Zone[]> {
     const suffix = siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''
-    return apiRequest<GroupingResource[]>(`/api/v1/infrastructure/${collectionOf(kind)}${suffix}`)
+    return apiRequest<Zone[]>(`/api/v1/infrastructure/zones${suffix}`)
   }
 
-  async createGroup(kind: GroupKind, input: CreateGroupInput): Promise<GroupingResource> {
-    return apiRequest<GroupingResource>(`/api/v1/infrastructure/${collectionOf(kind)}`, {
-      method: 'POST',
-      body: JSON.stringify(input),
-    })
+  async createZone(input: CreateZoneInput): Promise<Zone> {
+    return apiRequest<Zone>('/api/v1/infrastructure/zones', { method: 'POST', body: JSON.stringify(input) })
   }
 
-  async updateGroup(kind: GroupKind, id: string, input: UpdateGroupInput): Promise<GroupingResource> {
-    return apiRequest<GroupingResource>(`/api/v1/infrastructure/${collectionOf(kind)}/${encodeURIComponent(id)}`, {
+  async updateZone(id: string, input: UpdateGroupInput): Promise<Zone> {
+    return apiRequest<Zone>(`/api/v1/infrastructure/zones/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(input),
     })
   }
 
-  async deleteGroup(kind: GroupKind, id: string): Promise<void> {
-    await apiRequest<void>(`/api/v1/infrastructure/${collectionOf(kind)}/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
+  async deleteZone(id: string): Promise<void> {
+    await apiRequest<void>(`/api/v1/infrastructure/zones/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  }
+
+  async listPools(): Promise<Pool[]> {
+    return apiRequest<Pool[]>('/api/v1/infrastructure/pools')
+  }
+
+  async createPool(input: CreatePoolInput): Promise<Pool> {
+    return apiRequest<Pool>('/api/v1/infrastructure/pools', { method: 'POST', body: JSON.stringify(input) })
+  }
+
+  async updatePool(id: string, input: UpdateGroupInput): Promise<Pool> {
+    return apiRequest<Pool>(`/api/v1/infrastructure/pools/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
     })
+  }
+
+  async deletePool(id: string): Promise<void> {
+    await apiRequest<void>(`/api/v1/infrastructure/pools/${encodeURIComponent(id)}`, { method: 'DELETE' })
   }
 
   async assignServerPlacement(serverId: string, input: AssignServerPlacementInput): Promise<ServerPlacement> {
@@ -48,9 +63,4 @@ export class ApiInfrastructureRepository implements InfrastructureRepository {
       body: JSON.stringify(input),
     })
   }
-}
-
-/** Maps a grouping kind onto the provider's collection path segment. */
-function collectionOf(kind: GroupKind): 'zones' | 'pools' {
-  return kind === 'zone' ? 'zones' : 'pools'
 }

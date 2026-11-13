@@ -50,7 +50,8 @@ POST /api/v1/software/uninstall
 
 Authorization ([conventions](conventions.md#authorization)): `GET /software/catalog` is reference. `GET /software/assignments` is Pool
 read and lists only the assignments of Servers the caller may read. Install and uninstall are Pool
-operate on every target Server. The Docker CE Registry Credentials ([registry-credentials.md](registry-credentials.md))
+operate on every target Server; uninstalling a kind the catalog marks `keptInstalled` (the Node
+Exporter and the directory client) also needs the admin role. The Docker CE Registry Credentials ([registry-credentials.md](registry-credentials.md))
 are admin.
 
 ## Software Catalog
@@ -159,8 +160,10 @@ object whose `items` array is small and bounded, so it is not paginated.
 }
 ```
 
-Every entry carries `refusedForClaimedServers` and `requiresAmdComputeGpu` (`false` unless
-shown). `refusedForClaimedServers: true` means a standalone install or uninstall refuses a Server
+Every entry carries `refusedForClaimedServers`, `requiresAmdComputeGpu`, and `keptInstalled`
+(`false` unless shown). `keptInstalled: true` means swallow installs the kind by itself on every
+Server its policy covers and installs it again after an uninstall, so only an admin may uninstall it
+(`node-exporter`, `sssd`). `refusedForClaimedServers: true` means a standalone install or uninstall refuses a Server
 with a [Platform Claim](../../../../../docs/development/glossaries/terms/platform-claim.md),
 because that Platform manages the kind on its Servers. `requiresAmdComputeGpu: true` means every
 target must list AMD `compute` GPUs in its GPU Inventory.
@@ -439,10 +442,9 @@ afterwards, so a client rarely needs to install it:
 - When one of those Workflows stops in `requires_attention`, swallow cancels it with the reason
   `The Node Exporter install failed; swallow retries it later.`, so the Server is released and the
   assignment becomes `failed`. Workflows with any other `requestedBy` are never canceled.
-- Uninstalling `node-exporter` from such a Server opts it out: swallow leaves the kind absent there
-  until someone installs it again. An uninstall swallow itself plans (its `requestedBy` starts with
-  `swallow:`) does not opt out. Locking the Server, or turning its Site's automation off, also keeps
-  swallow from installing it; swallow never uninstalls it by itself.
+- Only an admin may uninstall `node-exporter` (`403 forbidden` for anyone else), and on such a Server
+  the uninstall is followed by a new install. Locking the Server, or turning its Site's automation
+  off, keeps swallow from installing it; swallow never uninstalls it by itself.
 - An installation can turn this off (`SWALLOW_WORKER_NODE_EXPORTER_ENSURE=false`); then only OS
   deployments, Platform deployments, and kept-servers Platform uninstalls install the kind.
 - The same coverage decides a Server's health ([servers-list.md](servers-list.md#health)), whether
@@ -561,7 +563,8 @@ to the Server's `/etc/passwd`, `authorized_keys`, or `/etc/sudoers.d`, and the S
 - An installation without a Directory refuses the install with `409 conflict`.
 - On an installation with a Directory, swallow keeps the kind installed by itself with the same rules
   as the Node Exporter above (every deployed, unlocked Server of a Site whose automation is enabled;
-  retries with the same backoff; a user's uninstall opts the Server out). The Workflows'
+  retries with the same backoff; only an admin may uninstall it, and the uninstall is followed by a
+  new install). The Workflows'
   `requestedBy` is `swallow:sssd-controller`. An installation can turn this off
   (`SWALLOW_WORKER_DIRECTORY_CLIENT_ENSURE=false`); the kind runs no exporter, so swallow does not
   reinstall an installed one.
@@ -628,6 +631,7 @@ On success the response is `202 Accepted`:
 | --- | ---: | --- |
 | `validation_error` | 400 | The body is not valid JSON, unknown kind, empty `serverIds`, or the targets belong to more than one Site. |
 | `not_found` | 404 | A target Server or its assignment does not exist (an `absent` assignment counts as missing). |
+| `forbidden` | 403 | The kind is `keptInstalled` and the caller is not an admin (besides the Pool operate checks every target has). |
 | `conflict` | 409 | A target has active durable Workflow, is not `deployed`, is locked, or has a Platform Claim for a kind that refuses claimed Servers. |
 | `provider_unavailable` | 503 | As for install: the targets' Site cannot run the Ansible automation, or the Server Lock state of a target cannot be confirmed. |
 

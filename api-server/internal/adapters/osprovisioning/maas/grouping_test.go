@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-// The grouping capability wraps MAAS zone and resource-pool endpoints. The tests assert the
-// request the adapter actually sends (method, path, and form fields), because a wrong verb or
-// field name would silently do nothing or the wrong thing against a live MAAS.
+// The grouping capability wraps MAAS zone endpoints. The tests assert the request the adapter
+// actually sends (method, path, and form fields), because a wrong verb or field name would silently
+// do nothing or the wrong thing against a live MAAS.
 
 func TestGroupingCapability_Advertised(t *testing.T) {
 	provider := &Provider{}
@@ -99,80 +99,6 @@ func TestDeleteZone_SatisfiedWhenAbsent(t *testing.T) {
 	}
 }
 
-func TestEnsurePool_TreatsIdZeroDefaultAsExisting(t *testing.T) {
-	fake := newFakeMAAS(t)
-	// MAAS's built-in default resource pool has id 0. A zero id is a real pool, so ensure must
-	// not try to re-create it (which MAAS rejects as a duplicate).
-	fake.respond("GET "+apiPrefix+"/resourcepools/{$}", http.StatusOK, `[{"id":0,"name":"default"}]`)
-	var created bool
-	fake.mux.HandleFunc("POST "+apiPrefix+"/resourcepools/{$}", func(w http.ResponseWriter, _ *http.Request) {
-		created = true
-		w.WriteHeader(http.StatusOK)
-	})
-	provider := newTestProvider(t, fake)
-
-	if err := provider.EnsurePool(context.Background(), "default", ""); err != nil {
-		t.Fatalf("EnsurePool: %v", err)
-	}
-	if created {
-		t.Errorf("EnsurePool re-created the id-0 default pool; a zero id must count as existing")
-	}
-}
-
-func TestDeletePool_ResolvesNameToIDThenDeletes(t *testing.T) {
-	fake := newFakeMAAS(t)
-	// MAAS keys resource pools by id, so the adapter lists then deletes by id.
-	fake.respond("GET "+apiPrefix+"/resourcepools/{$}", http.StatusOK,
-		`[{"id":1,"name":"default"},{"id":5,"name":"research"}]`)
-	var deletedID string
-	fake.mux.HandleFunc("DELETE "+apiPrefix+"/resourcepool/{id}/{$}", func(w http.ResponseWriter, r *http.Request) {
-		deletedID = r.PathValue("id")
-		w.WriteHeader(http.StatusNoContent)
-	})
-	provider := newTestProvider(t, fake)
-
-	if err := provider.DeletePool(context.Background(), "research"); err != nil {
-		t.Fatalf("DeletePool: %v", err)
-	}
-	if deletedID != "5" {
-		t.Errorf("deleted pool id: got %q, want 5", deletedID)
-	}
-}
-
-func TestRenamePool_PutsTheSingularPoolEndpoint(t *testing.T) {
-	fake := newFakeMAAS(t)
-	// MAAS lists pools at resourcepools/ but addresses one pool at the singular resourcepool/{id}/.
-	fake.respond("GET "+apiPrefix+"/resourcepools/{$}", http.StatusOK,
-		`[{"id":0,"name":"default"},{"id":5,"name":"research"}]`)
-	var (
-		mu      sync.Mutex
-		putID   string
-		putForm = map[string]string{}
-	)
-	fake.mux.HandleFunc("PUT "+apiPrefix+"/resourcepool/{id}/{$}", func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseMultipartForm(1 << 20); err == nil {
-			mu.Lock()
-			putID = r.PathValue("id")
-			for name, values := range r.MultipartForm.Value {
-				putForm[name] = values[0]
-			}
-			mu.Unlock()
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":5,"name":"ml","description":"Machine learning"}`))
-	})
-	provider := newTestProvider(t, fake)
-
-	if err := provider.RenamePool(context.Background(), "research", "ml", "Machine learning"); err != nil {
-		t.Fatalf("RenamePool: %v", err)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if putID != "5" || putForm["name"] != "ml" || putForm["description"] != "Machine learning" {
-		t.Errorf("PUT resourcepool/%s with %v, want id 5 renamed to ml with its description", putID, putForm)
-	}
-}
-
 func TestSetMachineZone_PutsZoneField(t *testing.T) {
 	form := captureMachineUpdate(t, "zone", func(p *Provider) error {
 		_, err := p.SetMachineZone(context.Background(), "abc123", "rack-a")
@@ -181,15 +107,8 @@ func TestSetMachineZone_PutsZoneField(t *testing.T) {
 	if got := form["zone"]; got != "rack-a" {
 		t.Errorf("zone field: got %q, want rack-a", got)
 	}
-}
-
-func TestSetMachinePool_PutsPoolField(t *testing.T) {
-	form := captureMachineUpdate(t, "pool", func(p *Provider) error {
-		_, err := p.SetMachinePool(context.Background(), "abc123", "research")
-		return err
-	})
-	if got := form["pool"]; got != "research" {
-		t.Errorf("pool field: got %q, want research", got)
+	if _, sent := form["pool"]; sent {
+		t.Errorf("a zone move sent a resource pool too: %v", form)
 	}
 }
 
@@ -234,14 +153,11 @@ func captureMachineUpdate(t *testing.T, field string, call func(*Provider) error
 	return form
 }
 
-// Listing marks MAAS's built-in groups as the default: the zone by its name, the pool by id 0, so
-// a renamed default pool is still recognized.
-func TestListGroups_MarksTheDefault(t *testing.T) {
+// Listing marks MAAS's built-in zone, by its name, as the default.
+func TestListZones_MarksTheDefault(t *testing.T) {
 	fake := newFakeMAAS(t)
 	fake.respond("GET "+apiPrefix+"/zones/{$}", http.StatusOK,
 		`[{"name":"default","description":""},{"name":"rack-a","description":"top of rack"}]`)
-	fake.respond("GET "+apiPrefix+"/resourcepools/{$}", http.StatusOK,
-		`[{"id":0,"name":"shared","description":""},{"id":3,"name":"gpu","description":"accelerators"}]`)
 	provider := newTestProvider(t, fake)
 
 	zones, err := provider.ListZones(context.Background())
@@ -250,12 +166,5 @@ func TestListGroups_MarksTheDefault(t *testing.T) {
 	}
 	if len(zones) != 2 || !zones[0].Default || zones[1].Default || zones[1].Description != "top of rack" {
 		t.Errorf("zones = %+v, want default first and rack-a with its description", zones)
-	}
-	pools, err := provider.ListPools(context.Background())
-	if err != nil {
-		t.Fatalf("ListPools: %v", err)
-	}
-	if len(pools) != 2 || !pools[0].Default || pools[0].Name != "shared" || pools[1].Default {
-		t.Errorf("pools = %+v, want the id-0 pool as default", pools)
 	}
 }

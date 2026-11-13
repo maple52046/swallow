@@ -81,8 +81,8 @@ swallow keeps the Node Exporter installed on every deployed, unlocked Server of 
 automation is enabled, including Servers it did not deploy. The worker checks every Server
 about every ten minutes, and straight away when a Server or its Node Exporter record changes:
 
-- When the Server has no Node Exporter, swallow installs it. When someone uninstalled it from
-  the Server, swallow leaves it off until someone installs it again.
+- When the Server has no Node Exporter, or it was uninstalled, swallow installs it. Only an admin
+  can uninstall it.
 - When an install failed, swallow tries again after 15 minutes, 1 hour, 6 hours, and then
   once a day, so a Server whose OS lacks the package does not get an install loop.
 - When the Site's Prometheus could not scrape it for 10 minutes, for example because the
@@ -95,7 +95,7 @@ These installs show up as ordinary **Install Node Exporter** Workflows requested
 work; it never cancels a Workflow anyone else started, and it waits while other work holds the
 Server. swallow never removes the Node Exporter by itself. A locked Server is left as it is:
 swallow neither installs nor removes anything on it. To keep the Node Exporter off one Server,
-uninstall it there (or lock the Server).
+lock it; uninstalling it from a Server swallow keeps it on only lasts until the next check.
 
 While an install is pending or after it failed, the Server is not scraped, so its health shows
 as Unknown rather than Down.
@@ -131,7 +131,9 @@ each time you look at it. The Dashboard labels them **Up**, **Down**, **Unknown*
 Choose a window of 1 hour, 6 hours, 24 hours, or 7 days; swallow picks the
 resolution (about 180 points per chart). For a group of Servers each chart is one
 combined line: utilisation and fill levels are averaged, and network throughput is
-added up. A Pool, Zone, or Platform is charted by its **current** members.
+added up. A Pool, Zone, or Platform is charted by its **current** members. A Pool
+may hold Servers of several Sites, and each Site keeps its own metrics, so a
+combined chart of such a Pool is refused; chart its Servers per Site instead.
 
 swallow's charts are the same for every Server, with or without GPUs; GPU metrics are
 shown by the Platform's own Grafana, not in swallow.

@@ -1,13 +1,15 @@
 // Package application coordinates swallow's Infrastructure grouping use cases: managing Zones
-// and Pools, converging them onto the Site's provisioners, and placing a Server in them.
+// and Pools, converging Zones onto the Site's provisioners, and placing a Server in them.
 //
-// Zones and Pools are migrated resources (decision 071). The API writes their spec — name and
-// description — and the catalog controller makes every grouping-capable provisioner of the Site
-// match it, so a provisioner added later receives the existing catalog. A Server's placement is
-// part of the Server's spec; this package validates and writes it, and the Server controller
-// realizes it. Deleting is the one synchronous provider write: the group is removed from each
-// provisioner before the record, so a provisioner that refuses keeps both. The package depends
-// only on domain ports, so it runs without MongoDB, HTTP, or a live provider.
+// Zones are migrated resources (decision 071). The API writes their spec — name and description —
+// and the catalog controller makes every grouping-capable provisioner of the Site match it, so a
+// provisioner added later receives the existing catalog. Deleting a Zone is the one synchronous
+// provider write: the zone is removed from each provisioner before the record, so a provisioner
+// that refuses keeps both. Pools are installation-wide records that exist only in swallow
+// (decision 082): no use case here calls a provisioner for them. A Server's placement is part of
+// the Server's spec; this package validates and writes it, and the Server controller realizes the
+// Zone. The package depends only on domain ports, so it runs without MongoDB, HTTP, or a live
+// provider.
 package application
 
 import (
@@ -42,7 +44,7 @@ type GroupingService struct {
 }
 
 // NewGroupingService wires the grouping use cases. The provider factory is used only to delete a
-// group from the provisioners that hold it. now and newID are injected so tests get a
+// Zone from the provisioners that hold it. now and newID are injected so tests get a
 // deterministic clock and id; production uses UTC wall-clock time and a random UUID.
 //
 // platforms keeps a Platform-claimed Server in its Platform's Pool, and access removes a deleted
@@ -74,9 +76,8 @@ func NewGroupingService(
 	}
 }
 
-// GroupItem is the API representation of a Zone or Pool (infrastructure.md). The two share a shape
-// because they are structurally identical resources; their distinct meaning is carried by which
-// endpoint returns them.
+// GroupItem is the API representation of a Zone (infrastructure.md): a migrated resource with its
+// spec and its realization on the Site's provisioners.
 type GroupItem struct {
 	ID         string          `json:"id"`
 	SiteID     string          `json:"siteId"`
@@ -85,14 +86,14 @@ type GroupItem struct {
 	Status     GroupStatusItem `json:"status"`
 }
 
-// GroupSpecItem is the published spec of a Zone or Pool.
+// GroupSpecItem is the published spec of a Zone.
 type GroupSpecItem struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 }
 
-// GroupStatusItem is the published status: the aggregate conditions over every provisioner of the
-// Site and one realization per provisioner.
+// GroupStatusItem is a Zone's published status: the aggregate conditions over every provisioner of
+// the Site and one realization per provisioner.
 type GroupStatusItem struct {
 	ObservedGeneration int64                       `json:"observedGeneration"`
 	Conditions         []convergence.ConditionItem `json:"conditions"`
@@ -101,8 +102,8 @@ type GroupStatusItem struct {
 	UpdatedAt          string                      `json:"updatedAt"`
 }
 
-// GroupRealizationItem is a Zone's or Pool's realization on one provisioner Integration.
-// ProviderName is "" until the group exists there; ObservedAt is null before the first observation.
+// GroupRealizationItem is a Zone's realization on one provisioner Integration.
+// ProviderName is "" until the zone exists there; ObservedAt is null before the first observation.
 type GroupRealizationItem struct {
 	IntegrationID      string                      `json:"integrationId"`
 	ProviderName       string                      `json:"providerName"`
@@ -111,7 +112,7 @@ type GroupRealizationItem struct {
 	Conditions         []convergence.ConditionItem `json:"conditions"`
 }
 
-// CreateGroupInput is the create payload for a Zone or Pool.
+// CreateGroupInput is the create payload for a Zone.
 type CreateGroupInput struct {
 	SiteID      string
 	Name        string
@@ -122,6 +123,22 @@ type CreateGroupInput struct {
 type UpdateGroupInput struct {
 	Name        *string
 	Description *string
+}
+
+// PoolItem is the API representation of a Pool (infrastructure.md): an installation-wide record
+// with no generation or status, because nothing realizes it.
+type PoolItem struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	CreatedAt   string `json:"createdAt"`
+	UpdatedAt   string `json:"updatedAt"`
+}
+
+// CreatePoolInput is the create payload for a Pool; a Pool names no Site.
+type CreatePoolInput struct {
+	Name        string
+	Description string
 }
 
 // --- Zones ---
@@ -201,7 +218,7 @@ func (s *GroupingService) DeleteZone(ctx context.Context, id string) error {
 		return err
 	}
 	err = s.deleteFromProvisioners(ctx, zone.Status, func(gc provisioningdomain.GroupingController, name string) error {
-		if defaultZone, _ := gc.DefaultGroupNames(); name == defaultZone {
+		if name == gc.DefaultZoneName() {
 			return nil
 		}
 		return gc.DeleteZone(ctx, name)
@@ -214,17 +231,15 @@ func (s *GroupingService) DeleteZone(ctx context.Context, id string) error {
 
 // --- Pools ---
 
-// CreatePool mirrors CreateZone for a resource pool.
-func (s *GroupingService) CreatePool(ctx context.Context, input CreateGroupInput) (*GroupItem, error) {
-	name, siteID, err := s.validateCreate(ctx, input)
+// CreatePool validates the name and stores the Pool. A Pool belongs to the installation, so the
+// only conflict is another Pool of the same name (ErrPoolNameTaken); no provisioner is called.
+func (s *GroupingService) CreatePool(ctx context.Context, input CreatePoolInput) (*PoolItem, error) {
+	name, err := infradomain.ValidateName(input.Name)
 	if err != nil {
 		return nil, err
 	}
 	now := s.now()
-	pool := &infradomain.Pool{
-		ID: s.newID(), SiteID: siteID, Generation: 1,
-		Name: name, Description: input.Description, CreatedAt: now, UpdatedAt: now,
-	}
+	pool := &infradomain.Pool{ID: s.newID(), Name: name, Description: input.Description, CreatedAt: now, UpdatedAt: now}
 	if err := s.pools.Create(ctx, pool); err != nil {
 		return nil, err
 	}
@@ -232,13 +247,13 @@ func (s *GroupingService) CreatePool(ctx context.Context, input CreateGroupInput
 	return &item, nil
 }
 
-// ListPools returns Pools, optionally restricted to one Site.
-func (s *GroupingService) ListPools(ctx context.Context, siteID string) ([]GroupItem, error) {
-	pools, err := s.pools.List(ctx, strings.TrimSpace(siteID))
+// ListPools returns every Pool of the installation, sorted by name.
+func (s *GroupingService) ListPools(ctx context.Context) ([]PoolItem, error) {
+	pools, err := s.pools.List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	items := make([]GroupItem, 0, len(pools))
+	items := make([]PoolItem, 0, len(pools))
 	for _, pool := range pools {
 		items = append(items, poolItem(pool))
 	}
@@ -246,7 +261,7 @@ func (s *GroupingService) ListPools(ctx context.Context, siteID string) ([]Group
 }
 
 // GetPool returns one Pool or ErrPoolNotFound.
-func (s *GroupingService) GetPool(ctx context.Context, id string) (*GroupItem, error) {
+func (s *GroupingService) GetPool(ctx context.Context, id string) (*PoolItem, error) {
 	pool, err := s.pools.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -255,8 +270,9 @@ func (s *GroupingService) GetPool(ctx context.Context, id string) (*GroupItem, e
 	return &item, nil
 }
 
-// UpdatePool mirrors UpdateZone for a resource pool.
-func (s *GroupingService) UpdatePool(ctx context.Context, id string, input UpdateGroupInput) (*GroupItem, error) {
+// UpdatePool applies the patch; a patch that changes nothing returns the Pool as stored. A rename
+// keeps the Pool's id, so its memberships, Sudo Policy, and POSIX groups stay with it.
+func (s *GroupingService) UpdatePool(ctx context.Context, id string, input UpdateGroupInput) (*PoolItem, error) {
 	pool, err := s.pools.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -267,7 +283,7 @@ func (s *GroupingService) UpdatePool(ctx context.Context, id string, input Updat
 	}
 	if changed {
 		pool.Name, pool.Description, pool.UpdatedAt = name, description, s.now()
-		if err := s.pools.UpdateSpec(ctx, pool); err != nil {
+		if err := s.pools.Update(ctx, pool); err != nil {
 			return nil, err
 		}
 	}
@@ -275,22 +291,13 @@ func (s *GroupingService) UpdatePool(ctx context.Context, id string, input Updat
 	return &item, nil
 }
 
-// DeletePool mirrors DeleteZone for a resource pool.
+// DeletePool refuses a Pool that is still a Server's placement (ErrGroupInUse), then deletes the
+// Pool with its memberships and Sudo Policy in one transaction, so access never outlives the Pool.
 func (s *GroupingService) DeletePool(ctx context.Context, id string) error {
-	pool, err := s.pools.FindByID(ctx, id)
-	if err != nil {
+	if _, err := s.pools.FindByID(ctx, id); err != nil {
 		return err
 	}
 	if err := s.refuseInUse(s.references.CountPool(ctx, id)); err != nil {
-		return err
-	}
-	err = s.deleteFromProvisioners(ctx, pool.Status, func(gc provisioningdomain.GroupingController, name string) error {
-		if _, defaultPool := gc.DefaultGroupNames(); name == defaultPool {
-			return nil
-		}
-		return gc.DeletePool(ctx, name)
-	})
-	if err != nil {
 		return err
 	}
 	return s.tx.InTransaction(ctx, func(ctx context.Context) error {
@@ -304,7 +311,7 @@ func (s *GroupingService) DeletePool(ctx context.Context, id string) error {
 // --- Placement ---
 
 // PlacementChange is one half of a placement request: Set false leaves the field unchanged; Set
-// true with an empty ID returns the Server to the provisioner's default group.
+// true with an empty ID returns the Server to the provisioner's default zone, or out of every Pool.
 type PlacementChange struct {
 	Set bool
 	ID  string
@@ -317,8 +324,8 @@ type AssignServerInput struct {
 	Pool     PlacementChange
 }
 
-// PlacementResult is the Server's placement spec after the request: the new generation and the
-// Zone and Pool ids, null for the provisioner's default group.
+// PlacementResult is the Server's placement spec after the request: the new generation, the Zone
+// id (null for the provisioner's default zone), and the Pool id (null for no Pool).
 type PlacementResult struct {
 	ServerID   string  `json:"serverId"`
 	Generation int64   `json:"generation"`
@@ -326,9 +333,10 @@ type PlacementResult struct {
 	PoolID     *string `json:"poolId"`
 }
 
-// AssignServer writes a Server's placement spec; the Server controller moves the machine
-// afterwards. A referenced Zone or Pool must belong to the Server's Site
-// (ErrGroupingSiteMismatch). A Server that is not adopted yet is ErrServerNotAdopted, and a
+// AssignServer writes a Server's placement spec; the Server controller moves the machine to its
+// Zone afterwards, and the Pool takes effect at once. A referenced Zone must belong to the Server's
+// Site (ErrGroupingSiteMismatch); a Pool may hold Servers of any Site. A Server that is not adopted
+// yet is ErrServerNotAdopted, and a
 // concurrent spec change ErrPlacementConflict. A Platform-claimed Server may change Pool only into
 // the Pool its Platform belongs to, or out of every Pool (ErrPlatformPoolMismatch otherwise), so a
 // Platform never ends up across two Pools. Clearing a node's Pool leaves the Platform in no Pool,
@@ -360,12 +368,8 @@ func (s *GroupingService) AssignServer(ctx context.Context, input AssignServerIn
 	}
 	if input.Pool.Set {
 		if input.Pool.ID != "" {
-			pool, err := s.pools.FindByID(ctx, input.Pool.ID)
-			if err != nil {
+			if _, err := s.pools.FindByID(ctx, input.Pool.ID); err != nil {
 				return nil, err
-			}
-			if pool.SiteID != current.SiteID {
-				return nil, infradomain.ErrGroupingSiteMismatch
 			}
 		}
 		poolID = input.Pool.ID
@@ -403,8 +407,8 @@ func (s *GroupingService) refuseInUse(count int, err error) error {
 	return nil
 }
 
-// deleteFromProvisioners runs remove against every provisioner on which the group exists. A
-// provisioner that can no longer group, whose Integration was deleted, or that the group never
+// deleteFromProvisioners runs remove against every provisioner on which the zone exists. A
+// provisioner that can no longer group, whose Integration was deleted, or that the zone never
 // reached, has nothing to remove.
 func (s *GroupingService) deleteFromProvisioners(
 	ctx context.Context,
@@ -433,8 +437,8 @@ func (s *GroupingService) deleteFromProvisioners(
 	return nil
 }
 
-// validateCreate normalizes and checks a create request shared by Zones and Pools: a valid name
-// and an existing Site. It returns the cleaned name and Site id.
+// validateCreate normalizes and checks a Zone create request: a valid name and an existing Site.
+// It returns the cleaned name and Site id.
 func (s *GroupingService) validateCreate(ctx context.Context, input CreateGroupInput) (name, siteID string, err error) {
 	name, err = infradomain.ValidateName(input.Name)
 	if err != nil {
@@ -476,8 +480,11 @@ func zoneItem(zone *infradomain.Zone) GroupItem {
 	return groupItem(zone.ID, zone.SiteID, zone.Generation, zone.Name, zone.Description, zone.Status, zone.CreatedAt, zone.UpdatedAt)
 }
 
-func poolItem(pool *infradomain.Pool) GroupItem {
-	return groupItem(pool.ID, pool.SiteID, pool.Generation, pool.Name, pool.Description, pool.Status, pool.CreatedAt, pool.UpdatedAt)
+func poolItem(pool *infradomain.Pool) PoolItem {
+	return PoolItem{
+		ID: pool.ID, Name: pool.Name, Description: pool.Description,
+		CreatedAt: wire.Time(pool.CreatedAt), UpdatedAt: wire.Time(pool.UpdatedAt),
+	}
 }
 
 func groupItem(id, siteID string, generation int64, name, description string, status infradomain.GroupStatus, createdAt, updatedAt time.Time) GroupItem {

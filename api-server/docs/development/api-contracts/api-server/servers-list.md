@@ -185,7 +185,7 @@ in the later sections (GPU inventory onward) is relative to `status`.
 | `origin` | How the Server arrived: `discovered` (its provisioner enlisted it, for example PXE enlistment in MAAS), `enrolled` (swallow registered it, [server-enrollment.md](server-enrollment.md)), or `imported` (registered with an OS already installed). Display only; after adoption swallow owns the spec whatever the origin. A client must accept an unknown value; showing it as it is is safe, because no value changes what a client may do. |
 | `generation` | Counts spec changes. A Server's first observation is adopted as its spec (generation `1`) without changing the provisioner. |
 | `spec.tags` | The complete set of manual tags the Server must carry ([server-tags.md](server-tags.md)). |
-| `spec.zoneId`, `spec.poolId` | The Zone and Pool the Server must be in ([infrastructure.md](infrastructure.md#server-placement)); `null` for the provisioner's default group. |
+| `spec.zoneId`, `spec.poolId` | The Zone and Pool the Server is placed in ([infrastructure.md](infrastructure.md#server-placement)); `zoneId` is `null` for the provisioner's default zone, `poolId` `null` for no Pool. Only the Zone is realized in the provisioner. |
 | `status.observedGeneration` | The generation the conditions were judged for. Lower than `generation` while a spec change is converging. |
 | `status.conditions` | The Server controller's judgement, one entry per type. Empty until the controller has judged the Server. |
 
@@ -207,9 +207,10 @@ Workflow and Task that ran it, a failed Task's `code`, and a progress `stage`), 
 none is recorded; see [server-detail-actions.md](server-detail-actions.md). `tags` is every tag the
 provisioner reports on the machine, and `automaticTags` the subset it computes itself (a MAAS tag
 with a definition), which is never part of the spec ([server-tags.md](server-tags.md)). `providerZone` and
-`providerResourcePool` are the group names the provisioner reports for the machine (the
-observation of `spec.zoneId` and `spec.poolId`), and `providerPod` the provisioner VM host of a
-virtual machine (empty for bare metal); all are display only. `membership.nodeName`
+`providerResourcePool` are the zone and resource pool names the provisioner reports for the machine
+(`providerZone` is the observation of `spec.zoneId`; the resource pool is only observed and is not a
+Pool), and `providerPod` the provisioner VM host of a virtual machine (empty for bare metal); all are
+display only. `membership.nodeName`
 is the platform's own name for the machine.
 
 ### GPU inventory
@@ -460,6 +461,11 @@ without an answer, so a client that read `null` as unknown must now read the sta
 must accept a `null` `observedAt`. Health also follows swallow's monitoring policy instead of any
 sample the Site Prometheus holds, so a Server released by swallow no longer reads `down` from its
 last series.
+
+On 2026-11-13 `spec.poolId` `null` came to mean no Pool instead of the provisioner's default
+resource pool, and `status.providerResourcePool` stopped being the observation of `spec.poolId`
+([decision 082](../../../../../docs/decisions/082-accounts-pool-access-and-directory.md) (accounts, pool
+access, and directory)); no field changed shape.
 
 ## Implementation Notes
 

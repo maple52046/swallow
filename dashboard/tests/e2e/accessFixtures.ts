@@ -8,13 +8,15 @@ import type {
   PoolMember,
   SudoSetting,
 } from '@/domain/access/accounts'
+import type { Pool } from '@/domain/infrastructure/types'
 import type { PoolRole } from '@/domain/user/types'
 
-// Deterministic account and Pool access fixtures in the shapes of users.md, pool-access.md,
-// access.md, and auth-me.md. One Pool (`pool-research`) has an owner (alice) and a member (bob); the
-// signed-in identity is chosen per page, so a test can look at the console as an admin, an owner,
-// or a member. State is per page, so one test's writes never leak into another. Passwords are never
-// stored: the fixture only checks the documented failure cases.
+// Deterministic account and Pool fixtures in the shapes of users.md, pool-access.md, access.md,
+// auth-me.md, and the Pool routes of infrastructure.md. One installation-wide Pool (`pool-research`)
+// has an owner (alice) and a member (bob); the signed-in identity is chosen per page, so a test can
+// look at the console as an admin, an owner, or a member. State is per page, so one test's writes
+// never leak into another. Passwords are never stored: the fixture only checks the documented
+// failure cases.
 
 const now = '2026-08-27T03:00:00Z'
 
@@ -52,6 +54,8 @@ function resolve(setting: SudoSetting, poolDefault: boolean) {
 export function createAccessFixtures(identity: FixtureIdentity = 'admin') {
   let accounts = accountsSeed.map((account) => ({ ...account }))
   let nextUid = 10003
+  let pools: Pool[] = [{ id: 'pool-research', name: 'research', description: '', createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-01T00:00:00Z' }]
+  let nextPool = 1
   const policies = new Map<string, PoolAccessPolicy>([
     ['pool-research', { poolId: 'pool-research', memberSudo: false, sudoPasswordless: false, updatedAt: null, updatedBy: '' }],
   ])
@@ -114,8 +118,68 @@ export function createAccessFixtures(identity: FixtureIdentity = 'admin') {
     role: caller.role,
     authMethod: 'session',
     memberships: [...memberships.entries()].flatMap(([poolId, items]) =>
-      items.filter((item) => item.userId === caller.id).map((item) => ({ poolId, poolName: 'research', siteId: 'site-a', role: item.role }))),
+      items.filter((item) => item.userId === caller.id).map((item) => ({
+        poolId, poolName: pools.find((pool) => pool.id === poolId)?.name ?? poolId, role: item.role,
+      }))),
   })
+
+  /**
+   * Answers the Pool catalog routes (infrastructure.md): any signed-in user reads; only an admin
+   * creates, renames, and deletes. Names are unique in the installation, a new Pool starts with no
+   * members, and deleting one removes its members and Sudo Policy.
+   */
+  async function handlePools(route: Route, request: Request, path: string): Promise<boolean> {
+    const method = request.method()
+    const itemMatch = path.match(/^\/api\/v1\/infrastructure\/pools\/([^/]+)$/)
+    if (path !== '/api/v1/infrastructure/pools' && !itemMatch) return false
+    if (method !== 'GET' && caller.role !== 'admin') {
+      await failure(route, 403, 'forbidden', 'This action requires the admin role.')
+      return true
+    }
+    const body = method === 'POST' || method === 'PATCH' ? (request.postDataJSON() as { name?: string; description?: string }) : null
+    const taken = (name: string | undefined, except = '') => pools.some((pool) => pool.name === name && pool.id !== except)
+    if (!itemMatch) {
+      if (method === 'GET') {
+        await json(route, [...pools].sort((a, b) => a.name.localeCompare(b.name)))
+        return true
+      }
+      if (taken(body?.name)) {
+        await failure(route, 409, 'conflict', 'A pool with this name already exists.')
+        return true
+      }
+      const pool: Pool = { id: `pool-new-${nextPool++}`, name: body?.name ?? '', description: body?.description ?? '', createdAt: now, updatedAt: now }
+      pools = [...pools, pool]
+      memberships.set(pool.id, [])
+      policies.set(pool.id, { poolId: pool.id, memberSudo: false, sudoPasswordless: false, updatedAt: null, updatedBy: '' })
+      await json(route, pool, 201)
+      return true
+    }
+    const id = decodeURIComponent(itemMatch[1])
+    const pool = pools.find((item) => item.id === id)
+    if (!pool) {
+      await failure(route, 404, 'not_found', 'Pool not found.')
+      return true
+    }
+    if (method === 'PATCH') {
+      if (taken(body?.name, id)) {
+        await failure(route, 409, 'conflict', 'A pool with this name already exists.')
+        return true
+      }
+      const updated = { ...pool, name: body?.name ?? pool.name, description: body?.description ?? pool.description, updatedAt: now }
+      pools = pools.map((item) => (item.id === id ? updated : item))
+      await json(route, updated)
+      return true
+    }
+    if (method === 'DELETE') {
+      pools = pools.filter((item) => item.id !== id)
+      memberships.delete(id)
+      policies.delete(id)
+      await route.fulfill({ status: 204 })
+      return true
+    }
+    await json(route, pool)
+    return true
+  }
 
   /** Answers a request when it belongs to the access contracts; returns `false` otherwise. */
   async function handle(route: Route, request: Request, url: URL): Promise<boolean> {
@@ -125,6 +189,7 @@ export function createAccessFixtures(identity: FixtureIdentity = 'admin') {
       await json(route, me())
       return true
     }
+    if (await handlePools(route, request, path)) return true
     if (path === '/api/v1/auth/me/password' && method === 'PUT') {
       const body = request.postDataJSON() as { currentPassword?: string } | null
       if (body?.currentPassword === 'wrong-password') {

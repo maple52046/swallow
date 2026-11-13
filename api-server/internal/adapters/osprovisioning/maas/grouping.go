@@ -5,40 +5,24 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"strconv"
 
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
-// This file implements provisioningdomain.GroupingController against MAAS physical zones and
-// resource pools (decision 071). swallow owns the Zone/Pool catalog and each Server's placement;
-// these methods read MAAS's groups and make MAAS match. They speak group names — swallow's
-// currency — and hide MAAS's internal resource-pool ids. Create/delete are idempotent "ensure"
-// operations so that a swallow write over MAAS's built-in `default` zone/pool, or a repeated
-// write, is not an error.
+// This file implements provisioningdomain.GroupingController against MAAS physical zones
+// (decision 071). swallow owns the Zone catalog and each Server's Zone placement; these methods read
+// MAAS's zones and make MAAS match. They speak zone names — swallow's currency. Create/delete are
+// idempotent "ensure" operations so that a swallow write over MAAS's built-in `default` zone, or a
+// repeated write, is not an error. MAAS resource pools are never written: swallow's Pools exist only
+// in swallow (decision 082), and a machine's resource pool is only read with the machine.
 
-// maasDefaultGroup is the name of MAAS's built-in zone and resource pool. MAAS refuses to delete
-// either, and puts a new machine in both.
-const maasDefaultGroup = "default"
+// maasDefaultZone is the name of MAAS's built-in zone. MAAS refuses to delete it and puts a new
+// machine in it.
+const maasDefaultZone = "default"
 
 // zonePath is the MAAS endpoint for one physical zone, addressed by its name.
 func zonePath(name string) string {
 	return "/zones/" + url.PathEscape(name) + "/"
-}
-
-// resourcePoolPath is the MAAS endpoint for one resource pool, addressed by its numeric id.
-// Unlike zones, MAAS keys resource pools by id, so callers resolve a name to an id first, and the
-// single-pool endpoint is the singular `resourcepool`, not the collection's `resourcepools`.
-func resourcePoolPath(id int) string {
-	return "/resourcepool/" + strconv.Itoa(id) + "/"
-}
-
-// resourcePoolJSON is the subset of a MAAS resource pool swallow reads: the numeric id used in
-// its endpoint path, the name swallow matches on, and its description.
-type resourcePoolJSON struct {
-	ID          int    `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
 }
 
 // zoneJSON is the subset of a MAAS physical zone swallow reads.
@@ -56,32 +40,16 @@ func (p *Provider) ListZones(ctx context.Context) ([]provisioningdomain.Provider
 	out := make([]provisioningdomain.ProviderGroup, 0, len(zones))
 	for _, zone := range zones {
 		out = append(out, provisioningdomain.ProviderGroup{
-			Name: zone.Name, Description: zone.Description, Default: zone.Name == maasDefaultGroup,
+			Name: zone.Name, Description: zone.Description, Default: zone.Name == maasDefaultZone,
 		})
 	}
 	return out, nil
 }
 
-// ListPools returns every MAAS resource pool. The built-in pool is id 0, named `default` unless
-// someone renamed it, so it is recognized by id.
-func (p *Provider) ListPools(ctx context.Context) ([]provisioningdomain.ProviderGroup, error) {
-	var pools []resourcePoolJSON
-	if err := p.client.get(ctx, "/resourcepools/", nil, &pools); err != nil {
-		return nil, translateError(err, "")
-	}
-	out := make([]provisioningdomain.ProviderGroup, 0, len(pools))
-	for _, pool := range pools {
-		out = append(out, provisioningdomain.ProviderGroup{
-			Name: pool.Name, Description: pool.Description, Default: pool.ID == 0,
-		})
-	}
-	return out, nil
-}
-
-// DefaultGroupNames implements provisioningdomain.GroupingController: MAAS's built-in zone and
-// pool are both named `default`.
-func (p *Provider) DefaultGroupNames() (zone, pool string) {
-	return maasDefaultGroup, maasDefaultGroup
+// DefaultZoneName implements provisioningdomain.GroupingController: MAAS's built-in zone is named
+// `default`.
+func (p *Provider) DefaultZoneName() string {
+	return maasDefaultZone
 }
 
 // EnsureZone creates the named MAAS physical zone unless it already exists.
@@ -144,61 +112,6 @@ func (p *Provider) DeleteZone(ctx context.Context, name string) error {
 	return nil
 }
 
-// EnsurePool creates the named MAAS resource pool unless it already exists.
-func (p *Provider) EnsurePool(ctx context.Context, name, description string) error {
-	_, found, err := p.resourcePoolID(ctx, name)
-	if err != nil {
-		return err
-	}
-	if found {
-		return nil
-	}
-	if err := p.client.postMultipart(ctx, "/resourcepools/", map[string]string{
-		"name":        name,
-		"description": description,
-	}, nil); err != nil {
-		return translateError(err, "")
-	}
-	return nil
-}
-
-// RenamePool changes a MAAS resource pool's name (and description). MAAS keys resource pools by
-// id, so the current name is resolved to an id first; an absent pool is (re)ensured under the new
-// name so the provider ends in the requested state.
-func (p *Provider) RenamePool(ctx context.Context, currentName, newName, description string) error {
-	id, found, err := p.resourcePoolID(ctx, currentName)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return p.EnsurePool(ctx, newName, description)
-	}
-	if err := p.client.putMultipart(ctx, resourcePoolPath(id), map[string]string{
-		"name":        newName,
-		"description": description,
-	}, nil); err != nil {
-		return translateError(err, "")
-	}
-	return nil
-}
-
-// DeletePool removes the named MAAS resource pool, treating an absent pool as satisfied. MAAS
-// refuses to delete a pool that still owns machines or the built-in default; that refusal is
-// surfaced as a provider rejection.
-func (p *Provider) DeletePool(ctx context.Context, name string) error {
-	id, found, err := p.resourcePoolID(ctx, name)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return nil
-	}
-	if err := p.client.delete(ctx, resourcePoolPath(id)); err != nil {
-		return translateError(err, "")
-	}
-	return nil
-}
-
 // SetMachineZone assigns machineID to the named zone via the MAAS machine update (PUT), the same
 // path the MAAS CLI's "machine update zone=" uses. It returns the machine as MAAS reports it
 // afterwards so the caller can echo the effective zone without a second read.
@@ -218,24 +131,6 @@ func (p *Provider) SetMachineZone(ctx context.Context, machineID, zoneName strin
 	return toDomainMachine(&out), nil
 }
 
-// SetMachinePool assigns machineID to the named resource pool via the MAAS machine update (PUT),
-// the same path the MAAS CLI's "machine update pool=" uses.
-func (p *Provider) SetMachinePool(ctx context.Context, machineID, poolName string) (*provisioningdomain.Machine, error) {
-	if poolName == "" {
-		return nil, &provisioningdomain.ProviderError{
-			Kind:   provisioningdomain.ProviderErrorRejected,
-			Detail: "A resource pool name is required: a MAAS machine always belongs to a pool.",
-		}
-	}
-	var out machineJSON
-	if err := p.client.putMultipart(ctx, machinePath(machineID), map[string]string{
-		"pool": poolName,
-	}, &out); err != nil {
-		return nil, translateError(err, machineID)
-	}
-	return toDomainMachine(&out), nil
-}
-
 // zoneExists reports whether MAAS holds a zone with this name. A 404 is a definite "no"; any
 // other transport or API failure is propagated so an ensure/delete does not proceed on a guess.
 func (p *Provider) zoneExists(ctx context.Context, name string) (bool, error) {
@@ -247,23 +142,6 @@ func (p *Provider) zoneExists(ctx context.Context, name string) (bool, error) {
 		return false, nil
 	}
 	return false, translateError(err, "")
-}
-
-// resourcePoolID resolves a resource pool name to its MAAS id, reporting found=false when no pool
-// has that name. MAAS offers no name-addressed pool endpoint, so the collection is listed and
-// matched by name. The found flag is separate from the id because MAAS's built-in default pool has
-// id 0, so a zero id is a real pool, not an absence.
-func (p *Provider) resourcePoolID(ctx context.Context, name string) (id int, found bool, err error) {
-	var pools []resourcePoolJSON
-	if err := p.client.get(ctx, "/resourcepools/", nil, &pools); err != nil {
-		return 0, false, translateError(err, "")
-	}
-	for _, pool := range pools {
-		if pool.Name == name {
-			return pool.ID, true, nil
-		}
-	}
-	return 0, false, nil
 }
 
 // isNotFound reports whether err is a MAAS HTTP 404. It inspects the adapter's own apiError so a

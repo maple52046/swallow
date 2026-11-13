@@ -78,14 +78,14 @@ to read another user — and the password change acts on the caller alone.
   "role": "admin | user",
   "authMethod": "session | api_key",
   "memberships": [
-    { "poolId": "string", "poolName": "string", "siteId": "string", "role": "owner | member" }
+    { "poolId": "string", "poolName": "string", "role": "owner | member" }
   ]
 }
 ```
 
 `role` is the User Role and drives consumer-side visibility. A consumer must treat an unrecognised
 role as least-privileged (`user`) rather than failing open. `memberships` lists the caller's Pool
-Memberships with each Pool's name and Site; a consumer offers a Pool's operations only to its owners
+Memberships with each Pool's name; a consumer offers a Pool's operations only to its owners
 and to admins, who may act in every Pool whether or not it is listed. An unrecognised Pool Role must be
 treated as `member`. The server judges every request on its own; this list only decides what to offer.
 
@@ -126,7 +126,8 @@ contract, then to every consumer that branches on role.
 Since 2026-11-13 ([decision 082](../../../../../docs/decisions/082-accounts-pool-access-and-directory.md)
 (accounts, pool access, and directory)) `role` is `admin` or `user` (`owner` became a Pool Role, which
 `memberships` reports), `memberships` is always present, and `PUT /api/v1/auth/me/password` exists.
-Removing `owner` from the enum is a breaking change.
+Removing `owner` from the enum is a breaking change. The same day a membership lost `siteId`, because a
+Pool belongs to the installation rather than to a Site (breaking, no alias).
 
 ## Implementation Notes
 

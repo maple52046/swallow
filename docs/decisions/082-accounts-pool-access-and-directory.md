@@ -14,8 +14,8 @@ API Keys, and Access Keys were already owned by a User so they would survive a m
 
 Teams share a datacenter: an admin runs swallow, groups of people own sets of Servers (and the
 Platforms on them), and others only use those resources: they read them and log in to them, and on
-Slurm they submit jobs. Swallow already groups Servers into Pools, swallow-owned desired state
-realized into the provisioner ([decision 071](071-provisioner-realized-desired-state.md)
+Slurm they submit jobs. Swallow already grouped Servers into Pools, swallow-owned desired state
+that was Site-scoped and realized into the provisioner ([decision 071](071-provisioner-realized-desired-state.md)
 (provisioner realized desired state)).
 
 On the Servers themselves there was no notion of people: automation logs in as the image's default
@@ -36,6 +36,14 @@ the Pool's resources and log in. A Server in no Pool belongs to admins alone, an
 to the Pool that holds every one of its nodes (otherwise only admins manage it). Only admins create
 Users; owners add existing Users to their Pool. The API enforces this on every route, filters every
 list to what the caller may read, and records every access change in an audit log.
+
+**A Pool belongs to the installation and exists only in swallow.** Like Users, Pools are
+installation-wide: a Pool's name is unique in the installation and its Servers may be in different
+Sites, so one team owns its Servers wherever they are. A Pool is not realized in any provisioner:
+swallow neither creates MAAS resource pools nor moves machines between them, and a Server's MAAS
+resource pool is only observed. Placing a Server in a Pool therefore takes effect when it is written.
+Zones stay Site-scoped and realized in the provisioner
+([decision 071](071-provisioner-realized-desired-state.md) (provisioner realized desired state)).
 
 **A User is a Linux account.** The username is the person's login name on the managed Servers.
 swallow allocates each User a `uidNumber` once, from an installation-wide range whose start is an
@@ -68,8 +76,15 @@ Directory is unreachable.
   resources; a global owner role cannot say whose Servers someone owns, and one person may own one
   Pool and only use another.
 - **A separate tenancy object (team, project) instead of the Pool:** rejected for now — the Pool
-  already partitions Servers, is swallow-owned, and is realized in the provisioner; a second grouping
-  would have to be kept consistent with it.
+  already partitions Servers and is swallow-owned; a second grouping would have to be kept consistent
+  with it.
+- **Keep Pools per Site and add an installation-wide group above them:** rejected — every access
+  check and every screen would have to join two groupings, and a team with Servers in two Sites would
+  still manage two Pools.
+- **Keep realizing Pools as MAAS resource pools:** rejected — an installation-wide Pool would need a
+  same-named resource pool in every Site's provisioner, swallow would fight changes made in MAAS for a
+  grouping MAAS does not use for anything swallow needs, and access must not depend on whether a
+  provisioner can move a machine.
 - **Push `authorized_keys` and `/etc/sudoers.d` files with Ansible:** rejected — every membership,
   key, or placement change would become a Workflow on every affected Server, offline Servers would
   miss changes, and a malformed sudoers file breaks `sudo` on the host. Reading a directory keeps the
@@ -105,3 +120,4 @@ Directory is unreachable.
 ## Revision history
 
 - 2026-11-13: accepted.
+- 2026-11-13: Pools became installation-wide and swallow-only (no longer per Site or realized as provisioner resource pools); on upgrade each Site's `default` Pool is merged into one and the other Pools are deleted.

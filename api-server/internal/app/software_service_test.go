@@ -559,6 +559,22 @@ func TestUninstallMarksAssignmentsUninstalling(t *testing.T) {
 	}
 }
 
+// swallow keeps the Node Exporter and the directory client installed, so only an admin may
+// uninstall them; any kind swallow does not keep installed is uninstalled by an owner as before.
+func TestUninstallOfAKeptInstalledKindNeedsAnAdmin(t *testing.T) {
+	for _, kind := range []softwaredomain.Kind{"node-exporter", "sssd"} {
+		service, repo, launcher := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
+		_ = repo.Upsert(context.Background(), &softwaredomain.Assignment{ServerID: "a", Kind: kind, State: softwaredomain.StateInstalled})
+		_, err := service.Uninstall(context.Background(), softwareapp.UninstallInput{Kind: kind, ServerIDs: []string{"a"}})
+		if !errors.Is(err, softwareapp.ErrAdminUninstallOnly) || launcher.uninstall {
+			t.Errorf("%s uninstalled by an owner: err = %v, launched %v; want ErrAdminUninstallOnly before any launch", kind, err, launcher.uninstall)
+		}
+		if _, err := service.Uninstall(context.Background(), softwareapp.UninstallInput{Kind: kind, ServerIDs: []string{"a"}, ByAdmin: true}); err != nil {
+			t.Errorf("%s uninstalled by an admin: %v", kind, err)
+		}
+	}
+}
+
 func TestUninstallRejectsMissingAssignment(t *testing.T) {
 	service, _, _ := newTestService(map[string]*serverdomain.Server{"a": deployedServer("a")}, nil)
 	_, err := service.Uninstall(context.Background(), softwareapp.UninstallInput{

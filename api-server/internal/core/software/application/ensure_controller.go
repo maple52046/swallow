@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
@@ -39,10 +38,6 @@ const ensureRunHorizon = 48 * time.Hour
 // Server every pass, so without the pause each pass would repeat the refused acceptance. It only
 // throttles; the periodic resync always tries again, and a restarted worker simply tries once more.
 const ensureRefusalPause = 10 * time.Minute
-
-// ensureHistoryScan is how many of a Server's newest Workflows the controller reads to find the
-// latest install or uninstall of its kind; an opt-out older than that many Workflows is forgotten.
-const ensureHistoryScan = 50
 
 // powerStateOff is the provisioning axis's power state of a host its provisioner reports powered
 // off. Its exporter is down because the host is, which no install can change.
@@ -353,13 +348,7 @@ func (c *EnsureController) ownInstall(workflow *workflowdomain.Workflow) bool {
 // one whose exporter is down (at resync).
 func (c *EnsureController) installReason(ctx context.Context, server *serverdomain.Server, assignment *softwaredomain.Assignment, resync bool) (string, error) {
 	switch assignmentState(assignment) {
-	case "":
-		return "not installed", nil
-	case softwaredomain.StateAbsent:
-		optedOut, err := c.uninstalledByUser(ctx, server)
-		if err != nil || optedOut {
-			return "", err
-		}
+	case "", softwaredomain.StateAbsent:
 		return "not installed", nil
 	case softwaredomain.StateFailed:
 		if !resync {
@@ -371,27 +360,6 @@ func (c *EnsureController) installReason(ctx context.Context, server *serverdoma
 	default:
 		return "", nil
 	}
-}
-
-// uninstalledByUser reports whether the newest install or uninstall of the kind on the Server was an
-// uninstall someone other than the controller asked for. That uninstall opts the Server out: the
-// controller leaves the kind absent until anyone installs it again, instead of undoing the
-// uninstall. An uninstall swallow itself planned (a sweep, a Platform's)
-// does not opt out.
-func (c *EnsureController) uninstalledByUser(ctx context.Context, server *serverdomain.Server) (bool, error) {
-	history, _, err := c.workflows.List(ctx, workflowdomain.WorkflowFilter{ServerID: server.ID, Limit: ensureHistoryScan})
-	if err != nil {
-		return false, err
-	}
-	for _, workflow := range history {
-		switch string(workflow.Kind) {
-		case c.kind.InstallWorkflowKind():
-			return false, nil
-		case c.kind.UninstallWorkflowKind():
-			return workflow.RequestedBy != c.requester && !strings.HasPrefix(workflow.RequestedBy, "swallow:"), nil
-		}
-	}
-	return false, nil
 }
 
 // retryReason retries a failed install once the backoff since the assignment failed has elapsed.

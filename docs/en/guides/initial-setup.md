@@ -14,7 +14,8 @@ Sites, or to set up a development stack.
 
 Create a short user-facing name and an optional description under
 **Infrastructure → Sites**. A Site is intentionally not a rack hierarchy. Use
-Zones and Pools for grouping Servers after inventory appears.
+Zones (within the Site) and Pools (across Sites, under **Pools**) for grouping
+Servers after inventory appears.
 
 ## 2. Register MAAS
 

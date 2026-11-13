@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 	"testing"
 
 	infradomain "github.com/maple52046/swallow/internal/core/infrastructure/domain"
@@ -39,14 +40,17 @@ func (p scopePlatforms) FindByID(_ context.Context, id string) (*platformdomain.
 	return nil, platformdomain.ErrPlatformNotFound
 }
 
-// scopeServers answers List with the servers matching the Site and Platform filters, which is
-// all the resolver relies on; absent servers are assumed already excluded by the repository.
+// scopeServers answers List with the servers matching the Site, Pool, and Platform filters, which
+// is all the resolver relies on; absent servers are assumed already excluded by the repository.
 type scopeServers []*serverdomain.Server
 
 func (s scopeServers) List(_ context.Context, filter serverdomain.ListFilter) (serverdomain.ListResult, error) {
 	var matches []*serverdomain.Server
 	for _, server := range s {
 		if filter.SiteID != "" && server.Source.SiteID != filter.SiteID {
+			continue
+		}
+		if filter.RestrictPools && !slices.Contains(filter.PoolIDs, server.Spec.PoolID) {
 			continue
 		}
 		if filter.PlatformID != "" && (server.Membership == nil || server.Membership.PlatformID != filter.PlatformID) {
@@ -57,11 +61,14 @@ func (s scopeServers) List(_ context.Context, filter serverdomain.ListFilter) (s
 	return serverdomain.ListResult{Servers: matches, Total: len(matches)}, nil
 }
 
-func scopeServer(id, siteID, zone, pool, platformID string) *serverdomain.Server {
+// scopeServer is a Server of siteID observed in zone and provider resource pool providerPool, placed
+// in the Pool poolID, and a member of platformID when that is not empty.
+func scopeServer(id, siteID, zone, providerPool, poolID, platformID string) *serverdomain.Server {
 	server := &serverdomain.Server{
 		ID:       id,
 		Source:   serverdomain.Source{SiteID: siteID},
-		Observed: serverdomain.Observed{ProviderZone: zone, ProviderResourcePool: pool},
+		Spec:     serverdomain.ServerSpec{PoolID: poolID},
+		Observed: serverdomain.Observed{ProviderZone: zone, ProviderResourcePool: providerPool},
 	}
 	if platformID != "" {
 		server.Membership = &serverdomain.MembershipStatus{PlatformID: platformID}
@@ -69,17 +76,18 @@ func scopeServer(id, siteID, zone, pool, platformID string) *serverdomain.Server
 	return server
 }
 
-// A grouping's members are the Servers of its own Site whose observed placement carries its
-// name; a same-named grouping in another Site must not leak in.
-func TestMetricScopeResolver_ResolvesGroupingsByObservedPlacement(t *testing.T) {
+// A Zone's members are the Servers of its own Site observed in it, so a same-named zone of another
+// Site does not leak in; a Pool's members are the Servers placed in it in any Site, whatever
+// resource pool the provisioner reports.
+func TestMetricScopeResolver_ResolvesGroupings(t *testing.T) {
 	resolver := metricScopeResolver{
 		zones:     scopeZones{"zone-a": {ID: "zone-a", SiteID: "site-1", Name: "rack-a"}},
-		pools:     scopePools{"pool-r": {ID: "pool-r", SiteID: "site-1", Name: "research"}},
+		pools:     scopePools{"pool-r": {ID: "pool-r", Name: "research"}},
 		platforms: scopePlatforms{"plat-1": {ID: "plat-1"}},
 		servers: scopeServers{
-			scopeServer("srv-1", "site-1", "rack-a", "research", "plat-1"),
-			scopeServer("srv-2", "site-1", "rack-b", "research", ""),
-			scopeServer("srv-3", "site-2", "rack-a", "research", "plat-1"),
+			scopeServer("srv-1", "site-1", "rack-a", "research", "pool-r", "plat-1"),
+			scopeServer("srv-2", "site-1", "rack-b", "research", "", ""),
+			scopeServer("srv-3", "site-2", "rack-a", "default", "pool-r", "plat-1"),
 		},
 	}
 
@@ -89,7 +97,7 @@ func TestMetricScopeResolver_ResolvesGroupingsByObservedPlacement(t *testing.T) 
 		want []string
 	}{
 		{monitoringdomain.ScopeZone, "zone-a", []string{"srv-1"}},
-		{monitoringdomain.ScopePool, "pool-r", []string{"srv-1", "srv-2"}},
+		{monitoringdomain.ScopePool, "pool-r", []string{"srv-1", "srv-3"}},
 		{monitoringdomain.ScopePlatform, "plat-1", []string{"srv-1", "srv-3"}},
 	}
 	for _, tc := range tests {

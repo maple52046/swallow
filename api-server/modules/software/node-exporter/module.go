@@ -31,13 +31,15 @@ func Module() (moduledomain.Module, error) {
 type Software struct{}
 
 // Entry is the exporter's catalog entry: no spec and no install restriction of its own. OS
-// provisioning composes it on every Server it deploys, so a host never runs a second node exporter.
+// provisioning composes it on every Server it deploys, so a host never runs a second node exporter,
+// and swallow keeps it installed, so only an admin may uninstall it.
 func (Software) Entry() softwaredomain.CatalogEntry {
 	return softwaredomain.CatalogEntry{
-		Kind:       Kind,
-		Label:      "Node Exporter",
-		Exporter:   &softwaredomain.Exporter{Name: string(Kind), Port: Port},
-		SpecFields: []string{},
+		Kind:          Kind,
+		Label:         "Node Exporter",
+		Exporter:      &softwaredomain.Exporter{Name: string(Kind), Port: Port},
+		SpecFields:    []string{},
+		KeptInstalled: true,
 	}
 }
 

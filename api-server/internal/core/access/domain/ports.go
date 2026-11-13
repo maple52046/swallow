@@ -28,12 +28,11 @@ type WorkflowTargets interface {
 	TargetsOf(ctx context.Context, workflowID string) (serverIDs, platformIDs []string, found bool, err error)
 }
 
-// PoolRef is what the access context needs of one Pool to manage its memberships: its id, Site,
-// and name.
+// PoolRef is what the access context needs of one Pool to manage its memberships: its id and name.
+// A Pool belongs to the installation, not to a Site.
 type PoolRef struct {
-	ID     string
-	SiteID string
-	Name   string
+	ID   string
+	Name string
 }
 
 // PoolLookup finds a Pool; found is false for an unknown one.

@@ -377,7 +377,9 @@ decision 040。每個 Site 選擇部署是否從 Local Repository 取得 artifac
   `prepare-secrets.sh` 已補上三個 Pulp secret。換了 Pulp image 時，`pulp-init` 在 `up -d` 時遷移它的 database，在
   備份之後。
 - `swallow-api migrate --backup-confirmed`（確認已有備份，允許破壞性的 schema 變更：v3 的 Platform rename、
-  v10 刪除 schema-v2 的 Operation 紀錄；v11 從每個 Site 的 `playbookMappings` 移除已退役的 `install-exporters`、
+  v10 刪除 schema-v2 的 Operation 紀錄、v16 把 Pool 改為 installation 層級：每個 Site 的 `default` Pool 合併成一個，
+  其他 Pool 連同它們的 Pool Membership 與 Sudo Policy 刪除、指向它們的 Server placement 清除，provisioner 的 resource
+  pool 不受影響；v11 從每個 Site 的 `playbookMappings` 移除已退役的 `install-exporters`、
   `uninstall-exporters`，v12 移除 Platform 已退役的 exporter 擁有者欄位與 `deploy-k8s-exporters`、
   `remove-k8s-exporters` mapping，v13 把沒有 Platform Grafana 的 Platform 的 `monitoringDashboards` 記為 `false`，v14 把
   仍指向 Grafana 根網址的 `Platform Grafana` 連結改成首頁 dashboard，這些都不需要這個確認）、

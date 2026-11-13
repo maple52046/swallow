@@ -374,9 +374,10 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 		provisioningapp.NewRenameServerTagUseCase(transactor, integrationRepo, providerFactory, serverRepo, serverRepo),
 	)
 
-	// Infrastructure: swallow-owned Zones and Pools (decision 071). The API writes their spec and
-	// the Servers' placement spec; the worker's catalog and Server controllers realize them. The
-	// provider factory is used here only to delete a group from the provisioners that hold it.
+	// Infrastructure: swallow-owned Zones (decision 071) and installation-wide Pools (decision 082).
+	// The API writes them and the Servers' placement spec; the worker's catalog and Server controllers
+	// realize the Zones. The provider factory is used here only to delete a Zone from the
+	// provisioners that hold it.
 	zoneRepo, err := infrastructurestore.NewMongoZoneRepo(db)
 	if err != nil {
 		return nil, fmt.Errorf("zone repo init: %w", err)
@@ -1149,8 +1150,8 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	software.Put("/docker-ce/registry-credentials/:credentialId", adminRoute(deps.registryCreds.Replace)...)
 	software.Delete("/docker-ce/registry-credentials/:credentialId", adminRoute(deps.registryCreds.Delete)...)
 
-	// swallow-owned Zones and Pools (the dashboard's Infrastructure area). Each write is also
-	// realized in the Site's provisioner when it is grouping-capable (decision 071). A Pool's
+	// swallow-owned Zones and Pools. A Zone write is also realized in the Site's provisioner when it
+	// is grouping-capable (decision 071); a Pool exists only in swallow (decision 082). A Pool's
 	// members and Sudo Policy are the access context's (contract pool-access.md).
 	infrastructure := v1.Group("/infrastructure")
 	infrastructure.Get("/zones", route(deps.infrastructure.ListZones)...)

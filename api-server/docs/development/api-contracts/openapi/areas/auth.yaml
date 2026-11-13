@@ -676,13 +676,11 @@ components:
     CurrentUserMembership:
       type: object
       description: One of the caller's Pool Memberships.
-      required: [poolId, poolName, siteId, role]
+      required: [poolId, poolName, role]
       properties:
         poolId:
           type: string
         poolName:
-          type: string
-        siteId:
           type: string
         role:
           type: string

@@ -6,7 +6,6 @@ const TABS = [
   { value: '/infrastructure/sites', label: 'Sites' },
   { value: '/infrastructure/integrations', label: 'Integrations' },
   { value: '/infrastructure/zones', label: 'Zones' },
-  { value: '/infrastructure/pools', label: 'Pools' },
   { value: '/infrastructure/local-repository', label: 'Local repository' },
   { value: '/infrastructure/boot-isos', label: 'Boot ISOs' },
 ] as const

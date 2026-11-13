@@ -10,7 +10,7 @@ tags:
   - name: servers
     description: >-
       Servers projected from provisioner inventory, their provider-backed lifecycle actions, and
-      the swallow-owned settings attached to them. Every route requires role `admin`.
+      the swallow-owned settings attached to them. Each route states its authorization class (conventions.md, Authorization).
 paths:
   /api/v1/servers:
     get:
@@ -18,7 +18,7 @@ paths:
       operationId: listServers
       summary: List Server projections with filtering and pagination.
       description: >-
-        Requires role `admin`. Filters are conjunctive. An unknown filter value matches nothing
+        Pool read: any authenticated User; the result holds only what the caller may read. Filters are conjunctive. An unknown filter value matches nothing
         (200 with no items) rather than failing; a `page` or `pageSize` that is not a positive
         integer, or a `pageSize` above 100, falls back to its default instead of being refused.
         The route is also served with a trailing slash (`/api/v1/servers/`).
@@ -86,7 +86,7 @@ paths:
       operationId: streamServerChanges
       summary: Stream Server projection changes as Server-Sent Events.
       description: >-
-        Requires role `admin`. A browser EventSource that cannot send an Authorization header
+        Pool read: any authenticated User; the result holds only what the caller may read. A browser EventSource that cannot send an Authorization header
         passes a Session access token as `access_token` instead; an API Key is never accepted
         there (a value starting with `swk_` is ignored, so the request is 401). The header wins
         when both are present. The body opens with the comment `: connected`, sends `: ping`
@@ -132,7 +132,7 @@ paths:
       tags: [servers]
       operationId: getServer
       summary: Read one Server projection.
-      description: Requires role `admin`. An unknown Server is 404.
+      description: 'Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. An unknown Server is 404.'
       responses:
         '200':
           description: The complete Server projection, the same shape as a list item.
@@ -183,7 +183,7 @@ paths:
       operationId: refreshServer
       summary: Read the Server's Machine live and update its provisioning axis and addresses.
       description: >-
-        Requires role `admin`. One targeted provider read; not a full inventory reconciliation.
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. One targeted provider read; not a full inventory reconciliation.
         400 when the provisioner refused; 404 for an unknown Server or Machine; 503 when the
         provisioner is unavailable.
       responses:
@@ -213,7 +213,7 @@ paths:
       operationId: setServerDefaultUser
       summary: Set the Server Default User, optionally installing the Deployment Key first.
       description: >-
-        Requires role `admin`. The value is saved only after a Deployment Key login as `user`
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The value is saved only after a Deployment Key login as `user`
         succeeds. 400 when `user` is not a login name or the host rejected the password; 404 for
         an unknown Server; 409 when the Server is not deployed, has no address, or is locked, the
         installation has no Deployment Key, or the host rejected the key; 503 when the host is
@@ -263,7 +263,7 @@ paths:
       operationId: clearServerDefaultUser
       summary: Clear the Server Default User set on the Server.
       description: >-
-        Requires role `admin`. Succeeds also when nothing was set and never touches the host.
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Succeeds also when nothing was set and never touches the host.
         404 for an unknown Server; 409 for a locked Server; 503 when the lock state is
         unavailable.
       responses:
@@ -474,7 +474,7 @@ paths:
       operationId: getServerProvisionerDetail
       summary: Read the Machine's live provisioner detail and the provisioner's capabilities.
       description: >-
-        Requires role `admin`. Read live from the provisioner and sent with
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Read live from the provisioner and sent with
         `Cache-Control: no-store`, because an allowlisted BMC section may carry the BMC password
         for manual administration. 400 when the provisioner refused; 404 for an unknown Server or
         Machine; 503 when the provisioner is unavailable.
@@ -505,7 +505,7 @@ paths:
       operationId: listServerProviderEvents
       summary: Read the recent machine history the provisioner retains.
       description: >-
-        Requires role `admin`. A provisioner without machine events answers 200 with
+        Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. A provisioner without machine events answers 200 with
         `supported: false`. 400 for a `limit` outside 1-100 or a provisioner refusal; 404 for an
         unknown Server or Machine; 503 when the provisioner is unavailable.
       parameters:
@@ -544,7 +544,7 @@ paths:
       operationId: getServerNetwork
       summary: Read the Server's typed, live Network Configuration.
       description: >-
-        Requires role `admin`. The same target shape as `POST /api/v1/provisioning/networks/inspect`
+        Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. The same target shape as `POST /api/v1/provisioning/networks/inspect`
         (provisioning.md, Network Inspection). 400 when the provisioner refused or cannot
         configure networks; 404 for an unknown Server or Machine; 503 when the provisioner is
         unavailable.
@@ -584,7 +584,7 @@ paths:
       operationId: createServerNetworkLink
       summary: Create one explicit subnet link on a NIC of a Ready Server.
       description: >-
-        Requires role `admin`. The provider state is read back and verified before the refreshed
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The provider state is read back and verified before the refreshed
         Network Configuration is returned. 400 for an invalid body, mode, or address, an unknown
         interface or subnet, or a provisioner that cannot configure networks; 404 for an unknown
         Server or Machine; 409 when the Server is not a present, unlocked `ready` Server; 503
@@ -630,7 +630,7 @@ paths:
       operationId: replaceServerNetworkLink
       summary: Replace exactly one subnet link on a NIC of a Ready Server.
       description: >-
-        Requires role `admin`. Unrelated links are retained. Errors as for creating a link; an
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Unrelated links are retained. Errors as for creating a link; an
         unknown link is also 400.
       requestBody:
         required: true
@@ -663,7 +663,7 @@ paths:
       operationId: deleteServerNetworkLink
       summary: Unbind exactly one subnet link on a NIC of a Ready Server.
       description: >-
-        Requires role `admin`. No request body. Errors as for replacing a link.
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. No request body. Errors as for replacing a link.
       responses:
         '200':
           description: The refreshed Network Configuration.
@@ -692,7 +692,7 @@ paths:
       operationId: listServerProvisioningTasks
       summary: List the Server's Provisioning Tasks, newest first.
       description: >-
-        Requires role `admin`. The task shape of `GET /api/v1/provisioning/tasks/{id}`
+        Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. The task shape of `GET /api/v1/provisioning/tasks/{id}`
         (provisioning.md, Provisioning Tasks); a plain array. 404 for an unknown Server.
       responses:
         '200':
@@ -719,7 +719,7 @@ paths:
       operationId: powerOnServer
       summary: Ask the provisioner to power the Server on.
       description: &serverActionDescription >-
-        Requires role `admin`. The response is the provisioning snapshot the provisioner returned
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The response is the provisioning snapshot the provisioner returned
         on accepting the action; the reconciler tracks it from there. 400 when the provisioner
         does not offer the action or refused it; 404 for an unknown Server or Machine; 409 for a
         locked Server or a provisioning state that does not allow the action; 503 when the
@@ -762,7 +762,7 @@ paths:
       operationId: getServerPowerState
       summary: Read the Server's power state live from the provisioner.
       description: >-
-        Requires role `admin`. Changes nothing and is not gated on Server Lock. 400 when the
+        Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. Changes nothing and is not gated on Server Lock. 400 when the
         provisioner offers no power control or refused; 404 for an unknown Server or Machine; 503
         when the provisioner is unavailable.
       responses:
@@ -861,7 +861,7 @@ paths:
       operationId: inspectServer
       summary: Inspect the Server's hardware through an inspect-hardware Workflow.
       description: >-
-        Requires role `admin`. Starts an inspect-hardware Workflow, or retries the one waiting in
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Starts an inspect-hardware Workflow, or retries the one waiting in
         `requires_attention`. 404 for an unknown Server; 409 when the Server is locked, its
         provisioning state does not allow inspection, or a Workflow already holds it; 503 when the
         lock state is unavailable.
@@ -973,7 +973,7 @@ paths:
       operationId: listServerTags
       summary: List the tags known for a Site, with each tag's kind and how many Servers carry it.
       description: >-
-        Requires role `admin`. The provisioner's tag catalog plus the spec tags it does not hold
+        Reference: any authenticated User. The provisioner's tag catalog plus the spec tags it does not hold
         yet. A Site with no enabled provisioner, including an unknown Site, answers an empty `tags`
         array. 400 for a missing `siteId` or a provisioner refusal; 503 when the provisioner cannot
         be reached or has no credential.
@@ -1005,7 +1005,7 @@ paths:
       operationId: editServerTags
       summary: Write a tri-state tag edit into the spec of one or more Servers.
       description: >-
-        Requires role `admin`. Not gated on Server Lock. The spec part is atomic across the listed
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Not gated on Server Lock. The spec part is atomic across the listed
         Servers and the provisioner converges it asynchronously (the Servers' conditions report
         it); an automatic tag in `remove` is removed by the provisioner before the response. 400
         for an invalid body, empty `serverIds`, no `add` or `remove`, an invalid or contradictory

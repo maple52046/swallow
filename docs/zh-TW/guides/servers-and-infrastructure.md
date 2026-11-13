@@ -342,15 +342,22 @@ Servers 頁的 **Manage tags** 列出 Site 知道的每個 tag、有幾台 Serve
 
 ## Zone 與 Pool
 
-Zone／Pool 是在 **Infrastructure** 管理的 swallow-owned grouping resource。
-透過 Server placement action 指派。Provisioner 有能力時會 realize grouping；不支援時 Server 上會回報這件事，
-swallow 不另存一份。
+Zone 與 Pool 是 swallow 擁有的 Server 分組，透過 Server 的 placement action（**Set zone / pool**）指派。
+
+- **Zone** 屬於一個 Site，在 **Infrastructure → Zones** 管理。Provisioner 有能力時會實現它（MAAS 的 physical zone），
+  swallow 會把 machine 搬進去；不支援時 Server 上會回報這件事，swallow 不另存一份。
+- **Pool** 和使用者帳號一樣屬於整個 installation，所以一個 Pool 可以有不同 Site 的 Server。admin 在 **Pools** 建立、
+  改名與刪除 Pool。Pool 只存在於 swallow：建立 Pool 或把 Server 放進去都不會改變 MAAS，machine 所在的 MAAS resource
+  pool 只在 Server 上顯示供參考。新發現的 Server 不在任何 Pool，直到 admin 把它放進 Pool。
 
 Pool 也決定誰可以使用它的 Server。它的 member 看得到這些 Server（以及上面的 Platform、Workflow 與 Validation Run），並以
-自己的 SSH key 登入；它的 owner 可以操作它們。在 **Pools**，或 **Infrastructure → Pools** 中 Pool 那一列的 **Members**
-動作，管理 Pool 的成員與 sudo 預設值。只有 admin 能在 Pool 之間移動 Server，而且一個 Platform 的所有 Server 都在同一個
-Pool：被 Platform claim 的 Server 只能移進那個 Platform 的 Pool，或移出所有 Pool（之後在它的 Server 重新都在同一個
-Pool 之前，Platform 只有 admin 能管理）。刪除 Pool 會一併刪除它的成員資格。
+自己的 SSH key 登入；它的 owner 可以操作它們。在 **Pools** 中 Pool 那一列的 **Members** 動作，管理 Pool 的成員與 sudo
+預設值。只有 admin 能在 Pool 之間移動 Server，而且一個 Platform 的所有 Server 都在同一個 Pool：被 Platform claim 的
+Server 只能移進那個 Platform 的 Pool，或移出所有 Pool（之後在它的 Server 重新都在同一個 Pool 之前，Platform 只有 admin
+能管理）。刪除 Pool 會一併刪除它的成員資格；還有 Server 在 Pool 中時拒絕刪除。
+
+升級到 Pool 改為 installation 層級的 release 時，每個 Site 名為 `default` 的 Pool 會合併成一個，其他 Pool 連同成員一起
+刪除；有這樣的 Pool 時，升級會先要求確認已備份。之後重新建立需要的 Pool，並把 Server 重新放進去。
 
 ## Lock 與 destructive action
 

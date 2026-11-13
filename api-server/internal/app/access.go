@@ -216,7 +216,7 @@ func (l poolLookup) Pool(ctx context.Context, poolID string) (accessdomain.PoolR
 	if err != nil {
 		return accessdomain.PoolRef{}, false, err
 	}
-	return accessdomain.PoolRef{ID: pool.ID, SiteID: pool.SiteID, Name: pool.Name}, true, nil
+	return accessdomain.PoolRef{ID: pool.ID, Name: pool.Name}, true, nil
 }
 
 // userCleanup removes a deleted User's Sessions, API Keys, and Access Keys, inside the transaction
@@ -252,7 +252,7 @@ func (m meMemberships) MembershipsOf(ctx context.Context, userID string) ([]auth
 	out := make([]authapp.MembershipOfCaller, 0, len(memberships))
 	for _, membership := range memberships {
 		out = append(out, authapp.MembershipOfCaller{
-			PoolID: membership.PoolID, PoolName: membership.PoolName, SiteID: membership.SiteID, Role: string(membership.Role),
+			PoolID: membership.PoolID, PoolName: membership.PoolName, Role: string(membership.Role),
 		})
 	}
 	return out, nil

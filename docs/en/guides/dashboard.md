@@ -25,8 +25,8 @@ On a phone, the menu button opens the same sidebar as a drawer.
 | Monitoring | Fleet health, usage charts for selected Servers, Pools, Zones, and Platforms, current metrics, optional Grafana links, and (in development) alerts and silences |
 | Activity | Two tabs. **Workflows**: durable execution state, Jobs, Tasks, events, logs, cancel, rerun, and retry. **Change Plans**: plans for destructive Platform changes, the ones waiting for approval or rejection, the record of approved ones, and the safety switch |
 | OS Images | The OS images Servers are deployed with: the catalog, upload, deploy-mode verification, and deployment templates (tabs **OS images** and **Templates**) |
-| Infrastructure | Sites, Integrations, Zones, Pools, credentials, automation settings, the Site's local repository (where deployments fetch artifacts, its sources, sync state, and content; see [Initial setup](initial-setup.md#4-register-the-local-repository)), and [Boot ISOs](#boot-isos-and-server-boot-media) |
-| Pools | The Pools you belong to (an admin sees every Pool); each Pool's members, their Pool Role, and who has sudo on its Servers |
+| Infrastructure | Sites, Integrations, Zones, credentials, automation settings, the Site's local repository (where deployments fetch artifacts, its sources, sync state, and content; see [Initial setup](initial-setup.md#4-register-the-local-repository)), and [Boot ISOs](#boot-isos-and-server-boot-media) |
+| Pools | The Pools you belong to (an admin sees every Pool of the installation and creates, renames, and deletes them); each Pool's members, their Pool Role, and who has sudo on its Servers |
 | Users (admins) | Accounts, the access settings, the Directory's status, and recent access changes |
 | SSH keys (account menu) | The deployment key, your access keys, and their provisioner sync status — see [SSH keys](ssh-keys.md) |
 | API keys (account menu) | Keys that let scripts, CI, and the CLI call swallow as you without a password — see [API keys](api-keys.md) |
@@ -227,7 +227,8 @@ Who can do what:
   Pool sees its Servers, Platforms, Workflows, and Validation Runs and logs in to its
   Servers with their SSH keys; an **owner** also operates them (power, OS deployment,
   software, Platforms, Validation) and manages the Pool's members and sudo defaults
-  under **Pools**. A Server in no Pool belongs to admins only.
+  under **Pools**. A Pool and its memberships cover its Servers in every Site. A
+  Server in no Pool belongs to admins only.
 - Only admins create accounts (**Users → Create user**); an owner adds an existing
   account to their Pool by username. A Pool's **Sudo defaults** decide whether
   members have sudo and whether sudo asks for a password; each member can override

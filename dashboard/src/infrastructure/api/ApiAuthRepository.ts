@@ -15,7 +15,6 @@ function toUser(response: CurrentUser): User {
   const memberships: PoolMembership[] = response.memberships.map((membership) => ({
     poolId: membership.poolId,
     poolName: membership.poolName,
-    siteId: membership.siteId,
     role: membership.role === 'owner' ? 'owner' : 'member',
   }))
   return {

@@ -58,13 +58,15 @@ by network boot, through swallow, or with an OS installed; and who owns a manual
   computes or maintains itself (MAAS tags with a `definition`, and the `virtual` tag MAAS commissioning
   keeps) are observed only and never drift, whatever the provisioner does with them; removing one from
   Servers or deleting it is an action written through to the provisioner, which may apply it again.
-- **Zone and Pool.** Site-scoped groupings owned by swallow in their own `infrastructure` feature, which
-  depends only on the provisioning domain port. The catalog converges on every provisioner of the Site,
-  including one added later; a group that exists only in a provisioner is adopted, never deleted, and the
-  provider's default group (MAAS `default`) stays out. Deletion is the only write that calls the
-  provisioners synchronously; it is refused while a Server is placed in the group. A Server's placement
-  references the catalog by id (`null` is the provider's default group) and follows a rename; its observed
-  zone and pool are mirrors.
+- **Zone.** A Site-scoped grouping owned by swallow in its own `infrastructure` feature, which depends
+  only on the provisioning domain port. The catalog converges on every provisioner of the Site,
+  including one added later; a zone that exists only in a provisioner is adopted, never deleted, and the
+  provider's default zone (MAAS `default`) stays out. Deletion is the only write that calls the
+  provisioners synchronously; it is refused while a Server is placed in the Zone. A Server's Zone
+  placement references the catalog by id (`null` is the provider's default zone) and follows a rename; its
+  observed zone is a mirror. Pools left this decision: they are installation-wide and exist only in
+  swallow ([decision 082](082-accounts-pool-access-and-directory.md) (accounts, pool access, and
+  directory)), and a Server's observed resource pool is only observed.
 - **Provisioner HTTP Proxy.** Per provisioner Integration, a closed mode set (`none`, `builtin`,
   `external`, `peer`) plus the URL the mode needs, as one spec that the adapter maps onto the provider's
   settings and derives back by the provider's rule for which proxy a deployed machine gets. A URL with
@@ -128,3 +130,4 @@ by network boot, through swallow, or with an OS installed; and who owns a manual
 - 2026-10-31: decision 071 made provisioner-realized fields desired state served as spec and status, auto-corrected at the periodic resync and adopted at first observation, with a Server origin and swallow owning every manual tag.
 - 2026-11-02: merged decision 071 into this ADR; the body states the current decision.
 - 2026-11-11: a tag the provisioner maintains without a definition (MAAS `virtual`) became automatic and observed only, because removing it as drift fought the provisioner at every commissioning; Site-wide tag deletion and rename were added, calling the provisioner synchronously.
+- 2026-11-13: Pools are no longer realized in the provisioner; they became installation-wide and swallow-only under decision 082, and only Zones remain here.

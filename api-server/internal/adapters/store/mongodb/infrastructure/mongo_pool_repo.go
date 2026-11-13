@@ -12,17 +12,15 @@ import (
 	infradomain "github.com/maple52046/swallow/internal/core/infrastructure/domain"
 )
 
-// poolDoc is the MongoDB shape of a Pool. It mirrors zoneDoc but lives in its own collection so
-// a Zone and a Pool may share a name within a Site without colliding.
+// poolDoc is the MongoDB shape of a Pool. It lives in its own collection, apart from zones, so a
+// Zone and a Pool may share a name. A Pool has no Site, generation, or status (decision 082); schema
+// v16 removed those fields from Pools stored before.
 type poolDoc struct {
-	ID          string         `bson:"_id"`
-	SiteID      string         `bson:"siteId"`
-	Generation  int64          `bson:"generation"`
-	Name        string         `bson:"name"`
-	Description string         `bson:"description,omitempty"`
-	Status      groupStatusDoc `bson:"status"`
-	CreatedAt   time.Time      `bson:"createdAt"`
-	UpdatedAt   time.Time      `bson:"updatedAt"`
+	ID          string    `bson:"_id"`
+	Name        string    `bson:"name"`
+	Description string    `bson:"description,omitempty"`
+	CreatedAt   time.Time `bson:"createdAt"`
+	UpdatedAt   time.Time `bson:"updatedAt"`
 }
 
 // MongoPoolRepo is the durable PoolRepository.
@@ -30,8 +28,12 @@ type MongoPoolRepo struct {
 	col *mongo.Collection
 }
 
-// NewMongoPoolRepo creates the Pool repository and its per-Site uniqueness index, mirroring
-// NewMongoZoneRepo. The compound (siteId, name) unique index is what surfaces ErrPoolNameTaken.
+// NewMongoPoolRepo creates the Pool repository and its uniqueness index.
+//
+// Pool names are unique across the installation, so the unique index is on name alone; it is what
+// makes Create and Update return ErrPoolNameTaken instead of allowing a duplicate. The index is
+// created at startup, after the schema check, so the v16 migration has already merged the per-Site
+// `default` Pools that would otherwise collide.
 func NewMongoPoolRepo(db *mongo.Database) (*MongoPoolRepo, error) {
 	col := db.Collection("pools")
 
@@ -39,8 +41,8 @@ func NewMongoPoolRepo(db *mongo.Database) (*MongoPoolRepo, error) {
 	defer cancel()
 
 	_, err := col.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys:    bson.D{{Key: "siteId", Value: 1}, {Key: "name", Value: 1}},
-		Options: options.Index().SetUnique(true).SetName("pool_site_name"),
+		Keys:    bson.D{{Key: "name", Value: 1}},
+		Options: options.Index().SetUnique(true).SetName("pool_name"),
 	})
 	if err != nil {
 		return nil, err
@@ -52,11 +54,8 @@ func NewMongoPoolRepo(db *mongo.Database) (*MongoPoolRepo, error) {
 func (r *MongoPoolRepo) Create(ctx context.Context, pool *infradomain.Pool) error {
 	_, err := r.col.InsertOne(ctx, poolDoc{
 		ID:          pool.ID,
-		SiteID:      pool.SiteID,
-		Generation:  pool.Generation,
 		Name:        pool.Name,
 		Description: pool.Description,
-		Status:      toGroupStatusDoc(pool.Status),
 		CreatedAt:   pool.CreatedAt,
 		UpdatedAt:   pool.UpdatedAt,
 	})
@@ -67,16 +66,8 @@ func (r *MongoPoolRepo) Create(ctx context.Context, pool *infradomain.Pool) erro
 }
 
 func (r *MongoPoolRepo) FindByID(ctx context.Context, id string) (*infradomain.Pool, error) {
-	return r.findOne(ctx, bson.M{"_id": id})
-}
-
-func (r *MongoPoolRepo) FindByName(ctx context.Context, siteID, name string) (*infradomain.Pool, error) {
-	return r.findOne(ctx, bson.M{"siteId": siteID, "name": name})
-}
-
-func (r *MongoPoolRepo) findOne(ctx context.Context, filter bson.M) (*infradomain.Pool, error) {
 	var doc poolDoc
-	err := r.col.FindOne(ctx, filter).Decode(&doc)
+	err := r.col.FindOne(ctx, bson.M{"_id": id}).Decode(&doc)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return nil, infradomain.ErrPoolNotFound
 	}
@@ -86,12 +77,8 @@ func (r *MongoPoolRepo) findOne(ctx context.Context, filter bson.M) (*infradomai
 	return toPool(&doc), nil
 }
 
-func (r *MongoPoolRepo) List(ctx context.Context, siteID string) ([]*infradomain.Pool, error) {
-	filter := bson.M{}
-	if siteID != "" {
-		filter["siteId"] = siteID
-	}
-	cursor, err := r.col.Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "name", Value: 1}}))
+func (r *MongoPoolRepo) List(ctx context.Context) ([]*infradomain.Pool, error) {
+	cursor, err := r.col.Find(ctx, bson.M{}, options.Find().SetSort(bson.D{{Key: "name", Value: 1}}))
 	if err != nil {
 		return nil, err
 	}
@@ -108,39 +95,14 @@ func (r *MongoPoolRepo) List(ctx context.Context, siteID string) ([]*infradomain
 	return pools, nil
 }
 
-func (r *MongoPoolRepo) UpdateSpec(ctx context.Context, pool *infradomain.Pool) error {
-	var doc poolDoc
-	err := r.col.FindOneAndUpdate(ctx,
+func (r *MongoPoolRepo) Update(ctx context.Context, pool *infradomain.Pool) error {
+	result, err := r.col.UpdateOne(ctx,
 		bson.M{"_id": pool.ID},
-		bson.M{
-			"$set": bson.M{"name": pool.Name, "description": pool.Description, "updatedAt": pool.UpdatedAt},
-			"$inc": bson.M{"generation": 1},
-		},
-		options.FindOneAndUpdate().SetReturnDocument(options.After),
-	).Decode(&doc)
+		bson.M{"$set": bson.M{"name": pool.Name, "description": pool.Description, "updatedAt": pool.UpdatedAt}},
+	)
 	if mongo.IsDuplicateKeyError(err) {
 		return infradomain.ErrPoolNameTaken
 	}
-	if errors.Is(err, mongo.ErrNoDocuments) {
-		return infradomain.ErrPoolNotFound
-	}
-	if err != nil {
-		return err
-	}
-	pool.Generation = doc.Generation
-	return nil
-}
-
-func (r *MongoPoolRepo) AdoptSpec(ctx context.Context, id, description string, at time.Time) error {
-	_, err := r.col.UpdateOne(ctx,
-		bson.M{"_id": id, "generation": bson.M{"$in": bson.A{nil, int64(0)}}},
-		bson.M{"$set": bson.M{"description": description, "generation": int64(1), "updatedAt": at}},
-	)
-	return err
-}
-
-func (r *MongoPoolRepo) SetStatus(ctx context.Context, id string, status infradomain.GroupStatus) error {
-	result, err := r.col.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{"status": toGroupStatusDoc(status)}})
 	if err != nil {
 		return err
 	}
@@ -164,11 +126,8 @@ func (r *MongoPoolRepo) Delete(ctx context.Context, id string) error {
 func toPool(doc *poolDoc) *infradomain.Pool {
 	return &infradomain.Pool{
 		ID:          doc.ID,
-		SiteID:      doc.SiteID,
-		Generation:  doc.Generation,
 		Name:        doc.Name,
 		Description: doc.Description,
-		Status:      toGroupStatus(doc.Status),
 		CreatedAt:   doc.CreatedAt,
 		UpdatedAt:   doc.UpdatedAt,
 	}

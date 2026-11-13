@@ -42,6 +42,7 @@ type catalogEntryResponse struct {
 	RefusedForKubernetesMembers bool     `json:"refusedForKubernetesMembers"`
 	RefusedForClaimedServers    bool     `json:"refusedForClaimedServers"`
 	RequiresAMDComputeGPU       bool     `json:"requiresAmdComputeGpu"`
+	KeptInstalled               bool     `json:"keptInstalled"`
 	InstallMethods              []string `json:"installMethods"`
 	ContainerRuntimes           []string `json:"containerRuntimes"`
 	SpecFields                  []string `json:"specFields"`
@@ -78,6 +79,7 @@ func (h *SoftwareHandler) Catalog(c *fiber.Ctx) error {
 			// The contract field predates any other Accelerator module, so it reads "requires an
 			// accelerator's compute GPU"; the generic Platform API replaces it.
 			RequiresAMDComputeGPU: entry.RequiredAccelerator != "",
+			KeptInstalled:         entry.KeptInstalled,
 			InstallMethods:        methodsToStrings(entry.InstallMethods),
 			ContainerRuntimes:     kindsToStrings(entry.ContainerRuntimes),
 			SpecFields:            wire.Strings(entry.SpecFields),
@@ -169,8 +171,13 @@ func (h *SoftwareHandler) Uninstall(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
 	}
+	visibility, ok := accessdelivery.VisibilityFrom(c)
+	if !ok {
+		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
+	}
 	operationID, err := h.software.Uninstall(c.Context(), softwareapp.UninstallInput{
 		Kind: softwaredomain.Kind(req.Kind), ServerIDs: req.ServerIDs, RequestedBy: requestedBy(c),
+		ByAdmin: visibility.Admin(),
 	})
 	if err != nil {
 		return respondError(c, err)
@@ -231,6 +238,8 @@ func methodsToStrings(methods []softwaredomain.InstallMethod) []string {
 // respondError maps software domain and operation errors to the shared envelope (software.md).
 func respondError(c *fiber.Ctx, err error) error {
 	switch {
+	case errors.Is(err, softwareapp.ErrAdminUninstallOnly):
+		return apierror.Respond(c, apierror.New(apierror.CodeForbidden, err.Error()))
 	case errors.Is(err, softwaredomain.ErrUnknownKind),
 		errors.Is(err, softwaredomain.ErrInvalidRole),
 		errors.Is(err, softwaredomain.ErrSpecInvalid),

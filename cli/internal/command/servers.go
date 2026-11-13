@@ -354,7 +354,7 @@ func serversNetworkCmd() *cobra.Command {
 func serversPlacementCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "placement <serverId>",
-		Short: "Set or clear a Server's Zone and Pool (written to its spec; the provisioner follows)",
+		Short: "Set or clear a Server's Zone and Pool (written to its spec; the provisioner follows the Zone)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			body, ok, err := readBodyFile(cmd)
@@ -374,7 +374,7 @@ func serversPlacementCmd() *cobra.Command {
 	cmd.Flags().String("zone", "", "assign this Zone id")
 	cmd.Flags().String("pool", "", "assign this Pool id")
 	cmd.Flags().Bool("clear-zone", false, "return the Server to its provisioner's default zone")
-	cmd.Flags().Bool("clear-pool", false, "return the Server to its provisioner's default pool")
+	cmd.Flags().Bool("clear-pool", false, "take the Server out of every Pool (admins only then)")
 	return cmd
 }
 

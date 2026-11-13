@@ -17,11 +17,12 @@ import (
 	"github.com/maple52046/swallow/internal/core/store"
 )
 
-// CatalogController converges the Zone and Pool catalog onto every grouping-capable provisioner
-// of each Site (glossary: Controller; decision 071). It is the only writer of their status.
+// CatalogController converges the Zone catalog onto every grouping-capable provisioner of each
+// Site (glossary: Controller; decision 071). It is the only writer of a Zone's status. Pools are not
+// realized in a provisioner (decision 082), so it never reads or writes a provider resource pool.
 //
-// Keys are `zone:<id>` and `pool:<id>` for one group, and `adopt:<siteId>` for taking groups that
-// exist only in a provisioner into the catalog. For each group and provisioner it:
+// Keys are `zone:<id>` for one Zone and `adopt:<siteId>` for taking zones that exist only in a
+// provisioner into the catalog. For each Zone and provisioner it:
 //   - creates the group when it is missing there and renames it or rewrites its description when
 //     the spec changed, at once on a spec change or a provisioner seen for the first time;
 //   - reports drift (the group was removed, renamed, or redescribed in the provisioner) and
@@ -38,7 +39,6 @@ import (
 // Groups are never deleted from a provisioner here: deleting is the API's synchronous action.
 type CatalogController struct {
 	zones     infradomain.ZoneRepository
-	pools     infradomain.PoolRepository
 	targets   infradomain.GroupingTargets
 	providers provisioningdomain.ProviderFactory
 	events    convergence.EventRecorder
@@ -49,47 +49,46 @@ type CatalogController struct {
 
 var _ convergence.Controller = (*CatalogController)(nil)
 
-// NewCatalogController wires the catalog repositories, the Site provisioner lookup, the provider
+// NewCatalogController wires the Zone repository, the Site provisioner lookup, the provider
 // factory, and the convergence timeline.
 func NewCatalogController(
 	zones infradomain.ZoneRepository,
-	pools infradomain.PoolRepository,
 	targets infradomain.GroupingTargets,
 	providers provisioningdomain.ProviderFactory,
 	events convergence.EventRecorder,
 ) *CatalogController {
 	return &CatalogController{
-		zones: zones, pools: pools, targets: targets, providers: providers, events: events,
+		zones: zones, targets: targets, providers: providers, events: events,
 		now:   func() time.Time { return time.Now().UTC() },
 		newID: uuid.NewString,
-		log:   slog.Default().With("controller", "zone-pool-catalog"),
+		log:   slog.Default().With("controller", "zone-catalog"),
 	}
 }
 
 // Name implements convergence.Controller.
-func (c *CatalogController) Name() string { return "zone-pool-catalog" }
+func (c *CatalogController) Name() string { return "zone-catalog" }
 
 // Collections implements convergence.Controller. Integrations are watched so a provisioner that
 // is added, enabled, or re-credentialed receives the catalog without waiting for the resync.
 func (c *CatalogController) Collections() []string {
-	return []string{"zones", "pools", "integrations"}
+	return []string{"zones", "integrations"}
 }
 
 // KeysForChange implements convergence.Controller.
 func (c *CatalogController) KeysForChange(ctx context.Context, change store.Change) ([]string, error) {
 	switch change.Collection {
-	case "zones", "pools":
+	case "zones":
 		if change.Operation == store.ChangeDelete {
 			return nil, nil
 		}
-		return []string{strings.TrimSuffix(change.Collection, "s") + ":" + change.Key}, nil
+		return []string{"zone:" + change.Key}, nil
 	default:
 		return c.Keys(ctx)
 	}
 }
 
 // Keys implements convergence.Controller: an adoption key per Site with a provisioner, then every
-// Zone and Pool.
+// Zone.
 func (c *CatalogController) Keys(ctx context.Context) ([]string, error) {
 	sites, err := c.targets.Sites(ctx)
 	if err != nil {
@@ -522,7 +521,7 @@ func (s *targetConditions) set(t convergence.ConditionType, status convergence.C
 	s.changed = s.changed || changed
 }
 
-// catalogGroup is a Zone or Pool as the controller handles it, so both kinds share one algorithm.
+// catalogGroup is a Zone as the controller's algorithm handles it, apart from the repository type.
 type catalogGroup struct {
 	ID          string
 	SiteID      string
@@ -534,7 +533,8 @@ type catalogGroup struct {
 	UpdatedAt   time.Time
 }
 
-// groupKind adapts the Zone or Pool repository and provider calls to catalogGroup.
+// groupKind adapts the Zone repository and the provider's zone calls to catalogGroup, keeping the
+// convergence algorithm apart from the repository and provider method names.
 type groupKind struct {
 	name           string
 	find           func(ctx context.Context, id string) (*catalogGroup, error)
@@ -587,44 +587,6 @@ func (c *CatalogController) kinds() []groupKind {
 				return gc.RenameZone(ctx, from, to, description)
 			},
 		},
-		{
-			name: "pool",
-			find: func(ctx context.Context, id string) (*catalogGroup, error) {
-				pool, err := c.pools.FindByID(ctx, id)
-				if errors.Is(err, infradomain.ErrPoolNotFound) {
-					return nil, nil
-				}
-				if err != nil {
-					return nil, err
-				}
-				return fromPool(pool), nil
-			},
-			list: func(ctx context.Context, siteID string) ([]*catalogGroup, error) {
-				pools, err := c.pools.List(ctx, siteID)
-				out := make([]*catalogGroup, len(pools))
-				for i, pool := range pools {
-					out[i] = fromPool(pool)
-				}
-				return out, err
-			},
-			create: func(ctx context.Context, g *catalogGroup) error {
-				return c.pools.Create(ctx, &infradomain.Pool{
-					ID: g.ID, SiteID: g.SiteID, Generation: g.Generation, Name: g.Name, Description: g.Description,
-					Status: g.Status, CreatedAt: g.CreatedAt, UpdatedAt: g.UpdatedAt,
-				})
-			},
-			setStatus: c.pools.SetStatus,
-			adoptSpec: c.pools.AdoptSpec,
-			providerGroups: func(ctx context.Context, gc provisioningdomain.GroupingController) ([]provisioningdomain.ProviderGroup, error) {
-				return gc.ListPools(ctx)
-			},
-			ensure: func(ctx context.Context, gc provisioningdomain.GroupingController, name, description string) error {
-				return gc.EnsurePool(ctx, name, description)
-			},
-			rename: func(ctx context.Context, gc provisioningdomain.GroupingController, from, to, description string) error {
-				return gc.RenamePool(ctx, from, to, description)
-			},
-		},
 	}
 }
 
@@ -635,17 +597,10 @@ func fromZone(zone *infradomain.Zone) *catalogGroup {
 	}
 }
 
-func fromPool(pool *infradomain.Pool) *catalogGroup {
-	return &catalogGroup{
-		ID: pool.ID, SiteID: pool.SiteID, Generation: pool.Generation, Name: pool.Name, Description: pool.Description,
-		Status: pool.Status, CreatedAt: pool.CreatedAt, UpdatedAt: pool.UpdatedAt,
-	}
-}
-
 func isGroupNotFound(err error) bool {
-	return errors.Is(err, infradomain.ErrZoneNotFound) || errors.Is(err, infradomain.ErrPoolNotFound)
+	return errors.Is(err, infradomain.ErrZoneNotFound)
 }
 
 func isGroupNameTaken(err error) bool {
-	return errors.Is(err, infradomain.ErrZoneNameTaken) || errors.Is(err, infradomain.ErrPoolNameTaken)
+	return errors.Is(err, infradomain.ErrZoneNameTaken)
 }

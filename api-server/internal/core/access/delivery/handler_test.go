@@ -123,7 +123,7 @@ func newRouteFixture(t *testing.T) *routeFixture {
 	}}
 	memberships := &routeMemberships{}
 	audit := &routeAudit{}
-	pools := routePools{"pool-a": {ID: "pool-a", SiteID: "s", Name: "a"}, "pool-b": {ID: "pool-b", SiteID: "s", Name: "b"}}
+	pools := routePools{"pool-a": {ID: "pool-a", Name: "a"}, "pool-b": {ID: "pool-b", Name: "b"}}
 	authorizer, err := accessapp.NewAuthorizer(accessapp.AuthorizerDeps{
 		Users: users, Memberships: memberships, Servers: noServers{}, Platforms: noPlatforms{}, Workflows: noWorkflows{},
 	})

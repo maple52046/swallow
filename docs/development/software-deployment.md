@@ -260,9 +260,9 @@ Node Exporter 是 desired state，由 worker 的 Node Exporter controller 收斂
   時發生（§6.2 的時機），每次修正都是一個看得到的 Workflow。
 - **組入照舊**：OS 部署、Platform 部署的 `ensure-os` 與保留主機的 Platform uninstall 仍組入安裝（§5），讓 Server 一部署
   好、uninstall 一結束就有 Node Exporter；controller 負責之後的變化。
-- **user 的 uninstall 是退出**：受政策涵蓋的 Server 被 user uninstall 後 assignment 為 `absent`，controller 不再安裝，直到
-  有人再安裝；`requestedBy` 以 `swallow:` 開頭的 uninstall（swallow 自己規劃的）不算退出。判斷方式是該 Server 最近一次
-  這個 kind 的 install 或 uninstall Workflow。lock Server 或關閉該 Site 的 automation 也讓 controller 不安裝。
+- **只有 admin 能 uninstall**：catalog entry 標記 `KeptInstalled`（API 的 `keptInstalled`）的 kind，`SoftwareService.Uninstall`
+  拒絕不是 admin 的呼叫者（`ErrAdminUninstallOnly`，`403 forbidden`）。受政策涵蓋的 Server 被 uninstall 後 assignment 為
+  `absent`，controller 會再安裝；要讓某台 Server 不裝，lock 它，或關閉該 Site 的 automation。
 - **設定**：`SWALLOW_WORKER_NODE_EXPORTER_ENSURE`（config `nodeExporterEnsure`，預設 `true`，值必須是布林，否則 process
   不啟動）。`false` 時 worker 不註冊這個 controller，只剩組入的安裝；開發環境預設關閉，因為它與 lab 共用機器。
 - **涵蓋也決定 health**：這個政策（程式中的 `EnsureCoverage`）同時是 Server health 的「受涵蓋」判斷
@@ -278,6 +278,7 @@ sudo 規則（[identity-and-access.md](identity-and-access.md) §8、§9，[deci
 - catalog entry 標記 `DirectoryClient`：`SoftwareService` 以 port `DirectoryClientSettings` 取得 Directory 的設定，把連線設定
   加入 trusted vars，把唯讀帳號的 bind DN 與密碼放進 `SoftwareLaunch.SecretVars`；launcher 把它們以 install Task 的 step
   secret 封存（`StepSecretValues`），只在該次 run 交給 playbook。沒有 Directory 時 `ErrNoDirectory`（`409 conflict`）。
+- catalog entry 也標記 `KeptInstalled`：只有 admin 能 uninstall，uninstall 之後 controller 會再安裝。
 - 同一個 ensure controller（`EnsureController`，名稱 `sssd`，requester `swallow:sssd-controller`）以 Node Exporter 的同一套
   coverage 收斂，另外以 `EnsureReadiness` 等 Directory 第一次套用成功之後才安裝（安裝會從 Directory 讀一個 User）。kind
   沒有 exporter，所以只依 assignment 動作。設定 `directoryClientEnsure`（`SWALLOW_WORKER_DIRECTORY_CLIENT_ENSURE`，預設

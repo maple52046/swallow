@@ -29,14 +29,16 @@ func Module() (moduledomain.Module, error) {
 // Software is the directory client's Software hook.
 type Software struct{}
 
-// Entry is the directory client's catalog entry: no spec, the OS packages decide the version, and
-// the install takes the Directory's settings, which the core adds because DirectoryClient is set.
+// Entry is the directory client's catalog entry: no spec, the OS packages decide the version, the
+// install takes the Directory's settings, which the core adds because DirectoryClient is set, and
+// swallow keeps it installed, so only an admin may uninstall it.
 func (Software) Entry() softwaredomain.CatalogEntry {
 	return softwaredomain.CatalogEntry{
 		Kind:            Kind,
 		Label:           "Directory client (SSSD)",
 		SpecFields:      []string{},
 		DirectoryClient: true,
+		KeptInstalled:   true,
 	}
 }
 

@@ -136,7 +136,7 @@ func (s *MembershipService) AddMember(ctx context.Context, scope accessdomain.Sc
 		}
 		now := s.now()
 		membership := &accessdomain.Membership{
-			ID: s.newID(), PoolID: pool.ID, SiteID: pool.SiteID, UserID: user.ID, Role: input.Role,
+			ID: s.newID(), PoolID: pool.ID, UserID: user.ID, Role: input.Role,
 			Sudo: input.Sudo, SudoPasswordless: input.SudoPasswordless, CreatedAt: now, UpdatedAt: now,
 		}
 		if err := s.memberships.Create(ctx, membership); err != nil {
@@ -314,7 +314,7 @@ func (s *MembershipService) Memberships(ctx context.Context, userID string) ([]M
 		if !found {
 			continue
 		}
-		out = append(out, MembershipOfUser{PoolID: pool.ID, PoolName: pool.Name, SiteID: pool.SiteID, Role: membership.Role})
+		out = append(out, MembershipOfUser{PoolID: pool.ID, PoolName: pool.Name, Role: membership.Role})
 	}
 	return out, nil
 }
@@ -323,7 +323,6 @@ func (s *MembershipService) Memberships(ctx context.Context, userID string) ([]M
 type MembershipOfUser struct {
 	PoolID   string
 	PoolName string
-	SiteID   string
 	Role     accessdomain.PoolRole
 }
 

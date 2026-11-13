@@ -94,7 +94,8 @@ container runtime，也沒有可設定的選項。
 每次 OS 佈署都會在佈署的 Server 上安裝它，而且 swallow 會讓每個啟用 automation 的 Site 中每台已佈署、
 未 lock 的 Server 一直保有它，包括不是由 swallow 佈署的 Server：缺少時安裝、失敗時重試，Site 的
 Prometheus 收集不到時再安裝一次（見 [Monitoring](monitoring.md#node-exporter-會一直保持安裝)）。所以很少
-需要在這裡安裝；在某台 Server 上 uninstall 它，swallow 就不再在那台安裝，直到有人再安裝（lock Server 也一樣）。任何 Platform 的成員都與其他已佈署的 Server 一樣可以安裝。
+需要在這裡安裝；只有 admin 能 uninstall 它，而且在這種 Server 上 uninstall 會在下一次檢查時被補回，要讓某台 Server
+不裝 Node Exporter，請 lock 它。任何 Platform 的成員都與其他已佈署的 Server 一樣可以安裝。
 安裝前會先移除主機上仍在執行的 swallow 舊版 containerised node-exporter
 （`swallow-node-exporter.service`）；Docker 與 RDC exporter container 不受影響。
 
@@ -107,8 +108,8 @@ sudo；Server 的 `/etc/passwd`、`authorized_keys` 與 sudoers 檔案都不會�
 
 swallow 像 Node Exporter 一樣自動安裝它：在啟用 automation 的 Site 中，每台已佈署、未 lock 的 Server，在 Directory
 已經有使用者之後。它只支援 Ubuntu。Server 連不到 Directory 的 port 636，或本地帳號與 swallow 的使用者同名或同 id 時，
-安裝會停下，而且不改變任何人的登入方式。它沒有設定。在某台 Server 上 uninstall 它，swallow 就不再在那台安裝，直到有人
-再安裝。
+安裝會停下，而且不改變任何人的登入方式。它沒有設定。只有 admin 能 uninstall 它，之後 swallow 會再安裝；要讓某台 Server
+不裝，請 lock 它。
 
 
 VictoriaMetrics 安裝 VictoriaMetrics 1.155.0（single-node）的官方 release binary，swallow 從 Site

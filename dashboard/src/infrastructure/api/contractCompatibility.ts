@@ -1,6 +1,6 @@
 import type { Paginated as OperationPage } from '@/application/ports/OperationRepository'
 import type { Paginated as ServerPage } from '@/application/ports/ServerRepository'
-import type { GroupingResource, ServerPlacement } from '@/domain/infrastructure/types'
+import type { Pool, ServerPlacement, Zone } from '@/domain/infrastructure/types'
 import type { AcknowledgeAlertResult, MonitoringAlert, ServerMetricsResult } from '@/domain/monitoring/types'
 import type { Operation, OperationArtifact, OperationEvents, OperationTimelineEvent } from '@/domain/operation/types'
 import type { Overview } from '@/domain/overview/types'
@@ -138,18 +138,18 @@ export type ContractCompatibility = [
   Assert<Readable<JsonResponse<operations['createDockerNetwork'], 201>, DockerNetwork>>,
 
   // ApiInfrastructureRepository
-  // listGroups(zone): GET /api/v1/infrastructure/zones
-  Assert<Readable<JsonResponse<operations['listZones'], 200>, GroupingResource[]>>,
-  // listGroups(pool): GET /api/v1/infrastructure/pools
-  Assert<Readable<JsonResponse<operations['listPools'], 200>, GroupingResource[]>>,
-  // createGroup(zone): POST /api/v1/infrastructure/zones
-  Assert<Readable<JsonResponse<operations['createZone'], 201>, GroupingResource>>,
-  // createGroup(pool): POST /api/v1/infrastructure/pools
-  Assert<Readable<JsonResponse<operations['createPool'], 201>, GroupingResource>>,
-  // updateGroup(zone): PATCH /api/v1/infrastructure/zones/{id}
-  Assert<Readable<JsonResponse<operations['updateZone'], 200>, GroupingResource>>,
-  // updateGroup(pool): PATCH /api/v1/infrastructure/pools/{id}
-  Assert<Readable<JsonResponse<operations['updatePool'], 200>, GroupingResource>>,
+  // listZones: GET /api/v1/infrastructure/zones
+  Assert<Readable<JsonResponse<operations['listZones'], 200>, Zone[]>>,
+  // listPools: GET /api/v1/infrastructure/pools
+  Assert<Readable<JsonResponse<operations['listPools'], 200>, Pool[]>>,
+  // createZone: POST /api/v1/infrastructure/zones
+  Assert<Readable<JsonResponse<operations['createZone'], 201>, Zone>>,
+  // createPool: POST /api/v1/infrastructure/pools
+  Assert<Readable<JsonResponse<operations['createPool'], 201>, Pool>>,
+  // updateZone: PATCH /api/v1/infrastructure/zones/{id}
+  Assert<Readable<JsonResponse<operations['updateZone'], 200>, Zone>>,
+  // updatePool: PATCH /api/v1/infrastructure/pools/{id}
+  Assert<Readable<JsonResponse<operations['updatePool'], 200>, Pool>>,
   // assignServerPlacement: PUT /api/v1/servers/{id}/placement
   Assert<Readable<JsonResponse<operations['assignServerPlacement'], 200>, ServerPlacement>>,
 

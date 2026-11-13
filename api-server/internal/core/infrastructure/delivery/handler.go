@@ -1,8 +1,9 @@
 // Package delivery exposes the Infrastructure grouping use cases over HTTP (Fiber).
 //
 // It parses requests, shapes responses, and maps domain and provider errors onto the shared API
-// error envelope. Zone and Pool endpoints share generic helpers because the two resources are
-// structurally identical; only the service method they call differs. No business rule lives here.
+// error envelope. A Zone is a Site-scoped migrated resource and a Pool an installation-wide record,
+// so each has its own request and response shape; the read, patch, and delete helpers are shared
+// because only the service method and item type differ. No business rule lives here.
 package delivery
 
 import (
@@ -31,9 +32,15 @@ func NewInfrastructureHandler(groups *application.GroupingService) *Infrastructu
 	return &InfrastructureHandler{groups: groups}
 }
 
-// createGroupRequest is the create body shared by Zones and Pools.
+// createGroupRequest is the Zone create body.
 type createGroupRequest struct {
 	SiteID      string `json:"siteId"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// createPoolRequest is the Pool create body; a Pool names no Site.
+type createPoolRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 }
@@ -47,7 +54,7 @@ type updateGroupRequest struct {
 
 // placementRequest assigns a Server to a Zone and/or Pool by swallow id. A field is kept raw so
 // an omitted field (unchanged) can be told from an explicit null (back to the provisioner's
-// default group); at least one must be present.
+// default zone, or out of every Pool); at least one must be present.
 type placementRequest struct {
 	ZoneID json.RawMessage `json:"zoneId"`
 	PoolID json.RawMessage `json:"poolId"`
@@ -75,16 +82,21 @@ func (h *InfrastructureHandler) CreateZone(c *fiber.Ctx) error {
 	return h.createGroup(c, h.groups.CreateZone)
 }
 
+// ListZones handles GET /infrastructure/zones, optionally filtered by the siteId query parameter.
 func (h *InfrastructureHandler) ListZones(c *fiber.Ctx) error {
-	return h.listGroup(c, h.groups.ListZones)
+	items, err := h.groups.ListZones(c.Context(), c.Query("siteId"))
+	if err != nil {
+		return respondError(c, err)
+	}
+	return c.JSON(items)
 }
 
 func (h *InfrastructureHandler) GetZone(c *fiber.Ctx) error {
-	return h.getGroup(c, h.groups.GetZone)
+	return getItem(c, h.groups.GetZone)
 }
 
 func (h *InfrastructureHandler) UpdateZone(c *fiber.Ctx) error {
-	return h.updateGroup(c, h.groups.UpdateZone)
+	return updateItem(c, h.groups.UpdateZone)
 }
 
 func (h *InfrastructureHandler) DeleteZone(c *fiber.Ctx) error {
@@ -93,20 +105,39 @@ func (h *InfrastructureHandler) DeleteZone(c *fiber.Ctx) error {
 
 // --- Pools ---
 
+// CreatePool handles POST /infrastructure/pools. name is required here so the caller gets a
+// precise validation message before the service runs; a siteId in the body is ignored, because a
+// Pool belongs to the installation.
 func (h *InfrastructureHandler) CreatePool(c *fiber.Ctx) error {
-	return h.createGroup(c, h.groups.CreatePool)
+	var req createPoolRequest
+	if err := c.BodyParser(&req); err != nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "name is required."))
+	}
+	item, err := h.groups.CreatePool(c.Context(), application.CreatePoolInput{Name: req.Name, Description: req.Description})
+	if err != nil {
+		return respondError(c, err)
+	}
+	return c.Status(fiber.StatusCreated).JSON(item)
 }
 
+// ListPools handles GET /infrastructure/pools: every Pool of the installation.
 func (h *InfrastructureHandler) ListPools(c *fiber.Ctx) error {
-	return h.listGroup(c, h.groups.ListPools)
+	items, err := h.groups.ListPools(c.Context())
+	if err != nil {
+		return respondError(c, err)
+	}
+	return c.JSON(items)
 }
 
 func (h *InfrastructureHandler) GetPool(c *fiber.Ctx) error {
-	return h.getGroup(c, h.groups.GetPool)
+	return getItem(c, h.groups.GetPool)
 }
 
 func (h *InfrastructureHandler) UpdatePool(c *fiber.Ctx) error {
-	return h.updateGroup(c, h.groups.UpdatePool)
+	return updateItem(c, h.groups.UpdatePool)
 }
 
 func (h *InfrastructureHandler) DeletePool(c *fiber.Ctx) error {
@@ -118,7 +149,7 @@ func (h *InfrastructureHandler) DeletePool(c *fiber.Ctx) error {
 // AssignServerPlacement handles PUT /servers/{id}/placement. It is defined in this feature
 // because the placement references Zones and Pools, but it is mounted under the servers group
 // where clients address a Server. It writes the Server's placement spec and returns it; the
-// Server controller moves the machine afterwards.
+// Server controller moves the machine to its Zone afterwards.
 func (h *InfrastructureHandler) AssignServerPlacement(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if id == "" {
@@ -143,8 +174,8 @@ func (h *InfrastructureHandler) AssignServerPlacement(c *fiber.Ctx) error {
 
 // --- shared endpoint shapes ---
 
-// createGroup handles a Zone/Pool create for the given service method. siteId and name are
-// required here so the caller gets a precise validation message before the service runs.
+// createGroup handles a Zone create for the given service method. siteId and name are required
+// here so the caller gets a precise validation message before the service runs.
 func (h *InfrastructureHandler) createGroup(
 	c *fiber.Ctx,
 	create func(context.Context, application.CreateGroupInput) (*application.GroupItem, error),
@@ -171,23 +202,8 @@ func (h *InfrastructureHandler) createGroup(
 	return c.Status(fiber.StatusCreated).JSON(item)
 }
 
-// listGroup handles a Zone/Pool list, optionally filtered by the siteId query parameter.
-func (h *InfrastructureHandler) listGroup(
-	c *fiber.Ctx,
-	list func(context.Context, string) ([]application.GroupItem, error),
-) error {
-	items, err := list(c.Context(), c.Query("siteId"))
-	if err != nil {
-		return respondError(c, err)
-	}
-	return c.JSON(items)
-}
-
-// getGroup handles a Zone/Pool read by id.
-func (h *InfrastructureHandler) getGroup(
-	c *fiber.Ctx,
-	get func(context.Context, string) (*application.GroupItem, error),
-) error {
+// getItem handles a Zone or Pool read by id; T is the item type the service returns.
+func getItem[T any](c *fiber.Ctx, get func(context.Context, string) (*T, error)) error {
 	item, err := get(c.Context(), c.Params("id"))
 	if err != nil {
 		return respondError(c, err)
@@ -195,11 +211,8 @@ func (h *InfrastructureHandler) getGroup(
 	return c.JSON(item)
 }
 
-// updateGroup handles a Zone/Pool patch by id.
-func (h *InfrastructureHandler) updateGroup(
-	c *fiber.Ctx,
-	update func(context.Context, string, application.UpdateGroupInput) (*application.GroupItem, error),
-) error {
+// updateItem handles a Zone or Pool patch by id; T is the item type the service returns.
+func updateItem[T any](c *fiber.Ctx, update func(context.Context, string, application.UpdateGroupInput) (*T, error)) error {
 	var req updateGroupRequest
 	if err := c.BodyParser(&req); err != nil {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
@@ -227,12 +240,12 @@ func (h *InfrastructureHandler) deleteGroup(
 
 // respondError maps grouping and provider failures onto the shared API error envelope.
 //
-// Not-found domain errors become 404; per-Site name collisions, a group still in use, and a
-// placement that raced another spec change or a Server not adopted yet become 409; the
-// validation-class domain errors (bad name, cross-Site placement, empty placement) become 400.
-// Provider failures — only a delete calls a provisioner — reuse the provisioning surface's
-// classification: a rejected request keeps the provider's own wording as a 400, and an
-// unreachable provider or a missing credential is a 503.
+// Not-found domain errors become 404; name collisions (per Site for a Zone, installation-wide for
+// a Pool), a group still in use, and a placement that raced another spec change or a Server not
+// adopted yet become 409; the validation-class domain errors (bad name, cross-Site Zone placement,
+// empty placement) become 400. Provider failures — only a Zone delete calls a provisioner — reuse
+// the provisioning surface's classification: a rejected request keeps the provider's own wording as
+// a 400, and an unreachable provider or a missing credential is a 503.
 func respondError(c *fiber.Ctx, err error) error {
 	switch {
 	case errors.Is(err, infradomain.ErrZoneNotFound):
@@ -251,14 +264,14 @@ func respondError(c *fiber.Ctx, err error) error {
 			"A zone with this name already exists in the site."))
 	case errors.Is(err, infradomain.ErrPoolNameTaken):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
-			"A pool with this name already exists in the site."))
+			"A pool with this name already exists."))
 
 	case errors.Is(err, infradomain.ErrInvalidGroup):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation,
-			"A non-empty name (100 characters or fewer) and a siteId are required."))
+			"A non-empty name (100 characters or fewer) is required, and a zone also needs a siteId."))
 	case errors.Is(err, infradomain.ErrGroupingSiteMismatch):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation,
-			"The zone or pool belongs to a different site than the server."))
+			"The zone belongs to a different site than the server."))
 	case errors.Is(err, infradomain.ErrNothingToAssign):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation,
 			"Specify a zoneId, a poolId, or both."))

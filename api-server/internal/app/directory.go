@@ -109,9 +109,9 @@ func (in directoryInputs) Servers(ctx context.Context) ([]accessdomain.Directory
 	return out, nil
 }
 
-// Pools implements accessdomain.DirectoryInputs: every Pool of every Site.
+// Pools implements accessdomain.DirectoryInputs: every Pool of the installation.
 func (in directoryInputs) Pools(ctx context.Context) ([]accessdomain.DirectoryPool, error) {
-	pools, err := in.pools.List(ctx, "")
+	pools, err := in.pools.List(ctx)
 	if err != nil {
 		return nil, err
 	}

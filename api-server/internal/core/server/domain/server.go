@@ -255,15 +255,18 @@ const (
 	OriginImported Origin = "imported"
 )
 
-// ServerSpec is the desired state of the provisioner-realized fields of a Server (decision 071),
-// written only by the API and by adoption. The controller converges the provisioner to it.
+// ServerSpec is the desired state of a Server's tags and placement (decision 071), written only by
+// the API and by adoption. The controller converges the provisioner to the tags and the Zone; the
+// Pool needs no realization (decision 082).
 type ServerSpec struct {
 	// Tags is the complete set of manual tags the Server must carry. A manual tag present on the
 	// machine but not here is removed; automatic tags are never touched.
 	Tags []string
-	// ZoneID and PoolID are the swallow Zone and Pool the Server must be placed in; "" means the
-	// provisioner's default group, which is where clearing a placement returns it.
+	// ZoneID is the swallow Zone the Server must be placed in; "" means the provisioner's default
+	// zone, which is where clearing the placement returns it.
 	ZoneID string
+	// PoolID is the swallow Pool the Server belongs to, which decides who may read and operate it;
+	// "" means no Pool (admins only). It is never written to the provisioner.
 	PoolID string
 }
 

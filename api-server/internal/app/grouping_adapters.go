@@ -12,7 +12,7 @@ import (
 )
 
 // groupingTargets implements infradomain.GroupingTargets over the site Integration repository: a
-// Site's Zones and Pools are realized on every enabled provisioner Integration of that Site.
+// Site's Zones are realized on every enabled provisioner Integration of that Site.
 type groupingTargets struct {
 	integrations sitedomain.IntegrationRepository
 }
@@ -140,12 +140,11 @@ func (r placementReferences) CountPool(ctx context.Context, poolID string) (int,
 	return r.specs.CountSpecPlacement(ctx, "", poolID)
 }
 
-// serverGroupCatalog implements provisioningapp.ServerGroupCatalog over the Zone and Pool
-// repositories: a group's name on a provisioner is its realization there, so a Server follows a
-// rename only once the catalog controller has renamed the group on its provisioner.
+// serverGroupCatalog implements provisioningapp.ServerGroupCatalog over the Zone repository: a
+// zone's name on a provisioner is its realization there, so a Server follows a rename only once the
+// catalog controller has renamed the zone on its provisioner.
 type serverGroupCatalog struct {
 	zones infradomain.ZoneRepository
-	pools infradomain.PoolRepository
 }
 
 var _ provisioningapp.ServerGroupCatalog = serverGroupCatalog{}
@@ -162,18 +161,6 @@ func (c serverGroupCatalog) ZoneOn(ctx context.Context, zoneID, integrationID st
 	return name, name != "", true, nil
 }
 
-func (c serverGroupCatalog) PoolOn(ctx context.Context, poolID, integrationID string) (string, bool, bool, error) {
-	pool, err := c.pools.FindByID(ctx, poolID)
-	if errors.Is(err, infradomain.ErrPoolNotFound) {
-		return "", false, false, nil
-	}
-	if err != nil {
-		return "", false, false, err
-	}
-	name := pool.Status.Realization(integrationID).ProviderName
-	return name, name != "", true, nil
-}
-
 func (c serverGroupCatalog) ZoneNamed(ctx context.Context, siteID, integrationID, name string) (string, bool, error) {
 	zones, err := c.zones.List(ctx, siteID)
 	if err != nil {
@@ -182,19 +169,6 @@ func (c serverGroupCatalog) ZoneNamed(ctx context.Context, siteID, integrationID
 	for _, zone := range zones {
 		if zone.Name == name || zone.Status.Realization(integrationID).ProviderName == name {
 			return zone.ID, true, nil
-		}
-	}
-	return "", false, nil
-}
-
-func (c serverGroupCatalog) PoolNamed(ctx context.Context, siteID, integrationID, name string) (string, bool, error) {
-	pools, err := c.pools.List(ctx, siteID)
-	if err != nil {
-		return "", false, err
-	}
-	for _, pool := range pools {
-		if pool.Name == name || pool.Status.Realization(integrationID).ProviderName == name {
-			return pool.ID, true, nil
 		}
 	}
 	return "", false, nil

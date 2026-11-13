@@ -53,6 +53,10 @@ type DirectoryClientSettings interface {
 // ErrNoDirectory refuses a directory client install on an installation without a Directory.
 var ErrNoDirectory = errors.New("the installation has no Directory")
 
+// ErrAdminUninstallOnly refuses an uninstall of a kind swallow keeps installed by a caller that is
+// not an admin.
+var ErrAdminUninstallOnly = errors.New("only an admin can uninstall this software")
+
 // SoftwareLauncher composes the software Workflow (prepare-hosts -> configure-<kind> ->
 // record-software). It is implemented in the app layer so the software context does not import the
 // operation orchestration internals directly.
@@ -162,11 +166,13 @@ type InstallInput struct {
 	RequestedBy string
 }
 
-// UninstallInput is the accepted intent for POST /software/uninstall.
+// UninstallInput is the accepted intent for POST /software/uninstall. ByAdmin tells whether the
+// caller has the admin User Role, which a kind swallow keeps installed requires.
 type UninstallInput struct {
 	Kind        softwaredomain.Kind
 	ServerIDs   []string
 	RequestedBy string
+	ByAdmin     bool
 }
 
 // ComposedInstall is a validated software install that another Workflow carries as its own
@@ -510,6 +516,9 @@ func (s *SoftwareService) Uninstall(ctx context.Context, input UninstallInput) (
 		return "", fmt.Errorf("%w: %s", softwaredomain.ErrUnknownKind, input.Kind)
 	}
 	entry := software.Entry()
+	if entry.KeptInstalled && !input.ByAdmin {
+		return "", fmt.Errorf("%w: swallow keeps %s installed on every Server it covers", ErrAdminUninstallOnly, entry.Label)
+	}
 	if len(input.ServerIDs) == 0 {
 		return "", fmt.Errorf("%w: at least one serverId is required", ErrInvalidRequest)
 	}

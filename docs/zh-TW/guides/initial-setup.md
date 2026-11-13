@@ -12,7 +12,7 @@ Site，或設定 development stack。
 ## 1. 建立 Site
 
 在 **Infrastructure → Sites** 建立簡短的 user-facing name 與 optional
-description。Site 刻意不是 rack hierarchy；inventory 出現後請用 Zone 與 Pool
+description。Site 刻意不是 rack hierarchy；inventory 出現後請用 Zone（Site 內）與 Pool（跨 Site，在 **Pools**）
 組織 Server。
 
 ## 2. 註冊 MAAS

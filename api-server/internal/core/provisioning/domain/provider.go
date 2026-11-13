@@ -86,7 +86,7 @@ type ProviderCapabilities struct {
 	// ImageUpload reports that OSImageUploader is implemented.
 	ImageUpload bool
 	// Grouping reports that GroupingController is implemented, i.e. the provider can
-	// realize swallow-owned Zone and Pool intent and assign a machine to them.
+	// realize swallow-owned Zones and assign a machine to them.
 	Grouping bool
 	// Tagging reports that MachineTagController is implemented, i.e. the provider can realize a
 	// Server's spec tags (create, assign, and unassign manual tags) and delete or rename a tag.
@@ -352,38 +352,37 @@ type OSImageUploader interface {
 	UploadOSImage(ctx context.Context, req UploadOSImageRequest) (*OSImage, error)
 }
 
-// ProviderGroup is one zone or resource pool as a provisioner reports it. Default marks the group
-// the provisioner puts a machine in when nothing else is chosen (MAAS: the built-in `default`); it
-// is never part of swallow's catalog, and a Server placed nowhere belongs to it.
+// ProviderGroup is one zone as a provisioner reports it. Default marks the zone the provisioner
+// puts a machine in when nothing else is chosen (MAAS: the built-in `default`); it is never part of
+// swallow's catalog, and a Server with no Zone placement belongs to it.
 type ProviderGroup struct {
 	Name        string
 	Description string
 	Default     bool
 }
 
-// GroupingController realizes swallow-owned Zone and Pool desired state in a provisioner that
-// supports machine grouping (for MAAS: physical zones and resource pools), and assigns a
-// machine to a zone or pool. The infrastructure catalog controller and the Server controller
-// drive it (decision 071): swallow owns the catalog and each Server's placement, and this
-// capability makes the provisioner match.
+// GroupingController realizes swallow-owned Zone desired state in a provisioner that supports
+// machine grouping (for MAAS: physical zones), and assigns a machine to a zone. The infrastructure
+// catalog controller and the Server controller drive it (decision 071): swallow owns the catalog
+// and each Server's Zone placement, and this capability makes the provisioner match. Pools are not
+// realized in a provisioner (decision 082), so it has no resource pool operations; a machine's
+// resource pool is only observed (Machine.ResourcePool).
 //
-// The controller speaks swallow's currency — group names — and hides any provider-internal
-// identifier. Create is deliberately *ensure* semantics: a group the provider already holds
-// (MAAS ships a `default` zone and pool) is not an error, so a swallow create over an existing
-// provider group succeeds. Delete of a group the provider does not have is likewise satisfied;
-// a provider that refuses to delete a group still in use maps that refusal to
-// ProviderErrorRejected. Rename maps the previous name to the new one.
+// The controller speaks swallow's currency — zone names — and hides any provider-internal
+// identifier. Create is deliberately *ensure* semantics: a zone the provider already holds
+// (MAAS ships a `default` zone) is not an error, so a swallow create over an existing provider
+// zone succeeds. Delete of a zone the provider does not have is likewise satisfied; a provider
+// that refuses to delete a zone still in use maps that refusal to ProviderErrorRejected. Rename
+// maps the previous name to the new one.
 //
 // Assignment returns the machine as the provider reports it immediately afterwards so the
-// caller can echo the effective zone/pool without a second read; an unknown machine maps to
+// caller can echo the effective zone without a second read; an unknown machine maps to
 // ErrMachineNotFound. An adapter that sets ProviderCapabilities.Grouping must implement this.
 type GroupingController interface {
 	// ListZones returns every zone the provider holds, including its default.
 	ListZones(ctx context.Context) ([]ProviderGroup, error)
-	// ListPools returns every resource pool the provider holds, including its default.
-	ListPools(ctx context.Context) ([]ProviderGroup, error)
-	// DefaultGroupNames returns the names of the provider's default zone and pool without I/O.
-	DefaultGroupNames() (zone, pool string)
+	// DefaultZoneName returns the name of the provider's default zone without I/O.
+	DefaultZoneName() string
 
 	// EnsureZone creates the named zone, treating an existing one as already satisfied.
 	EnsureZone(ctx context.Context, name, description string) error
@@ -392,19 +391,9 @@ type GroupingController interface {
 	// DeleteZone removes the named zone, treating a missing one as already satisfied.
 	DeleteZone(ctx context.Context, name string) error
 
-	// EnsurePool creates the named resource pool, treating an existing one as satisfied.
-	EnsurePool(ctx context.Context, name, description string) error
-	// RenamePool changes a pool's name (and description) from currentName to newName.
-	RenamePool(ctx context.Context, currentName, newName, description string) error
-	// DeletePool removes the named resource pool, treating a missing one as satisfied.
-	DeletePool(ctx context.Context, name string) error
-
 	// SetMachineZone assigns machineID to the named zone; an empty name is refused because
 	// a machine always has a zone in providers that support them.
 	SetMachineZone(ctx context.Context, machineID, zoneName string) (*Machine, error)
-	// SetMachinePool assigns machineID to the named resource pool; an empty name is refused
-	// for the same reason as SetMachineZone.
-	SetMachinePool(ctx context.Context, machineID, poolName string) (*Machine, error)
 }
 
 // MachineTagController lets swallow act on a provider's tags: it lists them with their kind,

@@ -85,7 +85,7 @@ usage manual。
 - [`access`](../../../cli/docs/usage.zh-TW.md#access)：`settings get|set`、`audit`
   與 `directory get|sync`（admin）。
 - [`infrastructure`](../../../cli/docs/usage.zh-TW.md#infrastructurezones-與-pools)：
-  `zones` 與 `pools` 都提供 `list`、`get`、`create`、`update`、`delete`；
+  `zones`（每個 Site）與 `pools`（整個 installation）都提供 `list`、`get`、`create`、`update`、`delete`；
   `pools members` 與 `pools access-policy` 管理 Pool 的成員與 sudo 預設值。
 - [`platforms`](../../../cli/docs/usage.zh-TW.md#platforms)：提供 `list`、`get`、
   `create`、`set-spec`、`update`、`delete`、`sync`、`sync-all`；讀取 live

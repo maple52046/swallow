@@ -142,16 +142,18 @@ Platform.
 
 Exactly one scope parameter must be present.
 
-- A Pool or Zone contains the non-absent Servers of its Site whose provider-observed resource
-  pool or zone (`providerResourcePool` / `providerZone` on the Server projection) equals the
-  grouping's name — the observed effect of a placement, see [infrastructure.md](infrastructure.md).
+- A Pool contains the non-absent Servers whose placement spec names it (`spec.poolId`), in any Site;
+  see [infrastructure.md](infrastructure.md).
+- A Zone contains the non-absent Servers of its Site whose provider-observed zone (`providerZone` on
+  the Server projection) equals the Zone's name — the observed effect of a placement.
 - A Platform contains the non-absent Servers whose membership axis names it, the same set as
   `GET /api/v1/servers/?platformId=`.
 
 Each Server's series are read from its own Site's Prometheus (the Site's `metrics` Integration).
 An `aggregate` over Servers of more than one Site is refused with `validation_error`, because an
 aggregate cannot be combined across stores without changing its meaning; `perServer` may span
-Sites. A Server whose Site has no Prometheus has no data.
+Sites. This includes a Pool whose Servers are in several Sites. A Server whose Site has no Prometheus
+has no data.
 
 The scope is resolved when the request is served, so the history shown is that of the
 grouping's **current** members: a Server that left the Pool yesterday is not part of today's
@@ -244,6 +246,9 @@ The common error envelope applies.
   range endpoint were added on 2026-10-12. They are additive.
 - Current values are point-in-time instant reads; usage history is the bounded range endpoint.
   Neither is an arbitrary PromQL passthrough.
+- Since 2026-11-13 a Pool scope is the Servers whose placement spec names the Pool, in any Site,
+  instead of the Servers of the Pool's Site whose provider resource pool has the Pool's name: Pools
+  became installation-wide and are no longer realized in the provisioner.
 
 ## Implementation Notes
 

@@ -66,13 +66,14 @@ Health 只有在 `up` 與 `down` 時帶 `observedAt`。見 [Server health](guide
 寫入 spec 後，swallow 存下即回應，變更之後才套用；請以 conditions 與
 `status.observedGeneration` 判斷是否已生效。Provisioner 無法實現某個欄位時，
 `realized` 為 `false`、reason 為 `capability_missing`，你的 spec 照樣保留。Server 的
-tag 與 placement、Zone 與 Pool、SSH key，以及 provisioner 的 HTTP proxy 與 Subnet DNS
+tag 與 Zone placement、Zone、SSH key，以及 provisioner 的 HTTP proxy 與 Subnet DNS
 都是這樣運作；其他 resource 維持各 guide 描述的行為。
 
 ## Zone、Pool、tag 與 lock
 
-Zone／Pool 是 user-defined infrastructure grouping；tag 加上 capability 或 policy
-metadata。Server 的手動 tag 與它的 Zone／Pool 屬於 spec，由 provisioner 實現；
+Zone 與 Pool 是 user-defined 的 Server 分組：Zone 屬於一個 Site，為了可用性或組織分組它的 Server；Pool 屬於整個
+installation，可以有任何 Site 的 Server，並決定誰可以使用它們。tag 加上 capability 或 policy metadata。Server 的手動
+tag、Zone 與 Pool 都屬於 spec。provisioner 實現 tag 與 Zone；Pool 只存在於 swallow，設定後立即生效。
 provisioner 自行計算或維護的 tag（automatic tag）只是 observed，可以移除或刪除，但不能指派。Provisioner 沒有這個能力時回報
 `capability_missing`，swallow 不另外保存替代的副本。
 

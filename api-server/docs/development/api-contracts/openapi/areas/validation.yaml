@@ -13,7 +13,7 @@ paths:
       operationId: listValidationSuites
       summary: List the Validation Suite catalog.
       description: >-
-        Requires the `admin` role. Module suites first (by id), then user suites (by name); not
+        Reference: any authenticated User. Module suites first (by id), then user suites (by name); not
         paginated. Retired user suites are omitted unless `includeRetired=true`.
       parameters:
         - name: includeRetired
@@ -75,7 +75,7 @@ paths:
       tags: [validation]
       operationId: getValidationSuite
       summary: Read one Validation Suite.
-      description: Requires the `admin` role. A retired user suite is still readable.
+      description: 'Reference: any authenticated User. A retired user suite is still readable.'
       responses:
         '200':
           description: The suite.
@@ -173,7 +173,7 @@ paths:
       operationId: listValidationRuns
       summary: List Validation Runs, newest first.
       description: >-
-        Requires the `admin` role. Runs sorted by `requestedAt` descending, paged, without their
+        Pool read: any authenticated User; the result holds only what the caller may read. Runs sorted by `requestedAt` descending, paged, without their
         results (read a run for them). Every filter is optional and exact-match.
       parameters:
         - name: siteId
@@ -251,7 +251,7 @@ paths:
       operationId: startValidationRun
       summary: Start a Validation Run of a suite against deployed Servers or a Platform.
       description: >-
-        Requires the `admin` role. Accepts the run and its `run-validation` Workflow in one
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Accepts the run and its `run-validation` Workflow in one
         transaction and returns 202 with the `pending` run; progress is read on the run (and its
         Workflow).
       requestBody:
@@ -316,7 +316,7 @@ paths:
       tags: [validation]
       operationId: getValidationRun
       summary: Read one Validation Run with its results.
-      description: Requires the `admin` role.
+      description: 'Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to.'
       responses:
         '200':
           description: The run.
@@ -344,7 +344,7 @@ paths:
       operationId: cancelValidationRun
       summary: Cancel a report-mode Validation Run.
       description: >-
-        Requires the `admin` role. Writes the cancel of the run's Workflow and returns 202 with the
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Writes the cancel of the run's Workflow and returns 202 with the
         run; it ends `canceled` once the Workflow's cancel path finished.
       responses:
         '202':

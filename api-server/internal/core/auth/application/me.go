@@ -23,7 +23,6 @@ type MeOutput struct {
 type MembershipOfCaller struct {
 	PoolID   string `json:"poolId"`
 	PoolName string `json:"poolName"`
-	SiteID   string `json:"siteId"`
 	Role     string `json:"role"`
 }
 

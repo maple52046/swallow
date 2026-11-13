@@ -53,8 +53,8 @@ function makeServer(index: number): Server {
   }
 }
 
-/** A Zone or Pool of site-a realized on its provisioner, as the infrastructure list returns it. */
-function groupFixture(id: string, name: string) {
+/** A Zone of site-a realized on its provisioner, as the infrastructure list returns it. */
+function zoneFixture(id: string, name: string) {
   return {
     id, siteId: 'site-a', generation: 1,
     spec: { name, description: '' },
@@ -2681,7 +2681,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         { kind: 'prometheus', label: 'Prometheus', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: ['container', 'native'], containerRuntimes: ['docker-ce', 'podman'], specFields: ['installMethod', 'containerRuntime', 'version', 'scrapeJob', 'scrapeTargets', 'scrapeServerIds', 'scrapePort', 'listen', 'retention'] },
         { kind: 'grafana', label: 'Grafana', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: ['container', 'native'], containerRuntimes: ['docker-ce', 'podman'], specFields: ['installMethod', 'containerRuntime', 'version', 'prometheusUrl', 'dashboards'] },
         { kind: 'device-metrics-exporter', label: 'AMD Device Metrics Exporter', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: true, refusedForClaimedServers: true, requiresAmdComputeGpu: true, installMethods: [], containerRuntimes: [], specFields: [] },
-        { kind: 'node-exporter', label: 'Node Exporter', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: [], containerRuntimes: [], specFields: [] },
+        { kind: 'node-exporter', label: 'Node Exporter', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, keptInstalled: true, installMethods: [], containerRuntimes: [], specFields: [] },
         { kind: 'victoriametrics', label: 'VictoriaMetrics', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: [], containerRuntimes: [], specFields: ['listen', 'retention'] },
         { kind: 'libvirt', label: 'libvirt (QEMU/KVM)', roles: [], mutuallyExclusiveWith: [], refusedForKubernetesMembers: false, installMethods: [], containerRuntimes: [], specFields: [] },
         ...(options.extraSoftwareCatalog ?? []),
@@ -3865,10 +3865,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       return json(route, { silenceId: 'silence-e2e' })
     }
     if (path === '/api/v1/infrastructure/zones' && request.method() === 'GET') {
-      return json(route, [groupFixture('zone-a', 'rack-a')])
-    }
-    if (path === '/api/v1/infrastructure/pools' && request.method() === 'GET') {
-      return json(route, [groupFixture('pool-research', 'research')])
+      return json(route, [zoneFixture('zone-a', 'rack-a')])
     }
     if (path === '/api/v1/monitoring/metrics/range') {
       options.onMetricRangeRequest?.(url.searchParams)

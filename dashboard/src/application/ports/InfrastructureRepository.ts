@@ -1,22 +1,28 @@
-import type { GroupKind, GroupingResource, ServerPlacement } from '@/domain/infrastructure/types'
+import type { Pool, ServerPlacement, Zone } from '@/domain/infrastructure/types'
 
-/** Values accepted when creating a swallow-owned Zone or Pool. */
-export interface CreateGroupInput {
+/** Values accepted when creating a swallow-owned Zone; a Zone belongs to one Site. */
+export interface CreateZoneInput {
   siteId: string
   name: string
   description: string
 }
 
-/** Mutable Zone/Pool fields; Site ownership and identity remain stable after creation. */
+/** Values accepted when creating a Pool; a Pool belongs to the installation, not to a Site. */
+export interface CreatePoolInput {
+  name: string
+  description: string
+}
+
+/** Mutable Zone/Pool fields; identity (and a Zone's Site) remain stable after creation. */
 export interface UpdateGroupInput {
   name: string
   description: string
 }
 
 /**
- * A Server placement request. Each field is optional: an id places the Server in that group,
- * `null` returns it to the provisioner's default group, and an omitted field leaves the grouping
- * unchanged. At least one of the two must be present.
+ * A Server placement request. Each field is optional: an id places the Server in that Zone or Pool,
+ * `null` returns it to the provisioner's default zone (`zoneId`) or takes it out of every Pool
+ * (`poolId`), and an omitted field leaves the grouping unchanged. At least one must be present.
  */
 export interface AssignServerPlacementInput {
   zoneId?: string | null
@@ -24,19 +30,25 @@ export interface AssignServerPlacementInput {
 }
 
 /**
- * Admin port for swallow-owned Zone/Pool management and Server placement.
+ * Admin port for swallow-owned Zone and Pool management and Server placement.
  *
- * Methods are keyed by {@link GroupKind} so one adapter and one set of screens serve both
- * resources; the adapter maps the kind onto the provider's `/zones` or `/pools` endpoint. The
- * repository speaks domain types only — screens never see the transport DTO. Realization in the
- * provisioner is the backend's concern and is reported through each resource's conditions.
+ * The repository speaks domain types only — screens never see the transport DTO. A Zone's
+ * realization in the provisioner is the backend's concern and is reported through its conditions;
+ * a Pool exists only in swallow. Reading Zones and Pools is open to every signed-in user; the
+ * writes need an admin, and a non-admin caller's rejection surfaces as the thrown API error.
  */
 export interface InfrastructureRepository {
-  /** Lists groupings of one kind, optionally restricted to a single Site. */
-  listGroups(kind: GroupKind, siteId?: string): Promise<GroupingResource[]>
-  createGroup(kind: GroupKind, input: CreateGroupInput): Promise<GroupingResource>
-  updateGroup(kind: GroupKind, id: string, input: UpdateGroupInput): Promise<GroupingResource>
-  deleteGroup(kind: GroupKind, id: string): Promise<void>
-  /** Assigns a Server to a Zone and/or Pool, returning the effective provider group names. */
+  /** Lists Zones, optionally restricted to a single Site. */
+  listZones(siteId?: string): Promise<Zone[]>
+  createZone(input: CreateZoneInput): Promise<Zone>
+  updateZone(id: string, input: UpdateGroupInput): Promise<Zone>
+  deleteZone(id: string): Promise<void>
+  /** Lists every Pool of the installation, ordered by name. */
+  listPools(): Promise<Pool[]>
+  createPool(input: CreatePoolInput): Promise<Pool>
+  updatePool(id: string, input: UpdateGroupInput): Promise<Pool>
+  /** Deletes a Pool with its members and Sudo Policy; refused while a Server is placed in it. */
+  deletePool(id: string): Promise<void>
+  /** Sets a Server's Zone and/or Pool, returning its placement spec after the request. */
   assignServerPlacement(serverId: string, input: AssignServerPlacementInput): Promise<ServerPlacement>
 }

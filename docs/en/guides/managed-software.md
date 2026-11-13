@@ -113,8 +113,8 @@ every deployed, unlocked Server of a Site whose automation is enabled, including
 did not deploy: it installs it where it is missing, retries a failed install, and installs it
 again when the Site's Prometheus stops scraping it (see
 [Monitoring](monitoring.md#the-node-exporter-is-kept-installed)). You rarely install it here;
-uninstalling it from a Server keeps it off that Server until someone installs it again (locking
-the Server does too). A member of any Platform accepts it like any other deployed Server. Installing it first
+only an admin can uninstall it, and an uninstall on such a Server is undone at the next check, so
+lock the Server to keep the Node Exporter off it. A member of any Platform accepts it like any other deployed Server. Installing it first
 removes swallow's older containerised node-exporter
 (`swallow-node-exporter.service`) if the host still runs it; Docker and any RDC
 exporter container are left alone.
@@ -132,8 +132,8 @@ swallow installs it automatically, like the Node Exporter, on every deployed, un
 Server of a Site whose automation is enabled, once the Directory holds the users. It runs
 on Ubuntu. The install stops, without changing how anyone logs in, when the Server cannot
 reach the Directory on port 636 or when a local account has the name or id of a swallow
-user. It has no settings. Uninstalling it keeps it off that Server until someone installs
-it again.
+user. It has no settings. Only an admin can uninstall it, and swallow installs it again
+afterwards; lock the Server to keep it off.
 
 ## VictoriaMetrics
 

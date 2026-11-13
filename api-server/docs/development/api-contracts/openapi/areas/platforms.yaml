@@ -14,7 +14,7 @@ paths:
       operationId: listPlatforms
       summary: List Platforms, optionally of one Site.
       description: >-
-        Requires the `admin` role. Returns a plain array (Platforms are few, so the list is not
+        Pool read: any authenticated User; the result holds only what the caller may read. Returns a plain array (Platforms are few, so the list is not
         paginated). Lifecycle fields are read for the whole list in one batch.
       parameters:
         - name: siteId
@@ -43,7 +43,7 @@ paths:
       operationId: createPlatform
       summary: Create a Platform from its spec and propose its install as a Change Plan.
       description: >-
-        Requires the `admin` role. The spec is validated as a deployment would be (the Deployment
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The spec is validated as a deployment would be (the Deployment
         Key, topology, targets, network, and features) before anything is written; then the
         Platform is stored at generation 1 with its members claimed, and its install is the
         returned Change Plan (platforms.md, Create A Platform): approved with the request when it
@@ -112,7 +112,7 @@ paths:
       operationId: getSlurmDeploymentRequirement
       summary: Read the system-wide Slurm Minimum Resource Requirement.
       description: >-
-        Requires the `admin` role. A requirement that was never stored is returned as the disabled
+        Reference: any authenticated User. A requirement that was never stored is returned as the disabled
         representation, not 404.
       responses:
         '200':
@@ -161,7 +161,7 @@ paths:
       operationId: listGPUOperatorReleases
       summary: List the AMD GPU Operator releases swallow ships, newest first.
       description: >-
-        Requires the `admin` role. A GPU Operator setting's `version` and `draDriverVersion` must
+        Reference: any authenticated User. A GPU Operator setting's `version` and `draDriverVersion` must
         come from this catalog.
       responses:
         '200':
@@ -183,7 +183,7 @@ paths:
       tags: [platforms]
       operationId: getPlatform
       summary: Read one Platform.
-      description: Requires the `admin` role. 404 for an unknown Platform.
+      description: 'Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. 404 for an unknown Platform.'
       responses:
         '200':
           description: The Platform.
@@ -204,7 +204,7 @@ paths:
       operationId: updatePlatform
       summary: Change a Platform's name, ownership policies, or Monitoring Links.
       description: >-
-        Requires the `admin` role. Omitted fields do not change; `monitoringLinks` replaces the
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Omitted fields do not change; `monitoringLinks` replaces the
         whole list. Every field is validated before anything is written. 400 for an invalid value;
         404 for an unknown Platform; 409 when the name is taken at the Site, or when
         `gpuStackOwner` is set to `provisioning` while swallow manages a GPU Operator on the
@@ -239,7 +239,7 @@ paths:
       operationId: deletePlatform
       summary: Declare a Platform absent, proposing its uninstall as a Change Plan.
       description: >-
-        Requires the `admin` role. Marks the spec absent with the optional removal choices and
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Marks the spec absent with the optional removal choices and
         proposes the uninstall as a Change Plan, approved with the request when it sends
         `approve=true` and the policy allows it; the record is deleted once the uninstall succeeds
         (platforms.md, Delete A Platform). A Platform whose deployment runs or failed is uninstalled
@@ -303,7 +303,7 @@ paths:
       operationId: replacePlatformSpec
       summary: Replace a Platform's spec at the generation it was read.
       description: >-
-        Requires the `admin` role. A non-destructive change (for example a new member) is written
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. A non-destructive change (for example a new member) is written
         and converged by the platform controller (200); a destructive one is written with a Change
         Plan (202), approved with the request when it sends `approve=true` and the policy allows it,
         and carrying a blocker when swallow cannot carry the change out yet (platforms.md, Change A
@@ -351,7 +351,7 @@ paths:
       operationId: syncPlatformMembership
       summary: Read one Platform's membership now.
       description: >-
-        Requires the `admin` role. A failure to read the Platform's API is reported in the
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. A failure to read the Platform's API is reported in the
         report's `error` with status 200, not as an error status. 404 for an unknown Platform.
       responses:
         '200':
@@ -376,7 +376,7 @@ paths:
       operationId: getSlurmClusterState
       summary: Read a Slurm Platform's live controllers, partitions, and nodes from slurmrestd.
       description: >-
-        Requires the `admin` role. Read on demand; writes nothing. 400 for a Kubernetes Platform
+        Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. Read on demand; writes nothing. 400 for a Kubernetes Platform
         or a Slurm Platform without a recorded slurmrestd Integration; 404 for an unknown Platform
         or when the read is not wired; 503 when slurmrestd cannot be reached or rejects the
         credential.
@@ -413,7 +413,7 @@ paths:
       tags: [platforms]
       operationId: getKubernetesClusterSummary
       summary: Read the live summary of a deployed Kubernetes Platform.
-      description: Requires the `admin` role. Counts are observed at read time.
+      description: 'Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Counts are observed at read time.'
       responses:
         '200':
           description: The cluster summary.
@@ -443,7 +443,7 @@ paths:
       operationId: listKubernetesNodes
       summary: List the cluster's nodes correlated to Server identity.
       description: >-
-        Requires the `admin` role. Separate from membership sync: it never writes the membership
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Separate from membership sync: it never writes the membership
         axis.
       responses:
         '200':
@@ -475,7 +475,7 @@ paths:
       operationId: cordonKubernetesNode
       summary: Mark a node unschedulable.
       description: >-
-        Requires the `admin` role. Does not drain (evict) Pods. The returned node carries no Server
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Does not drain (evict) Pods. The returned node carries no Server
         correlation and no DRA count (`serverId` and `gpu.draDevices` are null).
       responses:
         '200': &updatedKubernetesNode
@@ -507,7 +507,7 @@ paths:
       operationId: uncordonKubernetesNode
       summary: Clear a node's unschedulable flag.
       description: >-
-        Requires the `admin` role. The returned node carries no Server correlation and no DRA count
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The returned node carries no Server correlation and no DRA count
         (`serverId` and `gpu.draDevices` are null).
       responses:
         '200': *updatedKubernetesNode
@@ -532,7 +532,7 @@ paths:
       tags: [platforms]
       operationId: listKubernetesNamespaces
       summary: List the cluster's namespaces, system namespaces flagged.
-      description: Requires the `admin` role.
+      description: 'Pool operate: an admin, or an `owner` of the Pool the resource belongs to.'
       responses:
         '200':
           description: The namespaces.
@@ -559,7 +559,7 @@ paths:
       operationId: createKubernetesNamespace
       summary: Create a namespace.
       description: >-
-        Requires the `admin` role. A missing or blank name is 400 before any cluster call; a name
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. A missing or blank name is 400 before any cluster call; a name
         the cluster refuses is 400 and one that already exists is 409, with the cluster's reason.
       requestBody:
         required: true
@@ -597,7 +597,7 @@ paths:
       operationId: deleteKubernetesNamespace
       summary: Delete a namespace.
       description: >-
-        Requires the `admin` role. A system namespace (`kube-system`, `kube-public`,
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. A system namespace (`kube-system`, `kube-public`,
         `kube-node-lease`) is refused with 409 before any cluster call.
       responses:
         '200': &successAcknowledgement
@@ -627,7 +627,7 @@ paths:
       tags: [platforms]
       operationId: listKubernetesApplications
       summary: List Kubernetes Applications (aggregated workloads).
-      description: Requires the `admin` role. The list items carry no `pods`.
+      description: 'Pool operate: an admin, or an `owner` of the Pool the resource belongs to. The list items carry no `pods`.'
       parameters:
         - $ref: '#/components/parameters/KubernetesNamespaceScope'
         - $ref: '#/components/parameters/KubernetesIncludeSystem'
@@ -663,7 +663,7 @@ paths:
       operationId: getKubernetesApplication
       summary: Read one Kubernetes Application with the Pods it owns.
       description: >-
-        Requires the `admin` role. An unsupported `kind` is 400 before any cluster call; a workload
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. An unsupported `kind` is 400 before any cluster call; a workload
         the cluster reports missing is 404, with the cluster's reason.
       responses:
         '200':
@@ -690,7 +690,7 @@ paths:
       tags: [platforms]
       operationId: deleteKubernetesApplication
       summary: Delete the workload object (or bare Pod) behind an Application.
-      description: Requires the `admin` role. An unsupported `kind` is 400 before any cluster call.
+      description: 'Pool operate: an admin, or an `owner` of the Pool the resource belongs to. An unsupported `kind` is 400 before any cluster call.'
       responses:
         '200': *successAcknowledgement
         '400':
@@ -718,7 +718,7 @@ paths:
       operationId: scaleKubernetesApplication
       summary: Set a Deployment's or StatefulSet's replica count.
       description: >-
-        Requires the `admin` role. A missing `replicas` or an unsupported `kind` is 400 before any
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. A missing `replicas` or an unsupported `kind` is 400 before any
         cluster call; a DaemonSet, a bare Pod, or a negative count is 400.
       requestBody:
         required: true
@@ -758,7 +758,7 @@ paths:
       operationId: restartKubernetesApplication
       summary: Trigger a rolling restart of a Deployment, DaemonSet, or StatefulSet.
       description: >-
-        Requires the `admin` role. An unsupported `kind` is 400 before any cluster call; a bare
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. An unsupported `kind` is 400 before any cluster call; a bare
         Pod is 400 (delete it instead).
       responses:
         '200': *successAcknowledgement
@@ -783,7 +783,7 @@ paths:
       tags: [platforms]
       operationId: listKubernetesPods
       summary: List Pods.
-      description: Requires the `admin` role.
+      description: 'Pool operate: an admin, or an `owner` of the Pool the resource belongs to.'
       parameters:
         - $ref: '#/components/parameters/KubernetesNamespaceScope'
         - $ref: '#/components/parameters/KubernetesIncludeSystem'
@@ -818,7 +818,7 @@ paths:
       operationId: getKubernetesPodLogs
       summary: Read a bounded snapshot of one container's logs (not a stream).
       description: >-
-        Requires the `admin` role. A `tailLines` that is not a positive integer is 400 before any
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. A `tailLines` that is not a positive integer is 400 before any
         cluster call.
       parameters:
         - name: container
@@ -865,7 +865,7 @@ paths:
       tags: [platforms]
       operationId: deleteKubernetesPod
       summary: Delete a Pod (its controller recreates it).
-      description: Requires the `admin` role.
+      description: 'Pool operate: an admin, or an `owner` of the Pool the resource belongs to.'
       responses:
         '200': *successAcknowledgement
         '400':
@@ -889,7 +889,7 @@ paths:
       tags: [platforms]
       operationId: listKubernetesServices
       summary: List Services (read-only).
-      description: Requires the `admin` role. Create and update go through apply.
+      description: 'Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Create and update go through apply.'
       parameters:
         - $ref: '#/components/parameters/KubernetesNamespaceScope'
         - $ref: '#/components/parameters/KubernetesIncludeSystem'
@@ -921,7 +921,7 @@ paths:
       tags: [platforms]
       operationId: listKubernetesIngresses
       summary: List Ingresses (read-only).
-      description: Requires the `admin` role. Create and update go through apply.
+      description: 'Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Create and update go through apply.'
       parameters:
         - $ref: '#/components/parameters/KubernetesNamespaceScope'
         - $ref: '#/components/parameters/KubernetesIncludeSystem'
@@ -953,7 +953,7 @@ paths:
       tags: [platforms]
       operationId: listKubernetesConfigMaps
       summary: List ConfigMaps with their data key names (read-only).
-      description: Requires the `admin` role. Create and update go through apply.
+      description: 'Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Create and update go through apply.'
       parameters:
         - $ref: '#/components/parameters/KubernetesNamespaceScope'
         - $ref: '#/components/parameters/KubernetesIncludeSystem'
@@ -986,7 +986,7 @@ paths:
       operationId: listKubernetesSecrets
       summary: List Secrets with their data key names only (read-only).
       description: >-
-        Requires the `admin` role. Secret values are never returned. Create and update go through
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Secret values are never returned. Create and update go through
         apply.
       parameters:
         - $ref: '#/components/parameters/KubernetesNamespaceScope'
@@ -1019,7 +1019,7 @@ paths:
       tags: [platforms]
       operationId: listKubernetesPersistentVolumeClaims
       summary: List PersistentVolumeClaims (read-only).
-      description: Requires the `admin` role. Create and update go through apply.
+      description: 'Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Create and update go through apply.'
       parameters:
         - $ref: '#/components/parameters/KubernetesNamespaceScope'
         - $ref: '#/components/parameters/KubernetesIncludeSystem'
@@ -1052,7 +1052,7 @@ paths:
       operationId: applyKubernetesManifest
       summary: Server-side apply a YAML manifest of one or more documents.
       description: >-
-        Requires the `admin` role. A missing or blank `manifest` is 400 before any cluster call. A
+        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. A missing or blank `manifest` is 400 before any cluster call. A
         document the cluster rejects is 400 with the cluster's reason in `error.message`; nothing
         past the first rejected document is applied.
       requestBody:

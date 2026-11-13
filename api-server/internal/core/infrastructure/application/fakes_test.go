@@ -130,7 +130,7 @@ func (r *fakePoolRepo) Create(_ context.Context, pool *infradomain.Pool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, existing := range r.byID {
-		if existing.SiteID == pool.SiteID && existing.Name == pool.Name {
+		if existing.Name == pool.Name {
 			return infradomain.ErrPoolNameTaken
 		}
 	}
@@ -150,62 +150,31 @@ func (r *fakePoolRepo) FindByID(_ context.Context, id string) (*infradomain.Pool
 	return &copied, nil
 }
 
-func (r *fakePoolRepo) FindByName(_ context.Context, siteID, name string) (*infradomain.Pool, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, pool := range r.byID {
-		if pool.SiteID == siteID && pool.Name == name {
-			copied := *pool
-			return &copied, nil
-		}
-	}
-	return nil, infradomain.ErrPoolNotFound
-}
-
-func (r *fakePoolRepo) List(_ context.Context, siteID string) ([]*infradomain.Pool, error) {
+func (r *fakePoolRepo) List(context.Context) ([]*infradomain.Pool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var out []*infradomain.Pool
 	for _, pool := range r.byID {
-		if siteID == "" || pool.SiteID == siteID {
-			copied := *pool
-			out = append(out, &copied)
-		}
+		copied := *pool
+		out = append(out, &copied)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }
 
-func (r *fakePoolRepo) UpdateSpec(_ context.Context, pool *infradomain.Pool) error {
+func (r *fakePoolRepo) Update(_ context.Context, pool *infradomain.Pool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	stored, ok := r.byID[pool.ID]
 	if !ok {
 		return infradomain.ErrPoolNotFound
 	}
+	for _, existing := range r.byID {
+		if existing.ID != pool.ID && existing.Name == pool.Name {
+			return infradomain.ErrPoolNameTaken
+		}
+	}
 	stored.Name, stored.Description, stored.UpdatedAt = pool.Name, pool.Description, pool.UpdatedAt
-	stored.Generation++
-	pool.Generation = stored.Generation
-	return nil
-}
-
-func (r *fakePoolRepo) AdoptSpec(_ context.Context, id, description string, at time.Time) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if stored, ok := r.byID[id]; ok && stored.Generation == 0 {
-		stored.Description, stored.Generation, stored.UpdatedAt = description, 1, at
-	}
-	return nil
-}
-
-func (r *fakePoolRepo) SetStatus(_ context.Context, id string, status infradomain.GroupStatus) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	stored, ok := r.byID[id]
-	if !ok {
-		return infradomain.ErrPoolNotFound
-	}
-	stored.Status = status
 	return nil
 }
 
@@ -282,12 +251,11 @@ func (f *fakeFactory) For(_ context.Context, integrationID string) (provisioning
 	return provider, nil
 }
 
-// fakeGroupingProvider is a provisioner with zones and pools; grouping false models one without
-// the capability. calls records every write as "op name".
+// fakeGroupingProvider is a provisioner with zones; grouping false models one without the
+// capability. calls records every write as "op name".
 type fakeGroupingProvider struct {
 	grouping bool
 	zones    []provisioningdomain.ProviderGroup
-	pools    []provisioningdomain.ProviderGroup
 	writeErr error
 	listErr  error
 	calls    []string
@@ -297,7 +265,6 @@ func newFakeGroupingProvider() *fakeGroupingProvider {
 	return &fakeGroupingProvider{
 		grouping: true,
 		zones:    []provisioningdomain.ProviderGroup{{Name: "default", Default: true}},
-		pools:    []provisioningdomain.ProviderGroup{{Name: "default", Default: true}},
 	}
 }
 
@@ -327,10 +294,7 @@ func (p *fakeGroupingProvider) Release(context.Context, string) (*provisioningdo
 func (p *fakeGroupingProvider) ListZones(context.Context) ([]provisioningdomain.ProviderGroup, error) {
 	return append([]provisioningdomain.ProviderGroup(nil), p.zones...), p.listErr
 }
-func (p *fakeGroupingProvider) ListPools(context.Context) ([]provisioningdomain.ProviderGroup, error) {
-	return append([]provisioningdomain.ProviderGroup(nil), p.pools...), p.listErr
-}
-func (p *fakeGroupingProvider) DefaultGroupNames() (string, string) { return "default", "default" }
+func (p *fakeGroupingProvider) DefaultZoneName() string { return "default" }
 
 func (p *fakeGroupingProvider) EnsureZone(_ context.Context, name, description string) error {
 	return p.write("ensureZone "+name, func() { p.zones = ensureGroup(p.zones, name, description) })
@@ -341,19 +305,7 @@ func (p *fakeGroupingProvider) RenameZone(_ context.Context, from, to, descripti
 func (p *fakeGroupingProvider) DeleteZone(_ context.Context, name string) error {
 	return p.write("deleteZone "+name, func() { p.zones = removeGroup(p.zones, name) })
 }
-func (p *fakeGroupingProvider) EnsurePool(_ context.Context, name, description string) error {
-	return p.write("ensurePool "+name, func() { p.pools = ensureGroup(p.pools, name, description) })
-}
-func (p *fakeGroupingProvider) RenamePool(_ context.Context, from, to, description string) error {
-	return p.write("renamePool "+from+"->"+to, func() { p.pools = renameGroup(p.pools, from, to, description) })
-}
-func (p *fakeGroupingProvider) DeletePool(_ context.Context, name string) error {
-	return p.write("deletePool "+name, func() { p.pools = removeGroup(p.pools, name) })
-}
 func (p *fakeGroupingProvider) SetMachineZone(context.Context, string, string) (*provisioningdomain.Machine, error) {
-	return nil, nil
-}
-func (p *fakeGroupingProvider) SetMachinePool(context.Context, string, string) (*provisioningdomain.Machine, error) {
 	return nil, nil
 }
 
