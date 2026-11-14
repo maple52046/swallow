@@ -1,0 +1,58 @@
+---
+# Unmount and forget the shared workload filesystem on a node that leaves the Platform, or whose
+# Platform is uninstalled. The mountpoint check and the unmount are bounded, so a
+# server that is gone cannot hang the run: an unmount that times out detaches the mount lazily. A
+# mount a process still uses refuses the removal ([slurm_unmount_busy]) instead of pulling the share
+# out from under it. The fstab line goes too, so a later Platform on the kept host does not mount
+# the old share.
+
+- name: Check whether the workload filesystem is mounted
+  ansible.builtin.command:
+    argv: [timeout, "{{ slurm_workload_mountpoint_timeout }}", mountpoint, -q, "{{ slurm_workload_mount_path }}"]
+  register: slurm_workload_remove_check
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Unmount the workload filesystem
+  ansible.builtin.command:
+    argv: [timeout, "{{ slurm_workload_mountpoint_timeout }}", umount, "{{ slurm_workload_mount_path }}"]
+  register: slurm_workload_umount
+  changed_when: slurm_workload_umount.rc == 0
+  failed_when: false
+  become: true
+  when: slurm_workload_remove_check.rc in [0, 124]
+
+- name: Refuse to unmount a workload filesystem a process still uses
+  ansible.builtin.fail:
+    msg: >-
+      [slurm_unmount_busy] {{ inventory_hostname }}: {{ slurm_workload_mount_path }} is in use
+      ({{ slurm_workload_umount.stderr | default('') | trim }}); stop what uses it (fuser -vm {{ slurm_workload_mount_path }}) and retry.
+  when:
+    - slurm_workload_umount is not skipped
+    - slurm_workload_umount.rc not in [0, 124]
+    - "'busy' in (slurm_workload_umount.stderr | default(''))"
+
+- name: Detach a workload mount whose server does not answer
+  ansible.builtin.command:
+    argv: [umount, -l, "{{ slurm_workload_mount_path }}"]
+  changed_when: true
+  become: true
+  when:
+    - slurm_workload_umount is not skipped
+    - slurm_workload_umount.rc == 124 or slurm_workload_remove_check.rc == 124
+
+- name: Remove the workload mount from fstab
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: '^[^ \t]+[ \t]+{{ slurm_workload_mount_path | regex_escape }}[ \t]'
+    state: absent
+  become: true
+  failed_when: false
+
+- name: Remove the empty workload mount directory
+  ansible.builtin.command:
+    argv: [rmdir, --ignore-fail-on-non-empty, "{{ slurm_workload_mount_path }}"]
+    removes: "{{ slurm_workload_mount_path }}"
+  become: true
+  failed_when: false

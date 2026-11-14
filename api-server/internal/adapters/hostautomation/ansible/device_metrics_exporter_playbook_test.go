@@ -96,7 +96,7 @@ func TestDeviceMetricsExporterUninstallKeepsASharedLoader(t *testing.T) {
 	if strings.Contains(shared, "amdgpu_loader") && !strings.Contains(shared, "amdgpu loader is not touched here") {
 		t.Error("the shared exporter removal must leave the amdgpu loader to its caller")
 	}
-	if slurm := slurmPlaybookFile(t, "uninstall-slurm.yml"); !strings.Contains(slurm, "name: device_metrics_exporter\n        tasks_from: uninstall") {
-		t.Error("uninstall-slurm.yml does not remove the exporter through the shared tasks")
+	if slurm := slurmPlaybookFile(t, "roles", "slurm_node_cleanup", "tasks", "main.yml"); !strings.Contains(slurm, "name: device_metrics_exporter\n    tasks_from: uninstall") {
+		t.Error("the Slurm node cleanup does not remove the exporter through the shared tasks")
 	}
 }

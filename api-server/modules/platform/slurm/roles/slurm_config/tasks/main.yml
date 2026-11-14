@@ -1,8 +1,10 @@
 ---
 # Configure a controller: create Slurm's directories and JWT signing key, then render the
 # authoritative slurm.conf and cgroup.conf. Runs on controllers only (compute nodes are
-# configless and fetch slurm.conf from a controller). Config changes notify a slurmctld
-# restart so a rerun that changes nothing does not bounce the daemon.
+# configless and fetch slurm.conf from a controller). A changed slurm.conf or gres.conf is applied
+# with scontrol reconfigure when slurmctld already runs (slurm_reconfigure_in_place), so adding or
+# removing a node restarts no daemon by hand; other changes restart slurmctld. A rerun that changes
+# nothing does not bounce the daemon.
 
 - name: Ensure the Slurm configuration directory exists
   ansible.builtin.file:
@@ -105,7 +107,7 @@
     mode: "0644"
   become: true
   register: slurm_config_gres
-  notify: Restart slurmctld
+  notify: Apply the Slurm configuration
 
 - name: Render oci.conf for native OCI containers
   # Configless compute nodes fetch it with slurm.conf; each slurmd reads it only at start.
@@ -141,6 +143,32 @@
       {%- endfor -%}
       {{ shares | min }}
 
+- name: Derive each partition's nodes and default memory per CPU
+  # A partition takes its defMemPerCpu, or else the smallest per-CPU share of its own nodes, so one
+  # small node does not lower the default of every partition (decision 083). A partition whose nodes are
+  # every compute node is written Nodes=ALL, as the one partition of a Platform from before
+  # partitions is.
+  ansible.builtin.set_fact:
+    slurm_partitions_rendered: >-
+      {%- set rendered = [] -%}
+      {%- for partition in swallow_slurm_partitions | default([]) -%}
+      {%- set shares = [] -%}
+      {%- set names = [] -%}
+      {%- for nid in partition.nodes if nid in swallow_slurm_compute_ids -%}
+      {%- set _ = shares.append((hostvars[nid].slurm_node_schedulable_memory | int) // ([hostvars[nid].slurm_node_cpus | int, 1] | max)) -%}
+      {%- set _ = names.append(hostvars[nid].slurm_node_name) -%}
+      {%- endfor -%}
+      {%- set own = (partition.def_mem_per_cpu | default(0) | int) or (shares | min if shares else 0) -%}
+      {%- set _ = rendered.append({
+            'name': partition.name, 'default': partition.default | default(false) | bool,
+            'nodes': 'ALL' if (swallow_slurm_compute_ids | difference(partition.nodes) | length == 0) else names | join(','),
+            'max_time': partition.max_time | default('INFINITE', true),
+            'def_mem_per_cpu': own if own | int != slurm_def_mem_per_cpu | int else 0,
+            'over_subscribe': partition.over_subscribe | default('', true),
+            'allow_groups': partition.allow_groups | default([]) | join(',')}) -%}
+      {%- endfor -%}
+      {{ rendered }}
+
 - name: Render slurm.conf
   ansible.builtin.template:
     src: slurm.conf.j2
@@ -150,7 +178,7 @@
     mode: "0644"
   become: true
   register: slurm_config_conf
-  notify: Restart slurmctld
+  notify: Apply the Slurm configuration
 
 - name: Remember whether this run changed the cluster configuration
   # Read by slurm_compute on the primary's hostvars: a slurmd that was already running must
@@ -159,3 +187,6 @@
     slurm_config_changed: >-
       {{ slurm_config_gres is changed or slurm_config_conf is changed
          or slurm_config_oci is changed or slurm_config_oci_removed is changed }}
+    # slurmd reads oci.conf only when it starts, so a changed oci.conf restarts it even when the
+    # rest of the configuration is applied in place.
+    slurm_oci_config_changed: "{{ slurm_config_oci is changed or slurm_config_oci_removed is changed }}"

@@ -1,0 +1,9 @@
+---
+# The GPU probe image as the Slurm module declares it, and where this run pulls it from: the Local
+# Repository's registry, which serves each upstream registry under its name, or the upstream.
+slurm_gpu_probe_image: "{{ swallow_slurm_gpu_probe_image }}"
+slurm_gpu_probe_pull: >-
+  {{ swallow_artifacts.images[slurm_gpu_probe_image]
+     | default(swallow_artifacts.registry ~ '/' ~ slurm_gpu_probe_image
+               if swallow_artifacts.registry | default('') | length > 0 else slurm_gpu_probe_image) }}
+slurm_gpu_probe_cli: "{{ 'podman' if swallow_slurm_gpu_probe_runtime | default('docker-ce') == 'podman' else 'docker' }}"

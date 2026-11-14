@@ -8,3 +8,6 @@
 # therefore opened to every job user, so a job does not also depend on its user being in the
 # render group of the node's own group database.
 slurm_gpu_udev_rule: /etc/udev/rules.d/70-swallow-slurm-gpu.rules
+
+# Where the host HIP probe's last result is kept; the probe only records (decision 083).
+slurm_gpu_hip_probe_record: /var/lib/swallow/gpu/hip-probe.json

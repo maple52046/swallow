@@ -1,0 +1,4 @@
+---
+# How often the drain wait polls squeue, and how long a forced removal waits for its canceled jobs.
+slurm_drain_poll_seconds: 10
+slurm_drain_cancel_grace_seconds: 120

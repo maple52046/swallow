@@ -41,10 +41,10 @@ func TestOCIConfKeepsTheCrossNodeInvariants(t *testing.T) {
 		strings.SplitN(strings.SplitN(playbook, "slurm_oci_container_path: ", 2)[1], "\n", 2)[0], "%n") {
 		t.Error("ContainerPath must not contain the node name (%n)")
 	}
-	uninstall := slurmPlaybookFile(t, "uninstall-slurm.yml")
+	uninstall := slurmPlaybookFile(t, "roles", "slurm_node_cleanup", "tasks", "main.yml")
 	for _, want := range []string{"/etc/slurm/oci.conf", "/var/lib/swallow/oci"} {
 		if !strings.Contains(uninstall, want) {
-			t.Errorf("uninstall-slurm.yml does not remove %s", want)
+			t.Errorf("the Slurm node cleanup does not remove %s", want)
 		}
 	}
 }

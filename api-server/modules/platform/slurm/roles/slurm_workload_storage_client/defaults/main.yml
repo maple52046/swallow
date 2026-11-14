@@ -7,3 +7,5 @@ slurm_workload_mount_path: /shared
 slurm_workload_source: ""
 slurm_workload_fstype: nfs4
 slurm_workload_mount_options: rw,_netdev,hard,timeo=600,retrans=2
+# How long a mountpoint check may take; a hard mount whose server is gone otherwise hangs.
+slurm_workload_mountpoint_timeout: 30

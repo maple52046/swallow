@@ -61,7 +61,7 @@ func TestSlurmConfNamesOnlyTheJobHookDispatchers(t *testing.T) {
 
 // Every hook swallow owns has a Prolog and an Epilog half, and uninstall removes both.
 func TestEveryKnownJobHookHasBothPhasesAndIsUninstalled(t *testing.T) {
-	uninstall := slurmPlaybookFile(t, "uninstall-slurm.yml")
+	uninstall := slurmPlaybookFile(t, "roles", "slurm_node_cleanup", "tasks", "main.yml")
 	for _, file := range knownJobHookFiles(t) {
 		for _, phase := range []string{"prolog.d", "epilog.d"} {
 			script := slurmPlaybookFile(t, "roles", "slurm_job_hooks", "files", phase, file)
@@ -69,13 +69,13 @@ func TestEveryKnownJobHookHasBothPhasesAndIsUninstalled(t *testing.T) {
 				t.Errorf("%s/%s is not a Swallow-managed bash script", phase, file)
 			}
 			if !strings.Contains(uninstall, "/etc/slurm/"+phase+"/"+file) {
-				t.Errorf("uninstall-slurm.yml does not remove /etc/slurm/%s/%s", phase, file)
+				t.Errorf("the Slurm node cleanup does not remove /etc/slurm/%s/%s", phase, file)
 			}
 		}
 	}
 	for _, dispatcher := range []string{"/etc/slurm/swallow-prolog", "/etc/slurm/swallow-epilog"} {
 		if !strings.Contains(uninstall, dispatcher) {
-			t.Errorf("uninstall-slurm.yml does not remove %s", dispatcher)
+			t.Errorf("the Slurm node cleanup does not remove %s", dispatcher)
 		}
 	}
 }

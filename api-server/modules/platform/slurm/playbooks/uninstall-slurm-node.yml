@@ -1,0 +1,29 @@
+---
+# Clean the nodes that leave a Slurm Platform (the scale-in of decision 083), after the cluster was
+# reconfigured without them: slurmd, MUNGE, and sackd stop, the shared workload filesystem is
+# unmounted and its fstab line removed, and Omnistat, the Device Metrics Exporter, the GPU GRES
+# setup, and the amdgpu loader Slurm needed are removed. The host OS and the image's packages
+# stay, so a kept node can join another Platform; one whose removal releases its Server is
+# released after this. Safe to rerun.
+
+- name: Hold the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: package_maintenance_hold
+
+- name: Remove Slurm from the nodes that leave the Platform
+  hosts: all
+  gather_facts: false
+  become: true
+  roles:
+    - role: slurm_node_cleanup
+
+- name: Release the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Release the package maintenance hold
+      ansible.builtin.include_role:
+        name: package_maintenance_hold
+        tasks_from: release

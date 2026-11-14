@@ -57,14 +57,24 @@ SlurmdLogFile={{ slurm_log_dir }}/slurmd.log
 
 # Compute nodes. The NodeName line is what slurmd -C detected on each host (minus any GRES it
 # reported), with RealMemory lowered by the memory kept for the operating system, the connection
-# address pinned via NodeAddr so the controller reaches nodes without DNS, and the GPU GRES Swallow
-# mapped from the node's KFD topology.
+# address pinned via NodeAddr so the controller reaches nodes without DNS, the GPU GRES Swallow
+# mapped from the node's KFD topology, the node's Features (its GPU model and gfx targets and its
+# node group, for --constraint), and a high Weight for a node with fewer GPUs than its group expects.
 {% for nid in swallow_slurm_compute_ids %}
 {% set gres = hostvars[nid].slurm_node_gres | default('') %}
-{{ hostvars[nid].slurm_node_line | regex_replace(' Gres=\\S+', '') | regex_replace('RealMemory=\\d+', 'RealMemory=' ~ hostvars[nid].slurm_node_schedulable_memory) }}{{ (' Gres=' ~ gres) if gres else '' }} NodeAddr={{ hostvars[nid].ansible_host }} State=UNKNOWN
+{% set features = hostvars[nid].slurm_node_features | default([]) %}
+{% set weight = hostvars[nid].slurm_node_weight | default('') %}
+{{ hostvars[nid].slurm_node_line | regex_replace(' Gres=\\S+', '') | regex_replace(' Feature(s)?=\\S+', '') | regex_replace('RealMemory=\\d+', 'RealMemory=' ~ hostvars[nid].slurm_node_schedulable_memory) }}{{ (' Gres=' ~ gres) if gres else '' }}{{ (' Features=' ~ (features | join(','))) if features else '' }}{{ (' Weight=' ~ weight) if weight | string | length > 0 else '' }} NodeAddr={{ hostvars[nid].ansible_host }} State=UNKNOWN
 {% endfor %}
 
-{% if slurm_omnistat_enabled | bool %}
+{% if slurm_partitions_rendered | default([]) | length > 0 %}
+# Partitions, one per entry of the Platform's partitions (decision 083). Omnistat's job file describes the
+# whole node, so with Omnistat every partition hands out whole nodes; otherwise jobs share a node
+# (separate CPUs, memory, and GPUs) unless the partition says otherwise.
+{% for partition in slurm_partitions_rendered %}
+PartitionName={{ partition.name }} Nodes={{ partition.nodes }} Default={{ 'YES' if partition.default else 'NO' }} MaxTime={{ partition.max_time }} State=UP OverSubscribe={{ 'EXCLUSIVE' if slurm_omnistat_enabled | bool else (partition.over_subscribe or 'NO') }}{{ (' DefMemPerCPU=' ~ partition.def_mem_per_cpu) if partition.def_mem_per_cpu | int > 0 else '' }}{{ (' AllowGroups=' ~ partition.allow_groups) if partition.allow_groups else '' }}
+{% endfor %}
+{% elif slurm_omnistat_enabled | bool %}
 # Omnistat's job file describes the whole node, so a node runs one job at a time.
 PartitionName=main Nodes=ALL Default=YES MaxTime=INFINITE State=UP OverSubscribe=EXCLUSIVE
 {% else %}

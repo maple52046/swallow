@@ -144,7 +144,7 @@ func TestSlurmPlaybookWiresLoginAndWorkloadStorage(t *testing.T) {
 			required: []string{
 				"nfs-common",
 				"create: true",
-				"argv: [mountpoint, -q, \"{{ slurm_workload_mount_path }}\"]",
+				"argv: [timeout, \"{{ slurm_workload_mountpoint_timeout }}\", mountpoint, -q, \"{{ slurm_workload_mount_path }}\"]",
 			},
 		},
 	}

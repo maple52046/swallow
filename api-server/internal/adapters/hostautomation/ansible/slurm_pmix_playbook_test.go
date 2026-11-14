@@ -96,7 +96,7 @@ func TestSlurmPMIxIsProvenByLaunches(t *testing.T) {
 	if conf := slurmPlaybookFile(t, "roles", "slurm_config", "templates", "slurm.conf.j2"); !strings.Contains(conf, "MpiDefault=none") {
 		t.Error("slurm.conf must keep MpiDefault=none")
 	}
-	if !strings.Contains(slurmPlaybookFile(t, "uninstall-slurm.yml"), "/usr/local/libexec/swallow/mpi-probe") {
-		t.Error("uninstall-slurm.yml does not remove the MPI probe")
+	if !strings.Contains(slurmPlaybookFile(t, "roles", "slurm_node_cleanup", "tasks", "main.yml"), "/usr/local/libexec/swallow/mpi-probe") {
+		t.Error("the Slurm node cleanup does not remove the MPI probe")
 	}
 }

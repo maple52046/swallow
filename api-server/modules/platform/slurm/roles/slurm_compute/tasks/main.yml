@@ -57,14 +57,16 @@
   register: slurm_compute_started
 
 - name: Restart slurmd to fetch a changed configuration
-  # A slurmd that was already running keeps the configless slurm.conf/gres.conf/oci.conf it fetched
-  # at start, and the PMIx library its MPI plugin found then; one this run just started already has
-  # both.
+  # A slurmd that was already running keeps the PMIx library its MPI plugin found at start, so new
+  # PMIx packages restart it. A changed slurm.conf or gres.conf reaches it through the controller's
+  # scontrol reconfigure (slurm_reconfigure_in_place); without it, slurmd is restarted to fetch the
+  # configless configuration. One this run just started already has both.
   ansible.builtin.systemd:
     name: slurmd
     state: restarted
   become: true
   when:
     - slurm_compute_started is not changed
-    - (hostvars[swallow_slurm_primary_controller_id].slurm_config_changed | default(false) | bool)
+    - (not (slurm_reconfigure_in_place | default(true) | bool) and (hostvars[swallow_slurm_primary_controller_id].slurm_config_changed | default(false) | bool))
+      or (hostvars[swallow_slurm_primary_controller_id].slurm_oci_config_changed | default(false) | bool)
       or (slurm_pmix_packages is defined and slurm_pmix_packages is changed)

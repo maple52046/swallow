@@ -14,3 +14,20 @@
   until: slurm_controller_restart is succeeded
   retries: 5
   delay: 6
+
+- name: Apply the Slurm configuration
+  # Notified by slurm_config when slurm.conf or gres.conf changed. A running slurmctld re-reads
+  # them with scontrol reconfigure, which in Slurm 23.11 and later also makes every slurmd
+  # re-read the configless configuration, so a node added to or removed from the cluster restarts
+  # nothing by hand (decision 083); a controller that is not running yet, or a deployment that turns
+  # slurm_reconfigure_in_place off, restarts it instead.
+  ansible.builtin.shell:
+    cmd: >-
+      if [ "{{ slurm_reconfigure_in_place | default(true) | bool | lower }}" = "true" ] &&
+      systemctl is-active --quiet slurmctld; then scontrol reconfigure; else systemctl restart slurmctld; fi
+    executable: /bin/bash
+  become: true
+  register: slurm_controller_apply
+  until: slurm_controller_apply is succeeded
+  retries: 5
+  delay: 6

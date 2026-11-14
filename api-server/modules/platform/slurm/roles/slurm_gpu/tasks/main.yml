@@ -132,9 +132,49 @@
          if (slurm_gpus | map(attribute='type') | unique | list | length) == 1
          else ('gpu:' ~ (slurm_gpus | length)) }}
 
-- name: Prove every GPU works through the HIP runtime
-  # Inventory listings (amd-smi, rocminfo) do not prove a GPU can run work; the probe allocates,
-  # fills, and frees memory on every GPU, three times, each in its own process.
+- name: Check the GPUs' health through AMD SMI
+  # The hard gate needs only the amdgpu driver and the AMD SMI library the image ships with it
+  # (decision 083): the device list, uncorrectable ECC errors, and readable firmware. A query the device
+  # does not support (a virtual function hides ECC and firmware) is recorded as unsupported, not
+  # as a failure.
+  ansible.builtin.script:
+    cmd: amd_smi_health.py --kfd-gpus {{ slurm_gpus | length }}
+    executable: /usr/bin/python3
+  register: slurm_gpu_health_run
+  changed_when: false
+  failed_when: false
+  when: slurm_is_gpu_compute | bool
+
+- name: Read the AMD SMI health report
+  ansible.builtin.set_fact:
+    slurm_gpu_health: >-
+      {{ (slurm_gpu_health_run.stdout_lines | last | from_json)
+         if (slurm_gpu_health_run.stdout_lines | default([]) | length > 0 and (slurm_gpu_health_run.stdout_lines | last).startswith('{'))
+         else {'available': false, 'healthy': false, 'error': slurm_gpu_health_run.stderr | default('the health check printed no report')} }}
+  when: slurm_is_gpu_compute | bool
+
+- name: Refuse a GPU node without AMD SMI
+  ansible.builtin.fail:
+    msg: >-
+      [amd_smi_missing] {{ slurm_node_name }}: amd-smi is not installed or cannot load its library
+      ({{ slurm_gpu_health.error | default('') }}). The image must ship AMD SMI with the amdgpu driver.
+  when: slurm_is_gpu_compute | bool and not (slurm_gpu_health.available | default(false) | bool)
+
+- name: Refuse a GPU node whose GPUs AMD SMI reports unhealthy
+  ansible.builtin.fail:
+    msg: >-
+      [amd_smi_unhealthy] {{ slurm_node_name }}: {{ slurm_gpu_health.problems | default([]) | join('; ') }}
+  when: slurm_is_gpu_compute | bool and not (slurm_gpu_health.healthy | default(false) | bool)
+
+- name: Report what AMD SMI could not check
+  ansible.builtin.debug:
+    msg: "{{ slurm_node_name }}: AMD SMI {{ slurm_gpu_health.devices | default(0) }} devices; not supported here: {{ slurm_gpu_health.unsupported | default([]) | join(', ') or 'nothing' }}; notes: {{ slurm_gpu_health.notes | default([]) | join('; ') or 'none' }}"
+  when: slurm_is_gpu_compute | bool
+
+- name: Record whether the host HIP runtime can use the GPUs
+  # Workloads run in containers that bring their own ROCm, so the host's HIP is only a record
+  # (decision 083): a host ROCm built for other gfx targets must not fail the node. The result is kept
+  # on the node and reported, never drained or failed on.
   ansible.builtin.include_role:
     name: gpu_probe
     apply:
@@ -145,23 +185,59 @@
     gpu_probe_node_name: "{{ slurm_node_name }}"
   when: slurm_is_gpu_compute | bool
 
-- name: Keep a node whose GPUs failed the probe out of scheduling
-  # An existing cluster drains the node at once; on a first deploy slurmctld is not up yet and
-  # the failed deployment keeps the node out instead.
-  ansible.builtin.command:
-    argv: [scontrol, update, "nodename={{ slurm_node_name }}", state=drain, "reason=swallow: GPU probe failed"]
-  delegate_to: "{{ swallow_slurm_primary_controller_id }}"
-  become: true
-  changed_when: true
-  failed_when: false
+- name: Keep the shared data directory root-owned
+  ansible.builtin.include_role:
+    name: shared_data_dir
+  when: slurm_is_gpu_compute | bool
+
+- name: Create the directory for the GPU records
+  ansible.builtin.file:
+    path: "{{ slurm_gpu_hip_probe_record | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: slurm_is_gpu_compute | bool
+
+- name: Keep the host HIP probe's result on the node
+  ansible.builtin.copy:
+    dest: "{{ slurm_gpu_hip_probe_record }}"
+    content: "{{ {'ok': gpu_probe_ok | default(false) | bool, 'report': gpu_probe_report | default({})} | to_nice_json }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+  when: slurm_is_gpu_compute | bool
+
+- name: Report a host HIP runtime that cannot use the GPUs
+  ansible.builtin.debug:
+    msg: >-
+      [gpu_probe_recorded] {{ slurm_node_name }}: the host HIP probe did not pass
+      ({{ gpu_probe_report.error | default('see ' ~ slurm_gpu_hip_probe_record) }}); containers bring their own
+      ROCm, so the node joins anyway.
   when: slurm_is_gpu_compute | bool and not (gpu_probe_ok | default(true)) | bool
 
-- name: Refuse a node whose GPUs failed the probe
-  ansible.builtin.fail:
+- name: Mark a node that has fewer GPUs than its group expects
+  # The node still joins with the GPUs it has; gpu_degraded and a high Weight make the scheduler
+  # use it last, and the deployment reports it without failing (decision 083).
+  ansible.builtin.set_fact:
+    slurm_node_degraded: >-
+      {{ (swallow_slurm_expected_gpus | default({}))[inventory_hostname] | default(0) | int > 0
+         and (slurm_gpus | length) < ((swallow_slurm_expected_gpus | default({}))[inventory_hostname] | int) }}
+
+- name: Report a degraded node
+  ansible.builtin.debug:
     msg: >-
-      [{{ 'hip_runtime_missing' if gpu_probe_run.rc == 2 else 'gpu_probe_failed' }}]
-      {{ slurm_node_name }}: {{ gpu_probe_report.error | default('the HIP probe failed') }}
-      (run {{ gpu_probe_report.run | default('-') }} of 3 over {{ slurm_gpus | length }} GPUs, exit
-      {{ gpu_probe_report.returncode | default(gpu_probe_run.rc) }}). {{ gpu_probe_report.stderr | default('') }}
-      Check the driver options in /etc/modprobe.d/swallow-amdgpu.conf and "dmesg | grep amdgpu".
-  when: slurm_is_gpu_compute | bool and not (gpu_probe_ok | default(true)) | bool
+      [gpu_degraded] {{ slurm_node_name }} has {{ slurm_gpus | length }} of the
+      {{ (swallow_slurm_expected_gpus | default({}))[inventory_hostname] }} GPUs its node group expects; it is marked
+      {{ swallow_slurm_degraded_feature | default('gpu_degraded') }} and scheduled last.
+  when: slurm_node_degraded | bool
+
+- name: Name this node's Slurm Features
+  # The node group's features (GPU model, group name) and the gfx targets KFD reports, so a job can
+  # ask for a kind of node with --constraint.
+  ansible.builtin.set_fact:
+    slurm_node_features: >-
+      {{ ((swallow_slurm_node_features | default({}))[inventory_hostname] | default([]))
+         + (slurm_gpus | map(attribute='type') | unique | list)
+         + ([swallow_slurm_degraded_feature | default('gpu_degraded')] if slurm_node_degraded | bool else []) }}
+    slurm_node_weight: "{{ (swallow_slurm_degraded_weight | default(100)) if slurm_node_degraded | bool else '' }}"

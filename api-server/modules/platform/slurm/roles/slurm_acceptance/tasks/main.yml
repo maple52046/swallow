@@ -14,6 +14,9 @@
       --gpu-servers={{ slurm_acceptance_gpu_servers | to_json | quote }}
       --hip-probe={{ slurm_acceptance_hip_probe | quote }} --mpi-probe={{ slurm_acceptance_mpi_probe | quote }}
       --oci-bundle={{ slurm_acceptance_oci_bundle | quote }}{{ ' --drain' if slurm_acceptance_drain | bool else '' }}
+      --nodes={{ slurm_acceptance_nodes | to_json | quote }}
+      --container-image={{ slurm_acceptance_container_image | quote }}
+      --container-runtime={{ slurm_acceptance_container_runtime | quote }}
     executable: python3
   become: true
   register: slurm_acceptance_run

@@ -19,11 +19,13 @@
   when: slurm_workload_fstype in ['nfs', 'nfs4']
 
 - name: Check whether the workload filesystem is already mounted
+  # Bounded: mountpoint on a hard NFS mount whose server is gone hangs, so a rerun would
+  # stop instead of failing.
   ansible.builtin.command:
-    argv: [mountpoint, -q, "{{ slurm_workload_mount_path }}"]
+    argv: [timeout, "{{ slurm_workload_mountpoint_timeout }}", mountpoint, -q, "{{ slurm_workload_mount_path }}"]
   register: slurm_workload_mountcheck
   changed_when: false
-  failed_when: false
+  failed_when: slurm_workload_mountcheck.rc == 124
   become: true
 
 - name: Ensure the workload mount directory exists
@@ -67,6 +69,6 @@
   # Fail-closed: refuse to continue if the share is not a real mountpoint, so jobs never write
   # to an underlying local directory that silently diverges per node.
   ansible.builtin.command:
-    argv: [mountpoint, -q, "{{ slurm_workload_mount_path }}"]
+    argv: [timeout, "{{ slurm_workload_mountpoint_timeout }}", mountpoint, -q, "{{ slurm_workload_mount_path }}"]
   changed_when: false
   become: true

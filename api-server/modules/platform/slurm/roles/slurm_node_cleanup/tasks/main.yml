@@ -1,0 +1,133 @@
+---
+# Remove the Slurm configuration and daemons swallow deployed from one node, keeping the host OS
+# and the image-supplied slurm-smd packages: a node that leaves its Platform (uninstall-slurm-node,
+# decision 083), and every node of an uninstalled Platform (uninstall-slurm). Every task tolerates a node
+# that was only partly configured or already cleaned by an earlier attempt, so it is safe to rerun.
+# The shared workload filesystem is unmounted and forgotten too when the run
+# names its mount path.
+
+- name: Stop and disable sackd on a login node
+  # A configless login host caches the cluster configuration with sackd; it goes first so it does
+  # not keep asking a controller that forgot it.
+  ansible.builtin.systemd:
+    name: sackd
+    state: stopped
+    enabled: false
+  failed_when: false
+
+- name: Stop and disable Slurm and MUNGE daemons
+  # Order matters on shutdown: stop the REST and node daemons before the controller, and
+  # MUNGE last. Missing units are tolerated (a node may never have run a given daemon).
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  failed_when: false
+  loop:
+    - slurmrestd
+    - slurmd
+    - slurmctld
+    - munge
+
+- name: Remove the Swallow slurmrestd systemd drop-in
+  ansible.builtin.file:
+    path: /etc/systemd/system/slurmrestd.service.d/override.conf
+    state: absent
+
+- name: Reload systemd after removing the drop-in
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Remove Swallow-managed Slurm configuration, keys, and state
+  # slurm.conf/cgroup.conf and the JWT key are swallow-rendered; the default controller
+  # StateSaveLocation and slurmd spool are swallow-created runtime state. The MUNGE key is
+  # removed so a later redeploy mints a fresh shared key. Image-supplied packages are left
+  # installed. A non-default (HA) StateSaveLocation on shared storage is intentionally not
+  # touched here.
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/slurm/slurm.conf
+    - /etc/slurm/cgroup.conf
+    - /etc/slurm/gres.conf
+    - /etc/slurm/oci.conf
+    - /var/lib/swallow/oci
+    - /etc/slurm/swallow-omnistat-prolog
+    - /etc/slurm/swallow-omnistat-epilog
+    - /etc/slurm/swallow-prolog
+    - /etc/slurm/swallow-epilog
+    - /etc/slurm/prolog.d/10-omnistat
+    - /etc/slurm/epilog.d/10-omnistat
+    - /etc/slurm/prolog.d/20-device-metrics-exporter
+    - /etc/slurm/epilog.d/20-device-metrics-exporter
+    - /etc/slurm/jwt_hs256.key
+    - /etc/udev/rules.d/70-swallow-slurm-gpu.rules
+    - /etc/default/slurmd
+    - /var/spool/slurmctld
+    - /var/spool/slurmd
+    - /etc/munge/munge.key
+
+- name: Remove the job hook directories unless an operator keeps their own hooks there
+  ansible.builtin.command:
+    argv: [rmdir, --ignore-fail-on-non-empty, /etc/slurm/prolog.d, /etc/slurm/epilog.d]
+    removes: /etc/slurm/prolog.d
+  failed_when: false
+
+- name: Stop and disable the Omnistat exporter
+  # Omnistat is part of the Slurm Platform (decision 063); a node that never ran it is fine.
+  ansible.builtin.systemd:
+    name: omnistat
+    state: stopped
+    enabled: false
+  failed_when: false
+
+- name: Remove the Omnistat exporter, its CAP_PERFMON drop-in, configuration, and job file, and the probes
+  # Prometheus, Grafana, and Docker CE are Managed Software with their own assignments and are
+  # left for the software uninstall.
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/systemd/system/omnistat.service
+    - /etc/systemd/system/omnistat.service.d/10-swallow-perfmon.conf
+    - /etc/omnistat
+    - /opt/omnistat
+    - /tmp/omni_rmsjobinfo
+    - /usr/local/libexec/swallow/hip-probe
+    - /usr/local/libexec/swallow/mpi-probe
+
+- name: Remove the exporter's drop-in directory unless it holds an operator's drop-ins
+  ansible.builtin.command:
+    argv: [rmdir, --ignore-fail-on-non-empty, /etc/systemd/system/omnistat.service.d]
+    removes: /etc/systemd/system/omnistat.service.d
+  failed_when: false
+
+- name: Remove the Device Metrics Exporter
+  # Part of the Slurm Platform's feature (decision 068): the exporter goes from every target,
+  # and a successful uninstall marks those Servers' device-metrics-exporter assignments absent.
+  # A node that never ran it is fine.
+  ansible.builtin.include_role:
+    name: device_metrics_exporter
+    tasks_from: uninstall
+
+- name: Stop loading amdgpu for Slurm and remove slurmd's ordering after it
+  ansible.builtin.include_role:
+    name: amdgpu_loader
+  vars:
+    amdgpu_loader_state: absent
+    amdgpu_loader_dependents:
+      - slurmd
+
+- name: Remove the sackd configuration swallow wrote
+  ansible.builtin.file:
+    path: /etc/default/sackd
+    state: absent
+
+- name: Unmount and forget the shared workload filesystem
+  ansible.builtin.include_role:
+    name: slurm_workload_storage_client
+    tasks_from: remove
+  vars:
+    slurm_workload_mount_path: "{{ swallow_slurm_workload_mount_path }}"
+  when: (swallow_slurm_workload_mount_path | default('')) | length > 0

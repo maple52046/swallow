@@ -10,9 +10,11 @@ import (
 )
 
 // fakeSlurm answers slurm_acceptance.py as a cluster of a CPU node n1 and a node n2 with two GPUs,
-// with native OCI containers and MPI on and every probe installed. FAKE_GPU_FAIL makes the HIP probe
-// fail in a one-GPU job; FAKE_NO_FEATURES turns OCI and MPI off; FAKE_EXCLUSIVE makes the partition
-// hand out whole nodes (as Omnistat does). Drains go to state.json.
+// with native OCI containers and MPI on, every probe installed, and the GPU probe image on n2. A job
+// opens as many GPU devices as it asked for; FAKE_GPU_FAIL makes a one-GPU job open both (its device
+// isolation is broken); FAKE_PROBE_FAIL makes the GPU probe image fail in its container;
+// FAKE_NO_FEATURES turns OCI and MPI off; FAKE_EXCLUSIVE makes the partition hand out whole nodes (as
+// Omnistat does). Drains go to state.json.
 const fakeSlurm = `#!/usr/bin/env python3
 import json, os, sys
 here = os.path.dirname(os.path.realpath(__file__))
@@ -37,7 +39,24 @@ def srun(args):
     if command[:2] == ["sh", "-c"]:
         for node in nodes:
             hip = "1" if node == "n2" else "0"
-            print(f"{node} oci={features} bundle={features} mpi={features} hip={hip}")
+            image = "1" if node == "n2" and "image inspect" in command[2] else "0"
+            print(f"{node} oci={features} bundle={features} mpi={features} hip={hip} image={image}")
+        return 0
+    if command[:2] == ["/bin/sh", "-c"] and "renderD" in command[2]:
+        gres = opts.get("--gres", "")
+        opened = 0 if not gres else (1 if gres == "gpu:1" else 2)
+        if os.environ.get("FAKE_GPU_FAIL") and gres == "gpu:1":
+            opened = 2
+        if " run --rm " in command[2]:
+            save("containers", command[2].split(" run --rm ")[0].split(";")[-1].strip())
+            print(json.dumps({"openable": opened}))
+            ok = not os.environ.get("FAKE_PROBE_FAIL")
+            print(json.dumps({"ok": ok, "devices": opened, "expected": opened, "error": "" if ok else "hipErrorNoBinaryForGpu"}))
+            return 0 if ok else 1
+        if command[2].startswith("echo"):
+            print(json.dumps({"openable": opened}))
+            return 0
+        print(" ".join("/dev/dri/renderD%d" % (128 + i) for i in range(opened)))
         return 0
     if command == ["/bin/cat", "/proc/self/uid_map"]:
         print("         0      65534          1")
@@ -180,6 +199,25 @@ func TestSlurmAcceptanceJudgesTheCluster(t *testing.T) {
 	// A partition that hands out whole nodes (Omnistat) skips shared-node, in the form Slurm 26.05 reports it.
 	if exclusive := runSlurmAcceptance(t, bin, []string{"FAKE_EXCLUSIVE=1"}); verdictOf(exclusive, "shared-node@p-1") != "skipped" {
 		t.Errorf("whole-node partition: shared-node = %q, want skipped", exclusive["shared-node@p-1"])
+	}
+
+	// With the GPU probe image, the GPUs a job opens run the image's HIP probe in a container.
+	contained := runSlurmAcceptance(t, bin, nil, "--container-image=probe:1", "--container-runtime=docker-ce")
+	if verdictOf(contained, "gpu-gres@s-2") != "passed" || !strings.Contains(contained["gpu-gres@s-2"], "in a container") {
+		t.Errorf("container GPU checks: gpu-gres@s-2 = %q, want passed in a container", contained["gpu-gres@s-2"])
+	}
+	probeFails := runSlurmAcceptance(t, bin, []string{"FAKE_PROBE_FAIL=1"}, "--container-image=probe:1", "--container-runtime=podman")
+	if verdictOf(probeFails, "gpu-gres@s-2") != "failed" {
+		t.Errorf("a failing GPU probe image: gpu-gres@s-2 = %q, want failed", probeFails["gpu-gres@s-2"])
+	}
+
+	// --nodes limits the node checks to the Servers a deployment adds: n2 alone is checked.
+	scoped := runSlurmAcceptance(t, bin, nil, `--nodes=["s-2"]`)
+	if verdictOf(scoped, "srun-all-nodes@p-1") != "passed" || !strings.Contains(scoped["srun-all-nodes@p-1"], "1 nodes") {
+		t.Errorf("scoped run: srun-all-nodes = %q, want passed on 1 node", scoped["srun-all-nodes@p-1"])
+	}
+	if strings.Contains(scoped["oci-container@p-1"], "node n1") {
+		t.Errorf("scoped run judged n1, which it was not asked to: %v", scoped)
 	}
 
 	off := runSlurmAcceptance(t, bin, []string{"FAKE_NO_FEATURES=1"}, `--gpu-servers=["s-9"]`)

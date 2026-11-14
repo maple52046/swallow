@@ -80,19 +80,26 @@ func runHIPProbe(t *testing.T, env []string, args ...string) (hipProbeReport, in
 	return report, code
 }
 
-// A Slurm GPU node joins only after its GPUs pass the probe directly and, in the slurm-acceptance
-// gate, through Slurm (no GPU request, one GPU, every GPU); the gate drains a failed node.
+// A Slurm GPU node joins once KFD and AMD SMI report healthy GPUs; the host HIP probe only records
+// (decision 083). The slurm-acceptance gate proves the GPUs through Slurm (no GPU request, one GPU, every
+// GPU) with the devices a job can open and the GPU probe image in a container, and drains a failed
+// node.
 func TestSlurmGPUGatesUseTheHIPProbe(t *testing.T) {
 	cases := map[string][]string{
 		filepath.Join("roles", "slurm_gpu", "tasks", "main.yml"): {
-			"name: gpu_probe", "gpu_probe_expect: \"{{ slurm_gpus | length }}\"", "state=drain",
-			"'hip_runtime_missing' if gpu_probe_run.rc == 2 else 'gpu_probe_failed'", "slurm_node_gres_full",
+			"name: gpu_probe", "gpu_probe_expect: \"{{ slurm_gpus | length }}\"", "gpu_probe_fail: false",
+			"amd_smi_health.py", "[amd_smi_missing]", "[amd_smi_unhealthy]", "[gpu_probe_recorded]", "slurm_node_gres_full",
 		},
 		filepath.Join("roles", "slurm_acceptance", "files", "slurm_acceptance.py"): {
-			`"--expect=0"`, `"--gres=gpu:1"`, `"--expect=1"`, `"--gres=" + full`, `"--runs=3"`, `"state=drain"`,
+			`("no GPU request", 6, [], 0, 1)`, `"--gres=gpu:1"`, `"--gres=" + full`, `node["gpus"], 3)`, `"state=drain"`,
+			"--security-opt seccomp=unconfined", "--device=/dev/kfd",
 		},
-		filepath.Join("roles", "gpu_probe", "tasks", "main.yml"): {"'hip_runtime_missing' if gpu_probe_run.rc == 2 else 'gpu_probe_failed'"},
-		"uninstall-slurm.yml": {"/usr/local/libexec/swallow/hip-probe"},
+		filepath.Join("roles", "gpu_probe", "tasks", "main.yml"):          {"'hip_runtime_missing' if gpu_probe_run.rc == 2 else 'gpu_probe_failed'"},
+		filepath.Join("roles", "slurm_node_cleanup", "tasks", "main.yml"): {"/usr/local/libexec/swallow/hip-probe"},
+	}
+	if gpu := slurmPlaybookFile(t, "roles", "slurm_gpu", "tasks", "main.yml"); strings.Contains(gpu, "state=drain") ||
+		strings.Contains(gpu, "'hip_runtime_missing' if gpu_probe_run.rc == 2 else 'gpu_probe_failed'") {
+		t.Error("slurm_gpu still drains or fails a node on the host HIP probe; it must only record it")
 	}
 	for path, required := range cases {
 		content, err := os.ReadFile(shippedFile(t, path))

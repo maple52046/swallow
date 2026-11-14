@@ -7,12 +7,16 @@
     "deploy-slurm",
     "uninstall-slurm",
     "configure-omnistat",
-    "validate-slurm-acceptance"
+    "validate-slurm-acceptance",
+    "drain-slurm-nodes",
+    "uninstall-slurm-node",
+    "prepare-gpu-probe"
   ],
   "workflowKinds": [
     "configure-slurm",
     "uninstall-slurm",
-    "configure-omnistat"
+    "configure-omnistat",
+    "scale-in-slurm"
   ],
   "taskKinds": [],
   "completions": [
@@ -34,7 +38,7 @@
     },
     {
       "name": "platform",
-      "reason": "Converts between the Platform spec and the Slurm deploy request (members as nodeAssignments) and classifies a spec change per desired-state-model §5.2, marking what swallow cannot carry out yet."
+      "reason": "Converts between the Platform spec and the Slurm deploy request (members as nodeAssignments, node groups and partitions in the slurm setting), plans the groups' partitions and Features, and classifies a spec change per desired-state-model §5.2, blocking control-plane changes swallow does not scale."
     }
   ],
   "hostAccess": {
@@ -124,6 +128,9 @@
       "werkzeug==3.1.9",
       "wheel==0.48.0",
       "zipp==4.1.1"
+    ],
+    "images": [
+      "ghcr.io/maple52046/swallow-gpu-probe:1.0.0-rocm7.2.4"
     ]
   },
   "templates": {
@@ -149,13 +156,74 @@
           "timeoutSeconds": 1500
         }
       ]
+    },
+    "slurm-scale-in": {
+      "version": 1,
+      "jobs": [
+        {
+          "name": "drain-nodes",
+          "label": "Drain Nodes",
+          "retry": "job"
+        },
+        {
+          "name": "reconfigure-slurm",
+          "label": "Reconfigure Slurm",
+          "retry": "job"
+        },
+        {
+          "name": "clean-nodes",
+          "label": "Clean Removed Nodes",
+          "retry": "job"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "drain-nodes",
+          "name": "Drain the leaving nodes",
+          "job": "drain-nodes",
+          "content": {
+            "type": "host-automation",
+            "playbook": "drain-slurm-nodes"
+          },
+          "targets": "selected",
+          "timeoutSeconds": 87000
+        },
+        {
+          "id": "reconfigure-slurm",
+          "name": "Reconfigure Slurm without them",
+          "job": "reconfigure-slurm",
+          "content": {
+            "type": "host-automation",
+            "playbook": "deploy-slurm"
+          },
+          "targets": "members",
+          "dependsOn": [
+            "drain-nodes"
+          ],
+          "timeoutSeconds": 3600
+        },
+        {
+          "id": "clean-nodes",
+          "name": "Clean the leaving nodes",
+          "job": "clean-nodes",
+          "content": {
+            "type": "host-automation",
+            "playbook": "uninstall-slurm-node"
+          },
+          "targets": "servers",
+          "dependsOn": [
+            "reconfigure-slurm"
+          ],
+          "timeoutSeconds": 1800
+        }
+      ]
     }
   },
   "validations": [
     {
       "id": "slurm-acceptance",
       "title": "Slurm acceptance",
-      "description": "Checks that a step runs on every node, that jobs share a node, that native OCI containers run rootless and see only their GPUs, that MPI launches through PMIx, and that Slurm hands out working GPUs. It reads the nodes and features from the cluster and runs short jobs, so it competes with the cluster's workload. Every Slurm deployment runs it as its gate; there, GPU nodes that fail are drained.",
+      "description": "Checks that a step runs on every node, that jobs share a node, that containers run and see only their GPUs, that MPI launches through PMIx, and that Slurm hands out working GPUs to containers. It reads the nodes and features from the cluster and runs short jobs, so it competes with the cluster's workload. Every Slurm deployment runs it as its gate on the nodes the deployment adds; there, GPU nodes that fail are drained.",
       "target": "platform",
       "platformType": "slurm",
       "impact": "workload",
@@ -172,6 +240,28 @@
             "items": {
               "type": "string"
             }
+          },
+          "nodes": {
+            "type": "array",
+            "title": "Nodes",
+            "description": "Servers the node checks run on (a deployment's gate names the nodes it adds). Default: every compute node.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "containerImage": {
+            "type": "string",
+            "title": "Container image",
+            "description": "Image the container GPU checks run, already on the GPU nodes. Default: none, which skips the container GPU checks."
+          },
+          "containerRuntime": {
+            "type": "string",
+            "title": "Container runtime",
+            "description": "docker-ce or podman: what the container GPU checks run the image with. Default: none, which skips them.",
+            "enum": [
+              "docker-ce",
+              "podman"
+            ]
           }
         }
       },
@@ -179,7 +269,7 @@
         {
           "id": "srun-all-nodes",
           "title": "Step on every node",
-          "description": "One task runs on every node at once, and every compute member is a node.",
+          "description": "One task runs on every node the run checks at once, and every one of them is a node.",
           "gating": false
         },
         {
@@ -191,7 +281,7 @@
         {
           "id": "oci-container",
           "title": "Native OCI containers",
-          "description": "A container step runs rootless, and a one-GPU container step sees exactly one GPU on every GPU node.",
+          "description": "A native OCI container step runs rootless and sees exactly one GPU when it asks for one; a one-GPU container of the GPU probe image sees exactly its GPU on every GPU node.",
           "gating": true
         },
         {
@@ -203,10 +293,42 @@
         {
           "id": "gpu-gres",
           "title": "GPU GRES",
-          "description": "Every GPU node offers GPU GRES, and the HIP probe works without a GPU request, with one GPU, and with every GPU.",
+          "description": "Every GPU node offers GPU GRES, and jobs get exactly the GPUs they ask for: none without a request, one with one, and every GPU for the whole node, each checked by the GPU probe image in a container (the host HIP probe only records).",
           "gating": true
         }
       ]
     }
-  ]
+  ],
+  "failureCodes": {
+    "slurm_drain_timeout": {
+      "failureClass": "transient",
+      "remediation": "Jobs still run on a node that is leaving the Platform. Wait for them, raise the removal's drainTimeoutSeconds, or set force to end them, then retry.",
+      "retryable": true
+    },
+    "slurm_drain_failed": {
+      "failureClass": "permanent",
+      "remediation": "slurmctld refused to drain a leaving node; check that the node is known to the cluster (scontrol show node) and the controller is up, then retry.",
+      "retryable": false
+    },
+    "slurm_unmount_busy": {
+      "failureClass": "transient",
+      "remediation": "A process on the leaving node still uses the shared workload filesystem. Stop it (fuser -vm <mount path>) and retry.",
+      "retryable": true
+    },
+    "amd_smi_missing": {
+      "failureClass": "permanent",
+      "remediation": "The GPU node has no amd-smi. The image must ship the AMD SMI library and its CLI with the amdgpu driver.",
+      "retryable": false
+    },
+    "amd_smi_unhealthy": {
+      "failureClass": "permanent",
+      "remediation": "AMD SMI lists fewer GPUs than KFD, or reports uncorrectable ECC errors. Check the GPUs (amd-smi list, amd-smi metric --ecc) and the driver; replace or reset the faulty GPU, then retry.",
+      "retryable": false
+    },
+    "gpu_probe_image_unavailable": {
+      "failureClass": "transient",
+      "remediation": "The GPU probe image could not be pulled. Check the Site's Local Repository (or the node's access to ghcr.io) and retry.",
+      "retryable": true
+    }
+  }
 }

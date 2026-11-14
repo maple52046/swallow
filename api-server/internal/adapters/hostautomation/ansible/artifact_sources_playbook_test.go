@@ -314,6 +314,8 @@ func TestArtifactPlaybooksConfigureTheirContainerRuntime(t *testing.T) {
 		{playbook: "deploy-podman.yml", required: "artifact_sources_podman: true"},
 		{playbook: "deploy-grafana.yml", required: "artifact_sources_docker: \"{{ grafana_container_runtime_used | trim == 'docker-ce' }}\""},
 		{playbook: "deploy-grafana.yml", required: "artifact_sources_podman: \"{{ grafana_container_runtime_used | trim == 'podman' }}\""},
+		{playbook: "prepare-gpu-probe.yml", required: "artifact_sources_docker: \"{{ swallow_slurm_gpu_probe_runtime | default('docker-ce') == 'docker-ce' }}\""},
+		{playbook: "prepare-gpu-probe.yml", required: "artifact_sources_podman: \"{{ swallow_slurm_gpu_probe_runtime | default('docker-ce') == 'podman' }}\""},
 	}
 	for _, tc := range cases {
 		raw, err := os.ReadFile(shippedFile(t, tc.playbook))

@@ -243,9 +243,9 @@ func TestOmnistatHardwareCountersReachTheExporterAndTheResult(t *testing.T) {
 		!strings.Contains(playbook, "omnistat_hardware_counters_result") {
 		t.Error("configure-omnistat.yml does not report each node's hardware counters in the run's result")
 	}
-	if uninstall := slurmPlaybookFile(t, "uninstall-slurm.yml"); !strings.Contains(uninstall, "/etc/systemd/system/omnistat.service.d/10-swallow-perfmon.conf") ||
+	if uninstall := slurmPlaybookFile(t, "roles", "slurm_node_cleanup", "tasks", "main.yml"); !strings.Contains(uninstall, "/etc/systemd/system/omnistat.service.d/10-swallow-perfmon.conf") ||
 		!strings.Contains(fmt.Sprint(readRoleDefaults(t, "omnistat")["omnistat_perfmon_dropin"]), "omnistat.service.d/10-swallow-perfmon.conf") {
-		t.Error("uninstall-slurm.yml does not remove the exporter's CAP_PERFMON drop-in")
+		t.Error("the Slurm node cleanup does not remove the exporter's CAP_PERFMON drop-in")
 	}
 }
 

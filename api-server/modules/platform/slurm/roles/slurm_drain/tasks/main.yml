@@ -1,0 +1,52 @@
+---
+# Drain the leaving nodes on the primary controller and wait for their jobs to end (decision 083). The
+# wait is bounded per node and says what it waits for: the job count of each node, printed by the
+# helper on every poll and reported in the failure. Nothing here changes a node that stays.
+
+- name: Name the leaving nodes for the drain
+  ansible.builtin.set_fact:
+    slurm_drain_nodes: >-
+      {%- set nodes = [] -%}
+      {%- for node in swallow_slurm_scale_in_nodes | default([]) -%}
+      {%- set _ = nodes.append({'name': hostvars[node.server_id].slurm_node_name,
+            'timeout': node.drain_timeout_seconds | int, 'force': node.force | default(false) | bool}) -%}
+      {%- endfor -%}
+      {{ nodes }}
+
+- name: Drain the leaving nodes
+  # A node slurmctld no longer knows (an earlier attempt already reconfigured it out) has nothing
+  # to drain.
+  ansible.builtin.command:
+    argv: [scontrol, update, "nodename={{ item.name }}", state=drain, "reason=swallow: leaving the Platform"]
+  loop: "{{ slurm_drain_nodes }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: slurm_drain_update
+  changed_when: slurm_drain_update.rc == 0
+  failed_when: slurm_drain_update.rc != 0 and 'Invalid node name' not in (slurm_drain_update.stderr | default(''))
+  become: true
+
+- name: Wait until no job runs on the leaving nodes
+  # The helper prints each poll's job count per node; at a node's timeout it cancels the node's
+  # jobs when the removal forces it, and otherwise exits 3 with the nodes still running jobs.
+  ansible.builtin.script:
+    cmd: >-
+      slurm_drain_wait.py --nodes '{{ slurm_drain_nodes | to_json }}'
+      --poll {{ slurm_drain_poll_seconds }} --grace {{ slurm_drain_cancel_grace_seconds }}
+    executable: /usr/bin/python3
+  register: slurm_drain_wait
+  changed_when: "'canceled' in (slurm_drain_wait.stdout | default(''))"
+  failed_when: false
+  become: true
+
+- name: Fail when a leaving node still runs jobs
+  ansible.builtin.fail:
+    msg: >-
+      [slurm_drain_timeout] {{ (slurm_drain_wait.stdout_lines | default(['the drain wait printed nothing'])) | last }}
+  when: slurm_drain_wait.rc == 3
+
+- name: Fail when the drain wait could not read the queue
+  ansible.builtin.fail:
+    msg: >-
+      [slurm_drain_failed] {{ (slurm_drain_wait.stdout_lines | default([])) | last | default(slurm_drain_wait.stderr | default('')) }}
+  when: slurm_drain_wait.rc not in [0, 3]
