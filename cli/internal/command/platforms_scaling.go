@@ -2,7 +2,9 @@ package command
 
 import (
 	"fmt"
+	"net"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -30,7 +32,11 @@ func platformsNodesCmd() *cobra.Command {
 			"group's Deployment Template (a Server already deployed keeps its OS), joins the cluster, and is\n" +
 			"validated on its own; the nodes already in the cluster keep running their jobs. A Server below\n" +
 			"its template's minimum hardware is refused, naming what it lacks. Adding a controller or login\n" +
-			"node is refused: Swallow scales only compute nodes.",
+			"node is refused: Swallow scales only compute nodes.\n\n" +
+			"A new node may override only its network, on a platform whose members Swallow installs:\n" +
+			"--interface <serverId>=<interfaceId> picks the interface it deploys on, and, when the\n" +
+			"group's template deploys static addresses, --ip <serverId>=<address> its address. Every\n" +
+			"other setting comes from the template.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			group, _ := cmd.Flags().GetString("group")
@@ -38,13 +44,22 @@ func platformsNodesCmd() *cobra.Command {
 			if group == "" || len(servers) == 0 {
 				return fmt.Errorf("--group and at least one --server are required")
 			}
+			networks, err := nodeNetworks(cmd, servers)
+			if err != nil {
+				return err
+			}
 			return updatePlatformSpec(cmd, args[0], func(spec platformSpec) error {
-				return spec.addNodes(group, servers)
+				if err := spec.addNodes(group, servers); err != nil {
+					return err
+				}
+				return spec.setNodeNetworks(networks)
 			})
 		},
 	}
 	add.Flags().String("group", "", "the compute node group the Servers join (required)")
 	add.Flags().StringSlice("server", nil, "a Server id to add; repeat or comma-separate for several (required)")
+	add.Flags().StringArray("interface", nil, "<serverId>=<interfaceId>: the interface a new node deploys on; repeat per node")
+	add.Flags().StringArray("ip", nil, "<serverId>=<address>: a new node's static address (static templates only); repeat per node")
 	addApproveFlag(add)
 
 	remove := &cobra.Command{
@@ -96,6 +111,44 @@ func platformsNodesCmd() *cobra.Command {
 	}
 	cmd.AddCommand(add, remove, rescan)
 	return cmd
+}
+
+// nodeNetworks reads the --interface and --ip overrides as one assignment per Server, keyed by the
+// Server id. An address needs an interface, and every Server named must be one being added.
+func nodeNetworks(cmd *cobra.Command, servers []string) (map[string]map[string]any, error) {
+	networks := map[string]map[string]any{}
+	parse := func(flag, key string) error {
+		values, _ := cmd.Flags().GetStringArray(flag)
+		for _, value := range values {
+			serverID, field, ok := strings.Cut(value, "=")
+			if !ok || serverID == "" || field == "" {
+				return fmt.Errorf("--%s %q must be <serverId>=<value>", flag, value)
+			}
+			if !slices.Contains(servers, serverID) {
+				return fmt.Errorf("--%s names server %s, which is not one of the --server values", flag, serverID)
+			}
+			if networks[serverID] == nil {
+				networks[serverID] = map[string]any{"serverId": serverID}
+			}
+			networks[serverID][key] = field
+		}
+		return nil
+	}
+	if err := parse("interface", "interfaceId"); err != nil {
+		return nil, err
+	}
+	if err := parse("ip", "ipAddress"); err != nil {
+		return nil, err
+	}
+	for serverID, network := range networks {
+		if _, ok := network["interfaceId"]; !ok {
+			return nil, fmt.Errorf("--ip for server %s needs its --interface too", serverID)
+		}
+		if address, ok := network["ipAddress"].(string); ok && net.ParseIP(address).To4() == nil {
+			return nil, fmt.Errorf("--ip %s=%s is not an IPv4 address", serverID, address)
+		}
+	}
+	return networks, nil
 }
 
 // memberRemoval is the memberRemovals entry the remove flags describe, without its serverId. The
@@ -451,6 +504,39 @@ func (s platformSpec) addNodes(groupName string, servers []string) error {
 		object, _ := removal.(map[string]any)
 		return slices.Contains(servers, fmt.Sprint(object["serverId"]))
 	})
+	return nil
+}
+
+// setNodeNetworks writes each override as its Server's machinePreparation.network.assignments entry,
+// replacing an earlier one for the same Server. A platform whose members keep their OS has no
+// machine preparation network to override and is refused.
+func (s platformSpec) setNodeNetworks(networks map[string]map[string]any) error {
+	if len(networks) == 0 {
+		return nil
+	}
+	preparation, _ := s["machinePreparation"].(map[string]any)
+	if preparation == nil || preparation["mode"] != "provision_os" {
+		return fmt.Errorf("--interface and --ip need a platform whose members Swallow installs (machinePreparation mode provision_os)")
+	}
+	network, _ := preparation["network"].(map[string]any)
+	if network == nil {
+		network = map[string]any{}
+		preparation["network"] = network
+	}
+	assignments, _ := network["assignments"].([]any)
+	ids := make([]string, 0, len(networks))
+	for id := range networks {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		assignments = slices.DeleteFunc(assignments, func(entry any) bool {
+			object, _ := entry.(map[string]any)
+			return object["serverId"] == id
+		})
+		assignments = append(assignments, networks[id])
+	}
+	network["assignments"] = assignments
 	return nil
 }
 

@@ -1048,7 +1048,8 @@ test.describe('Slurm Device Metrics Exporter visual review', () => {
 
 /**
  * Captures the Slurm scaling dialogs on lab-slurm-ha's Groups & partitions route (decision 083): the
- * removal dialog with its drain, force, and release choices and the dialog that adds a partition.
+ * removal dialog with its drain, force, and release choices, the dialog that adds a partition, and the
+ * Add nodes dialog with a new node's network override.
  */
 test.describe('Slurm scaling visual review', () => {
   test('slurm-scaling-dialogs', async ({ page }, testInfo) => {
@@ -1069,6 +1070,22 @@ test.describe('Slurm scaling visual review', () => {
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'slurm-scaling-partition-dialog', false)
+  })
+
+  test('slurm-scaling-add-node-network', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    await installApiFixtures(page, { slurmDeployed: true, slurmProvisionOS: true, freePlatformCandidates: true })
+    await setAppearance(page, appearance)
+    await page.goto('/platforms/platform-slurm-ha/partitions?site=site-a')
+    await page.getByRole('button', { name: 'Add nodes to compute' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Add nodes to compute' })
+    await dialog.getByRole('checkbox', { name: /^gpu-node-04/ }).locator('xpath=following-sibling::*[1]').click()
+    await dialog.getByRole('checkbox', { name: /Choose the new nodes’ network/ }).locator('xpath=following-sibling::*[1]').click()
+    await dialog.getByLabel('Static IPv4 address for gpu-node-04').fill('192.168.40.50')
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'slurm-scaling-add-node-network', false)
   })
 })
 

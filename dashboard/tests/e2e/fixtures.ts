@@ -696,6 +696,11 @@ export interface FixtureOptions {
    */
   slurmHardwareCountersOff?: boolean
   /**
+   * With `slurmDeployed`, lab-slurm-ha's spec installs its members' OS (`provision_os`) with a static
+   * network, so a node added to it may override its interface and address.
+   */
+  slurmProvisionOS?: boolean
+  /**
    * Seeds the succeeded deployment Workflow of each deployed Platform: production-k0s's
    * `deploy-kubernetes` (op-k0s-deploy), and with `slurmDeployed` lab-slurm-ha's `configure-slurm`
    * (op-slurm-ha-deploy), so the Platform details card can name and link the last deployment.
@@ -2236,6 +2241,12 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     const slurmHaSpec = fixturePlatformSpec(slurmHa)
     if (options.slurmHardwareCountersOff) {
       slurmHaSpec.settings = { ...slurmHaSpec.settings, omnistat: { enabled: true, installMethod: 'container', hardwareCounters: false } }
+    }
+    if (options.slurmProvisionOS) {
+      slurmHaSpec.machinePreparation = {
+        mode: 'provision_os', settings: { imageId: 'ubuntu/noble', deployTarget: 'ram' },
+        network: { mode: 'static', subnetId: 'subnet-a', defaultGateway: true, assignments: [] },
+      } as unknown as typeof slurmHaSpec.machinePreparation
     }
     platformItems.push({ ...slurmHa, generation: 1, spec: slurmHaSpec, status: fixturePlatformStatus(slurmHa.lifecycleState, slurmHaSpec) } as (typeof platformItems)[number])
     integrationItems.push({

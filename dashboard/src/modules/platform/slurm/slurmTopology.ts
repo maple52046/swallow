@@ -94,16 +94,30 @@ export function withSlurmTopology(spec: PlatformSpec, topology: Pick<SlurmTopolo
 }
 
 /**
+ * A new node's own network, overriding its group template's (platforms.md "Node groups and
+ * partitions": a member keeps only its network assignment from the machine preparation): the
+ * interface to deploy on, its subnet, and, for a template whose mode is static, the node's address.
+ * Written as the Server's `machinePreparation.network.assignments` entry.
+ */
+export interface SlurmNodeNetwork {
+  serverId: string
+  interfaceId: string
+  subnetId?: string
+  ipAddress?: string
+}
+
+/**
  * One edit of a Slurm Platform's members, groups, or partitions; each becomes one spec write.
  *
- * - `add-nodes`: the Servers join a compute group (and the members, with role `compute`).
+ * - `add-nodes`: the Servers join a compute group (and the members, with role `compute`), each with
+ *   an optional network override.
  * - `remove-nodes`: the Servers leave the Platform with their removal choices.
  * - `add-group`: a new compute group, placed in the named partitions.
  * - `set-group`: a group's template (null to use the Platform's default) and expected GPUs per node (null for none).
  * - `add-partition` / `set-partition` (by `previousName`) / `remove-partition`.
  */
 export type SlurmTopologyChange =
-  | { kind: 'add-nodes'; group: string; serverIds: string[] }
+  | { kind: 'add-nodes'; group: string; serverIds: string[]; networks?: SlurmNodeNetwork[] }
   | { kind: 'remove-nodes'; removals: PlatformMemberRemoval[] }
   | { kind: 'add-group'; group: { name: string; templateId?: string; expectedGpusPerNode?: number }; partitions: string[] }
   | { kind: 'set-group'; name: string; templateId: string | null; expectedGpusPerNode: number | null }
@@ -131,12 +145,14 @@ export function applySlurmTopologyChange(spec: PlatformSpec, change: SlurmTopolo
   let { groups, partitions } = topology
   let members = spec.members
   let memberRemovals = spec.memberRemovals ?? []
+  let machinePreparation = spec.machinePreparation
   switch (change.kind) {
     case 'add-nodes': {
       const adding = change.serverIds.filter((id) => !members.some((member) => member.serverId === id))
       members = [...members, ...adding.map((serverId) => ({ serverId, roles: ['compute'] }))]
       groups = groups.map((group) => (group.name === change.group ? { ...group, members: [...group.members, ...adding] } : group))
       memberRemovals = memberRemovals.filter((removal) => !adding.includes(removal.serverId))
+      machinePreparation = withNodeNetworks(machinePreparation, change.networks ?? [])
       break
     }
     case 'remove-nodes': {
@@ -175,7 +191,30 @@ export function applySlurmTopologyChange(spec: PlatformSpec, change: SlurmTopolo
       partitions = partitions.filter((partition) => partition.name !== change.name)
       break
   }
-  return { ...withSlurmTopology({ ...spec, members }, { groups, partitions }), memberRemovals }
+  return { ...withSlurmTopology({ ...spec, members, machinePreparation }, { groups, partitions }), memberRemovals }
+}
+
+/**
+ * The machine preparation with each override as its Server's network assignment, replacing an
+ * earlier one for the same Server and keeping its template reference; unchanged without overrides
+ * or without a machine preparation (members that keep their OS have no network to override).
+ */
+function withNodeNetworks(preparation: PlatformSpec['machinePreparation'], networks: SlurmNodeNetwork[]): PlatformSpec['machinePreparation'] {
+  if (!preparation || networks.length === 0) return preparation
+  const assignments = [...(preparation.network?.assignments ?? [])]
+  for (const network of networks) {
+    const index = assignments.findIndex((assignment) => assignment.serverId === network.serverId)
+    const entry = {
+      ...(index >= 0 ? assignments[index] : {}),
+      serverId: network.serverId,
+      interfaceId: network.interfaceId,
+      ...(network.subnetId ? { subnetId: network.subnetId } : {}),
+      ...(network.ipAddress ? { ipAddress: network.ipAddress } : {}),
+    }
+    if (index >= 0) assignments[index] = entry
+    else assignments.push(entry)
+  }
+  return { ...preparation, network: { ...preparation.network, assignments } }
 }
 
 /** The compute GPU groups of a Server's GPU Inventory, display controllers excluded. */

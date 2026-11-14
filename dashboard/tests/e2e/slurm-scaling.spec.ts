@@ -78,6 +78,53 @@ test('a free Server joins a compute group', async ({ page }) => {
   expect(added.settings.slurm.nodeGroups.find((group) => group.name === 'compute')?.members).toEqual(['slurm-cpt-1', 'slurm-cpt-2', 'srv-4'])
 })
 
+test('a node added to a Platform that installs its OS may choose its interface and static address', async ({ page }) => {
+  const writes: Array<Record<string, unknown>> = []
+  await installApiFixtures(page, {
+    slurmDeployed: true, slurmProvisionOS: true, freePlatformCandidates: true,
+    onSlurmTopologyRequest: (_, spec) => writes.push(spec),
+  })
+  await page.goto('/platforms/platform-slurm-ha/partitions?site=site-a')
+
+  await page.getByRole('button', { name: 'Add nodes to compute' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Add nodes to compute' })
+  await dialog.getByRole('checkbox', { name: /^gpu-node-04/ }).locator('xpath=following-sibling::*[1]').click()
+  await expect(dialog.getByText(/use the network the template describes on their boot interface/)).toBeVisible()
+  await dialog.getByRole('checkbox', { name: /Choose the new nodes’ network/ }).locator('xpath=following-sibling::*[1]').click()
+  await expect(dialog.getByText(/The template deploys static addresses/)).toBeVisible()
+  const address = dialog.getByLabel('Static IPv4 address for gpu-node-04')
+  await address.fill('192.168.40.999')
+  await expect(dialog.getByText('Enter a valid IPv4 address for gpu-node-04.')).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Add node' })).toBeDisabled()
+  await address.fill('192.168.40.50')
+  await dialog.getByRole('button', { name: 'Add node' }).click()
+  await expect(page.getByText('Adding gpu-node-04 to compute')).toBeVisible()
+
+  const written = writes.at(-1) as { machinePreparation: { mode: string; network: { mode: string; assignments: unknown[] } } }
+  expect(written.machinePreparation.mode).toBe('provision_os')
+  expect(written.machinePreparation.network.mode).toBe('static')
+  expect(written.machinePreparation.network.assignments).toEqual([
+    { serverId: 'srv-4', interfaceId: 'nic-srv-4', subnetId: 'subnet-a', ipAddress: '192.168.40.50' },
+  ])
+})
+
+test('with an automatic template a new node chooses only its interface and subnet', async ({ page }) => {
+  const writes: Array<Record<string, unknown>> = []
+  await installApiFixtures(page, { slurmDeployed: true, freePlatformCandidates: true, onSlurmTopologyRequest: (_, spec) => writes.push(spec) })
+  await page.goto('/platforms/platform-slurm-ha/partitions?site=site-a')
+  await page.getByRole('button', { name: 'Add nodes to compute' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Add nodes to compute' })
+  await dialog.getByRole('checkbox', { name: /^gpu-node-04/ }).locator('xpath=following-sibling::*[1]').click()
+  await dialog.getByRole('checkbox', { name: /Choose the new nodes’ network/ }).locator('xpath=following-sibling::*[1]').click()
+  await expect(dialog.getByText(/the template’s network mode assigns the address/)).toBeVisible()
+  await expect(dialog.getByLabel('Interface for gpu-node-04')).toBeVisible()
+  await expect(dialog.getByLabel('Static IPv4 address for gpu-node-04')).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Add node' }).click()
+  await expect(page.getByText('Adding gpu-node-04 to compute')).toBeVisible()
+  const written = writes.at(-1) as { machinePreparation: { network: { assignments: unknown[] } } }
+  expect(written.machinePreparation.network.assignments).toEqual([{ serverId: 'srv-4', interfaceId: 'nic-srv-4', subnetId: 'subnet-a' }])
+})
+
 test('a group change that leaves nodes short of GPUs shows the API warnings until dismissed', async ({ page }) => {
   await installApiFixtures(page, { slurmDeployed: true })
   await page.goto('/platforms/platform-slurm-ha/partitions?site=site-a')

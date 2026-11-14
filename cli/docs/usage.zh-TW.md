@@ -673,6 +673,7 @@ swallow platforms groups list plat1
 swallow platforms groups add plat1 --name mi300x --template tmpl1 --expected-gpus 8 --partition main
 swallow platforms groups set plat1 mi300x --clear-template          # 新節點改用平台預設的 template
 swallow platforms nodes add plat1 --group mi300x --server srv5 --server srv6
+swallow platforms nodes add plat1 --group mi300x --server srv7 --interface srv7=nic-2 --ip srv7=10.0.0.57  # 自己的網路
 swallow platforms nodes remove plat1 --server srv6 --drain-timeout 30m --force --release --approve
 swallow platforms nodes rescan plat1 srv5                           # 掉卡後重新偵測節點的 GPU
 swallow platforms partitions list plat1                             # spec 的 partition（即時狀態：`platforms slurm`）
@@ -685,7 +686,9 @@ Slurm 平台以節點群組擴縮（decision 083）。每個成員屬於一個�
 或 login node 會被拒絕。`nodes add` 讓每台新 Server 從群組的 Deployment Template 裝機（已部署的 Server 保留它的 OS），
 只驗證新節點，其他節點的工作照常；低於 template 最低硬體的 Server 會被拒絕並說明差多少。`nodes remove` 回傳 Change
 Plan：節點先 drain，最多等 `--drain-timeout` 讓工作結束（加上 `--force` 時逾時就取消工作，否則移除停在節點已 drain
-的狀態），叢集重新設定為不含它們，再清理節點，加上 `--release` 時釋放 Server。partition 是建在 compute 群組上的排程
+的狀態），叢集重新設定為不含它們，再清理節點，加上 `--release` 時釋放 Server。機器壞掉的節點以 `--force` 移除：從
+controller 以存下的名稱 drain，工作無法結束時設為 DOWN，連不到時跳過清理並記 warning。在由 Swallow 安裝成員的平台上，
+`nodes add --interface <serverId>=<interfaceId>` 與 `--ip <serverId>=<address>`（static template）覆寫新節點的網路。partition 是建在 compute 群組上的排程
 佇列，剛好一個是預設；修改它們會原地重新設定 Slurm。這些指令讀出平台、修改 spec，再以讀到的 generation 寫回；API
 回的 warning（例如 GPU 少於群組預期的節點，會被排到最後而不是被拒絕）印在 stderr。
 

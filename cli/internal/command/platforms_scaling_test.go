@@ -212,3 +212,39 @@ func TestTemplateMinimumHardwareCommands(t *testing.T) {
 		t.Error("--cpu-cores 0 was accepted")
 	}
 }
+
+// A new node's --interface and --ip become its machine preparation network assignment; an address
+// without an interface, an override for a Server not being added, and a platform whose members keep
+// their OS are refused before anything is written.
+func TestNodesAddWritesANetworkOverride(t *testing.T) {
+	requests := scalingServer(t, legacyPlatform, `{"platform":{},"plan":null,"warnings":[]}`)
+	if _, err := runScaling(t, platformsNodesCmd, "add", "plat-1", "--group", "compute", "--server", "g3", "--interface", "g3=nic-7", "--ip", "g3=10.0.0.53"); err != nil {
+		t.Fatal(err)
+	}
+	preparation := writtenSpec(t, *requests)["machinePreparation"].(map[string]any)
+	if want := []any{map[string]any{"serverId": "g3", "interfaceId": "nic-7", "ipAddress": "10.0.0.53"}}; !reflect.DeepEqual(preparation["network"].(map[string]any)["assignments"], want) {
+		t.Errorf("assignments = %v", preparation["network"])
+	}
+	for _, args := range [][]string{
+		{"add", "plat-1", "--group", "compute", "--server", "g3", "--ip", "g3=10.0.0.53"},
+		{"add", "plat-1", "--group", "compute", "--server", "g3", "--interface", "g4=nic-1"},
+		{"add", "plat-1", "--group", "compute", "--server", "g3", "--interface", "g3=nic-1", "--ip", "g3=10.0.0.999"},
+	} {
+		before := len(*requests)
+		if _, err := runScaling(t, platformsNodesCmd, args...); err == nil || len(*requests) != before {
+			t.Errorf("%v: err %v, %d requests; want it refused before reading", args, err, len(*requests)-before)
+		}
+	}
+}
+
+// A platform whose members keep their OS has no network to override.
+func TestNodesAddRefusesANetworkOverrideWithoutProvisioning(t *testing.T) {
+	existing := strings.Replace(legacyPlatform, `"mode":"provision_os"`, `"mode":"existing_os"`, 1)
+	requests := scalingServer(t, existing, `{"platform":{},"plan":null,"warnings":[]}`)
+	if _, err := runScaling(t, platformsNodesCmd, "add", "plat-1", "--group", "compute", "--server", "g3", "--interface", "g3=nic-7"); err == nil {
+		t.Error("an override on an existing_os platform was accepted")
+	}
+	if len(*requests) != 1 {
+		t.Errorf("requests = %d, want only the read", len(*requests))
+	}
+}

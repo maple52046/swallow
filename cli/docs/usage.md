@@ -702,6 +702,7 @@ swallow platforms groups list plat1
 swallow platforms groups add plat1 --name mi300x --template tmpl1 --expected-gpus 8 --partition main
 swallow platforms groups set plat1 mi300x --clear-template          # new nodes use the platform's default
 swallow platforms nodes add plat1 --group mi300x --server srv5 --server srv6
+swallow platforms nodes add plat1 --group mi300x --server srv7 --interface srv7=nic-2 --ip srv7=10.0.0.57  # its own network
 swallow platforms nodes remove plat1 --server srv6 --drain-timeout 30m --force --release --approve
 swallow platforms nodes rescan plat1 srv5                           # re-detect a node's GPUs after a failure
 swallow platforms partitions list plat1                             # the spec's partitions (live: `platforms slurm`)
@@ -717,7 +718,11 @@ deployed keeps its OS) and validates only the new nodes, while the others keep r
 Server below the template's minimum hardware is refused, naming what it lacks. `nodes remove` answers
 with a Change Plan: the nodes are drained, their jobs waited for up to `--drain-timeout` (cancelled at
 the timeout with `--force`, otherwise the removal stops with the node drained), the cluster is
-reconfigured without them, and they are cleaned up and, with `--release`, released. Partitions are
+reconfigured without them, and they are cleaned up and, with `--release`, released. A node whose
+machine failed is removed with `--force`: it is drained from the controller by its stored name, set
+DOWN when its jobs cannot end, and its cleanup is skipped with a warning when it cannot be reached.
+`nodes add --interface <serverId>=<interfaceId>` and `--ip <serverId>=<address>` (static templates)
+override a new node's network on a platform whose members Swallow installs. Partitions are
 scheduling queues over compute groups, with exactly one default; changing them reconfigures Slurm in
 place. These commands read the platform, change its spec, and write it back at the generation they
 read; a warning the API answers (for example a node with fewer GPUs than its group expects, which is

@@ -1,17 +1,19 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Button, Field, Input, Stack, Text } from '@chakra-ui/react'
 import type { PlatformMemberRemoval, SlurmNodeGroupSpec, SlurmPartitionSpec } from '@/domain/platform/types'
-import type { DeploymentTemplate } from '@/domain/provisioning/types'
+import { useApp } from '@/di/AppProvider'
+import type { DeploymentNetworkMode, DeploymentTemplate, NetworkTarget } from '@/domain/provisioning/types'
 import { serverDisplayName, type Server } from '@/domain/server/types'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
-import type { DisplayedFailure } from '@/presentation/components/failure'
+import { failureOf, type DisplayedFailure } from '@/presentation/components/failure'
 import { emptyReleaseOptions, type ReleaseOptionsValue } from '@/presentation/components/releaseOptions'
 import { ReleaseOptionsFields } from '@/presentation/components/ReleaseOptionsFields'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
-import { NODE_GROUP_NAME, PARTITION_NAME, serverGPUSummary, SLURM_TIME } from './slurmTopology'
+import { NetworkAssignmentsEditor, type NetworkAssignmentValue } from '@/presentation/pages/provisioning/NetworkAssignmentsEditor'
+import { NODE_GROUP_NAME, PARTITION_NAME, serverGPUSummary, SLURM_TIME, type SlurmNodeNetwork } from './slurmTopology'
 
 /** What every topology form dialog shares: its open state, the write in flight, and the write's failure. */
 interface TopologyDialogBase {
@@ -26,8 +28,10 @@ interface TopologyDialogBase {
  * failure shown above the footer so a refused change (`conflict`, `validation_error`) is read where
  * it was made. Dismissal is blocked while the write runs.
  */
-function TopologyForm({ open, busy, error, onClose, title, submitLabel, canSubmit, destructive = false, onSubmit, children }: TopologyDialogBase & {
+function TopologyForm({ open, busy, error, onClose, title, submitLabel, canSubmit, destructive = false, size, onSubmit, children }: TopologyDialogBase & {
   title: string
+  /** The modal's width; a form holding a wide editor (the network assignments) asks for more. */
+  size?: 'md' | 'lg' | 'xl'
   submitLabel: string
   canSubmit: boolean
   destructive?: boolean
@@ -40,6 +44,7 @@ function TopologyForm({ open, busy, error, onClose, title, submitLabel, canSubmi
       onClose={() => !busy && onClose()}
       closeOnInteractOutside={!busy}
       title={title}
+      size={size}
       onSubmit={(event) => {
         event.preventDefault()
         if (canSubmit && !busy) onSubmit()
@@ -59,27 +64,88 @@ function TopologyForm({ open, busy, error, onClose, title, submitLabel, canSubmi
   )
 }
 
+/** A dotted IPv4 address, which the API requires for a static assignment. */
+const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/
+
+/** The network inspection of the chosen Servers, read only while their override is on. */
+type InspectionState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | ({ status: 'error' } & DisplayedFailure)
+  | { status: 'ready'; targets: NetworkTarget[] }
+
 /**
  * Adds Servers of the Platform's Site to one compute group. `candidates` are the Site's Ready or
  * Deployed Servers that no Platform claims and that are not locked; each is installed from the group's
  * template (or reused when already deployed) and validated, and the existing nodes and their jobs are
  * not touched. The template's minimum hardware is checked by the API, which names a Server that falls
  * short.
+ *
+ * A new node may override only its network (interface and subnet, and its address when the group's
+ * template deploys static addresses), through the shared network assignment editor fed by a live
+ * network inspection of the chosen Servers; every other setting comes from the template. The
+ * override is offered only when `networkMode` is known, that is when swallow installs the OS; a node
+ * whose override names no interface keeps the template's network.
  */
-export function AddNodesDialog({ group, candidates, onSubmit, ...base }: TopologyDialogBase & {
+export function AddNodesDialog({ group, candidates, networkMode, onSubmit, ...base }: TopologyDialogBase & {
   group: SlurmNodeGroupSpec
   candidates: Server[]
-  onSubmit: (serverIds: string[]) => void
+  /** The network mode of the group's template; null when the Platform keeps its members' OS. */
+  networkMode: DeploymentNetworkMode | null
+  onSubmit: (serverIds: string[], networks: SlurmNodeNetwork[]) => void
 }) {
+  const { provisioning } = useApp()
   const [chosen, setChosen] = useState<string[]>([])
+  const [override, setOverride] = useState(false)
+  const [inspection, setInspection] = useState<InspectionState>({ status: 'idle' })
+  const [assignments, setAssignments] = useState<Record<string, NetworkAssignmentValue>>({})
   const toggle = (id: string, checked: boolean) => setChosen((current) => (checked ? [...current, id] : current.filter((value) => value !== id)))
+  const chosenKey = [...chosen].sort().join(',')
+
+  // The inspection follows the chosen Servers while the override is on; a later choice discards an
+  // earlier, slower answer. Each Server starts from the provisioner's suggestion.
+  useEffect(() => {
+    if (!override || chosenKey === '') return
+    let cancelled = false
+    queueMicrotask(() => { if (!cancelled) setInspection({ status: 'loading' }) })
+    provisioning.inspectDeploymentNetworks(chosenKey.split(','))
+      .then((result) => {
+        if (cancelled) return
+        setInspection({ status: 'ready', targets: result.targets })
+        setAssignments((current) => Object.fromEntries(result.targets.map((target) => [target.serverId, current[target.serverId] ?? {
+          interfaceId: target.suggestion.interfaceId, subnetId: target.suggestion.subnetId, ipAddress: target.suggestion.ipAddress,
+        }])))
+      })
+      .catch((error: Error) => { if (!cancelled) setInspection({ status: 'error', ...failureOf(error, 'The Servers’ networks could not be inspected.') }) })
+    return () => { cancelled = true }
+  }, [chosenKey, override, provisioning])
+
+  const networks: SlurmNodeNetwork[] = !override ? [] : chosen.flatMap((serverId) => {
+    const assignment = assignments[serverId]
+    if (!assignment?.interfaceId) return []
+    return [{
+      serverId,
+      interfaceId: assignment.interfaceId,
+      ...(assignment.subnetId ? { subnetId: assignment.subnetId } : {}),
+      ...(networkMode === 'static' && assignment.ipAddress.trim() ? { ipAddress: assignment.ipAddress.trim() } : {}),
+    }]
+  })
+  const missingAddress = override && networkMode === 'static'
+    ? networks.find((network) => !network.ipAddress || !IPV4.test(network.ipAddress))
+    : undefined
+  const serverName = (id: string) => {
+    const server = candidates.find((candidate) => candidate.id === id)
+    return server ? serverDisplayName(server) : id
+  }
+
   return (
     <TopologyForm
       {...base}
       title={`Add nodes to ${group.name}`}
+      size={override ? 'xl' : undefined}
       submitLabel={chosen.length > 1 ? `Add ${chosen.length} nodes` : 'Add node'}
-      canSubmit={chosen.length > 0}
-      onSubmit={() => onSubmit(chosen)}
+      canSubmit={chosen.length > 0 && !missingAddress && !(override && inspection.status === 'loading')}
+      onSubmit={() => onSubmit(chosen, networks)}
     >
       <Text>
         Each new node is installed from the group&rsquo;s Deployment Template (a node that is already deployed keeps its OS), joins the cluster, and is
@@ -99,6 +165,36 @@ export function AddNodesDialog({ group, candidates, onSubmit, ...base }: Topolog
               {serverDisplayName(server)} <Text as="span" color="fg.muted">({serverGPUSummary(server)}, {server.status.provisioning?.state ?? 'unknown'})</Text>
             </Checkbox>
           ))}
+        </Stack>
+      )}
+      {networkMode && chosen.length > 0 && (
+        <Stack gap="3">
+          <Checkbox checked={override} onCheckedChange={setOverride} disabled={base.busy}>Choose the new nodes&rsquo; network</Checkbox>
+          <Text color="fg.muted" fontSize="sm">
+            {override
+              ? networkMode === 'static'
+                ? 'The template deploys static addresses: choose each node’s interface, subnet, and address. Everything else comes from the template.'
+                : 'Choose each node’s interface and subnet; the template’s network mode assigns the address. Everything else comes from the template.'
+              : 'The new nodes use the network the template describes on their boot interface.'}
+          </Text>
+          {override && inspection.status === 'loading' && <Text fontSize="sm" role="status">Reading the Servers&rsquo; interfaces…</Text>}
+          {override && inspection.status === 'error' && (
+            <Alert status="warning" title="The interfaces could not be read"><FailureMessage failure={inspection} /></Alert>
+          )}
+          {override && inspection.status === 'ready' && (
+            <NetworkAssignmentsEditor
+              targets={inspection.targets.filter((target) => chosen.includes(target.serverId))}
+              serverNames={Object.fromEntries(chosen.map((id) => [id, serverName(id)]))}
+              assignments={assignments}
+              mode={networkMode}
+              ariaLabel={`Network of the new nodes in ${group.name}`}
+              showCurrentProviderMode={false}
+              onChange={(serverId, assignment) => setAssignments((current) => ({ ...current, [serverId]: assignment }))}
+            />
+          )}
+          {missingAddress && (
+            <Text color="fg.error" fontSize="sm" role="alert">Enter a valid IPv4 address for {serverName(missingAddress.serverId)}.</Text>
+          )}
         </Stack>
       )}
     </TopologyForm>
@@ -155,8 +251,8 @@ export function RemoveNodesDialog({ servers, onSubmit, ...base }: TopologyDialog
       <Checkbox checked={force} onCheckedChange={setForce} disabled={base.busy}>Cancel jobs still running at the timeout</Checkbox>
       <Text color="fg.muted" fontSize="sm">
         {force
-          ? 'Jobs still running when the timeout passes are cancelled and the removal continues.'
-          : 'If jobs are still running when the timeout passes, the removal stops with the node drained; retry it later or force it.'}
+          ? 'Jobs still running when the timeout passes are cancelled and the removal continues. A node whose machine failed is set DOWN if its jobs cannot end, and its cleanup is skipped if it cannot be reached.'
+          : 'If jobs are still running when the timeout passes, or the node cannot be reached, the removal stops with the node drained; retry it later or force it.'}
       </Text>
       <Checkbox checked={release} onCheckedChange={setRelease} disabled={base.busy}>Release the {servers.length > 1 ? 'Servers' : 'Server'} afterwards</Checkbox>
       <Text color="fg.muted" fontSize="sm">

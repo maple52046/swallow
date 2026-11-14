@@ -3,7 +3,7 @@ import { Badge, Button, HStack, Stack, Table, Text } from '@chakra-ui/react'
 import { Plus, RefreshCw } from 'lucide-react'
 import { useApp } from '@/di/AppProvider'
 import type { Platform } from '@/domain/platform/types'
-import type { DeploymentTemplate } from '@/domain/provisioning/types'
+import type { DeploymentNetworkMode, DeploymentTemplate } from '@/domain/provisioning/types'
 import { serverDisplayName, type Server } from '@/domain/server/types'
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
 import { SectionHeader, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
@@ -107,6 +107,16 @@ export function SlurmTopologyManager({ platform, members, canOperate, onChanged,
     const value = spec.settings.omnistat
     return typeof value === 'object' && value !== null && (value as { enabled?: unknown }).enabled === true
   })()
+  // The network mode a group's new nodes deploy with: its template's, else the machine preparation's
+  // template's, else the machine preparation's own (a template the Platform generates copies it).
+  // Null when swallow does not install the OS, so there is no network to override.
+  const groupNetworkMode = (group: (typeof topology.groups)[number]): DeploymentNetworkMode | null => {
+    const preparation = spec.machinePreparation
+    if (!preparation || preparation.mode !== 'provision_os') return null
+    const template = templates.find((candidate) => candidate.id === (group.templateId ?? preparation.templateId))
+    const mode = template?.network.mode ?? preparation.network?.mode
+    return mode === 'static' || mode === 'dhcp' ? mode : 'automatic'
+  }
   const memberTemplate = (serverId: string) => platform.status.memberTemplates.find((record) => record.serverId === serverId)
 
   const closeDialog = () => {
@@ -350,7 +360,8 @@ export function SlurmTopologyManager({ platform, members, canOperate, onChanged,
           onClose={closeDialog}
           group={dialogGroup}
           candidates={candidates}
-          onSubmit={(serverIds) => void write.submit({ kind: 'add-nodes', group: dialogGroup.name, serverIds }, {
+          networkMode={groupNetworkMode(dialogGroup)}
+          onSubmit={(serverIds, networks) => void write.submit({ kind: 'add-nodes', group: dialogGroup.name, serverIds, networks }, {
             started: serverIds.length > 1 ? `Adding ${serverIds.length} nodes to ${dialogGroup.name}` : `Adding ${serverName(serverIds[0])} to ${dialogGroup.name}`,
             detail: 'The new nodes are installed from the group’s template, join the cluster, and are validated on their own.',
             planAction: 'add the nodes',
