@@ -173,7 +173,9 @@ its result, because the host's ROCm may not cover the GPU. Once Slurm and the ch
 are installed, the deployment runs the `slurm-acceptance` [Validation Suite](validation.md)
 as its gate (the **Validate Slurm** Job): a step on every node, jobs sharing a node,
 containers and MPI when they are on, and GPU jobs through Slurm on every GPU node, which
-also run a GPU test inside a container when the node has a container runtime. A GPU
+also run a GPU test inside AMD's ROCm container image when the node has a container runtime.
+The node pulls that image itself; if it cannot reach the registry, the container test is
+skipped with a warning and the deployment goes on. A GPU
 node that fails is drained, and a check that does not pass stops the deployment with
 the reason; retry the Job after fixing it. The GRES type
 defaults to the GPU architecture (for example `gfx942`). Under **Advanced

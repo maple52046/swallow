@@ -66,11 +66,14 @@ and a count that cannot be read blocks too.
 
 **GPU validation relies on the driver and containers.** The hard gate on a GPU node is what the driver
 reports: the KFD device count and an AMD SMI health read. The host HIP probe is advisory. The acceptance gate
-proves the GPUs inside a real container with swallow's GPU probe image (a release-built OCI artifact,
-[decision 079](079-release-built-host-artifacts.md) (release-built host artifacts)) mounting only the
-devices the job may open. A node with fewer GPUs than its group expects is marked degraded and scheduled
+proves the GPUs inside a real container mounting only the devices the job may open: it builds a HIP
+probe with `hipcc` for `gfx90a`, `gfx942`, and `gfx950` inside AMD's official ROCm development image at a
+pinned tag, the kind of image user workloads run. Each GPU node pulls that image straight from its
+registry, not through the Local Repository; a node that cannot pull it records the container check as
+skipped with a warning, so the driver checks stay the hard gate, while a pulled image whose probe does not
+build or whose kernel fails is a failure. A node with fewer GPUs than its group expects is marked degraded and scheduled
 last instead of failing the deployment. A deployment that adds members validates only those members, and
-the gate runs after the composed software so the container runtime and the image are there.
+the gate runs after the composed software so the container runtime is there.
 
 ## Alternatives considered
 
@@ -85,6 +88,9 @@ the gate runs after the composed software so the container runtime and the image
   generic member-template reference and the module owns the rest.
 - **Create generated templates silently during the upgrade of an existing Platform**: rejected — the first
   Change Plan after the upgrade lists them, so nothing appears in the provisioner without being seen.
+- **Build and publish a swallow GPU probe image**: rejected — it adds a release artifact and a Local
+  Repository dependency for a test that AMD's own image, the one workloads use, can run after a short
+  build; a Site without upstream access loses only that one check.
 - **Keep the host HIP probe as a gate**: rejected — it fails on images whose host ROCm does not cover the
   GPU, while the workloads, which bring their own ROCm in containers, would run.
 - **Plan the whole scale-in in Go**: rejected — module-declared templates are the path for Platform
@@ -99,11 +105,13 @@ the gate runs after the composed software so the container runtime and the image
   deleted, and editing one changes how later members install, not the existing ones.
 - Mixed GPU generations are a group and a partition each; a group mixing models is a warning unless its
   template names a model.
-- The GPU probe image must be built and published before a Site that uses it deploys, and the module
-  declares it so a Local Repository can serve it.
+- GPU nodes need access to AMD's image registry for the container GPU check; without it the gate passes
+  with a warning on that check. The first check on a node spends the pull and the build, so the check's
+  timeout allows for a multi-gigabyte image.
 - Draining is bounded and can end jobs only when the removal says so; a removal that does not force waits
   for running work and fails visibly at the timeout.
 
 ## Revision history
 
 - 2026-11-14: accepted.
+- 2026-11-14: the container GPU check builds its probe in AMD's ROCm image instead of a swallow-built probe image.

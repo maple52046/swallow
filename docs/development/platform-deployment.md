@@ -952,13 +952,13 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   controller＋compute → `control-plane` 且 `runWorkloads`、compute → `worker`；login-only 不是 role assignment，
   另列在 `loginServerIds`。因此 slurmrestd 只把 compute 回報成 member 時，controller 仍會被計入與列出。
 - **Job**：重用 `ensure-os`（用 user 的 Slurm image 佈 OS 或重用已 `deployed` 者），新增
-  `configure-slurm` Job 只含 `install-platform`（ansible），之後是組入的軟體（下表）、GPU probe image 的拉取，最後是
+  `configure-slurm` Job 只含 `install-platform`（ansible），之後是組入的軟體（下表），最後是
   gate 的 `validate-slurm` Job。**無 `validate-platform-health`**——deployed integration 要等 install 步驟成功後才存在。
   `deploy-slurm` 只確認叢集成形（`slurm_verify`：`scontrol ping` 與每台 compute 在 `sinfo --Node` 註冊為可排程）；叢集
   能不能用由 Validation Suite `slurm-acceptance` 以 gate 驗收（[validation.md](validation.md) §5、§7）：launcher 在最後
   組入它的 Task（從 primary controller 進入，gate mode，`gpuServers` 是部署對應的 GPU compute node）與
   `complete-validation`，兩者同屬 `validate-slurm` Job，所以重試這個 Job 會重跑整個 suite。gate 放在最後，因為它的容器 GPU
-  檢查需要 container runtime 與 probe image（[decision 083](../decisions/083-platform-member-scaling.md)（Platform member
+  檢查需要 container runtime（[decision 083](../decisions/083-platform-member-scaling.md)（Platform member
   scaling））。加入成員的部署只驗變動的成員（`nodes` 參數；只改排程設定、沒有變動成員的部署不組 gate）。gate 的 run 與
   Workflow 在同一個 transaction 寫入。gating check 沒有通過時部署以 `validation_gate_failed` 停在 `requires_attention`；
   `srun-all-nodes` 不是 gating，只記在 run。成員由背景 membership sync 補上。
@@ -1073,8 +1073,9 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   `/var/lib/swallow/gpu/hip-probe.json`，不 drain 節點、不讓部署失敗：host 的 ROCm 不一定涵蓋 GPU 的 gfx 目標。
   `slurm-acceptance` gate 的 `gpu-gres` 透過 Slurm 跑三種作業：無 GPU request（看到 0）、`--gres=gpu:1`（看到 1 且
   `ROCR_VISIBLE_DEVICES=0`）、整台（節點 GRES 只有一種 type 時是該 GRES，否則 `gpu:<數量>`），作業數的是 job 的 device
-  cgroup 允許開啟的 render 裝置；GPU node 有 container runtime 時，同一個作業再以 swallow 的 GPU probe image（模組
-  `artifacts.images`，`prepare-gpu-probe` 預先拉取）在容器內只掛那些裝置跑 HIP kernel（`--pull=never`），容器自帶 ROCm。
+  cgroup 允許開啟的 render 裝置；GPU node 有 container runtime 時，`gpu-container` 在 AMD 官方 ROCm 開發 image（固定 tag，節點直接拉取，
+  不經 Local Repository）內以 `hipcc` 建置 HIP probe，再以同樣的作業在容器內只掛那些裝置跑 kernel，容器自帶 ROCm；拉不到
+  image 時這個 check 帶 warning 跳過，不讓部署失敗（[validation.md](validation.md) §7）。
   要求 `gpuServers` 的每台都提供 GPU GRES；失敗的節點 `scontrol update state=drain`（只有 gate mode 會 drain），部署以
   `validation_gate_failed` 停下。
 - **選用功能：container runtime（decision 063）**：deploy request 帶 `containerRuntime.kind`
@@ -1296,8 +1297,7 @@ Slurm playbook：[`deploy-slurm.yml`](../../api-server/modules/platform/slurm/pl
 Slurm 模組的 `roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_gpu`、
 `slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、
 `slurm_cluster_credential`、`slurm_job_hooks`）與共用的 `gpu_probe`；scale-in：`drain-slurm-nodes.yml`（`roles/slurm_drain`）、
-`uninstall-slurm-node.yml`（`roles/slurm_node_cleanup`，`uninstall-slurm.yml` 共用）；GPU probe image：`prepare-gpu-probe.yml`
-（`roles/slurm_gpu_probe_image`，image 由 `deploy/release/gpu-probe/` 建置）；gate 的 suite：
+`uninstall-slurm-node.yml`（`roles/slurm_node_cleanup`，`uninstall-slurm.yml` 共用）；gate 的 suite：
 [`validate-slurm-acceptance.yml`](../../api-server/modules/platform/slurm/playbooks/validate-slurm-acceptance.yml) 與
 `roles/slurm_acceptance`（檢查在 `files/slurm_acceptance.py`），組入部署的程式在 `internal/app/validation_gate.go`；Device Metrics Exporter：
 [`deploy-device-metrics-exporter.yml`](../../api-server/modules/software/device-metrics-exporter/playbooks/deploy-device-metrics-exporter.yml)

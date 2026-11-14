@@ -756,8 +756,7 @@ A Slurm Platform's members are organized in node groups, and its compute groups 
   warning unless its template names a GPU model.
 
 Every Slurm deployment proves the cluster works with the `slurm-acceptance`
-[Validation Suite](validation.md) as its gate. After `install-platform`, the composed software, and the
-pull of the GPU probe image, the Workflow runs the Job `validate-slurm`: the suite's check Task from the
+[Validation Suite](validation.md) as its gate. After `install-platform` and the composed software, the Workflow runs the Job `validate-slurm`: the suite's check Task from the
 primary controller, then `complete-validation`. A change that adds members validates only those members;
 a change that adds none (a partition change) runs no gate. The gate's Validation Run (`mode: gate`, `trigger.kind:
 deployment`, `workflowId` the deployment's) holds each check's verdict per node. A gating check
@@ -832,8 +831,11 @@ uncorrectable ECC error with `amd_smi_unhealthy`. The host HIP probe still runs 
 result (`/var/lib/swallow/gpu/hip-probe.json`): the host's ROCm may not cover the GPU. The gate's
 `gpu-gres` check then runs jobs through Slurm: a job without a GPU request sees no GPU, a
 `--gres=gpu:1` job sees exactly one as device `0`, and a job requesting every GPU of the node can open
-them; when the node has a [container runtime](#container-runtime), the same job runs swallow's GPU probe
-image in a container with only the job's GPUs and runs a HIP kernel on each. A failure drains the node
+them; when the node has a [container runtime](#container-runtime), the `gpu-container` check pulls AMD's
+official ROCm development image at a pinned tag on the node (straight from its registry, not through the
+Local Repository), builds a HIP probe in it for `gfx90a`, `gfx942`, and `gfx950`, and runs the same jobs
+in a container with only the job's GPUs, a HIP kernel on each. A node that cannot pull the image skips
+that check with a warning; a probe that does not build or a kernel that fails is a failure. A failure drains the node
 (`reason=swallow: GPU probe failed`) and stops the deployment. The live
 [Slurm cluster read](#read-slurm-cluster-state) reports each node's `gres`.
 
@@ -1680,8 +1682,9 @@ transport/auth failures return `provider_unavailable`; provider rejection return
   know. A Slurm Platform's stored spec gains the groups and partition its roles imply on upgrade, so a
   spec read afterwards shows them. `POST /platforms/{id}/slurm/nodes/{serverId}/rescan` is new. The GPU
   check of a Slurm deployment gates on AMD SMI instead of the host HIP probe (`amd_smi_missing`,
-  `amd_smi_unhealthy` replace `gpu_probe_failed` and `hip_runtime_missing` there), and the gate runs after
-  the composed software.
+  `amd_smi_unhealthy` replace `gpu_probe_failed` and `hip_runtime_missing` there), the gate runs after
+  the composed software, and its new gating check `gpu-container` runs the GPU jobs in AMD's ROCm image
+  on nodes with a container runtime (skipped with a warning when the node cannot pull it).
 - Since 2026-11-14 `PUT /platforms/{id}/pool` moves a Platform with all its Servers to another Pool (see
   [Move A Platform To Another Pool](#move-a-platform-to-another-pool)). It replaces taking each Server out
   of every Pool and placing it in the new one, which `PUT /servers/{id}/placement` now refuses for a

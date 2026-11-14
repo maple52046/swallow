@@ -132,8 +132,8 @@ shared workload storage、container runtime、作業監控（預設 Omnistat，�
 GPU node 的主機只需要 amdgpu driver：節點加入前，swallow 檢查 driver 回報的 GPU 與它們的健康狀態（AMD SMI）；主機上的
 HIP 測試只記錄結果，因為主機的 ROCm 不一定涵蓋這張 GPU。安裝 Slurm 與選擇的功能之後，部署會執行 `slurm-acceptance`
 [Validation Suite](validation.md) 作為閘門（**Validate Slurm** Job）：每台節點都能執行 step、job 能共用節點、開啟時的
-container 與 MPI，以及每台 GPU node 透過 Slurm 執行的 GPU job；節點有 container runtime 時，同一個 job 也在容器內測試
-GPU。失敗的 GPU
+container 與 MPI，以及每台 GPU node 透過 Slurm 執行的 GPU job；節點有 container runtime 時，同一個 job 也在 AMD 的 ROCm
+container image 內測試 GPU。image 由節點自己拉取；連不到 registry 時，容器測試帶警告跳過，部署照常繼續。失敗的 GPU
 node 會被 drain，沒有通過的 check 會讓部署帶著原因停下；修正後重試這個 Job。GRES type 預設是 GPU 架構（例如
 `gfx942`）。在 **Advanced settings** 可以指定既有 job script 使用的 GRES type（例如 `mi308x_vf`），以及
 amdgpu driver module option。swallow 已會套用節點 GPU topology 需要的選項（例如在 ROCm 結束時會 crash 的

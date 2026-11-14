@@ -135,7 +135,7 @@ interface，而是 Platform 模組與 Software 模組提供的能力（§4）。
   Prometheus／Grafana 的驗證規則）仍在 `internal/core/software`；型錄、各 kind 的分支與 Docker Host Explorer 已在各
   Software 模組。
 - **composition root**（`internal/app`，不在 ratchet 的範圍）：Platform 的 launcher 與組入（platform deployment、
-  Slurm composition、Slurm 的 scale-in 與 GPU probe image（`slurm_scaling_adapter.go`）、Kubernetes 的 Platform Grafana、GPU Operator、lifecycle 的 adapter）、Platform 功能的 exporter 清單
+  Slurm composition、Slurm 的 scale-in（`slurm_scaling_adapter.go`）、Kubernetes 的 Platform Grafana、GPU Operator、lifecycle 的 adapter）、Platform 功能的 exporter 清單
   （`exporter_inventory_adapter.go` 依 Omnistat 與 GPU Operator 的狀態列出 scrape target）、平台 Job 的顯示名稱（`workflow_plan.go` 的
   `workflowJobLabels`）、credential 的 provider kind（`modules.go` 的 `integrationProviders`）與結果類完成行為的
   class（`workflow_completions.go` 的 `completionClasses`）。

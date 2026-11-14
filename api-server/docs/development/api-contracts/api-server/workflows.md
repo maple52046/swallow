@@ -516,5 +516,4 @@ On 2026-11-14 the kind `scale-in-slurm` was added (additive): the Workflow that 
 members from a Slurm Platform after its Change Plan is approved
 ([platforms](platforms.md#remove-members)). Its Tasks have the kinds `ansible-playbook`, `release-os`,
 and `complete-member-removal`, and its Jobs the labels `Drain Nodes`, `Reconfigure Slurm`, `Clean Removed Nodes`,
-`Release Servers`, and `Finalize Member Removal`. A Slurm deployment may also show the Job
-`prepare-gpu-probe` (label `Prepare GPU Probe`) before its gate.
+`Release Servers`, and `Finalize Member Removal`.
