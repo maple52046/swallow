@@ -626,8 +626,10 @@ func respondError(c *fiber.Ctx, err error) error {
 
 	// Request faults the deploy preflight reports, checked before the conflicts and the
 	// unavailable-automation group that also wrap them: a provisioner without network
-	// configuration is an unsupported capability, and targets of several Sites are a bad request.
+	// configuration is an unsupported capability, and a malformed batch (a member's network
+	// assignment the provisioner cannot apply) and targets of several Sites are bad requests.
 	case errors.Is(err, provisioningdomain.ErrNetworkConfigurationUnsupported),
+		errors.Is(err, provisioningdomain.ErrInvalidDeploymentBatch),
 		errors.Is(err, workflowapp.ErrTargetsSpanSites):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
 

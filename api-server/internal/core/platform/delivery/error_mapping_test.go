@@ -30,6 +30,7 @@ func TestRespondErrorFollowsTheConventions(t *testing.T) {
 		{"cluster unreachable", &platformdomain.ReaderError{Kind: platformdomain.ReaderErrorUnavailable}, http.StatusServiceUnavailable},
 		{"target in the wrong state", fmt.Errorf("%w: srv-a requires \"deployed\"", workflowdomain.ErrTargetStateInvalid), http.StatusConflict},
 		{"network configuration unsupported in a batch", fmt.Errorf("%w: %w", provisioningdomain.ErrDeploymentBatchConflict, provisioningdomain.ErrNetworkConfigurationUnsupported), http.StatusBadRequest},
+		{"a malformed deployment batch", fmt.Errorf("%w: network assignments must be unique per Server", provisioningdomain.ErrInvalidDeploymentBatch), http.StatusBadRequest},
 		{"targets of several Sites", fmt.Errorf("%w: %w", workflowapp.ErrInvalidOperation, workflowapp.ErrTargetsSpanSites), http.StatusBadRequest},
 		{"no playbook mapping stays unavailable", fmt.Errorf("%w: no playbook mapping", workflowapp.ErrInvalidOperation), http.StatusServiceUnavailable},
 		{"an unknown failure", errors.New("boom"), http.StatusInternalServerError},

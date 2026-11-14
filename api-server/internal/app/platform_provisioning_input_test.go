@@ -93,4 +93,26 @@ func TestPlatformProvisioningInputInstallsAMemberFromItsTemplate(t *testing.T) {
 	if inline.TemplateID != "" || inline.Settings.ImageID == nil || *inline.Settings.ImageID != "inline-image" {
 		t.Errorf("inline batch = %+v, want the machine preparation's image", inline)
 	}
+	if inline.Network == nil || len(inline.Network.Assignments) != 0 {
+		t.Errorf("inline batch network = %+v, want none of the other members' assignments", inline.Network)
+	}
+}
+
+// A member added from the machine preparation (its group's template is not created yet) is a batch
+// of its own: the request carries its network assignment and not those of the members already
+// deployed, which the provisioner would refuse as outside the batch.
+func TestPlatformProvisioningInputNamesOnlyTheBatchsAssignments(t *testing.T) {
+	preparation := platformdomain.MachinePreparation{
+		Mode: platformdomain.MachinePreparationProvisionOS, NetworkMode: "dhcp",
+		Assignments: []platformdomain.MachineNetworkAssignment{
+			{ServerID: "deployed-1", InterfaceID: "132", SubnetID: "1"},
+			{ServerID: "deployed-2", InterfaceID: "133", SubnetID: "1"},
+			{ServerID: "new", InterfaceID: "131"},
+		},
+	}
+	got := platformProvisioningInput(preparation, []string{"new"}).Network
+	want := &provisioningapp.DeploymentNetworkInput{Mode: "dhcp", Assignments: []provisioningapp.DeploymentNetworkAssignmentInput{{ServerID: "new", InterfaceID: "131"}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("network = %+v, want only the new member's assignment", got)
+	}
 }

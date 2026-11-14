@@ -755,7 +755,7 @@ func platformProvisioningInput(preparation platformdomain.MachinePreparation, se
 		input.Network = &provisioningapp.DeploymentNetworkInput{
 			Mode: preparation.NetworkMode, SubnetID: preparation.SubnetID,
 			DefaultGateway: preparation.DefaultGateway,
-			Assignments:    assignmentsOf(preparation, nil),
+			Assignments:    assignmentsOf(preparation, serverIDs),
 		}
 	}
 	return input
@@ -795,11 +795,12 @@ func byMemberTemplate(preparation platformdomain.MachinePreparation, serverIDs [
 	return batches
 }
 
-// assignmentsOf is the network part of the assignments of serverIDs (every assignment when nil).
+// assignmentsOf is the network part of the assignments of serverIDs. A batch names only its own: the
+// provisioner refuses an assignment for a Server outside the batch, such as a member already deployed.
 func assignmentsOf(preparation platformdomain.MachinePreparation, serverIDs []string) []provisioningapp.DeploymentNetworkAssignmentInput {
 	assignments := make([]provisioningapp.DeploymentNetworkAssignmentInput, 0, len(preparation.Assignments))
 	for _, assignment := range preparation.Assignments {
-		if serverIDs != nil && !slices.Contains(serverIDs, assignment.ServerID) {
+		if !slices.Contains(serverIDs, assignment.ServerID) {
 			continue
 		}
 		if assignment.InterfaceID == "" && assignment.SubnetID == "" && assignment.IPAddress == "" {
