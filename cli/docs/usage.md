@@ -718,7 +718,9 @@ deployed keeps its OS) and validates only the new nodes, while the others keep r
 Server below the template's minimum hardware is refused, naming what it lacks. `nodes remove` answers
 with a Change Plan: the nodes are drained, their jobs waited for up to `--drain-timeout` (cancelled at
 the timeout with `--force`, otherwise the removal stops with the node drained), the cluster is
-reconfigured without them, and they are cleaned up and, with `--release`, released. A node whose
+reconfigured without them, and they are cleaned up and, with `--release`, released. Running
+`nodes remove` again for a node whose removal stopped writes its removal with the new flags (for
+example `--force`) and answers with a new Change Plan, whose Workflow removes the node with them. A node whose
 machine failed is removed with `--force`: it is drained from the controller by its stored name, set
 DOWN when its jobs cannot end, and its cleanup is skipped with a warning when it cannot be reached.
 `nodes add --interface <serverId>=<interfaceId>` and `--ip <serverId>=<address>` (static templates)

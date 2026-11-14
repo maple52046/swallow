@@ -686,7 +686,8 @@ Slurm 平台以節點群組擴縮（decision 083）。每個成員屬於一個�
 或 login node 會被拒絕。`nodes add` 讓每台新 Server 從群組的 Deployment Template 裝機（已部署的 Server 保留它的 OS），
 只驗證新節點，其他節點的工作照常；低於 template 最低硬體的 Server 會被拒絕並說明差多少。`nodes remove` 回傳 Change
 Plan：節點先 drain，最多等 `--drain-timeout` 讓工作結束（加上 `--force` 時逾時就取消工作，否則移除停在節點已 drain
-的狀態），叢集重新設定為不含它們，再清理節點，加上 `--release` 時釋放 Server。機器壞掉的節點以 `--force` 移除：從
+的狀態），叢集重新設定為不含它們，再清理節點，加上 `--release` 時釋放 Server。對移除停下的節點再執行一次
+`nodes remove`，會以新的旗標（例如 `--force`）重寫它的移除方式並回傳新的 Change Plan，它的 Workflow 以新的方式移除節點。機器壞掉的節點以 `--force` 移除：從
 controller 以存下的名稱 drain，工作無法結束時設為 DOWN，連不到時跳過清理並記 warning。在由 Swallow 安裝成員的平台上，
 `nodes add --interface <serverId>=<interfaceId>` 與 `--ip <serverId>=<address>`（static template）覆寫新節點的網路。partition 是建在 compute 群組上的排程
 佇列，剛好一個是預設；修改它們會原地重新設定 Slurm。這些指令讀出平台、修改 spec，再以讀到的 generation 寫回；API

@@ -112,6 +112,34 @@ func TestNodesRemoveWritesTheRemovalChoices(t *testing.T) {
 	}
 }
 
+// A node whose removal has not finished is out of the spec but still applied: removing it again
+// rewrites only its removal, so a drain that timed out can be retried with --force; a Server that is
+// neither is refused before anything is written.
+func TestNodesRemoveRewritesAnUnfinishedRemoval(t *testing.T) {
+	leaving := `{"generation":7,"spec":{"members":[{"serverId":"c1","roles":["controller"]},{"serverId":"g1","roles":["compute"]}],` +
+		`"settings":{"slurm":{"nodeGroups":[{"name":"compute","role":"compute","members":["g1"]}],"partitions":[{"name":"main","default":true,"groups":["compute"]}]}},` +
+		`"memberRemovals":[{"serverId":"g2","drainTimeoutSeconds":120,"force":false}]},` +
+		`"status":{"applied":{"members":[{"serverId":"c1"},{"serverId":"g1"},{"serverId":"g2"}]}}}`
+	requests := scalingServer(t, leaving, `{"platform":{},"plan":{"id":"p2","state":"pending_approval"},"warnings":[]}`)
+	if _, err := runScaling(t, platformsNodesCmd, "remove", "plat-1", "--server", "g2", "--drain-timeout", "2m", "--force"); err != nil {
+		t.Fatal(err)
+	}
+	spec := writtenSpec(t, *requests)
+	if members := spec["members"].([]any); len(members) != 2 {
+		t.Errorf("members = %v, want them unchanged", members)
+	}
+	if want := []any{map[string]any{
+		"serverId": "g2", "drainTimeoutSeconds": float64(120), "force": true, "releaseServer": false,
+		"erase": false, "secureErase": false, "quickErase": false, "unbindStaticIps": false,
+	}}; !reflect.DeepEqual(spec["memberRemovals"], want) {
+		t.Errorf("memberRemovals = %v, want g2's removal forced", spec["memberRemovals"])
+	}
+	before := len(*requests)
+	if _, err := runScaling(t, platformsNodesCmd, "remove", "plat-1", "--server", "g9"); err == nil || len(*requests) != before+1 {
+		t.Errorf("a Server that is not a member: err = %v, requests %d, want refused after the read", err, len(*requests)-before)
+	}
+}
+
 // Adding nodes puts them in the group and the members with role compute; a control-plane group and a
 // Server already a member are refused before anything is written. The API's warnings go to stderr.
 func TestNodesAddJoinsAComputeGroupAndPrintsWarnings(t *testing.T) {

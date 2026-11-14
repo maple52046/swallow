@@ -70,7 +70,9 @@ func platformsNodesCmd() *cobra.Command {
 			"and otherwise the removal stops with the node drained, so retrying waits again. The cluster is\n" +
 			"reconfigured without the nodes, Swallow's Slurm configuration and the shared filesystem mount\n" +
 			"are removed from them, and with --release the Servers are released to their provisioner.\n" +
-			"Removing the last compute node, a controller, or a login node is refused.",
+			"Removing the last compute node, a controller, or a login node is refused. Removing a node\n" +
+			"whose removal has not finished (a drain that timed out) writes its removal again with these\n" +
+			"flags, for example --force, and answers with a new Change Plan that removes it with them.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			servers, _ := cmd.Flags().GetStringSlice("server")
@@ -82,8 +84,8 @@ func platformsNodesCmd() *cobra.Command {
 				return fmt.Errorf("--drain-timeout must be whole seconds from 0 to 24h; 0 uses the API's default of 10 minutes")
 			}
 			removal := memberRemoval(cmd, int(timeout/time.Second))
-			return updatePlatformSpec(cmd, args[0], func(spec platformSpec) error {
-				return spec.removeNodes(servers, removal)
+			return updatePlatform(cmd, args[0], func(platform platformRead, spec platformSpec) error {
+				return spec.removeNodes(servers, removal, platform.leaving())
 			})
 		},
 	}
@@ -540,10 +542,14 @@ func (s platformSpec) setNodeNetworks(networks map[string]map[string]any) error 
 	return nil
 }
 
-func (s platformSpec) removeNodes(servers []string, removal map[string]any) error {
+// removeNodes drops servers from the members and their node groups and writes each one's removal.
+// A server in leaving is already out of the spec but not yet removed, so only its removal is
+// written again.
+func (s platformSpec) removeNodes(servers []string, removal map[string]any, leaving []string) error {
 	members := s.members()
 	for _, id := range servers {
-		if !slices.ContainsFunc(members, func(member any) bool { object, _ := member.(map[string]any); return object["serverId"] == id }) {
+		if !slices.ContainsFunc(members, func(member any) bool { object, _ := member.(map[string]any); return object["serverId"] == id }) &&
+			!slices.Contains(leaving, id) {
 			return fmt.Errorf("server %s is not a member of the platform", id)
 		}
 	}
@@ -677,6 +683,31 @@ func (s platformSpec) removePartition(name string) error {
 type platformRead struct {
 	Generation int64          `json:"generation"`
 	Spec       map[string]any `json:"spec"`
+	Status     struct {
+		Applied *struct {
+			Members []struct {
+				ServerID string `json:"serverId"`
+			} `json:"members"`
+		} `json:"applied"`
+	} `json:"status"`
+}
+
+// leaving lists the applied members the spec no longer has: their removal has not finished.
+func (p platformRead) leaving() []string {
+	if p.Status.Applied == nil {
+		return nil
+	}
+	members, _ := p.Spec["members"].([]any)
+	var ids []string
+	for _, applied := range p.Status.Applied.Members {
+		if !slices.ContainsFunc(members, func(member any) bool {
+			object, _ := member.(map[string]any)
+			return object["serverId"] == applied.ServerID
+		}) {
+			ids = append(ids, applied.ServerID)
+		}
+	}
+	return ids
 }
 
 // readPlatform reads a Platform's generation and spec; a Platform not yet adopted has no spec and is
@@ -709,6 +740,11 @@ func readPlatformSpec(cmd *cobra.Command, platformID string) (platformSpec, erro
 // exactly as read, with any templates the Platform generates). An error from change refuses the
 // write before anything is sent; a spec changed in between is the API's `conflict`.
 func updatePlatformSpec(cmd *cobra.Command, platformID string, change func(spec platformSpec) error) error {
+	return updatePlatform(cmd, platformID, func(_ platformRead, spec platformSpec) error { return change(spec) })
+}
+
+// updatePlatform is updatePlatformSpec for a change that also needs the Platform as read.
+func updatePlatform(cmd *cobra.Command, platformID string, change func(platform platformRead, spec platformSpec) error) error {
 	platform, err := readPlatform(cmd, platformID)
 	if err != nil {
 		return err
@@ -721,7 +757,7 @@ func updatePlatformSpec(cmd *cobra.Command, platformID string, change func(spec 
 	// the groups and the partition the API would derive, never with only one of them.
 	spec.groups()
 	spec.partitions()
-	if err := change(spec); err != nil {
+	if err := change(platform, spec); err != nil {
 		return err
 	}
 	written := map[string]any{"members": spec["members"], "settings": spec["settings"]}
