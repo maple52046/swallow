@@ -32,6 +32,9 @@ func newPlatformsCommand() *cobra.Command {
 		platformsSlurmRequirementsCmd(),
 		platformsGPUOperatorCmd(),
 		platformsHardwareCountersCmd(),
+		platformsNodesCmd(),
+		platformsGroupsCmd(),
+		platformsPartitionsCmd(),
 		platformsKubernetesCmd(),
 	)
 	return cmd

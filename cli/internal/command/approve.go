@@ -21,8 +21,9 @@ func addApproveFlag(cmd *cobra.Command) {
 		"approve the Change Plan this change proposes, so it starts at once unless the Change Plan policy requires a separate approval")
 }
 
-// specWritePlan is the part of a spec write's response (platforms.md "Spec And Status") that says
-// what happens next: the proposed Change Plan, or null for a change converged without one.
+// specWritePlan is the part of a spec write's response (platforms.md "Spec And Status", "Change A
+// Platform") that says what happens next: the proposed Change Plan, or null for a change converged
+// without one, and the warnings the API found about the spec without refusing it.
 type specWritePlan struct {
 	Plan *struct {
 		ID          string   `json:"id"`
@@ -30,6 +31,7 @@ type specWritePlan struct {
 		StateReason string   `json:"stateReason"`
 		Blockers    []string `json:"blockers"`
 	} `json:"plan"`
+	Warnings []string `json:"warnings"`
 }
 
 // sendSpecWrite sends a Platform spec write — with approve=true when --approve is given — prints
@@ -63,10 +65,15 @@ func sendSpecWrite(cmd *cobra.Command, method, path string, q url.Values, body a
 	if err := printResult(out); err != nil {
 		return err
 	}
-	// The note is a convenience; a response without the plan's fields still printed in full above.
+	// The notes are a convenience; a response without these fields still printed in full above.
 	var written specWritePlan
-	if err := json.Unmarshal(raw, &written); err == nil && written.Plan != nil {
-		writePlanNote(cmd.ErrOrStderr(), written.Plan.ID, written.Plan.State, written.Plan.StateReason, len(written.Plan.Blockers) > 0)
+	if err := json.Unmarshal(raw, &written); err == nil {
+		for _, warning := range written.Warnings {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s\n", warning)
+		}
+		if written.Plan != nil {
+			writePlanNote(cmd.ErrOrStderr(), written.Plan.ID, written.Plan.State, written.Plan.StateReason, len(written.Plan.Blockers) > 0)
+		}
 	}
 	return nil
 }

@@ -510,10 +510,12 @@ swallow provisioning templates list --site-id site1
 swallow provisioning templates get tmpl1
 swallow provisioning templates create -f template.yaml
 swallow provisioning templates update tmpl1 -f patch.yaml
-swallow provisioning templates delete tmpl1
+swallow provisioning templates delete tmpl1                    # 還有平台的節點群組在用時會被拒絕
 swallow provisioning templates user-data set tmpl1 --from ./cloud-init.yaml   # raw file -> { userData }
 swallow provisioning templates user-data set tmpl1 -f userdata.json           # JSON body { userData }
 swallow provisioning templates user-data clear tmpl1
+swallow provisioning templates minimum-hardware set tmpl1 --cpu-cores 32 --gpu-model MI300X --gpu-count 8
+swallow provisioning templates minimum-hardware clear tmpl1
 
 # Boot ISO：從站點網路的 DHCP 取得位址後，chain 到 provisioner 的 MAAS rack
 # （BIOS 以 iPXE 到 ipxe.cfg、UEFI 以 GRUB 到 grub/grub.cfg-<mac>，預設 port 5248）的 ISO；建置只需數秒。
@@ -666,7 +668,26 @@ swallow platforms gpu-operator set plat1 -f gpu-operator.yaml --approve  # 安�
 swallow platforms gpu-operator uninstall plat1 --approve                 # 移除 operator，平台照常運作
 swallow platforms hardware-counters enable plat1      # 開啟 Omnistat 的 GPU hardware counters（目前收集 VALUBusy）
 swallow platforms hardware-counters disable plat1     # 每台 compute node 改跑不含 counters 的 Omnistat
+# Slurm compute 擴縮：節點群組從 Deployment Template 裝機，partition 在群組上排程
+swallow platforms groups list plat1
+swallow platforms groups add plat1 --name mi300x --template tmpl1 --expected-gpus 8 --partition main
+swallow platforms groups set plat1 mi300x --clear-template          # 新節點改用平台預設的 template
+swallow platforms nodes add plat1 --group mi300x --server srv5 --server srv6
+swallow platforms nodes remove plat1 --server srv6 --drain-timeout 30m --force --release --approve
+swallow platforms nodes rescan plat1 srv5                           # 掉卡後重新偵測節點的 GPU
+swallow platforms partitions list plat1                             # spec 的 partition（即時狀態：`platforms slurm`）
+swallow platforms partitions add plat1 --name long --group mi300x --max-time 7-00:00:00
+swallow platforms partitions set plat1 long --default
+swallow platforms partitions remove plat1 main --approve            # 還有工作時會被擋下
 ```
+
+Slurm 平台以節點群組擴縮（decision 083）。每個成員屬於一個角色的群組；只有 `compute` 群組能增減，增減 controller
+或 login node 會被拒絕。`nodes add` 讓每台新 Server 從群組的 Deployment Template 裝機（已部署的 Server 保留它的 OS），
+只驗證新節點，其他節點的工作照常；低於 template 最低硬體的 Server 會被拒絕並說明差多少。`nodes remove` 回傳 Change
+Plan：節點先 drain，最多等 `--drain-timeout` 讓工作結束（加上 `--force` 時逾時就取消工作，否則移除停在節點已 drain
+的狀態），叢集重新設定為不含它們，再清理節點，加上 `--release` 時釋放 Server。partition 是建在 compute 群組上的排程
+佇列，剛好一個是預設；修改它們會原地重新設定 Slurm。這些指令讀出平台、修改 spec，再以讀到的 generation 寫回；API
+回的 warning（例如 GPU 少於群組預期的節點，會被排到最後而不是被拒絕）印在 stderr。
 
 平台以 spec 描述：成員與它們的角色、該類型的設定，以及成員如何取得作業系統。建立平台與破壞性變更（調整或移除
 GPU Operator、刪除平台）會回傳 Change Plan。加上 `--approve` 時 plan 隨寫入核准、變更立即開始，除非 Change Plan
@@ -810,7 +831,7 @@ spec:
     omnistat:
       enabled: true
       installMethod: container   # 或 native
-      hardwareCounters: true     # 做得到的 compute node 收集 VALUBusy；省略即 false
+      hardwareCounters: true     # 這裡選擇開啟：做得到的 compute node 收集 VALUBusy；省略即 false
     gpuDriver:                   # 選用；topology 規則已會在需要時套用 pcie_p2p=0
       moduleOptions: {}
     slurm:

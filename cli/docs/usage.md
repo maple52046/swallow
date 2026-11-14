@@ -534,7 +534,9 @@ swallow provisioning templates list --site-id site1
 swallow provisioning templates get tmpl1
 swallow provisioning templates create -f template.yaml
 swallow provisioning templates update tmpl1 -f patch.yaml
-swallow provisioning templates delete tmpl1
+swallow provisioning templates delete tmpl1                    # refused while a platform node group uses it
+swallow provisioning templates minimum-hardware set tmpl1 --cpu-cores 32 --gpu-model MI300X --gpu-count 8
+swallow provisioning templates minimum-hardware clear tmpl1
 swallow provisioning templates user-data set tmpl1 --from ./cloud-init.yaml   # raw file -> { userData }
 swallow provisioning templates user-data set tmpl1 -f userdata.json           # JSON body { userData }
 swallow provisioning templates user-data clear tmpl1
@@ -695,7 +697,31 @@ swallow platforms gpu-operator set plat1 -f gpu-operator.yaml --approve  # insta
 swallow platforms gpu-operator uninstall plat1 --approve                 # remove it; the platform keeps running
 swallow platforms hardware-counters enable plat1      # turn on Omnistat's GPU hardware counters (today VALUBusy)
 swallow platforms hardware-counters disable plat1     # every compute node runs Omnistat without the counters
+# Slurm compute scaling: node groups install from a Deployment Template, partitions schedule over groups
+swallow platforms groups list plat1
+swallow platforms groups add plat1 --name mi300x --template tmpl1 --expected-gpus 8 --partition main
+swallow platforms groups set plat1 mi300x --clear-template          # new nodes use the platform's default
+swallow platforms nodes add plat1 --group mi300x --server srv5 --server srv6
+swallow platforms nodes remove plat1 --server srv6 --drain-timeout 30m --force --release --approve
+swallow platforms nodes rescan plat1 srv5                           # re-detect a node's GPUs after a failure
+swallow platforms partitions list plat1                             # the spec's partitions (live: `platforms slurm`)
+swallow platforms partitions add plat1 --name long --group mi300x --max-time 7-00:00:00
+swallow platforms partitions set plat1 long --default
+swallow platforms partitions remove plat1 main --approve            # refused while it still has jobs
 ```
+
+A Slurm platform grows and shrinks by node group (decision 083). Every member is in a group of one
+role; only `compute` groups grow or shrink, and adding or removing a controller or login node is
+refused. `nodes add` installs each new Server from its group's Deployment Template (a Server already
+deployed keeps its OS) and validates only the new nodes, while the others keep running their jobs; a
+Server below the template's minimum hardware is refused, naming what it lacks. `nodes remove` answers
+with a Change Plan: the nodes are drained, their jobs waited for up to `--drain-timeout` (cancelled at
+the timeout with `--force`, otherwise the removal stops with the node drained), the cluster is
+reconfigured without them, and they are cleaned up and, with `--release`, released. Partitions are
+scheduling queues over compute groups, with exactly one default; changing them reconfigures Slurm in
+place. These commands read the platform, change its spec, and write it back at the generation they
+read; a warning the API answers (for example a node with fewer GPUs than its group expects, which is
+scheduled last instead of refused) is printed on stderr.
 
 A platform is written as a spec: its members with their roles, the type's settings, and how members
 get an operating system. Creating a platform and destructive changes (changing or removing the GPU
@@ -861,7 +887,7 @@ spec:
     omnistat:
       enabled: true
       installMethod: container   # or native
-      hardwareCounters: true     # VALUBusy on each compute node that can; omitted is false
+      hardwareCounters: true     # opted in here: VALUBusy on each compute node that can; omitted is false
     gpuDriver:                   # optional; topology rules already apply pcie_p2p=0 where needed
       moduleOptions: {}
     slurm:

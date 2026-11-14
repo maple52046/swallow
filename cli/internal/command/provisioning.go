@@ -263,7 +263,7 @@ func provisioningTemplatesCmd() *cobra.Command {
 			return sendJSON(cmd, "POST", "provisioning/templates", nil, body)
 		},
 	}
-	addFileFlag(create, "template definition (integrationId, name, imageId, network, ...)")
+	addFileFlag(create, "template definition (integrationId, name, imageId, deployTarget, network, minimumHardware, userData)")
 	cmd.AddCommand(create)
 
 	update := &cobra.Command{
@@ -278,19 +278,75 @@ func provisioningTemplatesCmd() *cobra.Command {
 			return sendJSON(cmd, "PATCH", "provisioning/templates/"+args[0], nil, body)
 		},
 	}
-	addFileFlag(update, "changed template fields")
+	addFileFlag(update, "changed template fields (name, description, imageId, deployTarget, network, minimumHardware)")
 	cmd.AddCommand(update)
 
 	cmd.AddCommand(&cobra.Command{
 		Use:   "delete <templateId>",
-		Short: "Delete a template",
+		Short: "Delete a template (refused while a Platform node group installs from it)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return sendNoContent(cmd, "DELETE", "provisioning/templates/"+args[0], nil, nil)
 		},
 	})
 
-	cmd.AddCommand(provisioningTemplateUserDataCmd())
+	cmd.AddCommand(provisioningTemplateUserDataCmd(), provisioningTemplateMinimumHardwareCmd())
+	return cmd
+}
+
+// provisioningTemplateMinimumHardwareCmd sets or clears a template's optional hardware floor
+// (provisioning.md "Deployment Templates"; decision 083): what a Server must have to join a Platform
+// node group installed from the template. Both send a PATCH with minimumHardware only; the floor is
+// replaced as a whole, so a dimension without a flag sets no floor, and clearing sends every
+// dimension null.
+func provisioningTemplateMinimumHardwareCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "minimum-hardware",
+		Short: "Set or clear the hardware a Server needs to join a node group installed from a template",
+		Long: "Set or clear a template's minimum hardware. A Platform spec write that adds a Server to a\n" +
+			"node group installed from the template is refused when the Server has less than any value set,\n" +
+			"or when its inventory does not report one. Deploying single Servers does not read it.",
+	}
+	set := &cobra.Command{
+		Use:   "set <templateId>",
+		Short: "Replace the floor with the dimensions given; the others set no floor",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			minimum := map[string]any{"cpuCores": nil, "memoryMiB": nil, "storageGB": nil, "gpuModel": nil, "gpuCount": nil}
+			for flag, key := range map[string]string{"cpu-cores": "cpuCores", "memory-mib": "memoryMiB", "storage-gb": "storageGB", "gpu-count": "gpuCount"} {
+				if !cmd.Flags().Changed(flag) {
+					continue
+				}
+				value, _ := cmd.Flags().GetInt(flag)
+				if value <= 0 {
+					return fmt.Errorf("--%s must be greater than 0", flag)
+				}
+				minimum[key] = value
+			}
+			if cmd.Flags().Changed("gpu-model") {
+				model, _ := cmd.Flags().GetString("gpu-model")
+				if model != "" {
+					minimum["gpuModel"] = model
+				}
+			}
+			return sendJSON(cmd, "PATCH", "provisioning/templates/"+args[0], nil, map[string]any{"minimumHardware": minimum})
+		},
+	}
+	set.Flags().Int("cpu-cores", 0, "minimum CPU cores")
+	set.Flags().Int("memory-mib", 0, "minimum memory in MiB")
+	set.Flags().Int("storage-gb", 0, "minimum storage in GB")
+	set.Flags().String("gpu-model", "", "GPU model, matched within the compute GPU model name (for example MI300X)")
+	set.Flags().Int("gpu-count", 0, "minimum compute GPUs")
+	clearFloor := &cobra.Command{
+		Use:   "clear <templateId>",
+		Short: "Remove the floor",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			minimum := map[string]any{"cpuCores": nil, "memoryMiB": nil, "storageGB": nil, "gpuModel": nil, "gpuCount": nil}
+			return sendJSON(cmd, "PATCH", "provisioning/templates/"+args[0], nil, map[string]any{"minimumHardware": minimum})
+		},
+	}
+	cmd.AddCommand(set, clearFloor)
 	return cmd
 }
 
