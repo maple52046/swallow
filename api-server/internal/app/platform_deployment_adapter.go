@@ -350,14 +350,6 @@ func (l platformDeploymentLauncher) prepareSlurm(ctx context.Context, launch pla
 	if len(composed.steps) > 0 {
 		last = composed.steps[len(composed.steps)-1].ID
 	}
-	probe, err := l.prepareGPUProbeImage(ctx, launch, operationID, provisionFirst, last)
-	if err != nil {
-		return nil, err
-	}
-	if probe != nil {
-		composed.steps = append(composed.steps, *probe)
-		last = probe.ID
-	}
 	// The gate validates only the members this deployment adds, so work running on the others is
 	// not disturbed; a redeploy that adds none (a partition change) has no gate.
 	var gate *composedGate

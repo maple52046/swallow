@@ -9,8 +9,7 @@
     "configure-omnistat",
     "validate-slurm-acceptance",
     "drain-slurm-nodes",
-    "uninstall-slurm-node",
-    "prepare-gpu-probe"
+    "uninstall-slurm-node"
   ],
   "workflowKinds": [
     "configure-slurm",
@@ -128,9 +127,6 @@
       "werkzeug==3.1.9",
       "wheel==0.48.0",
       "zipp==4.1.1"
-    ],
-    "images": [
-      "ghcr.io/maple52046/swallow-gpu-probe:1.0.0-rocm7.2.4"
     ]
   },
   "templates": {
@@ -153,7 +149,7 @@
             "playbook": "validate-slurm-acceptance"
           },
           "targets": "access",
-          "timeoutSeconds": 1500
+          "timeoutSeconds": 3300
         }
       ]
     },
@@ -223,11 +219,11 @@
     {
       "id": "slurm-acceptance",
       "title": "Slurm acceptance",
-      "description": "Checks that a step runs on every node, that jobs share a node, that containers run and see only their GPUs, that MPI launches through PMIx, and that Slurm hands out working GPUs to containers. It reads the nodes and features from the cluster and runs short jobs, so it competes with the cluster's workload. Every Slurm deployment runs it as its gate on the nodes the deployment adds; there, GPU nodes that fail are drained.",
+      "description": "Checks that a step runs on every node, that jobs share a node, that containers run and see only their GPUs, that MPI launches through PMIx, that Slurm hands out exactly the GPUs a job asks for, and that a HIP kernel runs on them in a container. It reads the nodes and features from the cluster and runs short jobs, so it competes with the cluster's workload. Every Slurm deployment runs it as its gate on the nodes the deployment adds; there, GPU nodes that fail are drained.",
       "target": "platform",
       "platformType": "slurm",
       "impact": "workload",
-      "budgetSeconds": 1800,
+      "budgetSeconds": 3600,
       "template": "slurm-acceptance",
       "parameters": {
         "type": "object",
@@ -252,12 +248,12 @@
           "containerImage": {
             "type": "string",
             "title": "Container image",
-            "description": "Image the container GPU checks run, already on the GPU nodes. Default: none, which skips the container GPU checks."
+            "description": "ROCm image the container GPU check builds and runs its HIP probe in; each GPU node pulls it from its registry when missing. Default: none, which skips the check."
           },
           "containerRuntime": {
             "type": "string",
             "title": "Container runtime",
-            "description": "docker-ce or podman: what the container GPU checks run the image with. Default: none, which skips them.",
+            "description": "docker-ce or podman: what the container GPU check runs the image with. Default: none, which skips it.",
             "enum": [
               "docker-ce",
               "podman"
@@ -281,7 +277,7 @@
         {
           "id": "oci-container",
           "title": "Native OCI containers",
-          "description": "A native OCI container step runs rootless and sees exactly one GPU when it asks for one; a one-GPU container of the GPU probe image sees exactly its GPU on every GPU node.",
+          "description": "A native OCI container step runs rootless and sees exactly one GPU when it asks for one.",
           "gating": true
         },
         {
@@ -293,7 +289,13 @@
         {
           "id": "gpu-gres",
           "title": "GPU GRES",
-          "description": "Every GPU node offers GPU GRES, and jobs get exactly the GPUs they ask for: none without a request, one with one, and every GPU for the whole node, each checked by the GPU probe image in a container (the host HIP probe only records).",
+          "description": "Every GPU node offers GPU GRES, and jobs get exactly the GPUs they ask for: none without a request, one with one, and every GPU for the whole node (the host HIP probe only records).",
+          "gating": true
+        },
+        {
+          "id": "gpu-container",
+          "title": "GPUs in a container",
+          "description": "On every GPU node, a HIP probe built with hipcc inside AMD's ROCm image runs a kernel on exactly the GPUs a job is given, in the Platform's container runtime. Skipped, with the reason, when the node cannot pull the image or the Platform has no container runtime; a probe that fails to build or run fails.",
           "gating": true
         }
       ]
@@ -329,11 +331,6 @@
       "failureClass": "permanent",
       "remediation": "AMD SMI lists fewer GPUs than KFD, or reports uncorrectable ECC errors. Check the GPUs (amd-smi list, amd-smi metric --ecc) and the driver; replace or reset the faulty GPU, then retry.",
       "retryable": false
-    },
-    "gpu_probe_image_unavailable": {
-      "failureClass": "transient",
-      "remediation": "The GPU probe image could not be pulled. Check the Site's Local Repository (or the node's access to ghcr.io) and retry.",
-      "retryable": true
     }
   }
 }

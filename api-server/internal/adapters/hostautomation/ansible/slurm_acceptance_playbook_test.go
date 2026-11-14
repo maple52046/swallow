@@ -1,6 +1,7 @@
 package ansible
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -10,9 +11,10 @@ import (
 )
 
 // fakeSlurm answers slurm_acceptance.py as a cluster of a CPU node n1 and a node n2 with two GPUs,
-// with native OCI containers and MPI on, every probe installed, and the GPU probe image on n2. A job
+// with native OCI containers and MPI on, every probe installed, and a container runtime on n2. A job
 // opens as many GPU devices as it asked for; FAKE_GPU_FAIL makes a one-GPU job open both (its device
-// isolation is broken); FAKE_PROBE_FAIL makes the GPU probe image fail in its container;
+// isolation is broken); FAKE_PULL_FAIL makes n2 unable to pull the ROCm image, FAKE_BUILD_FAIL makes
+// the HIP probe fail to build in it, and FAKE_PROBE_FAIL makes its kernel fail in the container;
 // FAKE_NO_FEATURES turns OCI and MPI off; FAKE_EXCLUSIVE makes the partition hand out whole nodes (as
 // Omnistat does). Drains go to state.json.
 const fakeSlurm = `#!/usr/bin/env python3
@@ -39,8 +41,20 @@ def srun(args):
     if command[:2] == ["sh", "-c"]:
         for node in nodes:
             hip = "1" if node == "n2" else "0"
-            image = "1" if node == "n2" and "image inspect" in command[2] else "0"
-            print(f"{node} oci={features} bundle={features} mpi={features} hip={hip} image={image}")
+            runtime = "1" if node == "n2" and "command -v" in command[2] else "0"
+            print(f"{node} oci={features} bundle={features} mpi={features} hip={hip} runtime={runtime}")
+        return 0
+    if command[:2] == ["/bin/sh", "-c"] and "PULL_FAILED" in command[2]:
+        save("prepared", command[2])
+        if os.environ.get("FAKE_PULL_FAIL"):
+            print("PULL_FAILED\nError response from daemon: Get https://registry-1.docker.io/v2/: dial tcp: i/o timeout")
+        elif os.environ.get("FAKE_BUILD_FAIL"):
+            print("BUILD_FAILED\nclang: error: unsupported option")
+        else:
+            print("READY")
+        return 0
+    if command[:2] == ["/bin/sh", "-c"] and command[2].startswith("rm -rf "):
+        save("cleaned", command[2])
         return 0
     if command[:2] == ["/bin/sh", "-c"] and "renderD" in command[2]:
         gres = opts.get("--gres", "")
@@ -201,14 +215,41 @@ func TestSlurmAcceptanceJudgesTheCluster(t *testing.T) {
 		t.Errorf("whole-node partition: shared-node = %q, want skipped", exclusive["shared-node@p-1"])
 	}
 
-	// With the GPU probe image, the GPUs a job opens run the image's HIP probe in a container.
-	contained := runSlurmAcceptance(t, bin, nil, "--container-image=probe:1", "--container-runtime=docker-ce")
-	if verdictOf(contained, "gpu-gres@s-2") != "passed" || !strings.Contains(contained["gpu-gres@s-2"], "in a container") {
-		t.Errorf("container GPU checks: gpu-gres@s-2 = %q, want passed in a container", contained["gpu-gres@s-2"])
+	// Without a container runtime the container GPU check is skipped.
+	if plain := runSlurmAcceptance(t, bin, nil); verdictOf(plain, "gpu-container@p-1") != "skipped" {
+		t.Errorf("no container runtime: gpu-container = %q, want skipped", plain["gpu-container@p-1"])
 	}
-	probeFails := runSlurmAcceptance(t, bin, []string{"FAKE_PROBE_FAIL=1"}, "--container-image=probe:1", "--container-runtime=podman")
-	if verdictOf(probeFails, "gpu-gres@s-2") != "failed" {
-		t.Errorf("a failing GPU probe image: gpu-gres@s-2 = %q, want failed", probeFails["gpu-gres@s-2"])
+	// With one, n2 builds the HIP probe in the ROCm image for the three gfx targets and runs it on the
+	// GPUs each job opens.
+	source := "--gpu-probe-source=" + base64.StdEncoding.EncodeToString([]byte("int main() { return 0; }"))
+	image := "--container-image=docker.io/rocm/dev-ubuntu-24.04:7.2.4"
+	contained := runSlurmAcceptance(t, bin, nil, image, "--container-runtime=docker-ce", source)
+	if verdictOf(contained, "gpu-container@s-2") != "passed" || verdictOf(contained, "gpu-gres@s-2") != "passed" {
+		t.Errorf("container GPU check: gpu-container@s-2 = %q, gpu-gres@s-2 = %q; want both passed", contained["gpu-container@s-2"], contained["gpu-gres@s-2"])
+	}
+	prepared, _ := os.ReadFile(filepath.Join(bin, "state.json"))
+	for _, want := range []string{"--offload-arch=gfx90a --offload-arch=gfx942 --offload-arch=gfx950", "docker pull docker.io/rocm/dev-ubuntu-24.04:7.2.4", "base64 -d"} {
+		if !strings.Contains(string(prepared), want) {
+			t.Errorf("the container preparation does not contain %q", want)
+		}
+	}
+	if !strings.Contains(string(prepared), "rm -rf /var/tmp/swallow-gpu-probe-") {
+		t.Error("the container GPU check leaves its probe directory on the node")
+	}
+	// A node that cannot pull the image skips the check with a warning, and its GPU GRES still gate it.
+	unreachable := runSlurmAcceptance(t, bin, []string{"FAKE_PULL_FAIL=1"}, image, "--container-runtime=docker-ce", source, "--drain")
+	if verdictOf(unreachable, "gpu-container@s-2") != "skipped" || !strings.Contains(unreachable["gpu-container@s-2"], "warning: the node could not pull") ||
+		strings.Contains(unreachable["gpu-container@s-2"], "drained") || verdictOf(unreachable, "gpu-gres@s-2") != "passed" {
+		t.Errorf("image not reachable: gpu-container@s-2 = %q, gpu-gres@s-2 = %q", unreachable["gpu-container@s-2"], unreachable["gpu-gres@s-2"])
+	}
+	// A probe that does not build, or whose kernel fails, fails the node.
+	if built := runSlurmAcceptance(t, bin, []string{"FAKE_BUILD_FAIL=1"}, image, "--container-runtime=podman", source); verdictOf(built, "gpu-container@s-2") != "failed" ||
+		!strings.Contains(built["gpu-container@s-2"], "did not build") {
+		t.Errorf("a probe that does not build: gpu-container@s-2 = %q, want failed", built["gpu-container@s-2"])
+	}
+	probeFails := runSlurmAcceptance(t, bin, []string{"FAKE_PROBE_FAIL=1"}, image, "--container-runtime=podman", source)
+	if verdictOf(probeFails, "gpu-container@s-2") != "failed" {
+		t.Errorf("a failing kernel: gpu-container@s-2 = %q, want failed", probeFails["gpu-container@s-2"])
 	}
 
 	// --nodes limits the node checks to the Servers a deployment adds: n2 alone is checked.

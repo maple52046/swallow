@@ -109,7 +109,7 @@ func TestImageRemotesFollowTheSourceUpstream(t *testing.T) {
 		return map[string]any{"name": name, "url": upstream, "total_timeout": 21600.0, "sock_read_timeout": 300.0}
 	}
 	f.seed(pullThroughRemotes, remote("ghcr.io", "https://ghcr.io"))
-	imageRemote := f.seed(containerRemotes, remote("ghcr.io/maple52046/swallow-gpu-probe", "https://ghcr.io"))
+	imageRemote := f.seed(containerRemotes, remote("ghcr.io/example/workload", "https://ghcr.io"))
 	otherRegistry := f.seed(containerRemotes, remote("quay.io/k0sproject/pause", "https://quay.io"))
 	repo := f.newRepository(t)
 	source := localrepodomain.Source{Name: "ghcr.io", Format: localrepodomain.FormatOCI, URL: "http://10.0.0.5:15000"}

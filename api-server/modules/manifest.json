@@ -42,11 +42,6 @@
       "path": "platform/slurm/playbooks/uninstall-slurm-node.yml"
     },
     {
-      "name": "prepare-gpu-probe",
-      "path": "platform/slurm/playbooks/prepare-gpu-probe.yml",
-      "fetchesArtifacts": true
-    },
-    {
       "name": "deploy-node-exporter",
       "path": "software/node-exporter/playbooks/deploy-node-exporter.yml",
       "fetchesArtifacts": true

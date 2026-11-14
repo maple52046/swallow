@@ -28,13 +28,6 @@ const (
 	jobFinalizeScaleIn                                  = "finalize-scale-in"
 	// The scale-in's trusted variables: the leaving nodes with their drain choices.
 	varScaleInNodes = "swallow_slurm_scale_in_nodes"
-	// gpuProbeJob and gpuProbeStepID pull the GPU probe image onto the GPU nodes a deployment
-	// validates, before its gate runs the container GPU checks.
-	gpuProbeJob        = "prepare-gpu-probe"
-	gpuProbeStepID     = "prepare-gpu-probe"
-	gpuProbePlaybook   = "prepare-gpu-probe"
-	varGPUProbeImage   = "swallow_slurm_gpu_probe_image"
-	varGPUProbeRuntime = "swallow_slurm_gpu_probe_runtime"
 )
 
 // prepareSlurmScaleIn plans the removal of launch.ScaleIn's members from a Slurm Platform: the scale-in
@@ -166,47 +159,4 @@ func (l platformDeploymentLauncher) prepareSlurmScaleIn(ctx context.Context, lau
 		RequestedBy: launch.RequestedBy, RequestCorrelation: launch.RequestCorrelation,
 		StepSecretValues: map[string]map[string]any{},
 	}}, nil
-}
-
-// prepareGPUProbeImage plans the Task that pulls the GPU probe image onto the GPU compute nodes the
-// deployment validates and that get a container runtime, so the gate's container GPU checks run
-// with the image on the node (decision 083). It returns nil when no such node exists.
-func (l platformDeploymentLauncher) prepareGPUProbeImage(ctx context.Context, launch platformdomain.DeploymentLaunch,
-	operationID string, provisionFirst bool, after string,
-) (*workflowdomain.Task, error) {
-	if launch.ContainerRuntime == nil {
-		return nil, nil
-	}
-	gpus := decodeStringSlice(launch.TrustedVars["swallow_slurm_gpu_compute_ids"])
-	var targets []string
-	for _, id := range gpus {
-		if !slices.Contains(launch.ContainerRuntime.ServerIDs, id) {
-			continue
-		}
-		if launch.ChangedServerIDs != nil && !slices.Contains(launch.ChangedServerIDs, id) {
-			continue
-		}
-		targets = append(targets, id)
-	}
-	if len(targets) == 0 {
-		return nil, nil
-	}
-	prepared, err := l.operations.PrepareAnsibleStep(ctx, workflowapp.CreateExecutionInput{
-		Kind: configureSlurmKind, PlaybookName: gpuProbePlaybook,
-		Intent:          "Prepare the GPU probe on " + launch.Platform.Name,
-		TargetServerIDs: targets, PlatformID: launch.Platform.ID,
-		TrustedVars: map[string]any{
-			varGPUProbeImage: slurm.GPUProbeImage, varGPUProbeRuntime: string(launch.ContainerRuntime.Kind),
-		},
-		RequestedBy: launch.RequestedBy,
-	}, operationID, provisionFirst)
-	if err != nil {
-		return nil, err
-	}
-	return &workflowdomain.Task{
-		ID: gpuProbeStepID, Kind: "ansible-playbook", Name: "Pull the GPU probe image",
-		Job: gpuProbeJob, Executor: workflowdomain.RunnerKindHostAutomation, DependsOn: []string{after},
-		Targets:    prepared.Targets,
-		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
-	}, nil
 }

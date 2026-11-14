@@ -12,8 +12,8 @@ slurm_acceptance_gpu_servers: []
 # Drain the GPU nodes that fail; only a gate (a deployment) does.
 slurm_acceptance_drain: false
 # The Servers the node checks run on (a deployment's gate names the nodes it adds; empty is every
-# node), and the GPU probe image with the container runtime the GPU checks run it with (empty skips
-# the container part; the job still counts the GPUs it can open).
+# node), and the ROCm image with the container runtime gpu-container builds and runs the HIP probe in
+# (empty skips that check; gpu-gres still counts the GPUs a job can open).
 slurm_acceptance_nodes: "{{ (swallow_validation_parameters | default({})).nodes | default([]) }}"
 slurm_acceptance_container_image: "{{ (swallow_validation_parameters | default({})).containerImage | default('') }}"
 slurm_acceptance_container_runtime: "{{ (swallow_validation_parameters | default({})).containerRuntime | default('') }}"

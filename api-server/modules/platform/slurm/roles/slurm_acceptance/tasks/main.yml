@@ -17,6 +17,7 @@
       --nodes={{ slurm_acceptance_nodes | to_json | quote }}
       --container-image={{ slurm_acceptance_container_image | quote }}
       --container-runtime={{ slurm_acceptance_container_runtime | quote }}
+      --gpu-probe-source={{ lookup('ansible.builtin.file', 'gpu_probe.hip') | b64encode | quote }}
     executable: python3
   become: true
   register: slurm_acceptance_run

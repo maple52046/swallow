@@ -133,9 +133,9 @@ func slurmGateRequest(launch platformdomain.DeploymentLaunch, siteID string) gat
 	if len(gpus) > 0 {
 		parameters["gpuServers"] = gpus
 		if runtime := launch.ContainerRuntime; runtime != nil && runtime.Kind != "" {
-			// The GPU checks run the GPU probe image, which the deployment pulled onto these nodes
-			// (prepareGPUProbeImage), in the Platform's container runtime (decision 083).
-			parameters["containerImage"], parameters["containerRuntime"] = slurm.GPUProbeImage, string(runtime.Kind)
+			// The container GPU check runs AMD's ROCm image in the Platform's container runtime; each
+			// GPU node pulls it straight from its registry (decision 083).
+			parameters["containerImage"], parameters["containerRuntime"] = slurm.GPUTestImage, string(runtime.Kind)
 		}
 	}
 	return gateRequest{suiteID: slurmAcceptanceSuite, siteID: siteID, access: []string{primary}, members: members, parameters: parameters}

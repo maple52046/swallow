@@ -4,7 +4,7 @@
 Run as root on a host that reaches the controller (a login node or a controller). Everything it
 needs it reads from the cluster: the nodes with their CPUs and GRES, whether the default partition
 hands out whole nodes, and, from one job on every node, which of swallow's features each node has
-(oci.conf, the OCI probe bundle, the MPI probe, the GPU probe image). Then it runs jobs, each with a
+(oci.conf, the OCI probe bundle, the MPI probe, the container runtime). Then it runs jobs, each with a
 time limit, under one job name:
 
   srun-all-nodes  one task on every node checked at once (it reports, a deployment does not gate on it)
@@ -16,10 +16,13 @@ time limit, under one job name:
                   each of two nodes, one in a container on each node; a failing rank fails the step
   gpu-gres        every GPU node offers GPU GRES, and a job gets exactly the GPUs it asks for: none
                   without a request, one with one, every GPU for the whole node. Each job counts the
-                  GPU devices it can open, which needs only the amdgpu driver, and, when the run
-                  names a container image and runtime, runs the GPU probe image in a container with
-                  only those devices: its HIP kernel, built for every Instinct gfx target, must run on
-                  each of them (decision 083). The host's own ROCm is never used.
+                  GPU devices it can open, which needs only the amdgpu driver.
+  gpu-container   when the run names a container image and runtime, every GPU node pulls AMD's ROCm
+                  image straight from its registry if it lacks it, builds the HIP probe in it with
+                  hipcc for gfx90a, gfx942, and gfx950, and runs it in the same three jobs with only
+                  the job's devices: its kernel must run on each of them (decision 083). A node that
+                  cannot pull the image is skipped with the reason; a probe that does not build or
+                  run fails. The host's own ROCm is never used.
 
 --nodes limits the node checks to those Servers (a deployment's gate names the nodes it adds), so
 the work on the others is not disturbed. A feature that is off is skipped; one that is on but whose
@@ -31,6 +34,7 @@ are wrong.
 """
 
 import argparse
+import base64
 import concurrent.futures
 import json
 import re
@@ -117,21 +121,36 @@ def whole_nodes(slurm):
     return False
 
 
-CENSUS = ('printf "%s oci=%s bundle=%s mpi=%s hip=%s image=%s\\n" "$SLURMD_NODENAME" '
+CENSUS = ('printf "%s oci=%s bundle=%s mpi=%s hip=%s runtime=%s\\n" "$SLURMD_NODENAME" '
           '"$(test -f /etc/slurm/oci.conf && echo 1 || echo 0)" "$(test -d {bundle} && echo 1 || echo 0)" '
           '"$(test -x {mpi} && echo 1 || echo 0)" "$(test -x {hip} && echo 1 || echo 0)" '
-          '"$({image_check} && echo 1 || echo 0)"')
+          '"$({runtime_check} && echo 1 || echo 0)"')
 
 # The GPU devices a job may open: Slurm's device cgroup admits only the render nodes of the GPUs
 # allocated to the job, so the ones that open are its GPUs. Prints them space-separated.
 OPENABLE_GPUS = ('for d in /dev/dri/renderD*; do [ -e "$d" ] || continue; '
                  '( exec 3<"$d" ) 2>/dev/null && printf "%s " "$d"; done; echo')
 
-# Runs the GPU probe image with only the job's GPU devices and prints its report (decision 083).
+# The gfx targets the HIP probe is built for: MI200, MI300, and MI350 (decision 083).
+GPU_PROBE_TARGETS = ("gfx90a", "gfx942", "gfx950")
+# How long a node may take to pull the ROCm image, which is several GB, before the check is skipped.
+IMAGE_PULL_SECONDS = 1800
+
+# Prepares the container GPU check on a node, in a job without GPUs: pulls the image straight from its
+# registry when the node lacks it, writes the probe's source into a directory of this run, and builds
+# the probe there with the image's hipcc. Prints PULL_FAILED or BUILD_FAILED with the command's last
+# lines, or READY.
+CONTAINER_PREPARE = ('dir={dir}; mkdir -p "$dir" && printf %s {source} | base64 -d > "$dir/probe.hip" || {{ echo BUILD_FAILED; exit 0; }}; '
+                     'if ! {cli} image inspect {image} >/dev/null 2>&1; then '
+                     'out=$(timeout {pull} {cli} pull {image} 2>&1) || {{ echo PULL_FAILED; echo "$out" | tail -n 5; exit 0; }}; fi; '
+                     'out=$({cli} run --rm --pull=never -v "$dir:/w" {image} /opt/rocm/bin/hipcc -O2 {targets} '
+                     '-o /w/probe /w/probe.hip 2>&1) || {{ echo BUILD_FAILED; echo "$out" | tail -n 5; exit 0; }}; echo READY')
+
+# Runs the built probe in the image with only the job's GPU devices and prints its report.
 CONTAINER_GPU = ('devs=$(' + OPENABLE_GPUS + '); flags=""; for d in $devs; do flags="$flags --device=$d"; done; '
                  'echo "{{\\"openable\\": $(echo $devs | wc -w)}}"; '
                  '{cli} run --rm --pull=never --device=/dev/kfd $flags --security-opt seccomp=unconfined '
-                 '{image} --expect=$(echo $devs | wc -w) --runs={runs}')
+                 '-v {dir}:/w:ro {image} /w/probe --expect=$(echo $devs | wc -w) --runs={runs}')
 
 
 def parse_census(out):
@@ -146,7 +165,7 @@ def parse_census(out):
 def take_census(slurm, nodes, paths):
     """One task on every node at once (srun-all-nodes); nodes it missed are asked one by one."""
     names = [n["name"] for n in nodes]
-    command = ["sh", "-c", CENSUS.format(bundle=paths["bundle"], mpi=paths["mpi"], hip=paths["hip"], image_check=paths["image_check"])]
+    command = ["sh", "-c", CENSUS.format(bundle=paths["bundle"], mpi=paths["mpi"], hip=paths["hip"], runtime_check=paths["runtime_check"])]
     code, out, err = slurm.srun([f"--nodes={len(names)}", f"--ntasks={len(names)}", "--ntasks-per-node=1",
                                  "--nodelist=" + ",".join(names)], command, time_limit=2, immediate=60)
     census = parse_census(out)
@@ -350,19 +369,13 @@ def check_gpus(slurm, results, nodes, census, paths, expected_gpu_servers, drain
         name = node["name"]
         if name not in census:
             return node, "error", "no job reached the node"
-        container = bool(paths.get("image")) and bool(paths.get("cli"))
-        if container and not census[name].get("image"):
-            return node, "error", "the GPU probe image is not on the node; redeploy the Platform"
         full = node["gres"][0] if len(node["gres"]) == 1 else f"gpu:{node['gpus']}"
         problems = []
         for check, attempts, args, want, runs in (
                 ("no GPU request", 6, [], 0, 1),
                 ("one GPU", 3, ["--gres=gpu:1"], 1, 1),
                 ("every GPU", 1, ["--gres=" + full], node["gpus"], 3)):
-            if container:
-                command = ["/bin/sh", "-c", CONTAINER_GPU.format(cli=paths["cli"], image=paths["image"], runs=runs)]
-            else:
-                command = ["/bin/sh", "-c", 'echo "{\\"openable\\": $(echo $(' + OPENABLE_GPUS + ') | wc -w)}"']
+            command = ["/bin/sh", "-c", 'echo "{\\"openable\\": $(echo $(' + OPENABLE_GPUS + ') | wc -w)}"']
             code, out, err = slurm.retry(attempts, 5, lambda: slurm.srun(
                 ["--nodes=1", "--ntasks=1", "--nodelist=" + name] + args, command, time_limit=15, timeout=600))
             reports = json_lines(out)
@@ -372,15 +385,9 @@ def check_gpus(slurm, results, nodes, census, paths, expected_gpu_servers, drain
                 continue
             if opened != want:
                 problems.append(f"{check}: the job could open {opened} GPU devices, want {want}")
-                continue
-            if container:
-                report = next((r for r in reversed(reports) if "ok" in r), {})
-                if code != 0 or not report.get("ok") or int(report.get("devices", -1)) != want:
-                    problems.append(f"{check}: the GPU probe in a container failed (" + tail(str(report.get("error", "")), err) + ")")
         if problems:
             return node, "failed", "; ".join(problems)
-        how = "the GPU probe image runs on them in a container" if container else "jobs open exactly their GPUs"
-        return node, "passed", f"Slurm hands out its {node['gpus']} GPUs ({full}) and {how}"
+        return node, "passed", f"Slurm hands out its {node['gpus']} GPUs ({full}) and jobs open exactly their GPUs"
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
         outcomes = list(pool.map(probe, gpu_nodes))
@@ -390,6 +397,62 @@ def check_gpus(slurm, results, nodes, census, paths, expected_gpu_servers, drain
                                         "reason=swallow: GPU probe failed"])
             summary += "; drained" if code == 0 else "; draining it failed: " + tail(err, out)
         results.add("gpu-gres", verdict, summary, node=node["name"])
+
+
+def check_gpu_container(slurm, results, nodes, census, paths, run_id, drain):
+    """gpu-container: on each GPU node, the HIP probe built in AMD's ROCm image runs on exactly the GPUs
+    a job is given. A node that cannot pull the image is skipped with the reason (the image is user
+    workload the node fetches itself, so a node without upstream access cannot run it); a probe that
+    does not build, or whose kernel fails, fails the node."""
+    gpu_nodes = [n for n in nodes if n["gpus"] > 0]
+    if not gpu_nodes:
+        return
+    if not paths.get("cli") or not paths.get("image"):
+        results.add("gpu-container", "skipped", "the Platform has no container runtime, so no container runs a GPU kernel")
+        return
+    directory = f"/var/tmp/swallow-gpu-probe-{run_id[:8]}"
+    targets = " ".join("--offload-arch=" + target for target in GPU_PROBE_TARGETS)
+
+    def probe(node):
+        name = node["name"]
+        if name not in census or not census[name].get("runtime"):
+            return node, "error", f"{paths['cli']} is not on the node; redeploy the Platform"
+        prepare = CONTAINER_PREPARE.format(dir=directory, source=paths["probe_source"], cli=paths["cli"], image=paths["image"],
+                                           pull=IMAGE_PULL_SECONDS, targets=targets)
+        code, out, err = slurm.srun(["--nodes=1", "--ntasks=1", "--nodelist=" + name], ["/bin/sh", "-c", prepare],
+                                    time_limit=IMAGE_PULL_SECONDS // 60 + 15, timeout=IMAGE_PULL_SECONDS + 900)
+        lines = out.strip().splitlines()
+        if "PULL_FAILED" in lines:
+            return node, "skipped", (f"warning: the node could not pull {paths['image']} (" + tail(*lines[lines.index("PULL_FAILED") + 1:]) +
+                                     "), so no GPU kernel ran in a container; the GPU GRES and AMD SMI checks still gate the node")
+        if "READY" not in lines:
+            detail = tail(*lines[lines.index("BUILD_FAILED") + 1:]) if "BUILD_FAILED" in lines else tail(err, out)
+            return node, "failed", f"the HIP probe did not build in {paths['image']}: {detail}"
+        full = node["gres"][0] if len(node["gres"]) == 1 else f"gpu:{node['gpus']}"
+        problems = []
+        for check, attempts, args, want, runs in (
+                ("no GPU request", 6, [], 0, 1),
+                ("one GPU", 3, ["--gres=gpu:1"], 1, 1),
+                ("every GPU", 1, ["--gres=" + full], node["gpus"], 3)):
+            command = ["/bin/sh", "-c", CONTAINER_GPU.format(cli=paths["cli"], image=paths["image"], dir=directory, runs=runs)]
+            code, out, err = slurm.retry(attempts, 5, lambda: slurm.srun(
+                ["--nodes=1", "--ntasks=1", "--nodelist=" + name] + args, command, time_limit=15, timeout=600))
+            report = next((r for r in reversed(json_lines(out)) if "ok" in r), {})
+            if code != 0 or not report.get("ok") or int(report.get("devices", -1)) != want:
+                problems.append(f"{check}: the HIP probe in a container failed (" + tail(str(report.get("error", "")), err, out) + ")")
+        slurm.srun(["--nodes=1", "--ntasks=1", "--nodelist=" + name], ["/bin/sh", "-c", f"rm -rf {directory}"], time_limit=2, timeout=180)
+        if problems:
+            return node, "failed", "; ".join(problems)
+        return node, "passed", f"a HIP kernel built for {', '.join(GPU_PROBE_TARGETS)} runs in {paths['image']} on exactly the GPUs each job is given"
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        outcomes = list(pool.map(probe, gpu_nodes))
+    for node, verdict, summary in outcomes:
+        if verdict == "failed" and drain:
+            code, out, err = slurm.run(["scontrol", "update", "nodename=" + node["name"], "state=drain",
+                                        "reason=swallow: GPU kernel failed in a container"])
+            summary += "; drained" if code == 0 else "; draining it failed: " + tail(err, out)
+        results.add("gpu-container", verdict, summary, node=node["name"])
 
 
 def main():
@@ -404,17 +467,22 @@ def main():
     parser.add_argument("--mpi-probe", default="/usr/local/libexec/swallow/mpi-probe")
     parser.add_argument("--oci-bundle", default="/var/lib/swallow/oci/probe")
     parser.add_argument("--nodes", default="[]", help="JSON list: the Servers the node checks run on; empty is every node")
-    parser.add_argument("--container-image", default="", help="the GPU probe image, already on the GPU nodes")
-    parser.add_argument("--container-runtime", default="", help="docker-ce or podman, to run the GPU probe image with")
+    parser.add_argument("--container-image", default="", help="the ROCm image the container GPU check builds its probe in")
+    parser.add_argument("--container-runtime", default="", help="docker-ce or podman, to run that image with")
+    parser.add_argument("--gpu-probe-source", default="", help="the HIP probe's source, base64-encoded")
     args = parser.parse_args()
     slurm = Slurm("swallow-validation-" + args.run_id[:8])
     results = Results(json.loads(args.servers), args.platform_id)
     cli = {"docker-ce": "docker", "podman": "podman"}.get(args.container_runtime, "")
-    image_check = f"{cli} image inspect {args.container_image} >/dev/null 2>&1" if cli and args.container_image else "false"
+    runtime_check = f"command -v {cli} >/dev/null 2>&1" if cli else "false"
+    # The source travels base64-encoded inside the job's command; it is validated here so a bad value
+    # fails the run's arguments rather than every node's build.
+    source = base64.b64encode(base64.b64decode(args.gpu_probe_source, validate=True)).decode() if args.gpu_probe_source else ""
     paths = {"bundle": args.oci_bundle, "mpi": args.mpi_probe, "hip": args.hip_probe,
-             "image": args.container_image if cli else "", "cli": cli, "image_check": image_check}
+             "image": args.container_image if cli and source else "", "cli": cli, "runtime_check": runtime_check,
+             "probe_source": source}
     scope = set(json.loads(args.nodes))
-    checks = ("srun-all-nodes", "shared-node", "oci-container", "mpi-pmix", "gpu-gres")
+    checks = ("srun-all-nodes", "shared-node", "oci-container", "mpi-pmix", "gpu-gres", "gpu-container")
     try:
         code, out, err = slurm.retry(6, 5, lambda: slurm.run(["scontrol", "ping"]))
         if code != 0:
@@ -434,6 +502,7 @@ def main():
         check_oci(slurm, results, nodes, census, paths)
         check_mpi(slurm, results, nodes, census, paths)
         check_gpus(slurm, results, nodes, census, paths, json.loads(args.gpu_servers), args.drain)
+        check_gpu_container(slurm, results, nodes, census, paths, args.run_id, args.drain)
     except RuntimeError as exc:
         judged = {c["check"] for c in results.checks}
         for check in checks:

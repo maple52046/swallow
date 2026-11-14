@@ -25,8 +25,9 @@ func Module() (moduledomain.Module, error) {
 // ID is the Slurm module's id.
 const ID = "slurm"
 
-// GPUProbeImage is the container image the deployment gate's GPU checks run (decision 083): a HIP probe
-// built for every Instinct gfx target on the official ROCm development image, so a host needs only
-// the amdgpu driver. It is declared in module.json's artifacts.images and pulled from where the
-// Site's Local Repository mode sends it.
-const GPUProbeImage = "ghcr.io/maple52046/swallow-gpu-probe:1.0.0-rocm7.2.4"
+// GPUTestImage is the container image the acceptance suite's container GPU check runs (decision 083):
+// AMD's official ROCm development image, in which the check builds its HIP probe with hipcc for
+// gfx90a, gfx942, and gfx950, so a host needs only the amdgpu driver. It is user workload, like the
+// images jobs run, so it is not a module artifact: each GPU node pulls it straight from its registry,
+// never through the Local Repository, and a node that cannot pull it skips the check with a warning.
+const GPUTestImage = "docker.io/rocm/dev-ubuntu-24.04:7.2.4"

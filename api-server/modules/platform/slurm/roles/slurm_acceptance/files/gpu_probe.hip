@@ -1,9 +1,11 @@
-// swallow-gpu-probe: the GPU check a Slurm deployment's gate runs in a container (decision 083).
+// The HIP probe of slurm-acceptance's gpu-container check (decision 083). slurm_acceptance.py builds it
+// on each GPU node with hipcc inside AMD's ROCm image, for gfx90a, gfx942, and gfx950, and runs it in
+// that image in Slurm jobs.
 //
 // It sees only the GPU devices the job was given (the container gets /dev/kfd and the job's render
 // nodes) and, on each of them, allocates memory, runs a vector-add kernel, copies the result back,
-// and checks it, --runs times. The kernel is built for every Instinct gfx target the image's ROCm
-// supports, so the host needs only the amdgpu driver. It prints one JSON line:
+// and checks it, --runs times. The image brings its own ROCm, so the host needs only the amdgpu
+// driver. It prints one JSON line:
 //   {"ok": bool, "devices": N, "expected": N, "gfx": [...], "error": "..."}
 // and exits 0 only when ok. A run that expects no GPU passes when the container sees none.
 #include <hip/hip_runtime.h>

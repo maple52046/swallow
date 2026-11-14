@@ -83,7 +83,7 @@ func runHIPProbe(t *testing.T, env []string, args ...string) (hipProbeReport, in
 
 // A Slurm GPU node joins once KFD and AMD SMI report healthy GPUs; the host HIP probe only records
 // (decision 083). The slurm-acceptance gate proves the GPUs through Slurm (no GPU request, one GPU, every
-// GPU) with the devices a job can open and the GPU probe image in a container, and drains a failed
+// GPU) with the devices a job can open, then again in AMD's ROCm image in a container, and drains a failed
 // node.
 func TestSlurmGPUGatesUseTheHIPProbe(t *testing.T) {
 	cases := map[string][]string{

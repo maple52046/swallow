@@ -31,7 +31,6 @@ func workflowJobLabels(software *softwaredomain.Catalog) map[string]string {
 		jobReleaseServers:           "Release Servers",
 		jobFinalizeUninstall:        "Finalize Uninstall",
 		jobFinalizeScaleIn:          "Finalize Member Removal",
-		gpuProbeJob:                 "Prepare GPU Probe",
 		jobPrepareHosts:             "Prepare Hosts",
 		jobRecordSoftware:           "Record Software",
 		inspectionJob:               "Inspect Hardware",

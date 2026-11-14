@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
@@ -44,9 +45,8 @@ func testValidationGate(t *testing.T) (*validationGate, *validationtest.Runs) {
 	return &validationGate{service: service, launcher: testValidationLauncher(t)}, runs
 }
 
-// A Slurm deployment composes slurm-acceptance last (validation.md §5): after install-platform, the
-// composed software, and the GPU probe image pull, because its container GPU checks need the
-// container runtime and the image. Its check enters through the primary controller in gate mode,
+// A Slurm deployment composes slurm-acceptance last (validation.md §5): after install-platform and the
+// composed software, because its container GPU check needs the container runtime. Its check enters through the primary controller in gate mode,
 // over every member by role, expecting GPU GRES on the GPU compute nodes; complete-validation shares
 // the suite's Job, so a Job retry reruns the checks; and the gate run is written with the Workflow.
 func TestSlurmDeploymentComposesTheAcceptanceGate(t *testing.T) {
@@ -80,10 +80,11 @@ func TestSlurmDeploymentComposesTheAcceptanceGate(t *testing.T) {
 		byID[step.ID] = step
 	}
 	check, complete := byID[gateTaskPrefix+slurmAcceptanceSuite], byID[gateCompleteTaskID]
-	// The gate runs last: after the composed software (its container GPU checks need the runtime) and
-	// the GPU probe image pull on the GPU node that gets one (decision 083).
-	if check.Job != "validate-slurm" || !slices.Equal(check.DependsOn, []string{gpuProbeStepID}) ||
-		!slices.Equal(check.Targets, serverRefs("s1")) || check.TimeoutSeconds != 1500 {
+	// The gate runs last, after the composed software: its container GPU check runs in the container
+	// runtime the deployment installs (decision 083).
+	last := workflow.Steps[slices.IndexFunc(workflow.Steps, func(step workflowdomain.Task) bool { return step.ID == check.ID })-1].ID
+	if check.Job != "validate-slurm" || !slices.Equal(check.DependsOn, []string{last}) || last == installPlatformStepID ||
+		!slices.Equal(check.Targets, serverRefs("s1")) || check.TimeoutSeconds != 3300 {
 		t.Errorf("gate check = Job %s DependsOn %v Targets %v timeout %d", check.Job, check.DependsOn, check.Targets, check.TimeoutSeconds)
 	}
 	vars := extraVars(t, check)
@@ -91,7 +92,7 @@ func TestSlurmDeploymentComposesTheAcceptanceGate(t *testing.T) {
 	parameters, _ := vars["swallow_validation_parameters"].(map[string]any)
 	if vars["swallow_validation_mode"] != string(validationdomain.ModeGate) || vars["swallow_validation_suite"] != slurmAcceptanceSuite ||
 		len(members) != 3 || !slices.Equal(parameters["gpuServers"].([]string), []string{"s2"}) ||
-		parameters["containerImage"] != slurm.GPUProbeImage || parameters["containerRuntime"] != "docker-ce" {
+		parameters["containerImage"] != slurm.GPUTestImage || parameters["containerRuntime"] != "docker-ce" {
 		t.Errorf("gate check vars = %v", vars)
 	}
 	if complete.Job != "validate-slurm" || complete.Kind != completeValidationTaskKind ||
@@ -102,8 +103,10 @@ func TestSlurmDeploymentComposesTheAcceptanceGate(t *testing.T) {
 	if runtime, ok := byID["install-docker-ce"]; !ok || !slices.Equal(runtime.DependsOn, []string{installPlatformStepID}) {
 		t.Errorf("the composed container runtime install (%v) does not follow the install: DependsOn %v", ok, runtime.DependsOn)
 	}
-	if probe, ok := byID[gpuProbeStepID]; !ok || !slices.Equal(serverIDsOf(probe.Targets), []string{"s2"}) || probe.Job != gpuProbeJob {
-		t.Errorf("the GPU probe pull (%v) = %+v, want it on the GPU node s2", ok, probe)
+	for _, step := range workflow.Steps {
+		if strings.Contains(step.ID, "probe") {
+			t.Errorf("the deployment plans %s; the container GPU check pulls its image on the node itself", step.ID)
+		}
 	}
 	labelled := false
 	for _, job := range workflow.Jobs {
