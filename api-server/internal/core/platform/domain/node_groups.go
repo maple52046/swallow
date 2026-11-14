@@ -39,8 +39,10 @@ type NodeGroupModule interface {
 
 // TopologyTarget is what a Platform module may read about one deployment target to plan its
 // topology: the Accelerator's compute GPUs on it and their model names, and its CPU and memory.
+// Name is how people know the Server (its display name), for warnings.
 type TopologyTarget struct {
 	ServerID    string
+	Name        string
 	ComputeGPUs int
 	GPUModels   []string
 	CPUCores    int

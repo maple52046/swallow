@@ -339,8 +339,12 @@ func (Platform) DeploymentTopology(spec platformdomain.PlatformSpec, targets []p
 				expected[id] = group.ExpectedGPUsPerNode
 			}
 			if group.ExpectedGPUsPerNode > 0 && target.ComputeGPUs < group.ExpectedGPUsPerNode {
+				name := target.Name
+				if name == "" {
+					name = id
+				}
 				warnings = append(warnings, fmt.Sprintf("server %s in node group %s has %d of the %d GPUs the group expects; "+
-					"it is marked %s and scheduled last", id, group.Name, target.ComputeGPUs, group.ExpectedGPUsPerNode, degradedFeature))
+					"it is marked %s and scheduled last", name, group.Name, target.ComputeGPUs, group.ExpectedGPUsPerNode, degradedFeature))
 			}
 		}
 	}

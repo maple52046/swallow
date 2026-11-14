@@ -229,7 +229,7 @@ func topologyTargets(targets []*serverdomain.Server, accelerator platformdomain.
 	out := make([]platformdomain.TopologyTarget, 0, len(targets))
 	for _, server := range targets {
 		target := platformdomain.TopologyTarget{
-			ServerID: server.ID, ComputeGPUs: computeGPUCount(server, accelerator),
+			ServerID: server.ID, Name: server.DisplayName(), ComputeGPUs: computeGPUCount(server, accelerator),
 			CPUCores: server.Observed.CPUCores, MemoryMiB: server.Observed.MemoryMiB,
 		}
 		for _, gpu := range server.Observed.GPUs {

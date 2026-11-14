@@ -78,7 +78,7 @@ func TestDeploymentTopologyRendersPartitionsFeaturesAndExpectedGPUs(t *testing.T
 			group("mi300x", RoleCompute, 8, "g1"), group("mi250", RoleCompute, 0, "g2")},
 		[]any{part("main", true, "mi300x", "mi250"), map[string]any{"name": "big", "groups": []any{"mi300x"}, "maxTime": "2-00:00:00", "defMemPerCpu": 4096}})
 	top, err := Platform{}.DeploymentTopology(spec, []platformdomain.TopologyTarget{
-		{ServerID: "g1", ComputeGPUs: 7, GPUModels: []string{"Aqua Vanjaram [Instinct MI300X]"}},
+		{ServerID: "g1", Name: "gpu-node-1", ComputeGPUs: 7, GPUModels: []string{"Aqua Vanjaram [Instinct MI300X]"}},
 		{ServerID: "g2", ComputeGPUs: 2, GPUModels: []string{"Aldebaran/MI200 [Instinct MI250X/MI250]"}},
 	})
 	if err != nil {
@@ -102,7 +102,8 @@ func TestDeploymentTopologyRendersPartitionsFeaturesAndExpectedGPUs(t *testing.T
 	if expected := top.Vars[varExpectedGPUs].(map[string]any); !reflect.DeepEqual(expected, map[string]any{"g1": 8}) {
 		t.Errorf("expected GPUs = %+v", expected)
 	}
-	if len(top.Warnings) != 1 || !strings.Contains(top.Warnings[0], "g1") || !strings.Contains(top.Warnings[0], degradedFeature) {
+	if len(top.Warnings) != 1 || !strings.HasPrefix(top.Warnings[0], "server gpu-node-1 in node group mi300x has 7 of the 8 GPUs") ||
+		!strings.Contains(top.Warnings[0], degradedFeature) {
 		t.Errorf("warnings = %v", top.Warnings)
 	}
 }
