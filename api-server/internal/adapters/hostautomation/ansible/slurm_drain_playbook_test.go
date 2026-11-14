@@ -194,3 +194,16 @@ func TestSlurmNodeCleanupToleratesAnUnreachableForcedNode(t *testing.T) {
 		}
 	}
 }
+
+// A leaving node is out of the NFS server's exports by the time it is cleaned, so its mounted path
+// answers "Permission denied" even to root: the cleanup finds the mount in the mount table and
+// unmounts it, and removes the GPU records the Slurm deploy wrote.
+func TestSlurmNodeCleanupUnmountsAShareThatNoLongerExportsToIt(t *testing.T) {
+	remove := slurmPlaybookFile(t, "roles", "slurm_workload_storage_client", "tasks", "remove.yml")
+	if !strings.Contains(remove, `findmnt, -n, --mountpoint, "{{ slurm_workload_mount_path }}"`) || strings.Contains(remove, "mountpoint, -q") {
+		t.Error("the workload filesystem removal must find the mount in the mount table, not by the path")
+	}
+	if !strings.Contains(slurmPlaybookFile(t, "roles", "slurm_node_cleanup", "tasks", "main.yml"), "- /var/lib/swallow/gpu\n") {
+		t.Error("slurm_node_cleanup leaves the GPU records slurm_gpu writes")
+	}
+}

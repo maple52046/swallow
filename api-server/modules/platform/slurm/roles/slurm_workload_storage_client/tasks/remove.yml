@@ -4,11 +4,12 @@
 # server that is gone cannot hang the run: an unmount that times out detaches the mount lazily. A
 # mount a process still uses refuses the removal ([slurm_unmount_busy]) instead of pulling the share
 # out from under it. The fstab line goes too, so a later Platform on the kept host does not mount
-# the old share.
+# the old share. The check reads the mount table rather than the path: a node that leaves is already
+# out of the NFS server's exports, so even root gets "Permission denied" on the mounted path.
 
 - name: Check whether the workload filesystem is mounted
   ansible.builtin.command:
-    argv: [timeout, "{{ slurm_workload_mountpoint_timeout }}", mountpoint, -q, "{{ slurm_workload_mount_path }}"]
+    argv: [timeout, "{{ slurm_workload_mountpoint_timeout }}", findmnt, -n, --mountpoint, "{{ slurm_workload_mount_path }}"]
   register: slurm_workload_remove_check
   changed_when: false
   failed_when: false

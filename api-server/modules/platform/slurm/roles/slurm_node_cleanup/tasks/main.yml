@@ -96,6 +96,7 @@
     - /tmp/omni_rmsjobinfo
     - /usr/local/libexec/swallow/hip-probe
     - /usr/local/libexec/swallow/mpi-probe
+    - /var/lib/swallow/gpu
 
 - name: Remove the exporter's drop-in directory unless it holds an operator's drop-ins
   ansible.builtin.command:
