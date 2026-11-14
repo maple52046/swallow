@@ -167,11 +167,13 @@ Exporter, or none), and the Platform Grafana (on by default; see
 [Monitoring](monitoring.md#a-platforms-own-grafana)); AMD GPU GRES is included automatically
 on eligible compute nodes.
 
-Before a GPU node joins, swallow proves every GPU works by allocating and freeing
-memory on it through the HIP runtime on the node. Once Slurm is installed, the
-deployment runs the `slurm-acceptance` [Validation Suite](validation.md) as its gate
-(the **Validate Slurm** Job): a step on every node, jobs sharing a node, containers
-and MPI when they are on, and the HIP probe through Slurm on every GPU node. A GPU
+A GPU node needs only the amdgpu driver on the host: swallow checks the GPUs the driver
+reports and their health (AMD SMI) before the node joins, and a host HIP test only records
+its result, because the host's ROCm may not cover the GPU. Once Slurm and the chosen features
+are installed, the deployment runs the `slurm-acceptance` [Validation Suite](validation.md)
+as its gate (the **Validate Slurm** Job): a step on every node, jobs sharing a node,
+containers and MPI when they are on, and GPU jobs through Slurm on every GPU node, which
+also run a GPU test inside a container when the node has a container runtime. A GPU
 node that fails is drained, and a check that does not pass stops the deployment with
 the reason; retry the Job after fixing it. The GRES type
 defaults to the GPU architecture (for example `gfx942`). Under **Advanced
@@ -197,6 +199,39 @@ root filesystem.
 
 Platform detail reads live Slurm state through the Platform API and correlates
 nodes back to Server IDs.
+
+### Node groups and partitions
+
+A Slurm Platform's nodes are organized in node groups, and its compute groups in partitions.
+The deploy wizard's **Groups & Partitions** step suggests a `controller` group, a `login`
+group, and one compute group per GPU model (for example `mi300x`, expecting 8 GPUs per node),
+each with a partition of its own; rename them, choose each group's Deployment Template, change
+time limits, pick the default partition, or add a partition `all` over every compute group.
+When swallow installs the OS, a group without a template gets one generated from the OS
+settings, named after the Platform and the group, so nodes added later install the same way.
+
+On a deployed Platform, the **Groups & partitions** tab shows the partitions and groups of its
+spec above the live partitions Slurm reports. An owner of the Platform's Pool or an admin can:
+
+- **Add nodes** to a compute group: each new Server is installed from the group's template (a
+  deployed Server keeps its OS), joins the cluster, and is validated on its own; the other nodes
+  keep running their jobs. A Server below the template's minimum hardware is refused with what it
+  lacks.
+- **Remove** a compute node: swallow drains it, waits for its jobs up to the drain timeout (and
+  cancels them at the timeout if you choose to), reconfigures the cluster without it, removes
+  Slurm, the shared filesystem mount, and its GPU and monitoring setup, and releases the Server if
+  you ask. The last compute node cannot be removed; delete the Platform instead.
+- **Rescan** a node's GPUs after one failed, so Slurm hands out what the node has now.
+- **Add compute group** or change a group's template and expected GPUs per node. A node with
+  fewer GPUs than its group expects is marked `gpu_degraded` and scheduled last instead of
+  failing; the tab shows, for example, "7 of 8 GPUs".
+- **Add partition**, change one's groups, default, time limit, memory per CPU, sharing, and
+  allowed Unix groups, or remove one that has no jobs.
+
+Controllers and login nodes are not added or removed: the tab says so, because moving the
+cluster's control plane needs its state and shared storage moved too. Every node gets Slurm
+features for its GPU model and its group, so a job can ask for them with `--constraint`. The CLI
+does the same with `swallow platforms nodes`, `groups`, and `partitions`.
 
 On a deployed Slurm Platform with Omnistat, the **Monitoring** tab lists Omnistat's GPU hardware
 counters under **Omnistat**, with a switch that turns them on or off without a Change Plan;
@@ -227,7 +262,8 @@ the arrow keys move between tabs.
 - **Activity** lists this Platform's Workflows newest first. Page number is part of the URL;
   the rows selector offers 5, 10, 15, or 20 Workflows.
 - Kubernetes adds **Applications**, **Namespaces**, and **Cluster**. Slurm adds **Nodes**
-  (login access, controllers, and compute nodes) and **Partitions**.
+  (login access, controllers, and compute nodes) and **Groups & partitions** (see
+  [Node groups and partitions](#node-groups-and-partitions)).
 
 Changing or failed lifecycle states lead with **View workflow** or **Review workflow**.
 A Change Plan waiting for approval links to **Change Plans**. An active Platform with its

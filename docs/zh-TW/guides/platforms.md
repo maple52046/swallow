@@ -129,9 +129,11 @@ shared workload storage、container runtime、作業監控（預設 Omnistat，�
 與 Platform Grafana（預設開啟，見[監控](monitoring.md#platform-自己的-grafana)）；符合條件的 compute node 會自動
 包含 AMD GPU GRES，不提供沒有實際語意的開關。
 
-GPU node 加入前，swallow 會在節點上透過 HIP runtime 在每張 GPU 上配置並釋放記憶體來證明 GPU 可用。安裝 Slurm
-之後，部署會執行 `slurm-acceptance` [Validation Suite](validation.md) 作為閘門（**Validate Slurm** Job）：每台節點
-都能執行 step、job 能共用節點、開啟時的 container 與 MPI，以及每台 GPU node 透過 Slurm 執行 HIP probe。失敗的 GPU
+GPU node 的主機只需要 amdgpu driver：節點加入前，swallow 檢查 driver 回報的 GPU 與它們的健康狀態（AMD SMI）；主機上的
+HIP 測試只記錄結果，因為主機的 ROCm 不一定涵蓋這張 GPU。安裝 Slurm 與選擇的功能之後，部署會執行 `slurm-acceptance`
+[Validation Suite](validation.md) 作為閘門（**Validate Slurm** Job）：每台節點都能執行 step、job 能共用節點、開啟時的
+container 與 MPI，以及每台 GPU node 透過 Slurm 執行的 GPU job；節點有 container runtime 時，同一個 job 也在容器內測試
+GPU。失敗的 GPU
 node 會被 drain，沒有通過的 check 會讓部署帶著原因停下；修正後重試這個 Job。GRES type 預設是 GPU 架構（例如
 `gfx942`）。在 **Advanced settings** 可以指定既有 job script 使用的 GRES type（例如 `mi308x_vf`），以及
 amdgpu driver module option。swallow 已會套用節點 GPU topology 需要的選項（例如在 ROCm 結束時會 crash 的
@@ -148,6 +150,32 @@ Requirement 是 hardware eligibility floor，不會保留 resource、不表示 S
 scheduler capacity，也不保證 OS image 能放進 ephemeral root filesystem。
 
 Platform detail 透過 Platform API 讀取 live Slurm state，並把 node 關聯回 Server ID。
+
+### 節點群組與 partition
+
+Slurm Platform 的節點分成節點群組，compute 群組再組成 partition。部署精靈的 **Groups & Partitions** 步驟建議
+`controller` 群組、`login` 群組，以及每種 GPU 型號一個 compute 群組（例如 `mi300x`，預期每台 8 張 GPU），每個 compute
+群組各有一個 partition；你可以改名、為每個群組選 Deployment Template、調整時間上限、選擇預設 partition，或加上涵蓋所有
+compute 群組的 partition `all`。由 swallow 安裝 OS 時，沒有 template 的群組會從 OS 設定產生一份，以 Platform 與群組命名，
+之後加入的節點就以同樣方式安裝。
+
+已部署的 Platform 在 **Groups & partitions** 分頁顯示 spec 的 partition 與群組，下面是 Slurm 回報的即時 partition。
+Platform 所屬 Pool 的 owner 或 admin 可以：
+
+- **Add nodes**：把 Server 加入 compute 群組。每台新 Server 從群組的 template 安裝（已部署的保留它的 OS）、加入叢集，並
+  單獨驗證；其他節點的工作照常。低於 template 最低硬體的 Server 會被拒絕並說明差多少。
+- **Remove**：移除 compute node。swallow 先 drain，最多等 drain 逾時讓工作結束（可選擇逾時就取消工作），叢集重新設定
+  為不含它，移除 Slurm、共享檔案系統的掛載與 GPU、監控設定，需要時釋放 Server。最後一台 compute node 不能移除，要移除
+  就刪除 Platform。
+- **Rescan**：掉卡後重新偵測節點的 GPU，讓 Slurm 分配節點現有的 GPU。
+- **Add compute group**，或調整群組的 template 與每台預期的 GPU 數。GPU 少於群組預期的節點會標上 `gpu_degraded`、排到
+  最後才使用，而不是讓部署失敗；分頁會顯示例如「7 of 8 GPUs」。
+- **Add partition**，調整 partition 的群組、是否預設、時間上限、每顆 CPU 的記憶體、共用方式與允許的 Unix 群組，或移除
+  沒有工作的 partition。
+
+controller 與 login node 不能增減：分頁會說明原因，因為移動叢集的 control plane 也要移動它的 state 與共享儲存。每台節點
+都有代表 GPU 型號與群組的 Slurm feature，job 可用 `--constraint` 指定。CLI 以 `swallow platforms nodes`、`groups` 與
+`partitions` 做相同的事。
 
 已部署且有 Omnistat 的 Slurm Platform，**Monitoring** 分頁在 **Omnistat** 底下列出 Omnistat 的 GPU hardware counters，
 旁邊的開關不經 Change Plan 開啟或關閉它們；swallow 在每台 compute node 重新設定 Omnistat，Platform 維持 active（見
@@ -172,7 +200,7 @@ Platform detail 透過 Platform API 讀取 live Slurm state，並把 node 關聯
   或 GPU 監控元件記錄的狀態與 Workflow；不在頁面內嵌 dashboard。
 - **Activity** 依新到舊列出此 Platform 的 Workflows。頁碼屬於 URL；每頁可選 5、10、15 或 20 筆。
 - Kubernetes 增加 **Applications**、**Namespaces** 與 **Cluster**；Slurm 增加 **Nodes**
-  （login access、controllers 與 compute nodes）及 **Partitions**。
+  （login access、controllers 與 compute nodes）及 **Groups & partitions**（見[節點群組與 partition](#節點群組與-partition)）。
 
 lifecycle 正在變更或失敗時，主要入口是 **View workflow** 或 **Review workflow**；等待核准的
 Change Plan 連到 **Change Plans**。Active 且有自己 Grafana 的 Platform 提供

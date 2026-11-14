@@ -36,8 +36,13 @@ automation. It can preselect an image and settings while the deployment request
 still validates each current target. Templates never bypass current eligibility.
 
 Admins manage templates on the **Deployment Templates** page, next to OS Images in the
-sidebar. Templates in the Dashboard are in development; release builds hide them and
-deploy with a custom configuration. The API and CLI are unaffected.
+sidebar. A template may set a minimum hardware: CPU cores, memory, storage, a GPU model, and a
+number of compute GPUs, each optional. A Server joining a Platform node group installed from the
+template must meet every value set, and one whose inventory does not report a value does not;
+deploying single Servers ignores it. The page lists the Platform node groups that install from
+each template, and a template in use cannot be deleted. Editing a template changes how nodes
+added later are installed, not the nodes already installed (see
+[Node groups and partitions](platforms.md#node-groups-and-partitions)).
 
 ## Deploy an operating system
 

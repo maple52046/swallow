@@ -186,7 +186,7 @@ Choose the monitoring exporter in the Slurm workspace's Features step:
   the metrics through the Platform's Grafana, so keep the Grafana on to use it (its report needs
   GPU utilization, which SR-IOV virtual functions do not report; on those GPUs use the job
   dashboards instead).
-  - **GPU hardware counters**, checked by default under Omnistat, turns on Omnistat's GPU hardware
+  - **GPU hardware counters**, off by default under Omnistat, turns on Omnistat's GPU hardware
     counter collection. Which counters it samples is fixed by swallow; today that is `VALUBusy`, how
     busy each GPU's vector ALUs are, which the Grafana job dashboards show as hardware counters. Each
     compute node collects them only when it can: it needs AMD GPUs, a ROCm version swallow ships the
@@ -196,7 +196,7 @@ Choose the monitoring exporter in the Slurm workspace's Features step:
     collects them, its exporter holds the `CAP_PERFMON` capability and keeps a profiling session on
     every GPU (about 160 MB of GPU memory each). A GPU allows one profiler session at a time, so a
     user's own profiler on that node (`rocprofv3`, Omniperf) may not get the counters while they
-    are on; uncheck the option if you do not want that.
+    are on; leave the option off if you do not want that.
     On a deployed Platform, turn them on or off on its **Monitoring** tab: under **Omnistat**, the
     **GPU hardware counters** part has a **Collect GPU hardware counters** switch above each
     compute node's outcome, and a confirmation before anything changes. The CLI does the same with
@@ -212,7 +212,7 @@ Choose the monitoring exporter in the Slurm workspace's Features step:
 The Site Prometheus collects the chosen exporter like any other; the Platform page shows its
 state. In a deploy file, `omnistat: { enabled: true }` or `deviceMetricsExporter: { enabled: true }`
 chooses one; omitting both installs neither. A deploy file asks for the hardware counters with
-`omnistat: { enabled: true, hardwareCounters: true }`; unlike the wizard, a file that omits it gets
+`omnistat: { enabled: true, hardwareCounters: true }`; like the wizard, a file that omits it gets
 none.
 
 ## Other monitoring UIs

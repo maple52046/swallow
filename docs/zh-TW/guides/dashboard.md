@@ -58,15 +58,13 @@ Integration、Platform、Workflow 或 alert view。
 
 ## 開發中的功能
 
-以下四項 Dashboard 功能仍在開發中，Dashboard 的 release build 會隱藏它們；API 與 `swallow`
+以下三項 Dashboard 功能仍在開發中，Dashboard 的 release build 會隱藏它們；API 與 `swallow`
 CLI 不受影響。
 
 - **Alerts**：Monitoring 頁面沒有 alert 列表、alert 數量與 Acknowledge，Overview 的 Alerts card
   顯示「Not available in this release」，也不會產生 alert 的 attention item。基礎監控不受影響：
   health、current metrics 與用量圖表在每個 build 都會顯示。請改用 `swallow monitoring alerts`。
 - **OS image upload**：OS Images 沒有 Upload。既有 custom image 的 verification 仍可使用。
-- **Deployment Template**：沒有 Deployment Templates 頁面與它的側邊欄項目，OS image 沒有 Create deployment
-  template，佈署時也不能選擇或保存 template；佈署使用 custom configuration。
 - **Virtual machines**：Add servers 沒有 libvirt virtual machine 路徑，virtual machine 的
   Summary 也不會顯示經由 hypervisor 的 Boot Media。請改用 `swallow servers virtual-machines` 與
   `swallow servers boot-media`。

@@ -68,7 +68,7 @@ owning Server, Integration, Platform, Workflow, or alert view.
 
 ## Features in development
 
-Four Dashboard features are still in development. Release builds of the
+Three Dashboard features are still in development. Release builds of the
 Dashboard hide them; the API and the `swallow` CLI are not affected.
 
 - **Alerts**: the Monitoring page has no alert list, alert counts, or
@@ -78,9 +78,6 @@ Dashboard hide them; the API and the `swallow` CLI are not affected.
   `swallow monitoring alerts` instead.
 - **OS image upload**: OS Images has no Upload action. Verifying an existing
   custom image is still available.
-- **Deployment Templates**: the Deployment Templates page and its sidebar entry,
-  Create deployment template on an OS image, and choosing or saving a template while
-  deploying are absent; deployments use a custom configuration.
 - **Virtual machines**: Add servers has no libvirt virtual machine path, and a
   virtual machine's Summary shows no Boot Media through its hypervisor. Use
   `swallow servers virtual-machines` and `swallow servers boot-media` instead.
