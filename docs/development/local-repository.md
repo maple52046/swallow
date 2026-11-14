@@ -144,7 +144,9 @@ swallow 不保存 artifact：它擁有的是「Site 必須有什麼」與「從�
   超過 5 分鐘的下載會被中斷、從頭重來（`[PLP0005] Request timed out`）。`file_url` 的下載不經 remote，逾時要以
   `downloader_config` 指定。
 - container 的 pull-through 為每個被 pull 的 image 建立一個 container remote，建立時複製 pull-through remote 的設定，
-  之後那個 image 的 blob 都經它下載；之後再改 pull-through remote 不會改到已建立的 image remote。
+  之後那個 image 的 blob 都經它下載；之後再改 pull-through remote 不會改到已建立的 image remote。所以 adapter 每一輪也把
+  那個來源下已建立的 image remote 的 `url` 設成來源的上游：Site 以同名的 `oci` 來源把 registry 換成內部 mirror 之後，
+  之前從原本的 registry 取不到的 image 改從 mirror 取得。
 - pull-through 只記下 upstream 的 blob 在 `/content/container/blobs/` 的 `artifact` 是 `null`，Pulp 完整下載它之後
   才儲存、有 artifact；`digest__in` 可以一次查多個 digest。
 

@@ -99,3 +99,28 @@ func TestSameValueComparesPulpFloatsAsNumbers(t *testing.T) {
 		t.Errorf("sameValue(null, %v) = true, want an unset timeout to differ", want["sock_read_timeout"])
 	}
 }
+
+// A Site that replaces a registry's upstream with a mirror (an oci source with a URL) moves the image
+// remotes Pulp already created for that registry to the mirror too, so an image that failed upstream
+// is fetched from the mirror; another registry's image remotes keep theirs.
+func TestImageRemotesFollowTheSourceUpstream(t *testing.T) {
+	f := newFakePulp(t)
+	remote := func(name, upstream string) map[string]any {
+		return map[string]any{"name": name, "url": upstream, "total_timeout": 21600.0, "sock_read_timeout": 300.0}
+	}
+	f.seed(pullThroughRemotes, remote("ghcr.io", "https://ghcr.io"))
+	imageRemote := f.seed(containerRemotes, remote("ghcr.io/maple52046/swallow-gpu-probe", "https://ghcr.io"))
+	otherRegistry := f.seed(containerRemotes, remote("quay.io/k0sproject/pause", "https://quay.io"))
+	repo := f.newRepository(t)
+	source := localrepodomain.Source{Name: "ghcr.io", Format: localrepodomain.FormatOCI, URL: "http://10.0.0.5:15000"}
+
+	if _, err := repo.EnsureSource(context.Background(), source); err != nil {
+		t.Fatalf("EnsureSource(ghcr.io) error = %v", err)
+	}
+	if patches := f.requestsTo("PATCH", imageRemote); len(patches) != 1 || !reflect.DeepEqual(patches[0].body, map[string]any{"url": "http://10.0.0.5:15000"}) {
+		t.Errorf("updates of the image remote = %+v, want its url moved to the mirror", patches)
+	}
+	if patches := f.requestsTo("PATCH", otherRegistry); len(patches) != 0 {
+		t.Errorf("updates of another registry's image remote = %+v, want none", patches)
+	}
+}

@@ -77,7 +77,7 @@ func (r *Repository) ensureOCI(ctx context.Context, source localrepodomain.Sourc
 	if err != nil {
 		return localrepodomain.SourceStatus{}, err
 	}
-	imageRemotesStep, err := r.ensureImageRemotes(ctx, source.Name)
+	imageRemotesStep, err := r.ensureImageRemotes(ctx, source.Name, upstream)
 	if err != nil {
 		return localrepodomain.SourceStatus{}, err
 	}
@@ -100,21 +100,24 @@ func (r *Repository) ensureOCI(ctx context.Context, source localrepodomain.Sourc
 	return status, nil
 }
 
-// ensureImageRemotes gives downloadTimeouts to the remote Pulp created for each image pulled through
-// the oci source named name (named "<name>/<path>"), and reports the combined step of the updates.
-// Pulp copies the pull-through remote's settings into an image's remote only when it creates it and
-// fetches the image's blobs through that remote from then on, so a remote created before the
-// pull-through remote had the timeouts would keep cutting long downloads at Pulp's default.
-func (r *Repository) ensureImageRemotes(ctx context.Context, name string) (step, error) {
+// ensureImageRemotes gives the remote Pulp created for each image pulled through the oci source named
+// name (named "<name>/<path>") the source's upstream and downloadTimeouts, and reports the combined
+// step of the updates. Pulp copies the pull-through remote's settings into an image's remote only when
+// it creates it and fetches the image's blobs through that remote from then on, so without this a
+// remote created before the source changed would keep its old upstream (a registry a Site replaced
+// with an internal mirror) or cut long downloads at Pulp's default timeout.
+func (r *Repository) ensureImageRemotes(ctx context.Context, name, upstream string) (step, error) {
 	found, err := r.api.list(ctx, containerRemotes, url.Values{
-		"name__startswith": {name + "/"}, "limit": {listLimit}, "fields": {"pulp_href,name,total_timeout,sock_read_timeout"},
+		"name__startswith": {name + "/"}, "limit": {listLimit}, "fields": {"pulp_href,name,url,total_timeout,sock_read_timeout"},
 	})
 	if err != nil {
 		return step{}, err
 	}
+	want := downloadTimeouts()
+	want["url"] = upstream
 	combined := stepReady
 	for _, remote := range found.Results {
-		updated, err := r.update(ctx, remote, downloadTimeouts())
+		updated, err := r.update(ctx, remote, want)
 		if err != nil {
 			return step{}, err
 		}
