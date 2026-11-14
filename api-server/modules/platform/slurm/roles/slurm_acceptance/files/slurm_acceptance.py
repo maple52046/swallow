@@ -48,6 +48,17 @@ UNPRIVILEGED = "nobody"
 class Slurm:
     def __init__(self, job_name):
         self.job_name = job_name
+        # The partitions of each node: a job lands in the default partition unless it names one, and
+        # a node in a group the default partition does not hold is reached only through its own.
+        self.partitions = {}
+
+    def partition_args(self, args):
+        """--partition with the partitions that hold every node of args' --nodelist, when known."""
+        names = next((a.split("=", 1)[1].split(",") for a in args if a.startswith("--nodelist=")), [])
+        if not names or any(n not in self.partitions for n in names):
+            return []
+        common = [p for p in self.partitions[names[0]] if all(p in self.partitions[n] for n in names[1:])]
+        return ["--partition=" + ",".join(common)] if common else []
 
     def run(self, argv, timeout=180, user=None):
         if user:
@@ -60,7 +71,8 @@ class Slurm:
 
     def srun(self, args, command, time_limit=5, user=None, timeout=300, immediate=120):
         # --immediate gives up on nodes that are down or busy instead of waiting out the timeout.
-        argv = ["srun", f"--job-name={self.job_name}", f"--time={time_limit}", f"--immediate={immediate}"] + args + command
+        argv = (["srun", f"--job-name={self.job_name}", f"--time={time_limit}", f"--immediate={immediate}"]
+                + self.partition_args(args) + args + command)
         if user:
             argv = ["srun", "--chdir=/tmp"] + argv[1:]
         return self.run(argv, timeout=timeout, user=user)
@@ -95,13 +107,18 @@ def gpu_count(gres):
 
 
 def read_nodes(slurm):
-    code, out, err = slurm.run(["sinfo", "--noheader", "--Node", "--format=%N|%c|%G|%t"])
+    code, out, err = slurm.run(["sinfo", "--noheader", "--Node", "--format=%N|%c|%G|%t|%R"])
     if code != 0:
         raise RuntimeError("sinfo failed: " + tail(err, out))
     nodes = {}
     for line in out.splitlines():
         fields = line.strip().split("|")
-        if len(fields) != 4 or fields[0] in nodes:
+        if len(fields) != 5:
+            continue
+        partitions = slurm.partitions.setdefault(fields[0], [])
+        if fields[4] not in partitions:
+            partitions.append(fields[4])
+        if fields[0] in nodes:
             continue
         gres = [re.sub(r"\(.*?\)", "", g) for g in fields[2].split(",") if g and g != "(null)"]
         nodes[fields[0]] = {"name": fields[0], "cpus": int(fields[1]) if fields[1].isdigit() else 0,
@@ -243,8 +260,9 @@ def check_shared_node(slurm, results, nodes, census, exclusive):
         return
     jobs = []
     for _ in range(2):
-        code, out, err = slurm.run(["sbatch", "--parsable", f"--job-name={slurm.job_name}", "--ntasks=1", "--time=5",
-                                    "--nodelist=" + node["name"], "--output=/dev/null", "--wrap=sleep 120"])
+        placement = ["--nodelist=" + node["name"]]
+        code, out, err = slurm.run(["sbatch", "--parsable", f"--job-name={slurm.job_name}", "--ntasks=1", "--time=5"]
+                                   + slurm.partition_args(placement) + placement + ["--output=/dev/null", "--wrap=sleep 120"])
         if code == 0 and out.strip():
             jobs.append(out.strip().split(";")[0])
         else:

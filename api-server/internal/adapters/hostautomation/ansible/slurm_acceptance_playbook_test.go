@@ -35,6 +35,11 @@ def srun(args):
         i += 1
     command = args[i:]
     nodes = opts.get("--nodelist", "n1").split(",")
+    # Without --partition a job lands in the default partition main, which FAKE_N2_PARTITION moves n2 out of.
+    n2_partition = os.environ.get("FAKE_N2_PARTITION", "main")
+    if "n2" in nodes and not {n2_partition, "all"} & set(opts.get("--partition", "main").split(",")):
+        sys.stderr.write("srun: error: Unable to allocate resources: Requested node configuration is not available\n")
+        return 1
     if "--mpi" in opts and opts["--mpi"] == "list":
         print("MPI plugin types are...\n\tnone\n\tpmix_v5")
         return 0
@@ -101,7 +106,8 @@ def main(argv):
     if name == "srun":
         return srun(args)
     if name == "sinfo":
-        print("n1|4|(null)|idle\nn2|8|gpu:gfx90a:2(S:0)|idle")
+        n2 = os.environ.get("FAKE_N2_PARTITION", "main")
+        print(f"n1|4|(null)|idle|main\nn1|4|(null)|idle|all\nn2|8|gpu:gfx90a:2(S:0)|idle|{n2}\nn2|8|gpu:gfx90a:2(S:0)|idle|all")
     elif name == "scontrol" and args[:1] == ["ping"]:
         print("Slurmctld(primary) at c1 is UP")
     elif name == "scontrol" and args[:2] == ["show", "partition"]:
@@ -191,6 +197,14 @@ func TestSlurmAcceptanceJudgesTheCluster(t *testing.T) {
 	}
 	if !strings.Contains(healthy["oci-container@p-1"], "node n1") {
 		t.Errorf("the rootless container check of unmapped n1 is not named on the Platform: %v", healthy)
+	}
+	// A node outside the default partition is reached through its own partitions, and a job over
+	// several nodes through a partition that holds them all.
+	elsewhere := runSlurmAcceptance(t, bin, []string{"FAKE_N2_PARTITION=gpu"})
+	for _, key := range []string{"srun-all-nodes@p-1", "gpu-gres@s-2", "oci-container@s-2", "mpi-pmix@p-1"} {
+		if got := verdictOf(elsewhere, key); got != "passed" {
+			t.Errorf("n2 only in gpu and all: %s = %q, want passed", key, elsewhere[key])
+		}
 	}
 
 	failing := runSlurmAcceptance(t, bin, []string{"FAKE_GPU_FAIL=1"})
