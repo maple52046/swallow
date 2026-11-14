@@ -274,7 +274,7 @@ func assembleWorker(cfg config.APIConfig, modules composedModules, mongoClient *
 			return nil, err
 		}
 		platformFinalizer, err := newPlatformService(transactor, platforms, sites, servers, operations, integrations,
-			softwareAssignments, platformOperationCanceler{orchestrations: workflows})
+			softwareAssignments, platformOperationCanceler{orchestrations: workflows}, templates)
 		if err != nil {
 			return nil, err
 		}
@@ -358,6 +358,7 @@ func assembleWorker(cfg config.APIConfig, modules composedModules, mongoClient *
 			workflows: workflows, automation: automationConfigurations, providers: providers,
 			deployments: deployments, software: softwareAssignments, bootISOs: bootISOs, keys: sshKeys,
 			artifacts: localrepoapp.NewResolver(integrations, localRepositories, modules.artifacts),
+			templates: templates, readers: readers,
 		})
 		if err != nil {
 			return nil, err

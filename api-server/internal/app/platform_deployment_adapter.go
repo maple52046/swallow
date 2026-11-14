@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
 
+	moduledomain "github.com/maple52046/swallow/internal/core/module/domain"
 	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
@@ -103,6 +105,9 @@ type platformDeploymentLauncher struct {
 	// gate composes a Slurm deployment's acceptance suite (validation.md §5). Required for Slurm:
 	// without it a Slurm deployment is refused rather than accepted without its gate.
 	gate *validationGate
+	// registry holds the modules' Workflow Templates (a Slurm scale-in's), and catalog compiles them.
+	registry *moduledomain.Registry
+	catalog  workflowdomain.PlanCatalog
 }
 
 // platformTokenIssuer issues a Platform's monitoring token (monitoringapp.PlatformAccess.Issue):
@@ -140,6 +145,15 @@ func (l platformDeploymentLauncher) PrepareDeployment(ctx context.Context, launc
 	slurm := launch.Platform != nil && launch.Platform.Type == platformdomain.PlatformTypeSlurm
 	switch launch.Realization {
 	case platformdomain.RealizeNothing, platformdomain.RealizeDeploy:
+	case platformdomain.RealizeRescan:
+		if !slurm {
+			return nil, fmt.Errorf("%w: only a Slurm Platform rescans a node's hardware", platformdomain.ErrInvalidDeployment)
+		}
+	case platformdomain.RealizeScaleIn:
+		if slurm {
+			return l.prepareSlurmScaleIn(ctx, launch)
+		}
+		return nil, fmt.Errorf("%w: only a Slurm Platform removes members", platformdomain.ErrInvalidDeployment)
 	case platformdomain.RealizeHardwareCounters:
 		if slurm {
 			return l.prepareSlurmHardwareCounters(ctx, launch)
@@ -326,15 +340,33 @@ func (l platformDeploymentLauncher) prepareSlurm(ctx context.Context, launch pla
 		Parameters: map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars},
 		Completion: []workflowdomain.Completion{{Type: slurmapi.CredentialCompletion}},
 	})
-	gate, err := l.gate.compose(ctx, launch, operationID, slurmGateRequest(launch, prepared.SiteID),
-		[]string{installPlatformStepID}, provisionFirst)
+	// The composed software comes right after the install: the gate's container checks run in the
+	// container runtime it installs (decision 083).
+	composed, err := l.planSlurmComposition(ctx, launch, operationID, provisionFirst, installPlatformStepID)
 	if err != nil {
 		return nil, err
 	}
-	steps = append(steps, gate.steps...)
-	composed, err := l.planSlurmComposition(ctx, launch, operationID, provisionFirst, gate.last)
+	last := installPlatformStepID
+	if len(composed.steps) > 0 {
+		last = composed.steps[len(composed.steps)-1].ID
+	}
+	probe, err := l.prepareGPUProbeImage(ctx, launch, operationID, provisionFirst, last)
 	if err != nil {
 		return nil, err
+	}
+	if probe != nil {
+		composed.steps = append(composed.steps, *probe)
+		last = probe.ID
+	}
+	// The gate validates only the members this deployment adds, so work running on the others is
+	// not disturbed; a redeploy that adds none (a partition change) has no gate.
+	var gate *composedGate
+	if launch.ChangedServerIDs == nil || len(launch.ChangedServerIDs) > 0 {
+		if gate, err = l.gate.compose(ctx, launch, operationID, slurmGateRequest(launch, prepared.SiteID),
+			[]string{last}, provisionFirst); err != nil {
+			return nil, err
+		}
+		composed.steps = append(composed.steps, gate.steps...)
 	}
 	steps = append(steps, composed.steps...)
 
@@ -343,7 +375,9 @@ func (l platformDeploymentLauncher) prepareSlurm(ctx context.Context, launch pla
 	if err != nil {
 		return nil, err
 	}
-	workflow.Jobs = labelGateJobs(workflow.Jobs, gate)
+	if gate != nil {
+		workflow.Jobs = labelGateJobs(workflow.Jobs, gate)
+	}
 	return &preparedPlatformDeployment{workflow: workflow, composed: composed, exporters: ensure.exporters, gate: gate}, nil
 }
 
@@ -356,6 +390,9 @@ type ensureOSPlan struct {
 	secretStepIDs []string
 	frozen        *provisioningapp.DeployServersInput
 	userData      string
+	// batches are the provisioning requests of each template the members are installed from; one
+	// for a deployment whose members all install the same way.
+	batches []provisioningapp.DeployServersInput
 	// exporters is the Node Exporter install composed after the provisioned Servers' time Tasks;
 	// its Tasks are already in steps.
 	exporters nodeExporterInstall
@@ -452,19 +489,34 @@ func (l platformDeploymentLauncher) buildOSReadiness(
 		readyIDs = append(readyIDs, serverID)
 		readyServers = append(readyServers, server)
 	}
-	if len(readyIDs) > 0 {
+	resolvedBatches := map[string]provisioningapp.DeployServersInput{}
+	for _, ids := range byMemberTemplate(launch.MachinePreparation, readyIDs) {
 		batch, resolvedUserData, resolveErr := l.deployments.ResolveOperationInput(
 			ctx,
-			platformProvisioningInput(launch.MachinePreparation, readyIDs),
+			platformProvisioningInput(launch.MachinePreparation, ids),
 		)
 		if resolveErr != nil {
 			return ensureOSPlan{}, resolveErr
 		}
-		plan.frozen = &batch
-		plan.userData = resolvedUserData
+		if plan.frozen != nil && batch.UserData.Mode == "replace" && plan.frozen.UserData.Mode == "replace" && resolvedUserData != plan.userData {
+			// The Workflow seals one cloud-init for its provision Tasks.
+			return ensureOSPlan{}, fmt.Errorf("%w: the members this change installs come from templates with different cloud-init; add them in separate changes",
+				platformdomain.ErrInvalidDeployment)
+		}
+		if plan.frozen == nil || batch.UserData.Mode == "replace" {
+			frozen := batch
+			plan.frozen, plan.userData = &frozen, resolvedUserData
+		}
+		plan.batches = append(plan.batches, batch)
+		for _, id := range ids {
+			resolvedBatches[id] = batch
+		}
+	}
+	if len(readyIDs) > 0 {
 		for _, server := range readyServers {
 			serverID := server.ID
 			stepID := "provision-" + serverID
+			batch := resolvedBatches[serverID]
 			targetRequest := batch
 			targetRequest.ServerIDs = []string{serverID}
 			if batch.Network != nil {
@@ -531,7 +583,14 @@ func (l platformDeploymentLauncher) deploymentWorkflowInput(
 	intentSnapshot := map[string]any{
 		"machinePreparation": structToMap(preparation), "extraVars": prepared.ExtraVars,
 	}
-	if ensure.frozen != nil {
+	switch {
+	case len(ensure.batches) > 1:
+		batches := make([]any, 0, len(ensure.batches))
+		for _, batch := range ensure.batches {
+			batches = append(batches, structToMap(batch))
+		}
+		intentSnapshot["resolvedProvisioning"] = batches
+	case ensure.frozen != nil:
 		intentSnapshot["resolvedProvisioning"] = structToMap(*ensure.frozen)
 	}
 	steps, err := l.bootMedia.withEnsureTasks(ctx, steps)
@@ -594,7 +653,12 @@ type platformMachinePreparationValidator struct {
 }
 
 func (v platformMachinePreparationValidator) Validate(ctx context.Context, _ string, serverIDs []string, preparation platformdomain.MachinePreparation) error {
-	return v.deployments.Validate(ctx, platformProvisioningInput(preparation, serverIDs))
+	for _, batch := range byMemberTemplate(preparation, serverIDs) {
+		if err := v.deployments.Validate(ctx, platformProvisioningInput(preparation, batch)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // platformNodeSubnetResolver implements platformdomain.NodeSubnetResolver from the provisioner's
@@ -677,25 +741,84 @@ func nodeSubnet(interfaces []provisioningdomain.NetworkInterface, assignment pla
 // Template's per-target IPs, still reach the provisioner. A preparation with no network field sends
 // no network intent and takes the Template's whole intent, or Automatic.
 func platformProvisioningInput(preparation platformdomain.MachinePreparation, serverIDs []string) provisioningapp.DeployServersInput {
+	if templateID := memberTemplate(preparation, serverIDs); templateID != "" {
+		// Members installed from their node group's template take everything from it except their
+		// own network assignment (decision 083): no image, mode, or cloud-init of the Platform's machine
+		// preparation, and an omitted network mode, subnet, and gateway keep the template's.
+		input := provisioningapp.DeployServersInput{
+			ServerIDs: append([]string(nil), serverIDs...), TemplateID: templateID,
+			UserData: provisioningapp.DeploymentUserDataInput{Mode: "inherit"},
+		}
+		if assignments := assignmentsOf(preparation, serverIDs); len(assignments) > 0 {
+			input.Network = &provisioningapp.DeploymentNetworkInput{Assignments: assignments}
+		}
+		return input
+	}
 	input := provisioningapp.DeployServersInput{
 		ServerIDs: append([]string(nil), serverIDs...), TemplateID: preparation.TemplateID,
 		Settings: provisioningapp.DeploymentSettingsInput{ImageID: optionalStringPointer(preparation.ImageID), Ephemeral: preparation.Ephemeral},
 		UserData: provisioningapp.DeploymentUserDataInput{Mode: preparation.UserDataMode, Value: preparation.UserData},
 	}
-	if preparation.NetworkMode != "" || preparation.SubnetID != "" || preparation.DefaultGateway || len(preparation.Assignments) > 0 {
+	if preparation.NetworkMode != "" || preparation.SubnetID != "" || preparation.DefaultGateway != nil || len(preparation.Assignments) > 0 {
 		input.Network = &provisioningapp.DeploymentNetworkInput{
 			Mode: preparation.NetworkMode, SubnetID: preparation.SubnetID,
 			DefaultGateway: preparation.DefaultGateway,
-			Assignments:    make([]provisioningapp.DeploymentNetworkAssignmentInput, len(preparation.Assignments)),
-		}
-		for index, assignment := range preparation.Assignments {
-			input.Network.Assignments[index] = provisioningapp.DeploymentNetworkAssignmentInput{
-				ServerID: assignment.ServerID, InterfaceID: assignment.InterfaceID,
-				SubnetID: assignment.SubnetID, IPAddress: assignment.IPAddress,
-			}
+			Assignments:    assignmentsOf(preparation, nil),
 		}
 	}
 	return input
+}
+
+// memberTemplate is the member-level template every one of serverIDs is installed from, "" when
+// they install from the machine preparation. Callers batch Servers by template (byMemberTemplate),
+// so a batch never mixes them.
+func memberTemplate(preparation platformdomain.MachinePreparation, serverIDs []string) string {
+	templateID := ""
+	for index, id := range serverIDs {
+		assignment, _ := preparation.Assignment(id)
+		if index == 0 {
+			templateID = assignment.TemplateID
+		} else if assignment.TemplateID != templateID {
+			return ""
+		}
+	}
+	return templateID
+}
+
+// byMemberTemplate splits serverIDs into batches installed the same way, keeping the request order
+// within each batch and the order of the batches' first members.
+func byMemberTemplate(preparation platformdomain.MachinePreparation, serverIDs []string) [][]string {
+	index := map[string]int{}
+	var batches [][]string
+	for _, id := range serverIDs {
+		assignment, _ := preparation.Assignment(id)
+		position, ok := index[assignment.TemplateID]
+		if !ok {
+			position = len(batches)
+			index[assignment.TemplateID] = position
+			batches = append(batches, nil)
+		}
+		batches[position] = append(batches[position], id)
+	}
+	return batches
+}
+
+// assignmentsOf is the network part of the assignments of serverIDs (every assignment when nil).
+func assignmentsOf(preparation platformdomain.MachinePreparation, serverIDs []string) []provisioningapp.DeploymentNetworkAssignmentInput {
+	assignments := make([]provisioningapp.DeploymentNetworkAssignmentInput, 0, len(preparation.Assignments))
+	for _, assignment := range preparation.Assignments {
+		if serverIDs != nil && !slices.Contains(serverIDs, assignment.ServerID) {
+			continue
+		}
+		if assignment.InterfaceID == "" && assignment.SubnetID == "" && assignment.IPAddress == "" {
+			continue
+		}
+		assignments = append(assignments, provisioningapp.DeploymentNetworkAssignmentInput{
+			ServerID: assignment.ServerID, InterfaceID: assignment.InterfaceID,
+			SubnetID: assignment.SubnetID, IPAddress: assignment.IPAddress,
+		})
+	}
+	return assignments
 }
 
 func optionalStringPointer(value string) *string {
@@ -745,6 +868,7 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 		Kind: uninstallKind, Intent: intent,
 		TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
 		PlaybookName: uninstallPlaybook, RequestedBy: launch.RequestedBy,
+		TrustedVars: uninstallVars(launch.Platform),
 	}, operationID, false)
 	if err != nil {
 		return "", err
@@ -780,6 +904,25 @@ func (l platformDeploymentLauncher) LaunchUninstall(
 	}
 	l.nodeExporter.record(ctx, exporters, created.ID)
 	return created.ID, nil
+}
+
+// uninstallVars are what an uninstall playbook needs of the Platform: for Slurm, the mount path of
+// its shared workload filesystem, which every node unmounts and forgets. Nil
+// when there is nothing to pass.
+func uninstallVars(platform *platformdomain.Platform) map[string]any {
+	if platform == nil || platform.Type != platformdomain.PlatformTypeSlurm || platform.Spec == nil {
+		return nil
+	}
+	slurmSettings, _ := platform.Spec.Settings["slurm"].(map[string]any)
+	storage, _ := slurmSettings["workloadStorage"].(map[string]any)
+	if storage == nil {
+		return nil
+	}
+	path, _ := storage["mountPath"].(string)
+	if strings.TrimSpace(path) == "" {
+		path = "/shared"
+	}
+	return map[string]any{"swallow_slurm_workload_mount_path": path}
 }
 
 // uninstallNodeExporter makes sure each Server an uninstall keeps ends with the Node Exporter. The

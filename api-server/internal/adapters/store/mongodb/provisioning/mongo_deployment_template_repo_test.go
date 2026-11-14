@@ -65,3 +65,30 @@ func TestToDeploymentTemplateReadsNetworkMode(t *testing.T) {
 		}
 	}
 }
+
+// A hardware floor round-trips through the document; a template without one reads as none.
+func TestDeploymentTemplateDocKeepsTheMinimumHardware(t *testing.T) {
+	now := time.Now().UTC()
+	minimum := &provisioningdomain.MinimumHardware{CPUCores: 32, MemoryMiB: 256000, GPUModel: "MI300X", GPUCount: 8}
+	doc, err := newDeploymentTemplateDoc(&provisioningdomain.DeploymentTemplate{
+		ID: "template-1", IntegrationID: "integration-1", Name: "GPU", ImageID: "ubuntu/noble",
+		MinimumHardware: minimum, CreatedAt: now, UpdatedAt: now,
+	}, "", nil)
+	if err != nil {
+		t.Fatalf("build document: %v", err)
+	}
+	raw, err := bson.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded deploymentTemplateDoc
+	if err := bson.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if got := toDeploymentTemplate(&decoded).MinimumHardware; got == nil || *got != *minimum {
+		t.Errorf("minimum hardware = %+v, want %+v", got, minimum)
+	}
+	if got := toDeploymentTemplate(&deploymentTemplateDoc{}).MinimumHardware; got != nil {
+		t.Errorf("a template without a floor reads %+v", got)
+	}
+}

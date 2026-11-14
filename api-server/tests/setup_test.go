@@ -77,6 +77,7 @@ type platformFixture struct {
 	sites        *fakeSiteRepo
 	integrations *fakeIntegrationRepo
 	templates    *fakeDeploymentTemplateRepo
+	templateRefs *fakeTemplateReferences
 	provider     *fakeProvider
 	factory      *fakeProviderFactory
 	automation   *fakeSiteAutomation
@@ -167,6 +168,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 	// handler share one instance and a rename propagates to server projections through the same
 	// server repo the reconcile pass uses.
 	reconcileUC := provisioningapp.NewReconcileUseCase(integrations, servers, factory, osImageMetadata, &recordingInstalledSoftware{})
+	templateRefs := &fakeTemplateReferences{}
 	deployments := provisioningapp.NewDeployServersUseCase(servers, templates, factory, osImageVerifications, presentDeploymentKey{})
 	launcher := &executingLauncher{
 		deployments: deployments,
@@ -180,6 +182,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 			templates,
 			provisioningapp.NewIntegrationReader(integrations, sites),
 			factory,
+			templateRefs,
 		),
 		nil,
 		nil,
@@ -238,6 +241,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		Lifecycle: lifecycle, Integrations: platformCleanup, Canceler: platformCleanup, Claims: claims,
 		GPUOperators: features, Omnistats: features, DeviceMetricsExporters: features,
 		ExporterAssignments: platformCleanup, OwnedMonitoringLinks: []string{"Platform Grafana"},
+		Templates: fakePlatformTemplates{repo: templates},
 	})
 	if err != nil {
 		t.Fatalf("NewPlatformService() error = %v", err)
@@ -248,6 +252,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		NodeSubnets: noNodeSubnets{}, Requirements: requirementRepo, DeploymentKeys: presentDeploymentKey{},
 		GPUOperators: features, Omnistats: features, DeviceMetricsExporters: features,
 		Accelerator: amd.Accelerator{}, ReadRequest: platformdelivery.DeployInputFromRequest,
+		Templates: fakePlatformTemplates{repo: templates}, MemberTemplates: platformRepo, Readers: readerFactory,
 	})
 	if err != nil {
 		t.Fatalf("NewDeployService() error = %v", err)
@@ -443,6 +448,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 		sites:             sites,
 		integrations:      integrations,
 		templates:         templates,
+		templateRefs:      templateRefs,
 		provider:          provider,
 		factory:           factory,
 		automation:        automation,

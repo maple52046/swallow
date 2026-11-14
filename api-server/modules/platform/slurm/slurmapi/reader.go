@@ -273,3 +273,47 @@ func slurmState(states []string) string {
 	}
 	return "unknown"
 }
+
+// slurmJobsJSON is a tolerant subset of slurmrestd's /jobs response: each job's partition and
+// state, which slurmrestd reports as a list of state names.
+type slurmJobsJSON struct {
+	Jobs []struct {
+		Partition string   `json:"partition"`
+		JobState  []string `json:"job_state"`
+	} `json:"jobs"`
+}
+
+// QueuedJobs implements platformdomain.QueueReader: the jobs that are pending, running, or
+// suspended in each partition, keyed by partition name. A job submitted to several partitions
+// ("a,b") counts in each. Finished jobs slurmrestd still lists do not count.
+func (r *Reader) QueuedJobs(ctx context.Context) (map[string]int, error) {
+	var out slurmJobsJSON
+	if err := r.getJSON(ctx, "jobs", &out); err != nil {
+		return nil, err
+	}
+	counts := map[string]int{}
+	for _, job := range out.Jobs {
+		if !jobActive(job.JobState) {
+			continue
+		}
+		for _, partition := range strings.Split(job.Partition, ",") {
+			if partition = strings.TrimSpace(partition); partition != "" {
+				counts[partition]++
+			}
+		}
+	}
+	return counts, nil
+}
+
+// jobActive reports whether a job still holds or waits for its partition's nodes.
+func jobActive(states []string) bool {
+	for _, state := range states {
+		switch strings.ToUpper(state) {
+		case "PENDING", "RUNNING", "SUSPENDED", "CONFIGURING", "COMPLETING", "REQUEUED", "RESIZING":
+			return true
+		}
+	}
+	return false
+}
+
+var _ platformdomain.QueueReader = (*Reader)(nil)

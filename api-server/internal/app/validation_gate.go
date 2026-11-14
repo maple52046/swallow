@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	validationapp "github.com/maple52046/swallow/internal/core/validation/application"
 	validationdomain "github.com/maple52046/swallow/internal/core/validation/domain"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
+	"github.com/maple52046/swallow/modules/platform/slurm"
 )
 
 // slurmAcceptanceSuite is the Validation Suite every Slurm deployment composes as its gate
@@ -115,8 +117,26 @@ func slurmGateRequest(launch platformdomain.DeploymentLaunch, siteID string) gat
 	}
 	primary, _ := vars["swallow_slurm_primary_controller_id"].(string)
 	parameters := map[string]any{}
-	if gpus := decodeStringSlice(vars["swallow_slurm_gpu_compute_ids"]); len(gpus) > 0 {
+	gpus := decodeStringSlice(vars["swallow_slurm_gpu_compute_ids"])
+	if changed := launch.ChangedServerIDs; changed != nil {
+		// Only the members the deployment adds are validated (and drained when they fail); the
+		// others keep their work.
+		parameters["nodes"] = append([]string(nil), changed...)
+		var scoped []string
+		for _, id := range gpus {
+			if slices.Contains(changed, id) {
+				scoped = append(scoped, id)
+			}
+		}
+		gpus = scoped
+	}
+	if len(gpus) > 0 {
 		parameters["gpuServers"] = gpus
+		if runtime := launch.ContainerRuntime; runtime != nil && runtime.Kind != "" {
+			// The GPU checks run the GPU probe image, which the deployment pulled onto these nodes
+			// (prepareGPUProbeImage), in the Platform's container runtime (decision 083).
+			parameters["containerImage"], parameters["containerRuntime"] = slurm.GPUProbeImage, string(runtime.Kind)
+		}
 	}
 	return gateRequest{suiteID: slurmAcceptanceSuite, siteID: siteID, access: []string{primary}, members: members, parameters: parameters}
 }

@@ -552,6 +552,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '409':
+          description: '`conflict`: a Platform node group still installs from the template; the message names them.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           $ref: '#/components/responses/Error'
   /api/v1/provisioning/templates/{id}/user-data:
@@ -1785,6 +1791,8 @@ components:
         - ephemeral
         - network
         - hasUserData
+        - minimumHardware
+        - usedBy
         - createdAt
         - updatedAt
       properties:
@@ -1809,10 +1817,84 @@ components:
           $ref: '#/components/schemas/DeploymentTemplateNetwork'
         hasUserData:
           type: boolean
+        minimumHardware:
+          nullable: true
+          description: The optional hardware a Server needs to be installed from the template; null sets none.
+          allOf:
+            - $ref: '#/components/schemas/DeploymentTemplateMinimumHardware'
+        usedBy:
+          type: array
+          description: The Platform node groups that install their new members from the template.
+          items:
+            $ref: '#/components/schemas/DeploymentTemplateUse'
         createdAt:
           $ref: '#/components/schemas/Timestamp'
         updatedAt:
           $ref: '#/components/schemas/Timestamp'
+    DeploymentTemplateMinimumHardware:
+      type: object
+      description: >-
+        A hardware floor; a null field sets no floor for its dimension. A Platform spec write that adds
+        a Server below it is refused, naming what the Server lacks; missing inventory counts as not met.
+      required: [cpuCores, memoryMiB, storageGB, gpuModel, gpuCount]
+      properties:
+        cpuCores:
+          type: integer
+          nullable: true
+          minimum: 1
+        memoryMiB:
+          type: integer
+          format: int64
+          nullable: true
+          minimum: 1
+        storageGB:
+          type: integer
+          nullable: true
+          minimum: 1
+        gpuModel:
+          type: string
+          nullable: true
+          description: Matched case-insensitively within the GPU Inventory's compute GPU model name.
+        gpuCount:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: Compute GPUs.
+    DeploymentTemplateMinimumHardwareIntent:
+      type: object
+      description: A hardware floor as sent; an omitted or null field sets no floor for its dimension.
+      properties:
+        cpuCores:
+          type: integer
+          nullable: true
+          minimum: 0
+        memoryMiB:
+          type: integer
+          format: int64
+          nullable: true
+          minimum: 0
+        storageGB:
+          type: integer
+          nullable: true
+          minimum: 0
+        gpuModel:
+          type: string
+          nullable: true
+        gpuCount:
+          type: integer
+          nullable: true
+          minimum: 0
+    DeploymentTemplateUse:
+      type: object
+      required: [platformId, platformName, group]
+      properties:
+        platformId:
+          type: string
+        platformName:
+          type: string
+        group:
+          type: string
+          description: The node group, or `machine preparation` for a Platform's own default.
     DeploymentTemplateNetwork:
       type: object
       description: Reusable network intent; never a NIC id or a target-specific static IP.
@@ -1869,6 +1951,10 @@ components:
           type: string
           writeOnly: true
           description: Optional cloud-init user data, sealed at rest and never returned.
+        minimumHardware:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/DeploymentTemplateMinimumHardwareIntent'
     DeploymentTemplateUpdateRequest:
       type: object
       description: Any subset of the template's non-secret intent; omitted fields are unchanged.
@@ -1885,6 +1971,11 @@ components:
           description: The deploy mode (matched case-insensitively).
         network:
           $ref: '#/components/schemas/DeploymentTemplateNetworkIntent'
+        minimumHardware:
+          nullable: true
+          description: Replaces the floor; an object whose fields are all null clears it, and null keeps it.
+          allOf:
+            - $ref: '#/components/schemas/DeploymentTemplateMinimumHardwareIntent'
     DeploymentTemplateUserDataRequest:
       type: object
       required:
@@ -1996,9 +2087,9 @@ components:
       type: object
       description: >-
         Deployment network intent. Without a template, a missing object or `mode` means
-        `automatic`; with one, a missing object takes the template's network intent and a missing
-        `mode` keeps the template's mode. Each target uses its boot NIC unless an assignment
-        overrides it.
+        `automatic`; with one, a missing object takes the template's network intent, and a missing
+        `mode`, `subnetId`, or `defaultGateway` keeps the template's. Each target uses its boot NIC
+        unless an assignment overrides it.
       properties:
         mode:
           type: string

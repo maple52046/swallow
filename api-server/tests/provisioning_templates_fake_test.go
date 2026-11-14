@@ -2,10 +2,12 @@ package tests
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"time"
 
+	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 )
 
@@ -172,4 +174,67 @@ func (r *fakeDeploymentTemplateRepo) nameTaken(integrationID, name, exceptID str
 		}
 	}
 	return false
+}
+
+// fakePlatformTemplates is the Platform context's port to Deployment Templates over the fake
+// template store, the way the composition root's adapter is over the Mongo one.
+type fakePlatformTemplates struct {
+	repo *fakeDeploymentTemplateRepo
+}
+
+func (t fakePlatformTemplates) Find(ctx context.Context, id string) (*platformdomain.DeploymentTemplateIntent, error) {
+	template, err := t.repo.FindByID(ctx, id)
+	if errors.Is(err, provisioningdomain.ErrDeploymentTemplateNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	intent := &platformdomain.DeploymentTemplateIntent{
+		ID: template.ID, IntegrationID: template.IntegrationID, Name: template.Name, Ephemeral: template.Ephemeral,
+		Digest: template.ImageID + "|" + string(template.NetworkMode),
+	}
+	if minimum := template.MinimumHardware; minimum != nil {
+		intent.Minimum = &platformdomain.TemplateMinimum{CPUCores: minimum.CPUCores, MemoryMiB: minimum.MemoryMiB,
+			StorageGB: minimum.StorageGB, GPUModel: minimum.GPUModel, GPUCount: minimum.GPUCount}
+	}
+	return intent, nil
+}
+
+func (t fakePlatformTemplates) NameTaken(ctx context.Context, integrationID, name, id string) (bool, error) {
+	templates, err := t.repo.List(ctx, provisioningdomain.DeploymentTemplateFilter{IntegrationID: integrationID})
+	if err != nil {
+		return false, err
+	}
+	for _, template := range templates {
+		if template.ID != id && template.Name == name {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (t fakePlatformTemplates) EnsureGenerated(ctx context.Context, generated []platformdomain.GeneratedTemplate, preparation platformdomain.MachinePreparation) error {
+	for _, g := range generated {
+		if _, err := t.repo.FindByID(ctx, g.ID); err == nil {
+			continue
+		}
+		template := &provisioningdomain.DeploymentTemplate{
+			ID: g.ID, IntegrationID: g.IntegrationID, Name: g.Name, ImageID: preparation.ImageID,
+			Ephemeral: preparation.Ephemeral != nil && *preparation.Ephemeral, NetworkMode: provisioningdomain.DeploymentNetworkMode(preparation.NetworkMode),
+		}
+		if err := t.repo.Create(ctx, template, ""); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// fakeTemplateReferences lists the Platform node groups a test says install from each template.
+type fakeTemplateReferences struct {
+	refs map[string][]provisioningdomain.DeploymentTemplateReference
+}
+
+func (f *fakeTemplateReferences) TemplateReferences(context.Context) (map[string][]provisioningdomain.DeploymentTemplateReference, error) {
+	return f.refs, nil
 }

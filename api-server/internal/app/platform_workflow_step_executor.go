@@ -35,6 +35,9 @@ import (
 // keyed only by platform id. Implementations must treat an already-deleted Platform as success.
 type platformUninstallFinalizer interface {
 	CompleteUninstall(ctx context.Context, platformID string, deleteRecord bool) error
+	// CompleteMemberRemoval is a scale-in's finalize: the members that left lose their membership
+	// and the records of what their cleanup removed (decision 083).
+	CompleteMemberRemoval(ctx context.Context, platformID string, serverIDs []string) error
 }
 
 // platformWorkflowStepExecutor implements swallow-owned readiness and health phases.
@@ -79,6 +82,8 @@ func (e platformWorkflowStepExecutor) Execute(ctx context.Context, input tempora
 		return e.validatePlatform(ctx, input)
 	case "complete-uninstall":
 		return e.completeUninstall(ctx, input.PlatformID, input.Step)
+	case completeScaleInTaskKind:
+		return e.completeMemberRemoval(ctx, input.PlatformID, input.Step)
 	case "record-image-verification":
 		return e.recordImageVerification(ctx, input)
 	case "record-image-verification-failure":
@@ -171,6 +176,19 @@ func (e platformWorkflowStepExecutor) completeUninstall(ctx context.Context, pla
 	// A Workflow accepted before deleteRecord existed has no such parameter and keeps the record.
 	deleteRecord, _ := step.Parameters[deleteRecordParameter].(bool)
 	if err := e.finalizer.CompleteUninstall(ctx, platformID, deleteRecord); err != nil {
+		return internalStepFailed("platform_finalize_failed", err.Error(), true)
+	}
+	return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}
+}
+
+// completeMemberRemoval finishes a scale-in once its members were drained, reconfigured out,
+// cleaned, and released as asked. A missing finalizer or platform id is a non-retryable failure; a
+// write failure is retryable, because the work on the hosts is done.
+func (e platformWorkflowStepExecutor) completeMemberRemoval(ctx context.Context, platformID string, step workflowdomain.Task) temporalworkflow.StepExecutionResult {
+	if e.finalizer == nil || strings.TrimSpace(platformID) == "" {
+		return internalStepFailed("platform_finalize_unavailable", "Platform member removal finalization is unavailable.", false)
+	}
+	if err := e.finalizer.CompleteMemberRemoval(ctx, platformID, decodeStringSlice(step.Parameters["serverIds"])); err != nil {
 		return internalStepFailed("platform_finalize_failed", err.Error(), true)
 	}
 	return temporalworkflow.StepExecutionResult{Status: workflowdomain.TaskSucceeded, Progress: 100}

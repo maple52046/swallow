@@ -40,6 +40,22 @@ type PlatformSpec struct {
 	Settings           map[string]any
 	// Removal is how an absent Platform is removed; nil keeps its members and their OS.
 	Removal *PlatformRemoval
+	// MemberRemovals says how the members this spec drops leave the Platform (decision 083); an entry for
+	// a Server the spec keeps means nothing.
+	MemberRemovals []MemberRemoval
+}
+
+// MemberRemoval returns the removal choices for serverID, the defaults when the spec names none.
+func (s PlatformSpec) MemberRemoval(serverID string) MemberRemoval {
+	for _, removal := range s.MemberRemovals {
+		if removal.ServerID == serverID {
+			if removal.DrainTimeoutSeconds <= 0 {
+				removal.DrainTimeoutSeconds = DefaultDrainTimeoutSeconds
+			}
+			return removal
+		}
+	}
+	return MemberRemoval{ServerID: serverID, DrainTimeoutSeconds: DefaultDrainTimeoutSeconds}
 }
 
 // MemberIDs returns the members' Server ids in spec order.
@@ -71,6 +87,12 @@ func (s PlatformSpec) Clone() PlatformSpec {
 	}
 	out.Settings = maps.Clone(s.Settings)
 	out.MachinePreparation.Assignments = slices.Clone(s.MachinePreparation.Assignments)
+	out.MachinePreparation.GeneratedTemplates = slices.Clone(s.MachinePreparation.GeneratedTemplates)
+	out.MemberRemovals = slices.Clone(s.MemberRemovals)
+	if gateway := s.MachinePreparation.DefaultGateway; gateway != nil {
+		value := *gateway
+		out.MachinePreparation.DefaultGateway = &value
+	}
 	if s.Removal != nil {
 		removal := *s.Removal
 		out.Removal = &removal

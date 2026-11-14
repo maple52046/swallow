@@ -109,6 +109,10 @@ type Platform struct {
 	// OwnedIntegrationID is set only for a credential integration created by swallow.
 	// It is private persistence metadata and is never exposed by the platform API.
 	OwnedIntegrationID string
+	// MemberTemplates records the Deployment Template each member was installed from (decision 083). It
+	// is written only through MemberTemplateRecorder, when a deployment that installs members is
+	// accepted, never by Update.
+	MemberTemplates []MemberTemplateRecord
 	// Spec is what the user wants the Platform to be; nil for a Platform recorded before
 	// Platforms had a spec and not yet adopted (decision 069). Generation counts its writes.
 	Spec       *PlatformSpec

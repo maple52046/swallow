@@ -25,6 +25,21 @@ type platformSpecRequest struct {
 	Members            []platformMemberRequest    `json:"members"`
 	Settings           map[string]any             `json:"settings"`
 	MachinePreparation *machinePreparationRequest `json:"machinePreparation"`
+	// MemberRemovals say how the members the spec drops leave (platforms.md, "Remove Members").
+	MemberRemovals []memberRemovalRequest `json:"memberRemovals"`
+}
+
+// memberRemovalRequest is how one dropped member leaves; omitted fields are the defaults (drained
+// for 600 seconds, not forced, its OS kept).
+type memberRemovalRequest struct {
+	ServerID            string `json:"serverId"`
+	ReleaseServer       bool   `json:"releaseServer"`
+	Erase               bool   `json:"erase"`
+	SecureErase         bool   `json:"secureErase"`
+	QuickErase          bool   `json:"quickErase"`
+	UnbindStaticIPs     bool   `json:"unbindStaticIps"`
+	DrainTimeoutSeconds int    `json:"drainTimeoutSeconds"`
+	Force               bool   `json:"force"`
 }
 
 type platformMemberRequest struct {
@@ -65,6 +80,8 @@ type removePlatformRequest struct {
 type specWriteResponse struct {
 	Platform *application.PlatformItem               `json:"platform"`
 	Plan     *convergencedelivery.ChangePlanResponse `json:"plan"`
+	// Warnings are what validating the spec found worth telling without refusing it.
+	Warnings []string `json:"warnings"`
 }
 
 func (r platformSpecRequest) toDomain() (platformdomain.PlatformSpec, *apierror.APIError) {
@@ -81,6 +98,21 @@ func (r platformSpecRequest) toDomain() (platformdomain.PlatformSpec, *apierror.
 			return spec, apierror.New(apierror.CodeValidation, `deployTarget must be "disk" or "ram".`)
 		}
 		spec.MachinePreparation = preparation
+	}
+	for _, removal := range r.MemberRemovals {
+		if removal.ServerID == "" {
+			return spec, apierror.New(apierror.CodeValidation, "Each member removal needs a serverId.")
+		}
+		if removal.DrainTimeoutSeconds < 0 || removal.DrainTimeoutSeconds > platformdomain.MaxDrainTimeoutSeconds {
+			return spec, apierror.New(apierror.CodeValidation, "drainTimeoutSeconds must be between 0 and 86400.")
+		}
+		spec.MemberRemovals = append(spec.MemberRemovals, platformdomain.MemberRemoval{
+			ServerID: removal.ServerID, ReleaseServer: removal.ReleaseServer,
+			ReleaseOptions: platformdomain.ServerReleaseOptions{
+				Erase: removal.Erase, SecureErase: removal.SecureErase, QuickErase: removal.QuickErase, UnbindStaticIPs: removal.UnbindStaticIPs,
+			},
+			DrainTimeoutSeconds: removal.DrainTimeoutSeconds, Force: removal.Force,
+		})
 	}
 	return spec, nil
 }
@@ -176,7 +208,10 @@ func (h *PlatformHandler) respondSpecWrite(c *fiber.Ctx, result *application.Spe
 	if err != nil {
 		return respondError(c, err)
 	}
-	response := specWriteResponse{Platform: item}
+	response := specWriteResponse{Platform: item, Warnings: result.Warnings}
+	if response.Warnings == nil {
+		response.Warnings = []string{}
+	}
 	status := fiber.StatusOK
 	if result.Plan != nil {
 		plan := convergencedelivery.ToChangePlanResponse(result.Plan)
@@ -209,10 +244,29 @@ func respondSpecError(c *fiber.Ctx, err error) (error, bool) {
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, "The platform spec changed since it was read; read it again and retry.")), true
 	case errors.Is(err, platformdomain.ErrImmutableSpecField), errors.Is(err, application.ErrUnsupportedChange),
 		errors.Is(err, application.ErrPlatformRemoving), errors.Is(err, application.ErrPlatformNotAdopted),
-		errors.Is(err, convergence.ErrChangePlanConflict):
+		errors.Is(err, convergence.ErrChangePlanConflict), errors.Is(err, application.ErrBlockedChange):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error())), true
 	case errors.Is(err, platformdomain.ErrInvalidSpec):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error())), true
 	}
 	return nil, false
+}
+
+// rescanAccepted is the Workflow a rescan started (the workflows contract's WorkflowAccepted).
+type rescanAccepted struct {
+	OperationID string `json:"operationId"`
+}
+
+// RescanNode handles POST /platforms/{id}/<type>/nodes/{serverId}/rescan: it redetects one compute
+// member's hardware and reconfigures the Platform with it, answering 202 with the Workflow
+// (platforms.md, "Rescan A Node's Hardware").
+func (h *PlatformHandler) RescanNode(c *fiber.Ctx) error {
+	workflowID, err := h.specs.Rescan(c.Context(), c.Params("id"), c.Params("serverId"), requester(c))
+	if err != nil {
+		if errors.Is(err, application.ErrNotRescannable) {
+			return apierror.Respond(c, apierror.New(apierror.CodeConflict, err.Error()))
+		}
+		return respondError(c, err)
+	}
+	return c.Status(fiber.StatusAccepted).JSON(rescanAccepted{OperationID: workflowID})
 }

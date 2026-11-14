@@ -23,8 +23,91 @@ type DeploymentTemplateItem struct {
 	Ephemeral     bool                          `json:"ephemeral"`
 	Network       DeploymentNetworkSettingsItem `json:"network"`
 	HasUserData   bool                          `json:"hasUserData"`
-	CreatedAt     string                        `json:"createdAt"`
-	UpdatedAt     string                        `json:"updatedAt"`
+	// MinimumHardware is the template's optional hardware floor; null sets none.
+	MinimumHardware *MinimumHardwareItem `json:"minimumHardware"`
+	// UsedBy lists the Platform node groups that install from the template.
+	UsedBy    []DeploymentTemplateUseItem `json:"usedBy"`
+	CreatedAt string                      `json:"createdAt"`
+	UpdatedAt string                      `json:"updatedAt"`
+}
+
+// MinimumHardwareItem is a template's hardware floor on the wire; a null field sets no floor for its
+// dimension.
+type MinimumHardwareItem struct {
+	CPUCores  *int    `json:"cpuCores"`
+	MemoryMiB *int64  `json:"memoryMiB"`
+	StorageGB *int    `json:"storageGB"`
+	GPUModel  *string `json:"gpuModel"`
+	GPUCount  *int    `json:"gpuCount"`
+}
+
+// DeploymentTemplateUseItem is one Platform node group that installs from a template.
+type DeploymentTemplateUseItem struct {
+	PlatformID   string `json:"platformId"`
+	PlatformName string `json:"platformName"`
+	Group        string `json:"group"`
+}
+
+// MinimumHardwareInput is a requested hardware floor; a nil field sets no floor for its dimension.
+type MinimumHardwareInput struct {
+	CPUCores  *int
+	MemoryMiB *int64
+	StorageGB *int
+	GPUModel  *string
+	GPUCount  *int
+}
+
+// domain turns the request into the stored floor; a floor that constrains nothing is nil.
+func (m *MinimumHardwareInput) domain() (*provisioningdomain.MinimumHardware, error) {
+	if m == nil {
+		return nil, nil
+	}
+	minimum := provisioningdomain.MinimumHardware{}
+	if m.CPUCores != nil {
+		minimum.CPUCores = *m.CPUCores
+	}
+	if m.MemoryMiB != nil {
+		minimum.MemoryMiB = *m.MemoryMiB
+	}
+	if m.StorageGB != nil {
+		minimum.StorageGB = *m.StorageGB
+	}
+	if m.GPUModel != nil {
+		minimum.GPUModel = strings.TrimSpace(*m.GPUModel)
+	}
+	if m.GPUCount != nil {
+		minimum.GPUCount = *m.GPUCount
+	}
+	if err := minimum.Validate(); err != nil {
+		return nil, err
+	}
+	if minimum.Empty() {
+		return nil, nil
+	}
+	return &minimum, nil
+}
+
+func minimumHardwareItem(minimum *provisioningdomain.MinimumHardware) *MinimumHardwareItem {
+	if minimum == nil {
+		return nil
+	}
+	item := &MinimumHardwareItem{}
+	if minimum.CPUCores > 0 {
+		item.CPUCores = &minimum.CPUCores
+	}
+	if minimum.MemoryMiB > 0 {
+		item.MemoryMiB = &minimum.MemoryMiB
+	}
+	if minimum.StorageGB > 0 {
+		item.StorageGB = &minimum.StorageGB
+	}
+	if minimum.GPUModel != "" {
+		item.GPUModel = &minimum.GPUModel
+	}
+	if minimum.GPUCount > 0 {
+		item.GPUCount = &minimum.GPUCount
+	}
+	return item
 }
 
 // DeploymentNetworkSettingsItem is reusable intent without target NIC or IP data.
@@ -51,6 +134,8 @@ type CreateDeploymentTemplateInput struct {
 	Ephemeral     bool
 	UserData      string
 	Network       *DeploymentNetworkSettingsInput
+	// MinimumHardware is the optional hardware floor; nil sets none.
+	MinimumHardware *MinimumHardwareInput
 }
 
 // UpdateDeploymentTemplateInput changes non-secret template intent.
@@ -60,6 +145,8 @@ type UpdateDeploymentTemplateInput struct {
 	ImageID     *string
 	Ephemeral   *bool
 	Network     *DeploymentNetworkSettingsInput
+	// MinimumHardware, when set, replaces the floor (an object of nulls clears it); nil keeps it.
+	MinimumHardware *MinimumHardwareInput
 }
 
 // DeploymentTemplateService owns template validation and lifecycle.
@@ -67,17 +154,29 @@ type DeploymentTemplateService struct {
 	templates    provisioningdomain.DeploymentTemplateRepository
 	integrations provisioningdomain.ProvisionerIntegrationReader
 	providers    provisioningdomain.ProviderFactory
+	references   provisioningdomain.DeploymentTemplateReferenceReader
 }
 
-// NewDeploymentTemplateService creates the template application service.
+// NewDeploymentTemplateService creates the template application service. references names the
+// Platform node groups that install from each template: they are listed in every read, and a
+// referenced template cannot be deleted. A nil references reports no use (tests without Platforms).
 func NewDeploymentTemplateService(
 	templates provisioningdomain.DeploymentTemplateRepository,
 	integrations provisioningdomain.ProvisionerIntegrationReader,
 	providers provisioningdomain.ProviderFactory,
+	references provisioningdomain.DeploymentTemplateReferenceReader,
 ) *DeploymentTemplateService {
 	return &DeploymentTemplateService{
-		templates: templates, integrations: integrations, providers: providers,
+		templates: templates, integrations: integrations, providers: providers, references: references,
 	}
+}
+
+// uses reads which Platform node groups install from each template.
+func (s *DeploymentTemplateService) uses(ctx context.Context) (map[string][]provisioningdomain.DeploymentTemplateReference, error) {
+	if s.references == nil {
+		return map[string][]provisioningdomain.DeploymentTemplateReference{}, nil
+	}
+	return s.references.TemplateReferences(ctx)
 }
 
 // Create validates the live image before storing reusable intent.
@@ -105,25 +204,30 @@ func (s *DeploymentTemplateService) Create(
 	if err != nil {
 		return nil, err
 	}
+	minimum, err := input.MinimumHardware.domain()
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
 	template := &provisioningdomain.DeploymentTemplate{
-		ID:             uuid.NewString(),
-		IntegrationID:  integration.ID,
-		Name:           name,
-		Description:    strings.TrimSpace(input.Description),
-		ImageID:        imageID,
-		Ephemeral:      input.Ephemeral,
-		NetworkMode:    mode,
-		SubnetID:       subnetID,
-		DefaultGateway: defaultGateway,
-		HasUserData:    input.UserData != "",
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ID:              uuid.NewString(),
+		IntegrationID:   integration.ID,
+		Name:            name,
+		Description:     strings.TrimSpace(input.Description),
+		ImageID:         imageID,
+		Ephemeral:       input.Ephemeral,
+		NetworkMode:     mode,
+		SubnetID:        subnetID,
+		DefaultGateway:  defaultGateway,
+		HasUserData:     input.UserData != "",
+		MinimumHardware: minimum,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 	if err := s.templates.Create(ctx, template, input.UserData); err != nil {
 		return nil, err
 	}
-	return deploymentTemplateItem(template, integration.SiteID), nil
+	return deploymentTemplateItem(template, integration.SiteID, nil), nil
 }
 
 // List applies site and integration filters conjunctively.
@@ -165,6 +269,10 @@ func (s *DeploymentTemplateService) List(
 	if err != nil {
 		return nil, err
 	}
+	uses, err := s.uses(ctx)
+	if err != nil {
+		return nil, err
+	}
 	items := make([]DeploymentTemplateItem, 0, len(templates))
 	for _, template := range templates {
 		resolvedSiteID := siteByIntegration[template.IntegrationID]
@@ -175,7 +283,7 @@ func (s *DeploymentTemplateService) List(
 			}
 			resolvedSiteID = integration.SiteID
 		}
-		items = append(items, *deploymentTemplateItem(template, resolvedSiteID))
+		items = append(items, *deploymentTemplateItem(template, resolvedSiteID, uses[template.ID]))
 	}
 	return items, nil
 }
@@ -193,7 +301,11 @@ func (s *DeploymentTemplateService) Get(
 	if err != nil {
 		return nil, err
 	}
-	return deploymentTemplateItem(template, integration.SiteID), nil
+	uses, err := s.uses(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return deploymentTemplateItem(template, integration.SiteID, uses[template.ID]), nil
 }
 
 // Update validates a changed image before persisting non-secret intent.
@@ -248,15 +360,42 @@ func (s *DeploymentTemplateService) Update(
 		template.SubnetID = subnetID
 		template.DefaultGateway = defaultGateway
 	}
+	if input.MinimumHardware != nil {
+		minimum, err := input.MinimumHardware.domain()
+		if err != nil {
+			return nil, err
+		}
+		template.MinimumHardware = minimum
+	}
 	template.UpdatedAt = time.Now().UTC()
 	if err := s.templates.Update(ctx, template); err != nil {
 		return nil, err
 	}
-	return deploymentTemplateItem(template, integration.SiteID), nil
+	uses, err := s.uses(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return deploymentTemplateItem(template, integration.SiteID, uses[template.ID]), nil
 }
 
-// Delete removes one template.
+// Delete removes one template. A template a Platform node group installs from is
+// ErrDeploymentTemplateInUse naming those groups: deleting it would leave the group nothing to
+// install its next member from.
 func (s *DeploymentTemplateService) Delete(ctx context.Context, id string) error {
+	if _, err := s.templates.FindByID(ctx, id); err != nil {
+		return err
+	}
+	uses, err := s.uses(ctx)
+	if err != nil {
+		return err
+	}
+	if refs := uses[id]; len(refs) > 0 {
+		names := make([]string, 0, len(refs))
+		for _, ref := range refs {
+			names = append(names, fmt.Sprintf("%s (group %s)", ref.PlatformName, ref.Group))
+		}
+		return fmt.Errorf("%w: it is used by %s", provisioningdomain.ErrDeploymentTemplateInUse, strings.Join(names, ", "))
+	}
 	return s.templates.Delete(ctx, id)
 }
 
@@ -276,16 +415,23 @@ func (s *DeploymentTemplateService) ClearUserData(ctx context.Context, id string
 func deploymentTemplateItem(
 	template *provisioningdomain.DeploymentTemplate,
 	siteID string,
+	uses []provisioningdomain.DeploymentTemplateReference,
 ) *DeploymentTemplateItem {
+	usedBy := make([]DeploymentTemplateUseItem, 0, len(uses))
+	for _, use := range uses {
+		usedBy = append(usedBy, DeploymentTemplateUseItem{PlatformID: use.PlatformID, PlatformName: use.PlatformName, Group: use.Group})
+	}
 	return &DeploymentTemplateItem{
-		ID:            template.ID,
-		SiteID:        siteID,
-		IntegrationID: template.IntegrationID,
-		Name:          template.Name,
-		Description:   template.Description,
-		ImageID:       template.ImageID,
-		Ephemeral:     template.Ephemeral,
-		HasUserData:   template.HasUserData,
+		MinimumHardware: minimumHardwareItem(template.MinimumHardware),
+		UsedBy:          usedBy,
+		ID:              template.ID,
+		SiteID:          siteID,
+		IntegrationID:   template.IntegrationID,
+		Name:            template.Name,
+		Description:     template.Description,
+		ImageID:         template.ImageID,
+		Ephemeral:       template.Ephemeral,
+		HasUserData:     template.HasUserData,
 		Network: DeploymentNetworkSettingsItem{
 			Mode:           string(template.NetworkMode),
 			SubnetID:       template.SubnetID,

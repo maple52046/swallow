@@ -126,3 +126,63 @@ func TestPlatformSpecSealsInlineUserData(t *testing.T) {
 		t.Errorf("keyless WriteSpec error = %v, want errUserDataNeedsKey", err)
 	}
 }
+
+// A spec's member removals, generated templates, member template references, and an explicit
+// default gateway round-trip; a member template record replaces the member's previous one.
+func TestPlatformSpecStoresNodeGroupState(t *testing.T) {
+	ctx := context.Background()
+	repo, err := NewMongoPlatformRepo(platformTestDatabase(t), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway := false
+	spec := platformdomain.PlatformSpec{
+		Desired: platformdomain.PlatformPresent,
+		Members: []platformdomain.PlatformMember{{ServerID: "s1", Roles: []string{"compute"}}},
+		MachinePreparation: platformdomain.MachinePreparation{
+			Mode: platformdomain.MachinePreparationProvisionOS, ImageID: "ubuntu/noble", DefaultGateway: &gateway,
+			Assignments:        []platformdomain.MachineNetworkAssignment{{ServerID: "s1", TemplateID: "t-gpu"}},
+			GeneratedTemplates: []platformdomain.GeneratedTemplate{{ID: "t-gpu", Name: "lab-gpu", IntegrationID: "maas-1", Group: "gpu"}},
+		},
+		MemberRemovals: []platformdomain.MemberRemoval{{
+			ServerID: "s2", ReleaseServer: true, ReleaseOptions: platformdomain.ServerReleaseOptions{Erase: true},
+			DrainTimeoutSeconds: 1800, Force: true,
+		}},
+	}
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	if err := repo.Create(ctx, &platformdomain.Platform{
+		ID: "p1", SiteID: "site-1", Name: "lab", Type: "slurm", Spec: &spec, Generation: 1, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	stored, err := repo.FindByID(ctx, "p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	preparation := stored.Spec.MachinePreparation
+	if preparation.DefaultGateway == nil || *preparation.DefaultGateway || preparation.Assignments[0].TemplateID != "t-gpu" ||
+		len(preparation.GeneratedTemplates) != 1 || preparation.GeneratedTemplates[0] != spec.MachinePreparation.GeneratedTemplates[0] {
+		t.Errorf("stored machine preparation = %+v", preparation)
+	}
+	if len(stored.Spec.MemberRemovals) != 1 || stored.Spec.MemberRemovals[0] != spec.MemberRemovals[0] {
+		t.Errorf("stored member removals = %+v", stored.Spec.MemberRemovals)
+	}
+
+	first := platformdomain.MemberTemplateRecord{ServerID: "s1", TemplateID: "t-gpu", Digest: "d1", DeployedAt: now}
+	other := platformdomain.MemberTemplateRecord{ServerID: "s3", TemplateID: "t-gpu", Digest: "d1", DeployedAt: now}
+	if err := repo.RecordMemberTemplates(ctx, "p1", []platformdomain.MemberTemplateRecord{first, other}); err != nil {
+		t.Fatalf("RecordMemberTemplates: %v", err)
+	}
+	second := platformdomain.MemberTemplateRecord{ServerID: "s1", TemplateID: "t-gpu", Digest: "d2", DeployedAt: now.Add(time.Hour)}
+	if err := repo.RecordMemberTemplates(ctx, "p1", []platformdomain.MemberTemplateRecord{second}); err != nil {
+		t.Fatalf("RecordMemberTemplates: %v", err)
+	}
+	stored, _ = repo.FindByID(ctx, "p1")
+	records := map[string]platformdomain.MemberTemplateRecord{}
+	for _, record := range stored.MemberTemplates {
+		records[record.ServerID] = record
+	}
+	if len(stored.MemberTemplates) != 2 || records["s1"].Digest != "d2" || records["s3"].Digest != "d1" {
+		t.Errorf("member templates = %+v", stored.MemberTemplates)
+	}
+}

@@ -21,3 +21,12 @@ func Module() (moduledomain.Module, error) {
 		platformdomain.HookPlatform:       Platform{},
 	})
 }
+
+// ID is the Slurm module's id.
+const ID = "slurm"
+
+// GPUProbeImage is the container image the deployment gate's GPU checks run (decision 083): a HIP probe
+// built for every Instinct gfx target on the official ROCm development image, so a host needs only
+// the amdgpu driver. It is declared in module.json's artifacts.images and pulled from where the
+// Site's Local Repository mode sends it.
+const GPUProbeImage = "ghcr.io/maple52046/swallow-gpu-probe:1.0.0-rocm7.2.4"

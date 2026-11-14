@@ -1596,6 +1596,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/platforms/{id}/slurm/nodes/{serverId}/rescan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform's opaque id. */
+                id: components["parameters"]["PlatformId"];
+                /** @description A compute member of the Platform. */
+                serverId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Redetect one compute node's hardware and reconfigure the Slurm Platform with it.
+         * @description Pool operate. Reruns the deploy of the applied spec, non-destructively, so the node's GPU GRES and Features follow the GPUs it has now; the Workflow's gate validates only that node (platforms.md, Rescan A Node's Hardware). 409 when the Server is not a compute member of the applied spec, the Platform has no applied spec, or a change of the Platform is being carried out; 400 when the deployment would be refused.
+         */
+        post: operations["rescanSlurmNode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/platforms/{id}/spec": {
         parameters: {
             query?: never;
@@ -4906,12 +4931,16 @@ export interface components {
             id: string;
             imageId: string;
             integrationId: string;
+            /** @description The optional hardware a Server needs to be installed from the template; null sets none. */
+            minimumHardware: components["schemas"]["DeploymentTemplateMinimumHardware"] | null;
             /** @description Trimmed and unique within the Integration, case-insensitively. */
             name: string;
             network: components["schemas"]["DeploymentTemplateNetwork"];
             /** @description The Site of the template's Integration. */
             siteId: string;
             updatedAt: components["schemas"]["Timestamp"];
+            /** @description The Platform node groups that install their new members from the template. */
+            usedBy: components["schemas"]["DeploymentTemplateUse"][];
         };
         DeploymentTemplateCreateRequest: {
             /**
@@ -4923,10 +4952,31 @@ export interface components {
             /** @description Must be in the provisioner's live catalog. */
             imageId: string;
             integrationId: string;
+            minimumHardware?: components["schemas"]["DeploymentTemplateMinimumHardwareIntent"] | null;
             name: string;
             network?: components["schemas"]["DeploymentTemplateNetworkIntent"];
             /** @description Optional cloud-init user data, sealed at rest and never returned. */
             userData?: string;
+        };
+        /** @description A hardware floor; a null field sets no floor for its dimension. A Platform spec write that adds a Server below it is refused, naming what the Server lacks; missing inventory counts as not met. */
+        DeploymentTemplateMinimumHardware: {
+            cpuCores: number | null;
+            /** @description Compute GPUs. */
+            gpuCount: number | null;
+            /** @description Matched case-insensitively within the GPU Inventory's compute GPU model name. */
+            gpuModel: string | null;
+            /** Format: int64 */
+            memoryMiB: number | null;
+            storageGB: number | null;
+        };
+        /** @description A hardware floor as sent; an omitted or null field sets no floor for its dimension. */
+        DeploymentTemplateMinimumHardwareIntent: {
+            cpuCores?: number | null;
+            gpuCount?: number | null;
+            gpuModel?: string | null;
+            /** Format: int64 */
+            memoryMiB?: number | null;
+            storageGB?: number | null;
         };
         /** @description Reusable network intent; never a NIC id or a target-specific static IP. */
         DeploymentTemplateNetwork: {
@@ -4957,8 +5007,16 @@ export interface components {
             deployTarget?: "disk" | "ram";
             description?: string;
             imageId?: string;
+            /** @description Replaces the floor; an object whose fields are all null clears it, and null keeps it. */
+            minimumHardware?: components["schemas"]["DeploymentTemplateMinimumHardwareIntent"] | null;
             name?: string;
             network?: components["schemas"]["DeploymentTemplateNetworkIntent"];
+        };
+        DeploymentTemplateUse: {
+            /** @description The node group, or `machine preparation` for a Platform's own default. */
+            group: string;
+            platformId: string;
+            platformName: string;
         };
         DeploymentTemplateUserDataRequest: {
             /** @description The cloud-init user data, sealed at rest and never returned. */
@@ -5967,7 +6025,7 @@ export interface components {
             serverId: string;
             subnetId?: string;
         };
-        /** @description Deployment network intent. Without a template, a missing object or `mode` means `automatic`; with one, a missing object takes the template's network intent and a missing `mode` keeps the template's mode. Each target uses its boot NIC unless an assignment overrides it. */
+        /** @description Deployment network intent. Without a template, a missing object or `mode` means `automatic`; with one, a missing object takes the template's network intent, and a missing `mode`, `subnetId`, or `defaultGateway` keeps the template's. Each target uses its boot NIC unless an assignment overrides it. */
         OsDeploymentNetworkIntent: {
             assignments?: components["schemas"]["OsDeploymentNetworkAssignment"][];
             /** @description Valid only for `static`. */
@@ -6347,6 +6405,13 @@ export interface components {
         PlatformLifecycleState: "registered" | "planned" | "deploying" | "deploy_failed" | "active" | "uninstalling" | "uninstall_failed" | "uninstalled";
         /** @description Whether the targets must already be deployed (`existing_os`) or the deploy provisions the `ready` ones first (`provision_os`). The provisioning fields follow the OS Deployment intent of provisioning.md and are read only in `provision_os` mode. */
         PlatformMachinePreparation: {
+            /** @description The Deployment Templates the Platform creates from this machine preparation for its node groups (platforms.md, Node Groups And Templates); clients write them back as read. */
+            generatedTemplates?: {
+                group: string;
+                id: string;
+                integrationId: string;
+                name: string;
+            }[];
             /**
              * @default existing_os
              * @enum {string}
@@ -6359,7 +6424,10 @@ export interface components {
                     ipAddress?: string;
                     serverId: string;
                     subnetId?: string;
+                    /** @description The Deployment Template this member is installed from, overriding its node group's; the member keeps only its own network. */
+                    templateId?: string;
                 }[];
+                /** @description Omitted keeps the Deployment Template's choice. */
                 defaultGateway?: boolean;
                 /** @enum {string} */
                 mode?: "automatic" | "dhcp" | "static";
@@ -6387,6 +6455,35 @@ export interface components {
         PlatformMember: {
             roles: string[];
             serverId: string;
+        };
+        /** @description How one member a spec drops leaves: drained for drainTimeoutSeconds (0 is 600), its jobs canceled at the timeout when `force`, and released to the provisioner with the release options when `releaseServer`; otherwise its OS is kept. */
+        PlatformMemberRemoval: {
+            drainTimeoutSeconds: number;
+            erase: boolean;
+            force: boolean;
+            quickErase: boolean;
+            releaseServer: boolean;
+            secureErase: boolean;
+            serverId: string;
+            unbindStaticIps: boolean;
+        };
+        /** @description How one dropped member leaves; omitted fields are false and a 600-second drain. */
+        PlatformMemberRemovalInput: {
+            drainTimeoutSeconds?: number;
+            erase?: boolean;
+            force?: boolean;
+            quickErase?: boolean;
+            releaseServer?: boolean;
+            secureErase?: boolean;
+            serverId: string;
+            unbindStaticIps?: boolean;
+        };
+        /** @description The Deployment Template a member was installed from; `matchesTemplate` is false when the template installs something else since, or no longer exists. */
+        PlatformMemberTemplate: {
+            deployedAt: components["schemas"]["Timestamp"];
+            matchesTemplate: boolean;
+            serverId: string;
+            templateId: string;
         };
         /** @description The result of one membership read. */
         PlatformMembershipReport: {
@@ -6490,6 +6587,8 @@ export interface components {
             /** @enum {string} */
             desired: "present" | "absent";
             machinePreparation: components["schemas"]["PlatformMachinePreparation"] | null;
+            /** @description How the members the spec drops leave the Platform (platforms.md, Remove Members); an entry for a member the spec keeps means nothing. */
+            memberRemovals: components["schemas"]["PlatformMemberRemoval"][];
             members: components["schemas"]["PlatformMember"][];
             /** @description How an absent Platform's uninstall treats its members; null keeps them. */
             removal: components["schemas"]["PlatformRemovalChoice"] | null;
@@ -6506,6 +6605,7 @@ export interface components {
         /** @description A spec as a client writes it; the settings follow the Platform's type. */
         PlatformSpecInput: {
             machinePreparation?: components["schemas"]["PlatformMachinePreparation"];
+            memberRemovals?: components["schemas"]["PlatformMemberRemovalInput"][];
             members: components["schemas"]["PlatformMember"][];
             settings: components["schemas"]["PlatformSettings"];
         };
@@ -6513,12 +6613,16 @@ export interface components {
         PlatformSpecWrite: {
             plan: components["schemas"]["ChangePlan"] | null;
             platform: components["schemas"]["Platform"];
+            /** @description What validating the spec found worth telling without refusing it, for example a node group that mixes GPU models or a node with fewer GPUs than its group expects. */
+            warnings: string[];
         };
         /** @description What swallow realized and judged for the spec: the generation the applied spec realized, the shared Conditions (`realized`, `drifted`), the applied spec, and the Workflow realizing a newer one. */
         PlatformStatus: {
             /** @description The spec the last successful Workflow realized; null before the first install. */
             applied: components["schemas"]["PlatformSpec"] | null;
             conditions: components["schemas"]["Condition"][];
+            /** @description The Deployment Template each member installed from one was installed from. */
+            memberTemplates: components["schemas"]["PlatformMemberTemplate"][];
             /** Format: int64 */
             observedGeneration: number;
             /** @description The Pool the Platform belongs to: the Pool every member of the spec (and every Server it still claims) is placed in; null when they are in different Pools or in none, and then only admins may manage it (identity-and-access.md §5). */
@@ -7315,6 +7419,17 @@ export interface components {
             /** @description The collapsed scheduler state: a down, drain, or fail flag wins, otherwise the first flag (for example `idle`, `allocated`, `mixed`); `unknown` when Slurm reports none. */
             state: string;
         };
+        /** @description Members that scale together: one role and the Deployment Template the group's new members are installed from. Only compute groups grow and shrink. */
+        SlurmNodeGroup: {
+            /** @description A member with fewer GPUs is marked `gpu_degraded` and scheduled last; 0 expects nothing. */
+            expectedGpusPerNode?: number;
+            members: string[];
+            name: string;
+            /** @enum {string} */
+            role: "controller" | "compute" | "login";
+            /** @description The Deployment Template; omitted, the Platform names one (its machine preparation's, or one it generates from the machine preparation) when the spec is written. */
+            templateId?: string;
+        };
         /** @description Omnistat on a Slurm deploy; omitted or `enabled: false` installs nothing. */
         SlurmOmnistatFeature: {
             /** @default false */
@@ -7337,6 +7452,25 @@ export interface components {
             /** @description The partition's state flags, lower-case and comma-separated. */
             state: string;
             totalNodes: number;
+        };
+        /** @description One Slurm partition over compute node groups. */
+        SlurmPartitionSpec: {
+            allowGroups?: string[];
+            /** @description MiB; omitted or 0 uses the smallest per-CPU share of the partition's own nodes. */
+            defMemPerCpu?: number;
+            default: boolean;
+            groups: string[];
+            /**
+             * @description A Slurm time limit (minutes, `[days-]hours:minutes[:seconds]`) or `INFINITE`.
+             * @default INFINITE
+             */
+            maxTime: string;
+            name: string;
+            /**
+             * @description Omitted is NO; with Omnistat every partition is EXCLUSIVE.
+             * @enum {string}
+             */
+            overSubscribe?: "NO" | "YES" | "FORCE" | "EXCLUSIVE";
         };
         /** @description The settings of a Slurm Platform. `slurm.clusterName` cannot change after creation. An enabled `gpuOperator` is 400 (Slurm has no in-platform GPU operator). */
         SlurmPlatformSettings: {
@@ -7365,8 +7499,12 @@ export interface components {
             clusterName?: string;
             /** @description The GRES type of every GPU node; omitted derives it from the GPU architecture. */
             gpuGresType?: string;
+            /** @description The node groups (platforms.md, Node Groups And Partitions): each member is in at least one, and its roles are its groups' roles. Omitted on a Platform deployed before groups; it reads back with a group per role. */
+            nodeGroups?: components["schemas"]["SlurmNodeGroup"][];
             /** @default false */
             ociContainers: boolean;
+            /** @description The partitions over the compute groups, exactly one of them the default. Omitted reads back as the one partition `main` over the compute group. */
+            partitions?: components["schemas"]["SlurmPartitionSpec"][];
             /** @default false */
             pmix: boolean;
             /** @description Overrides the slurmctld state directory. */
@@ -7963,7 +8101,7 @@ export interface components {
          * @description What a Workflow is for; selects its definition. Several kinds are launched only through their owning feature endpoint (for example `verify-os-image`, `inspect-hardware`) and appear here in listings. `install-exporters` and `uninstall-exporters` are no longer accepted; they appear only on Workflows created by an earlier release (the Node Exporter is Managed Software, `configure-node-exporter` and `uninstall-node-exporter`). `deploy-k8s-exporters` and `remove-k8s-exporters` are no longer accepted either; they appear only on Workflows created by an earlier release (the Kubernetes exporter DaemonSets were retired).
          * @enum {string}
          */
-        WorkflowKind: "deploy-os" | "release-os" | "recover-server" | "verify-os-image" | "inspect-hardware" | "enroll-virtual-machines" | "install-gpu-driver" | "deploy-kubernetes" | "uninstall-kubernetes" | "configure-gpu-operator" | "configure-slurm" | "uninstall-slurm" | "install-exporters" | "uninstall-exporters" | "deploy-k8s-exporters" | "remove-k8s-exporters" | "configure-docker-ce" | "uninstall-docker-ce" | "configure-podman" | "uninstall-podman" | "configure-nfs" | "uninstall-nfs" | "configure-prometheus" | "uninstall-prometheus" | "configure-grafana" | "uninstall-grafana" | "configure-omnistat" | "configure-device-metrics-exporter" | "uninstall-device-metrics-exporter" | "configure-node-exporter" | "uninstall-node-exporter" | "configure-victoriametrics" | "uninstall-victoriametrics" | "configure-libvirt" | "uninstall-libvirt" | "configure-sssd" | "uninstall-sssd" | "configure-ntp" | "run-validation" | "custom";
+        WorkflowKind: "deploy-os" | "release-os" | "recover-server" | "verify-os-image" | "inspect-hardware" | "enroll-virtual-machines" | "install-gpu-driver" | "deploy-kubernetes" | "uninstall-kubernetes" | "configure-gpu-operator" | "configure-slurm" | "uninstall-slurm" | "scale-in-slurm" | "install-exporters" | "uninstall-exporters" | "deploy-k8s-exporters" | "remove-k8s-exporters" | "configure-docker-ce" | "uninstall-docker-ce" | "configure-podman" | "uninstall-podman" | "configure-nfs" | "uninstall-nfs" | "configure-prometheus" | "uninstall-prometheus" | "configure-grafana" | "uninstall-grafana" | "configure-omnistat" | "configure-device-metrics-exporter" | "uninstall-device-metrics-exporter" | "configure-node-exporter" | "uninstall-node-exporter" | "configure-victoriametrics" | "uninstall-victoriametrics" | "configure-libvirt" | "uninstall-libvirt" | "configure-sssd" | "uninstall-sssd" | "configure-ntp" | "run-validation" | "custom";
         /** @description The pagination envelope (conventions.md, Pagination) over Workflows. */
         WorkflowPage: {
             items: components["schemas"]["Workflow"][];
@@ -12177,6 +12315,37 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    rescanSlurmNode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform's opaque id. */
+                id: components["parameters"]["PlatformId"];
+                /** @description A compute member of the Platform. */
+                serverId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Workflow that rescans the node. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowAccepted"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     replacePlatformSpec: {
         parameters: {
             query?: never;
@@ -14069,6 +14238,15 @@ export interface operations {
             403: components["responses"]["Error"];
             /** @description `not_found`: the template does not exist. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `conflict`: a Platform node group still installs from the template; the message names them. */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

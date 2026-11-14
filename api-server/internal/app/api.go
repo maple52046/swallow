@@ -330,8 +330,10 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 	deploymentKeys := deploymentKeySource{keys: sshKeyService}
 	activeWork := activeServerWorkReader{orchestrations: orchestrationRepo}
 	integrationReader := provisioningapp.NewIntegrationReader(integrationRepo, siteRepo)
+	// The Platforms that install from templates are read once the Platform store exists below.
+	templateReferences := &lateTemplateReferences{}
 	templateService := provisioningapp.NewDeploymentTemplateService(
-		templateRepo, integrationReader, providerFactory)
+		templateRepo, integrationReader, providerFactory, templateReferences)
 	networkService := provisioningapp.NewNetworkConfigurationService(serverRepo, providerFactory)
 	taskService := provisioningapp.NewProvisioningTaskService(taskRepo, serverRepo, releaseCleanupRetrier{
 		orchestrations: orchestrationRepo,
@@ -467,8 +469,9 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 		workflowPlanCatalog(modules.workflowKinds, modules.software), ownership, operationSecretRepo)
 	// Deleting a platform cancels its in-flight durable operations so their leases are
 	// released and the member servers are freed rather than left blocked by orphaned work.
+	templateReferences.reader = templateReferenceReader{platforms: platformRepo, modules: modules.platforms}
 	platformService, err := newPlatformService(transactor, platformRepo, siteRepo, serverRepo, orchestrationRepo,
-		integrationRepo, softwareAssignmentRepo, platformOperationCanceler{orchestrations: orchestrationService})
+		integrationRepo, softwareAssignmentRepo, platformOperationCanceler{orchestrations: orchestrationService}, templateRepo)
 	if err != nil {
 		return nil, err
 	}
@@ -617,6 +620,7 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 		protection: serverProtection,
 		networks:   networkService, requirements: requirementRepo, keys: sshKeyService,
 		monitoring: newPlatformMonitoringAccess(cfg), monitoringTokens: platformAccess, validation: validationService,
+		templates: templateRepo, readers: platformReaderFactory,
 	})
 	if err != nil {
 		return nil, err
@@ -835,6 +839,7 @@ func registerPlatformRoutes(routes fiber.Router, handler *platformdelivery.Platf
 	routes.Delete("/:id", chain(guards.operate, handler.Delete)...)
 	routes.Post("/:id/sync", chain(guards.operate, handler.SyncMembership)...)
 	routes.Get("/:id/slurm", chain(guards.read, handler.GetSlurmCluster)...)
+	routes.Post("/:id/slurm/nodes/:serverId/rescan", chain(guards.operate, handler.RescanNode)...)
 	// The live Kubernetes explorer acts on the cluster with swallow's credentials, so even its reads
 	// need an owner of the Platform's Pool.
 	registerKubernetesExplorerRoutes(guardedRouter{Router: routes, handlers: guards.operate}, handler)

@@ -3371,6 +3371,40 @@ paths:
         - platforms
     parameters:
       - $ref: '#/components/parameters/PlatformId'
+  /api/v1/platforms/{id}/slurm/nodes/{serverId}/rescan:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+      - description: A compute member of the Platform.
+        in: path
+        name: serverId
+        required: true
+        schema:
+          type: string
+    post:
+      description: Pool operate. Reruns the deploy of the applied spec, non-destructively, so the node's GPU GRES and Features follow the GPUs it has now; the Workflow's gate validates only that node (platforms.md, Rescan A Node's Hardware). 409 when the Server is not a compute member of the applied spec, the Platform has no applied spec, or a change of the Platform is being carried out; 400 when the deployment would be refused.
+      operationId: rescanSlurmNode
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowAccepted'
+          description: The Workflow that rescans the node.
+        "400":
+          $ref: '#/components/responses/Error'
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          $ref: '#/components/responses/Error'
+        "409":
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Redetect one compute node's hardware and reconfigure the Slurm Platform with it.
+      tags:
+        - platforms
   /api/v1/platforms/{id}/spec:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
@@ -4992,6 +5026,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: '`not_found`: the template does not exist.'
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`conflict`: a Platform node group still installs from the template; the message names them.'
         default:
           $ref: '#/components/responses/Error'
       summary: Delete a Deployment Template and its sealed user data.
@@ -10614,6 +10654,11 @@ components:
           type: string
         integrationId:
           type: string
+        minimumHardware:
+          allOf:
+            - $ref: '#/components/schemas/DeploymentTemplateMinimumHardware'
+          description: The optional hardware a Server needs to be installed from the template; null sets none.
+          nullable: true
         name:
           description: Trimmed and unique within the Integration, case-insensitively.
           type: string
@@ -10624,6 +10669,11 @@ components:
           type: string
         updatedAt:
           $ref: '#/components/schemas/Timestamp'
+        usedBy:
+          description: The Platform node groups that install their new members from the template.
+          items:
+            $ref: '#/components/schemas/DeploymentTemplateUse'
+          type: array
       required:
         - id
         - siteId
@@ -10634,6 +10684,8 @@ components:
         - ephemeral
         - network
         - hasUserData
+        - minimumHardware
+        - usedBy
         - createdAt
         - updatedAt
       type: object
@@ -10652,6 +10704,10 @@ components:
           type: string
         integrationId:
           type: string
+        minimumHardware:
+          allOf:
+            - $ref: '#/components/schemas/DeploymentTemplateMinimumHardwareIntent'
+          nullable: true
         name:
           type: string
         network:
@@ -10664,6 +10720,62 @@ components:
         - integrationId
         - name
         - imageId
+      type: object
+    DeploymentTemplateMinimumHardware:
+      description: A hardware floor; a null field sets no floor for its dimension. A Platform spec write that adds a Server below it is refused, naming what the Server lacks; missing inventory counts as not met.
+      properties:
+        cpuCores:
+          minimum: 1
+          nullable: true
+          type: integer
+        gpuCount:
+          description: Compute GPUs.
+          minimum: 1
+          nullable: true
+          type: integer
+        gpuModel:
+          description: Matched case-insensitively within the GPU Inventory's compute GPU model name.
+          nullable: true
+          type: string
+        memoryMiB:
+          format: int64
+          minimum: 1
+          nullable: true
+          type: integer
+        storageGB:
+          minimum: 1
+          nullable: true
+          type: integer
+      required:
+        - cpuCores
+        - memoryMiB
+        - storageGB
+        - gpuModel
+        - gpuCount
+      type: object
+    DeploymentTemplateMinimumHardwareIntent:
+      description: A hardware floor as sent; an omitted or null field sets no floor for its dimension.
+      properties:
+        cpuCores:
+          minimum: 0
+          nullable: true
+          type: integer
+        gpuCount:
+          minimum: 0
+          nullable: true
+          type: integer
+        gpuModel:
+          nullable: true
+          type: string
+        memoryMiB:
+          format: int64
+          minimum: 0
+          nullable: true
+          type: integer
+        storageGB:
+          minimum: 0
+          nullable: true
+          type: integer
       type: object
     DeploymentTemplateNetwork:
       description: Reusable network intent; never a NIC id or a target-specific static IP.
@@ -10714,10 +10826,29 @@ components:
           type: string
         imageId:
           type: string
+        minimumHardware:
+          allOf:
+            - $ref: '#/components/schemas/DeploymentTemplateMinimumHardwareIntent'
+          description: Replaces the floor; an object whose fields are all null clears it, and null keeps it.
+          nullable: true
         name:
           type: string
         network:
           $ref: '#/components/schemas/DeploymentTemplateNetworkIntent'
+      type: object
+    DeploymentTemplateUse:
+      properties:
+        group:
+          description: The node group, or `machine preparation` for a Platform's own default.
+          type: string
+        platformId:
+          type: string
+        platformName:
+          type: string
+      required:
+        - platformId
+        - platformName
+        - group
       type: object
     DeploymentTemplateUserDataRequest:
       properties:
@@ -13026,7 +13157,7 @@ components:
         - serverId
       type: object
     OsDeploymentNetworkIntent:
-      description: Deployment network intent. Without a template, a missing object or `mode` means `automatic`; with one, a missing object takes the template's network intent and a missing `mode` keeps the template's mode. Each target uses its boot NIC unless an assignment overrides it.
+      description: Deployment network intent. Without a template, a missing object or `mode` means `automatic`; with one, a missing object takes the template's network intent, and a missing `mode`, `subnetId`, or `defaultGateway` keeps the template's. Each target uses its boot NIC unless an assignment overrides it.
       properties:
         assignments:
           items:
@@ -13905,6 +14036,25 @@ components:
     PlatformMachinePreparation:
       description: Whether the targets must already be deployed (`existing_os`) or the deploy provisions the `ready` ones first (`provision_os`). The provisioning fields follow the OS Deployment intent of provisioning.md and are read only in `provision_os` mode.
       properties:
+        generatedTemplates:
+          description: The Deployment Templates the Platform creates from this machine preparation for its node groups (platforms.md, Node Groups And Templates); clients write them back as read.
+          items:
+            properties:
+              group:
+                type: string
+              id:
+                type: string
+              integrationId:
+                type: string
+              name:
+                type: string
+            required:
+              - id
+              - name
+              - integrationId
+              - group
+            type: object
+          type: array
         mode:
           default: existing_os
           enum:
@@ -13925,11 +14075,15 @@ components:
                     type: string
                   subnetId:
                     type: string
+                  templateId:
+                    description: The Deployment Template this member is installed from, overriding its node group's; the member keeps only its own network.
+                    type: string
                 required:
                   - serverId
                 type: object
               type: array
             defaultGateway:
+              description: Omitted keeps the Deployment Template's choice.
               type: boolean
             mode:
               enum:
@@ -13981,6 +14135,78 @@ components:
       required:
         - serverId
         - roles
+      type: object
+    PlatformMemberRemoval:
+      description: 'How one member a spec drops leaves: drained for drainTimeoutSeconds (0 is 600), its jobs canceled at the timeout when `force`, and released to the provisioner with the release options when `releaseServer`; otherwise its OS is kept.'
+      properties:
+        drainTimeoutSeconds:
+          maximum: 86400
+          minimum: 0
+          type: integer
+        erase:
+          type: boolean
+        force:
+          type: boolean
+        quickErase:
+          type: boolean
+        releaseServer:
+          type: boolean
+        secureErase:
+          type: boolean
+        serverId:
+          type: string
+        unbindStaticIps:
+          type: boolean
+      required:
+        - serverId
+        - releaseServer
+        - erase
+        - secureErase
+        - quickErase
+        - unbindStaticIps
+        - drainTimeoutSeconds
+        - force
+      type: object
+    PlatformMemberRemovalInput:
+      description: How one dropped member leaves; omitted fields are false and a 600-second drain.
+      properties:
+        drainTimeoutSeconds:
+          maximum: 86400
+          minimum: 0
+          type: integer
+        erase:
+          type: boolean
+        force:
+          type: boolean
+        quickErase:
+          type: boolean
+        releaseServer:
+          type: boolean
+        secureErase:
+          type: boolean
+        serverId:
+          type: string
+        unbindStaticIps:
+          type: boolean
+      required:
+        - serverId
+      type: object
+    PlatformMemberTemplate:
+      description: The Deployment Template a member was installed from; `matchesTemplate` is false when the template installs something else since, or no longer exists.
+      properties:
+        deployedAt:
+          $ref: '#/components/schemas/Timestamp'
+        matchesTemplate:
+          type: boolean
+        serverId:
+          type: string
+        templateId:
+          type: string
+      required:
+        - serverId
+        - templateId
+        - deployedAt
+        - matchesTemplate
       type: object
     PlatformMembershipReport:
       description: The result of one membership read.
@@ -14213,6 +14439,11 @@ components:
           allOf:
             - $ref: '#/components/schemas/PlatformMachinePreparation'
           nullable: true
+        memberRemovals:
+          description: How the members the spec drops leave the Platform (platforms.md, Remove Members); an entry for a member the spec keeps means nothing.
+          items:
+            $ref: '#/components/schemas/PlatformMemberRemoval'
+          type: array
         members:
           items:
             $ref: '#/components/schemas/PlatformMember'
@@ -14230,6 +14461,7 @@ components:
         - settings
         - machinePreparation
         - removal
+        - memberRemovals
       type: object
     PlatformSpecChange:
       properties:
@@ -14248,6 +14480,10 @@ components:
       properties:
         machinePreparation:
           $ref: '#/components/schemas/PlatformMachinePreparation'
+        memberRemovals:
+          items:
+            $ref: '#/components/schemas/PlatformMemberRemovalInput'
+          type: array
         members:
           items:
             $ref: '#/components/schemas/PlatformMember'
@@ -14268,9 +14504,15 @@ components:
           nullable: true
         platform:
           $ref: '#/components/schemas/Platform'
+        warnings:
+          description: What validating the spec found worth telling without refusing it, for example a node group that mixes GPU models or a node with fewer GPUs than its group expects.
+          items:
+            type: string
+          type: array
       required:
         - platform
         - plan
+        - warnings
       type: object
     PlatformStatus:
       description: 'What swallow realized and judged for the spec: the generation the applied spec realized, the shared Conditions (`realized`, `drifted`), the applied spec, and the Workflow realizing a newer one.'
@@ -14283,6 +14525,11 @@ components:
         conditions:
           items:
             $ref: '#/components/schemas/Condition'
+          type: array
+        memberTemplates:
+          description: The Deployment Template each member installed from one was installed from.
+          items:
+            $ref: '#/components/schemas/PlatformMemberTemplate'
           type: array
         observedGeneration:
           format: int64
@@ -14301,6 +14548,7 @@ components:
         - applied
         - realizingWorkflowId
         - poolId
+        - memberTemplates
       type: object
     PlatformType:
       description: The kind of Platform.
@@ -16070,6 +16318,34 @@ components:
         - partitions
         - address
       type: object
+    SlurmNodeGroup:
+      description: 'Members that scale together: one role and the Deployment Template the group''s new members are installed from. Only compute groups grow and shrink.'
+      properties:
+        expectedGpusPerNode:
+          description: A member with fewer GPUs is marked `gpu_degraded` and scheduled last; 0 expects nothing.
+          minimum: 0
+          type: integer
+        members:
+          items:
+            type: string
+          type: array
+        name:
+          pattern: ^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$
+          type: string
+        role:
+          enum:
+            - controller
+            - compute
+            - login
+          type: string
+        templateId:
+          description: The Deployment Template; omitted, the Platform names one (its machine preparation's, or one it generates from the machine preparation) when the spec is written.
+          type: string
+      required:
+        - name
+        - role
+        - members
+      type: object
     SlurmOmnistatFeature:
       description: 'Omnistat on a Slurm deploy; omitted or `enabled: false` installs nothing.'
       properties:
@@ -16103,6 +16379,44 @@ components:
         - state
         - nodeSpec
         - totalNodes
+      type: object
+    SlurmPartitionSpec:
+      description: One Slurm partition over compute node groups.
+      properties:
+        allowGroups:
+          items:
+            type: string
+          type: array
+        defMemPerCpu:
+          description: MiB; omitted or 0 uses the smallest per-CPU share of the partition's own nodes.
+          minimum: 0
+          type: integer
+        default:
+          type: boolean
+        groups:
+          items:
+            type: string
+          minItems: 1
+          type: array
+        maxTime:
+          default: INFINITE
+          description: A Slurm time limit (minutes, `[days-]hours:minutes[:seconds]`) or `INFINITE`.
+          type: string
+        name:
+          pattern: ^[A-Za-z0-9_][A-Za-z0-9_-]{0,31}$
+          type: string
+        overSubscribe:
+          description: Omitted is NO; with Omnistat every partition is EXCLUSIVE.
+          enum:
+            - "NO"
+            - "YES"
+            - FORCE
+            - EXCLUSIVE
+          type: string
+      required:
+        - name
+        - default
+        - groups
       type: object
     SlurmPlatformSettings:
       description: The settings of a Slurm Platform. `slurm.clusterName` cannot change after creation. An enabled `gpuOperator` is 400 (Slurm has no in-platform GPU operator).
@@ -16147,9 +16461,19 @@ components:
           description: The GRES type of every GPU node; omitted derives it from the GPU architecture.
           pattern: ^[A-Za-z][A-Za-z0-9_]{0,63}$
           type: string
+        nodeGroups:
+          description: 'The node groups (platforms.md, Node Groups And Partitions): each member is in at least one, and its roles are its groups'' roles. Omitted on a Platform deployed before groups; it reads back with a group per role.'
+          items:
+            $ref: '#/components/schemas/SlurmNodeGroup'
+          type: array
         ociContainers:
           default: false
           type: boolean
+        partitions:
+          description: The partitions over the compute groups, exactly one of them the default. Omitted reads back as the one partition `main` over the compute group.
+          items:
+            $ref: '#/components/schemas/SlurmPartitionSpec'
+          type: array
         pmix:
           default: false
           type: boolean
@@ -17542,6 +17866,7 @@ components:
         - configure-gpu-operator
         - configure-slurm
         - uninstall-slurm
+        - scale-in-slurm
         - install-exporters
         - uninstall-exporters
         - deploy-k8s-exporters

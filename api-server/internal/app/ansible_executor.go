@@ -23,6 +23,7 @@ import (
 	storemongo "github.com/maple52046/swallow/internal/adapters/store/mongodb"
 	"github.com/maple52046/swallow/internal/adapters/store/mongodb/migration"
 	platformstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/platform"
+	provisioningstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/provisioning"
 	serverstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/server"
 	sitestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/site"
 	softwarestore "github.com/maple52046/swallow/internal/adapters/store/mongodb/software"
@@ -153,8 +154,12 @@ func assembleAnsibleExecutor(cfg config.APIConfig, modules composedModules, mong
 	}
 	// An uninstall completed by its ansible Step frees its Servers and, for Slurm, retires their
 	// Device Metrics Exporter records.
+	templates, err := provisioningstore.NewMongoDeploymentTemplateRepo(db, sealer)
+	if err != nil {
+		return nil, err
+	}
 	platformService, err := newPlatformService(transactor, platforms, sites, servers, orchestrations, integrations,
-		softwareAssignments, executorPlatformOperationCanceler{})
+		softwareAssignments, executorPlatformOperationCanceler{}, templates)
 	if err != nil {
 		return nil, err
 	}

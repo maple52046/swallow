@@ -38,6 +38,8 @@ type platformDoc struct {
 	// OCIContainers and PMIx are absent (false) when the Slurm features are off.
 	OCIContainers bool `bson:"ociContainers,omitempty"`
 	PMIx          bool `bson:"pmix,omitempty"`
+	// MemberTemplates is absent until a deployment installs a member from a Deployment Template.
+	MemberTemplates []memberTemplateDoc `bson:"memberTemplates,omitempty"`
 	// Spec, Generation, and Status are absent on a Platform recorded before Platforms had a spec.
 	Spec       *platformSpecDoc   `bson:"spec,omitempty"`
 	Generation int64              `bson:"generation,omitempty"`
@@ -45,6 +47,49 @@ type platformDoc struct {
 	Sync       platformSync       `bson:"sync"`
 	CreatedAt  time.Time          `bson:"createdAt"`
 	UpdatedAt  time.Time          `bson:"updatedAt"`
+}
+
+// memberTemplateDoc is the template one member was installed from.
+type memberTemplateDoc struct {
+	ServerID   string    `bson:"serverId"`
+	TemplateID string    `bson:"templateId"`
+	Digest     string    `bson:"digest"`
+	DeployedAt time.Time `bson:"deployedAt"`
+}
+
+// RecordMemberTemplates implements platformdomain.MemberTemplateRecorder: each record replaces the
+// member's previous one, and the others are kept.
+func (r *MongoPlatformRepo) RecordMemberTemplates(ctx context.Context, platformID string, records []platformdomain.MemberTemplateRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(records))
+	docs := make([]memberTemplateDoc, 0, len(records))
+	for _, record := range records {
+		ids = append(ids, record.ServerID)
+		docs = append(docs, memberTemplateDoc{ServerID: record.ServerID, TemplateID: record.TemplateID, Digest: record.Digest, DeployedAt: record.DeployedAt})
+	}
+	if _, err := r.col.UpdateOne(ctx, bson.M{"_id": platformID},
+		bson.M{"$pull": bson.M{"memberTemplates": bson.M{"serverId": bson.M{"$in": ids}}}}); err != nil {
+		return err
+	}
+	result, err := r.col.UpdateOne(ctx, bson.M{"_id": platformID},
+		bson.M{"$push": bson.M{"memberTemplates": bson.M{"$each": docs}}})
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return platformdomain.ErrPlatformNotFound
+	}
+	return nil
+}
+
+func toMemberTemplates(docs []memberTemplateDoc) []platformdomain.MemberTemplateRecord {
+	records := make([]platformdomain.MemberTemplateRecord, 0, len(docs))
+	for _, doc := range docs {
+		records = append(records, platformdomain.MemberTemplateRecord{ServerID: doc.ServerID, TemplateID: doc.TemplateID, Digest: doc.Digest, DeployedAt: doc.DeployedAt})
+	}
+	return records
 }
 
 // gpuDriverDoc persists the user's amdgpu driver intent.
@@ -619,6 +664,7 @@ func toPlatform(doc *platformDoc) *platformdomain.Platform {
 		GPUGresType:           doc.GPUGresType,
 		OCIContainers:         doc.OCIContainers,
 		PMIx:                  doc.PMIx,
+		MemberTemplates:       toMemberTemplates(doc.MemberTemplates),
 		Sync: platformdomain.SyncState{
 			LastStartedAt:   doc.Sync.LastStartedAt,
 			LastSucceededAt: doc.Sync.LastSucceededAt,

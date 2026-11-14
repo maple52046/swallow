@@ -331,6 +331,7 @@ func testPlatformServiceDeps(platforms *deployFakePlatformRepo, servers claiming
 		DeviceMetricsExporters: &fakeDeviceMetricsExporterRecorder{platforms: platforms},
 		ExporterAssignments:    &recordingExporterAssignments{},
 		OwnedMonitoringLinks:   []string{testOwnedLinkName, testLegacyLinkName},
+		Templates:              &fakeTemplates{},
 	}
 }
 
@@ -358,6 +359,7 @@ func testDeployServiceDeps(
 		GPUOperators:   &fakeGPUOperatorRecorder{platforms: platforms}, Omnistats: &fakeOmnistatRecorder{platforms: platforms},
 		DeviceMetricsExporters: &fakeDeviceMetricsExporterRecorder{platforms: platforms},
 		Accelerator:            testAccelerator{}, ReadRequest: readTestRequest,
+		Templates: &fakeTemplates{}, MemberTemplates: &recordingMemberTemplates{}, Readers: &fakeQueueReaders{},
 	}
 }
 
@@ -446,6 +448,9 @@ func TestNewDeployServiceRefusesAMissingDependency(t *testing.T) {
 		"DeviceMetricsExporters": func(d *DeployServiceDeps) { d.DeviceMetricsExporters = nil },
 		"Accelerator":            func(d *DeployServiceDeps) { d.Accelerator = nil },
 		"ReadRequest":            func(d *DeployServiceDeps) { d.ReadRequest = nil },
+		"Templates":              func(d *DeployServiceDeps) { d.Templates = nil },
+		"MemberTemplates":        func(d *DeployServiceDeps) { d.MemberTemplates = nil },
+		"Readers":                func(d *DeployServiceDeps) { d.Readers = nil },
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, _, platforms, servers := newClaimingDeployHarness()

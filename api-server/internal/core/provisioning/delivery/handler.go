@@ -841,6 +841,10 @@ func RespondError(c *fiber.Ctx, err error) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
 			"A deployment template with this name already exists for the integration."))
 
+	case errors.Is(err, provisioningdomain.ErrDeploymentTemplateInUse):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict, "The deployment template cannot be deleted while "+
+			strings.TrimPrefix(err.Error(), provisioningdomain.ErrDeploymentTemplateInUse.Error()+": it is used by ")+" installs from it."))
+
 	// A capability the provisioner does not have is a 400 like every other unsupported
 	// capability, including inside a deployment batch, which wraps it.
 	case errors.Is(err, provisioningdomain.ErrNetworkConfigurationUnsupported):

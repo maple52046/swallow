@@ -17,6 +17,7 @@ import (
 	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
 	"github.com/maple52046/swallow/internal/core/store"
@@ -41,6 +42,9 @@ type workerPlatformDeps struct {
 	keys            platformdomain.DeploymentKeyChecker
 	// artifacts resolves the trusted vars of playbooks that fetch artifacts, as in the API.
 	artifacts workflowapp.ArtifactVars
+	// templates and readers serve the node groups' templates and the runtime checks, as in the API.
+	templates provisioningdomain.DeploymentTemplateRepository
+	readers   platformdomain.ReaderFactory
 }
 
 // workerPlatformOperations composes the Platform operations in the worker, as the API does, so its
@@ -96,7 +100,7 @@ func workerPlatformOperations(
 		networks:     provisioningapp.NewNetworkConfigurationService(deps.servers, deps.providers),
 		requirements: platformstore.NewMongoDeploymentRequirementRepo(db), keys: deps.keys,
 		monitoring: newPlatformMonitoringAccess(cfg), monitoringTokens: newPlatformTokenIssuer(db),
-		validation: validation,
+		validation: validation, templates: deps.templates, readers: deps.readers,
 	})
 }
 

@@ -97,6 +97,8 @@ type machinePreparationRequest struct {
 	Settings   machinePreparationSettingsRequest `json:"settings"`
 	UserData   machinePreparationUserDataRequest `json:"userData"`
 	Network    *machinePreparationNetworkRequest `json:"network"`
+	// GeneratedTemplates are written back as a spec read returns them.
+	GeneratedTemplates []generatedTemplateRequest `json:"generatedTemplates"`
 }
 
 // machinePreparationSettingsRequest names the OS a provision_os deploy installs and its deploy
@@ -111,18 +113,32 @@ type machinePreparationUserDataRequest struct {
 	Value string `json:"value"`
 }
 
+// machinePreparationNetworkRequest is the network intent; an omitted defaultGateway keeps a
+// template's choice.
 type machinePreparationNetworkRequest struct {
 	Mode           string                                `json:"mode"`
 	SubnetID       string                                `json:"subnetId"`
-	DefaultGateway bool                                  `json:"defaultGateway"`
+	DefaultGateway *bool                                 `json:"defaultGateway"`
 	Assignments    []machinePreparationAssignmentRequest `json:"assignments"`
 }
 
+// machinePreparationAssignmentRequest is one member's network and, optionally, the Deployment
+// Template it is installed from.
 type machinePreparationAssignmentRequest struct {
 	ServerID    string `json:"serverId"`
 	InterfaceID string `json:"interfaceId"`
 	SubnetID    string `json:"subnetId"`
 	IPAddress   string `json:"ipAddress"`
+	TemplateID  string `json:"templateId"`
+}
+
+// generatedTemplateRequest is a Deployment Template the Platform creates for a node group, as a
+// spec read back returns it; clients write it back unchanged.
+type generatedTemplateRequest struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	IntegrationID string `json:"integrationId"`
+	Group         string `json:"group"`
 }
 
 // machinePreparationFromRequest maps the wire machine preparation onto domain intent, folding the
@@ -146,9 +162,14 @@ func machinePreparationFromRequest(request machinePreparationRequest) (platformd
 		for index, assignment := range request.Network.Assignments {
 			preparation.Assignments[index] = platformdomain.MachineNetworkAssignment{
 				ServerID: assignment.ServerID, InterfaceID: assignment.InterfaceID,
-				SubnetID: assignment.SubnetID, IPAddress: assignment.IPAddress,
+				SubnetID: assignment.SubnetID, IPAddress: assignment.IPAddress, TemplateID: assignment.TemplateID,
 			}
 		}
+	}
+	for _, generated := range request.GeneratedTemplates {
+		preparation.GeneratedTemplates = append(preparation.GeneratedTemplates, platformdomain.GeneratedTemplate{
+			ID: generated.ID, Name: generated.Name, IntegrationID: generated.IntegrationID, Group: generated.Group,
+		})
 	}
 	return preparation, true
 }

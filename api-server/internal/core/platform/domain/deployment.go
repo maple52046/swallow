@@ -310,8 +310,21 @@ type DeploymentLaunch struct {
 	TimeSyncCheck TimeSyncCheck
 	// Realization is what the Workflow carries out: empty or RealizeDeploy is the whole deployment;
 	// RealizeHardwareCounters is only the monitoring feature's own Task on an already deployed
-	// Platform, so the launcher composes nothing else.
+	// Platform, so the launcher composes nothing else; RealizeScaleIn is the removal of ScaleIn's
+	// members; RealizeRescan redeploys to redetect the hardware of ChangedServerIDs.
 	Realization PlatformRealization
+	// ChangedServerIDs are the members this deployment adds (every member on a first deploy, the
+	// rescanned one on a rescan): the deployment's gate validates only them, so the work running on
+	// the others is left alone (decision 083).
+	ChangedServerIDs []string
+	// ScaleIn is the members a RealizeScaleIn launch removes; nil otherwise.
+	ScaleIn *ScaleInLaunch
+}
+
+// ScaleInLaunch is a scale-in of a Platform (decision 083): the members that leave with their removal
+// choices. TargetServerIDs of its launch are the members that stay.
+type ScaleInLaunch struct {
+	Removals []MemberRemoval
 }
 
 // DeploymentLauncher builds the durable Operation that deploys a Platform. It is a port so the
@@ -367,27 +380,54 @@ func (m MachinePreparationMode) Valid() bool {
 	return m == MachinePreparationExistingOS || m == MachinePreparationProvisionOS
 }
 
-// MachineNetworkAssignment is target-specific network intent for OS provisioning.
+// MachineNetworkAssignment is target-specific intent for OS provisioning: the network a member gets,
+// and the Deployment Template it is installed from (the member-level template reference, decision 083).
+// An empty TemplateID installs the member from the Platform's machine preparation.
 type MachineNetworkAssignment struct {
 	ServerID    string
 	InterfaceID string
 	SubnetID    string
 	IPAddress   string
+	TemplateID  string
 }
 
 // MachinePreparation is the provider-neutral OS intent embedded in a Platform request.
 // UserData is write-only and must be sealed by the launcher before persistence.
 type MachinePreparation struct {
-	Mode           MachinePreparationMode
-	TemplateID     string
-	ImageID        string
-	Ephemeral      *bool
-	UserDataMode   string
-	UserData       string
-	NetworkMode    string
-	SubnetID       string
-	DefaultGateway bool
+	Mode         MachinePreparationMode
+	TemplateID   string
+	ImageID      string
+	Ephemeral    *bool
+	UserDataMode string
+	UserData     string
+	NetworkMode  string
+	SubnetID     string
+	// DefaultGateway is nil when omitted, which keeps a template's choice.
+	DefaultGateway *bool
 	Assignments    []MachineNetworkAssignment
+	// GeneratedTemplates are the Deployment Templates the Platform creates from this machine
+	// preparation for its node groups (decision 083).
+	GeneratedTemplates []GeneratedTemplate
+}
+
+// Assignment returns serverID's assignment, if the preparation has one.
+func (m MachinePreparation) Assignment(serverID string) (MachineNetworkAssignment, bool) {
+	for _, assignment := range m.Assignments {
+		if assignment.ServerID == serverID {
+			return assignment, true
+		}
+	}
+	return MachineNetworkAssignment{}, false
+}
+
+// Generated returns the generated template with id, if the preparation records one.
+func (m MachinePreparation) Generated(id string) (GeneratedTemplate, bool) {
+	for _, generated := range m.GeneratedTemplates {
+		if generated.ID == id {
+			return generated, true
+		}
+	}
+	return GeneratedTemplate{}, false
 }
 
 // MachinePreparationValidator performs provisioner-owned image/network preflight before

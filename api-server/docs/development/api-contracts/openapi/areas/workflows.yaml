@@ -488,6 +488,7 @@ components:
         - configure-gpu-operator
         - configure-slurm
         - uninstall-slurm
+        - scale-in-slurm
         - install-exporters
         - uninstall-exporters
         - deploy-k8s-exporters

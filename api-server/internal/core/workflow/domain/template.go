@@ -85,6 +85,10 @@ const (
 	TargetsAccess TemplateTargets = "access"
 	// TargetsMembers is every member Server of the Platform.
 	TargetsMembers TemplateTargets = "members"
+	// TargetsSelected is a second set of Servers the request names for the template's own purpose
+	// (for example, in a scale-in, the members that leave together with the controller that drains
+	// them), so one template can act on two different sets.
+	TargetsSelected TemplateTargets = "selected"
 )
 
 // ErrInvalidTemplate means a template breaks the format or cannot be compiled for a request.
@@ -150,9 +154,9 @@ func (t Template) Validate() error {
 				task.Content.Type, ContentHostAutomation, ContentTask)
 		}
 		switch task.Targets {
-		case TargetsServers, TargetsAccess, TargetsMembers:
+		case TargetsServers, TargetsAccess, TargetsMembers, TargetsSelected:
 		default:
-			return fmt.Errorf("%w: Task %q targets %q is not servers, access, or members", ErrInvalidTemplate, task.ID, task.Targets)
+			return fmt.Errorf("%w: Task %q targets %q is not servers, access, members, or selected", ErrInvalidTemplate, task.ID, task.Targets)
 		}
 		for _, outcome := range task.ContinueOn {
 			switch outcome {
@@ -224,9 +228,10 @@ type TemplateInput struct {
 	// collide with the plan's own Tasks; Job names are not prefixed.
 	IDPrefix string
 	// Servers, Access, and Members are the Server ids the target bindings resolve to.
-	Servers []string
-	Access  []string
-	Members []string
+	Servers  []string
+	Access   []string
+	Members  []string
+	Selected []string
 	// After lists Tasks of the enclosing plan that every Task without a dependency of its own
 	// depends on, so composed Jobs run after the plan's earlier Jobs.
 	After []string
@@ -321,6 +326,8 @@ func (i TemplateInput) bound(targets TemplateTargets) []string {
 		return i.Access
 	case TargetsMembers:
 		return i.Members
+	case TargetsSelected:
+		return i.Selected
 	}
 	return nil
 }

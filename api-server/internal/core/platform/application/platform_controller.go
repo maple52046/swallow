@@ -197,6 +197,10 @@ func (c *PlatformController) Reconcile(ctx context.Context, request convergence.
 	if platform.Spec == nil {
 		return c.adopt(ctx, module, platform, snapshot)
 	}
+	if upgraded, err := c.upgrade(ctx, module, platform); upgraded || err != nil {
+		// The upgraded write changes the Platform, which wakes it again with the new form.
+		return err
+	}
 	spec := *platform.Spec
 	status := platform.Status
 	if status.Realizing == nil && status.Applied == nil && spec.Desired == platformdomain.PlatformPresent && snapshot.Deployment != nil {
@@ -428,6 +432,52 @@ func (c *PlatformController) membershipDrift(ctx context.Context, module platfor
 		fields = append(fields, name+" is a member but does not report membership")
 	}
 	return fields
+}
+
+// upgrade stores a spec its module reads in an older form (a Slurm spec from before node groups) in
+// the module's current form, with its applied and realizing specs upgraded the same way, so readers
+// see the form the module uses (decision 083). Upgrading changes nothing realizing the spec does: the
+// new generation is applied as soon as the old one was. It reports whether it wrote.
+func (c *PlatformController) upgrade(ctx context.Context, module platformdomain.PlatformModule, platform *platformdomain.Platform) (bool, error) {
+	grouped, ok := module.(platformdomain.NodeGroupModule)
+	if !ok {
+		return false, nil
+	}
+	spec, specChanged := grouped.UpgradeSpec(*platform.Spec)
+	status := platform.Status
+	appliedChanged := false
+	if status.Applied != nil {
+		var applied platformdomain.PlatformSpec
+		applied, appliedChanged = grouped.UpgradeSpec(*status.Applied)
+		status.Applied = &applied
+	}
+	if status.Realizing != nil {
+		realizing := *status.Realizing
+		realizing.Spec, _ = grouped.UpgradeSpec(realizing.Spec)
+		status.Realizing = &realizing
+	}
+	if !specChanged && !appliedChanged {
+		return false, nil
+	}
+	generation := platform.Generation
+	if specChanged {
+		var err error
+		generation, err = c.specs.WriteSpec(ctx, platform.ID, platform.Generation, spec)
+		if errors.Is(err, platformdomain.ErrGenerationConflict) || errors.Is(err, platformdomain.ErrPlatformNotFound) {
+			return true, nil
+		}
+		if err != nil {
+			return true, err
+		}
+		if status.ObservedGeneration == platform.Generation {
+			status.ObservedGeneration = generation
+		}
+		if status.Realizing != nil && status.Realizing.Generation == platform.Generation {
+			status.Realizing.Generation = generation
+		}
+	}
+	slog.Info("platform spec upgraded to its module's current form", "platformId", platform.ID, "generation", generation)
+	return true, c.specs.WriteStatus(ctx, platform.ID, status)
 }
 
 // adopt gives a Platform deployed before specs existed its spec and status, at generation 1.

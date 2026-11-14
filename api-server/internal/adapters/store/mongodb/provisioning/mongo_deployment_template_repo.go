@@ -14,19 +14,49 @@ import (
 )
 
 type deploymentTemplateDoc struct {
-	ID             string    `bson:"_id"`
-	IntegrationID  string    `bson:"integrationId"`
-	NormalizedName string    `bson:"normalizedName"`
-	Name           string    `bson:"name"`
-	Description    string    `bson:"description,omitempty"`
-	ImageID        string    `bson:"imageId"`
-	Ephemeral      bool      `bson:"ephemeral"`
-	NetworkMode    string    `bson:"networkMode,omitempty"`
-	SubnetID       string    `bson:"subnetId,omitempty"`
-	DefaultGateway bool      `bson:"defaultGateway,omitempty"`
-	SealedUserData string    `bson:"sealedUserData,omitempty"`
-	CreatedAt      time.Time `bson:"createdAt"`
-	UpdatedAt      time.Time `bson:"updatedAt"`
+	ID             string `bson:"_id"`
+	IntegrationID  string `bson:"integrationId"`
+	NormalizedName string `bson:"normalizedName"`
+	Name           string `bson:"name"`
+	Description    string `bson:"description,omitempty"`
+	ImageID        string `bson:"imageId"`
+	Ephemeral      bool   `bson:"ephemeral"`
+	NetworkMode    string `bson:"networkMode,omitempty"`
+	SubnetID       string `bson:"subnetId,omitempty"`
+	DefaultGateway bool   `bson:"defaultGateway,omitempty"`
+	SealedUserData string `bson:"sealedUserData,omitempty"`
+	// MinimumHardware is absent for a template without a hardware floor.
+	MinimumHardware *minimumHardwareDoc `bson:"minimumHardware,omitempty"`
+	CreatedAt       time.Time           `bson:"createdAt"`
+	UpdatedAt       time.Time           `bson:"updatedAt"`
+}
+
+// minimumHardwareDoc is a template's optional hardware floor; a zero field sets no floor.
+type minimumHardwareDoc struct {
+	CPUCores  int    `bson:"cpuCores,omitempty"`
+	MemoryMiB int64  `bson:"memoryMiB,omitempty"`
+	StorageGB int    `bson:"storageGB,omitempty"`
+	GPUModel  string `bson:"gpuModel,omitempty"`
+	GPUCount  int    `bson:"gpuCount,omitempty"`
+}
+
+func toMinimumHardwareDoc(minimum *provisioningdomain.MinimumHardware) *minimumHardwareDoc {
+	if minimum == nil || minimum.Empty() {
+		return nil
+	}
+	return &minimumHardwareDoc{
+		CPUCores: minimum.CPUCores, MemoryMiB: minimum.MemoryMiB, StorageGB: minimum.StorageGB,
+		GPUModel: minimum.GPUModel, GPUCount: minimum.GPUCount,
+	}
+}
+
+func (d *minimumHardwareDoc) domain() *provisioningdomain.MinimumHardware {
+	if d == nil {
+		return nil
+	}
+	return &provisioningdomain.MinimumHardware{
+		CPUCores: d.CPUCores, MemoryMiB: d.MemoryMiB, StorageGB: d.StorageGB, GPUModel: d.GPUModel, GPUCount: d.GPUCount,
+	}
 }
 
 // MongoDeploymentTemplateRepo stores template intent and sealed cloud-init.
@@ -96,6 +126,7 @@ func newDeploymentTemplateDoc(
 		CreatedAt:      template.CreatedAt,
 		UpdatedAt:      template.UpdatedAt,
 	}
+	doc.MinimumHardware = toMinimumHardwareDoc(template.MinimumHardware)
 	if userData == "" {
 		return doc, nil
 	}
@@ -160,7 +191,7 @@ func (r *MongoDeploymentTemplateRepo) Update(
 	ctx context.Context,
 	template *provisioningdomain.DeploymentTemplate,
 ) error {
-	result, err := r.col.UpdateOne(ctx, bson.M{"_id": template.ID}, bson.M{"$set": bson.M{
+	update := bson.M{"$set": bson.M{
 		"normalizedName": normalizeTemplateName(template.Name),
 		"name":           template.Name,
 		"description":    template.Description,
@@ -170,7 +201,13 @@ func (r *MongoDeploymentTemplateRepo) Update(
 		"subnetId":       template.SubnetID,
 		"defaultGateway": template.DefaultGateway,
 		"updatedAt":      template.UpdatedAt,
-	}})
+	}}
+	if minimum := toMinimumHardwareDoc(template.MinimumHardware); minimum != nil {
+		update["$set"].(bson.M)["minimumHardware"] = minimum
+	} else {
+		update["$unset"] = bson.M{"minimumHardware": ""}
+	}
+	result, err := r.col.UpdateOne(ctx, bson.M{"_id": template.ID}, update)
 	if err = mapTemplateWriteError(err); err != nil {
 		return err
 	}
@@ -270,17 +307,18 @@ func toDeploymentTemplate(doc *deploymentTemplateDoc) *provisioningdomain.Deploy
 		mode = provisioningdomain.DeploymentNetworkMode(doc.NetworkMode)
 	}
 	return &provisioningdomain.DeploymentTemplate{
-		ID:             doc.ID,
-		IntegrationID:  doc.IntegrationID,
-		Name:           doc.Name,
-		Description:    doc.Description,
-		ImageID:        doc.ImageID,
-		Ephemeral:      doc.Ephemeral,
-		NetworkMode:    mode,
-		SubnetID:       doc.SubnetID,
-		DefaultGateway: doc.DefaultGateway,
-		HasUserData:    doc.SealedUserData != "",
-		CreatedAt:      doc.CreatedAt,
-		UpdatedAt:      doc.UpdatedAt,
+		ID:              doc.ID,
+		IntegrationID:   doc.IntegrationID,
+		Name:            doc.Name,
+		Description:     doc.Description,
+		ImageID:         doc.ImageID,
+		Ephemeral:       doc.Ephemeral,
+		NetworkMode:     mode,
+		SubnetID:        doc.SubnetID,
+		DefaultGateway:  doc.DefaultGateway,
+		HasUserData:     doc.SealedUserData != "",
+		MinimumHardware: doc.MinimumHardware.domain(),
+		CreatedAt:       doc.CreatedAt,
+		UpdatedAt:       doc.UpdatedAt,
 	}
 }

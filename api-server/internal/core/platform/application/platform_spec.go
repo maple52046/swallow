@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/maple52046/swallow/internal/core/convergence"
@@ -30,6 +32,9 @@ var (
 	ErrUnsupportedChange = errors.New("swallow cannot carry out this platform change yet")
 	// ErrPlatformRemoving means the Platform's uninstall has started, so its spec no longer changes.
 	ErrPlatformRemoving = errors.New("platform is being removed")
+	// ErrBlockedChange means a non-destructive write the Platform's module refuses, with its reasons
+	// (for example a node joining the control plane, which swallow does not scale).
+	ErrBlockedChange = errors.New("swallow refuses this platform change")
 )
 
 // unsupportedBlocker is the blocker a Change Plan carries for a destructive action swallow has no
@@ -94,6 +99,8 @@ type CreatePlatformSpecInput struct {
 type SpecWriteResult struct {
 	Platform *platformdomain.Platform
 	Plan     *convergence.ChangePlan
+	// Warnings are what validating the spec found worth telling without refusing it (decision 083).
+	Warnings []string
 }
 
 // Create validates a new Platform as a deployment would, then stores it at generation 1 with its
@@ -107,17 +114,24 @@ func (s *PlatformSpecService) Create(ctx context.Context, input CreatePlatformSp
 	}
 	spec := input.Spec.Clone()
 	spec.Desired = platformdomain.PlatformPresent
+	if spec, err = s.deploy.assignGeneratedTemplates(ctx, module, input.Name, spec); err != nil {
+		return nil, err
+	}
 	deploy, err := s.deploy.inputFromSpec(module, input.SiteID, input.Name, spec)
 	if err != nil {
 		return nil, err
 	}
 	deploy.RequestedBy = input.RequestedBy
-	platform, err := s.deploy.Preflight(ctx, deploy)
+	prepared, err := s.deploy.preflightDeploy(ctx, deploy)
 	if err != nil {
 		return nil, err
 	}
+	platform := prepared.platform
 	changes, err := module.Changes(nil, spec)
 	if err != nil {
+		return nil, err
+	}
+	if err := templateChanges(ctx, s.deploy.templates, false, spec, &changes); err != nil {
 		return nil, err
 	}
 	setSpec(platform, &spec)
@@ -136,7 +150,7 @@ func (s *PlatformSpecService) Create(ctx context.Context, input CreatePlatformSp
 		return nil, err
 	}
 	s.wake(ctx, platform.ID)
-	return &SpecWriteResult{Platform: platform, Plan: plan}, nil
+	return &SpecWriteResult{Platform: platform, Plan: plan, Warnings: prepared.Warnings()}, nil
 }
 
 // wake asks the platform controller, which runs in the worker, to converge now, after a spec write
@@ -176,23 +190,51 @@ func (s *PlatformSpecService) UpdateSpec(ctx context.Context, platformID string,
 		// A spec is read without its user data, so writing it back keeps the stored value.
 		spec.MachinePreparation.UserData = stored.UserData
 	}
+	if spec, err = s.deploy.assignGeneratedTemplates(ctx, module, platform.Name, spec); err != nil {
+		return nil, err
+	}
 	changes, err := module.Changes(platform.Status.Applied, spec)
 	if err != nil {
 		return nil, err
 	}
+	if err := templateChanges(ctx, s.deploy.templates, platform.Status.Applied != nil, spec, &changes); err != nil {
+		return nil, err
+	}
+	if err := s.deploy.queueBlockers(ctx, platform, &changes); err != nil {
+		return nil, err
+	}
 	blocking, refusing := changes.UnsupportedDestructive()
+	if !changes.Destructive() && len(changes.Blockers) > 0 {
+		return nil, fmt.Errorf("%w: %s", ErrBlockedChange, strings.Join(changes.Blockers, "; "))
+	}
 	if len(refusing) > 0 {
 		return nil, fmt.Errorf("%w: %v", ErrUnsupportedChange, refusing)
 	}
+	blocking = append(unsupportedBlockers(blocking), changes.Blockers...)
 	deploy, err := s.deploy.inputFromSpec(module, platform.SiteID, platform.Name, spec)
 	if err != nil {
 		return nil, err
 	}
 	deploy.PlatformID = platform.ID
-	if _, err := s.deploy.Preflight(ctx, deploy); err != nil {
+	deploy.changed = addedMembers(platform.Status.Applied, spec)
+	prepared, err := s.deploy.preflightDeploy(ctx, deploy)
+	if err != nil {
 		return nil, err
 	}
-	return s.write(ctx, platform, expectedGeneration, spec, changes, blocking, approvedBy)
+	result, err := s.write(ctx, platform, expectedGeneration, spec, changes, blocking, approvedBy)
+	if result != nil {
+		result.Warnings = prepared.Warnings()
+	}
+	return result, err
+}
+
+// unsupportedBlockers words the destructive actions swallow cannot carry out yet as blockers.
+func unsupportedBlockers(actions []string) []string {
+	blockers := make([]string, 0, len(actions))
+	for _, action := range actions {
+		blockers = append(blockers, unsupportedBlocker(action))
+	}
+	return blockers
 }
 
 // Delete declares a Platform absent, removed as removal says, and its result says what the request
@@ -469,11 +511,10 @@ func platformDraft(platformID string, generation int64, observedAt time.Time, sp
 		draft.Actions = append(draft.Actions, action)
 	}
 	if blocking == nil {
-		blocking, _ = changes.UnsupportedDestructive()
+		unsupported, _ := changes.UnsupportedDestructive()
+		blocking = append(unsupportedBlockers(unsupported), changes.Blockers...)
 	}
-	for _, action := range blocking {
-		draft.Blockers = append(draft.Blockers, unsupportedBlocker(action))
-	}
+	draft.Blockers = append(draft.Blockers, blocking...)
 	return draft
 }
 
@@ -522,6 +563,8 @@ func (s *DeployService) inputFromSpec(module platformdomain.PlatformModule, site
 		return DeployPlatformInput{}, fmt.Errorf("%w: %v", platformdomain.ErrInvalidSpec, err)
 	}
 	input.MachinePreparation = spec.MachinePreparation
+	stored := spec.Clone()
+	input.module, input.spec = module, &stored
 	return input, nil
 }
 
@@ -602,12 +645,19 @@ func (p *PlatformPlanner) PrepareApply(ctx context.Context, plan *convergence.Ch
 			input.ReleaseServers, input.ReleaseOptions, input.CancelActiveWorkflows = removal.ReleaseServers, removal.ReleaseOptions, removal.CancelActiveWorkflows
 		}
 		return &platformApply{uninstall: input}, nil
-	case platformdomain.RealizeDeploy, platformdomain.RealizeHardwareCounters:
+	case platformdomain.RealizeDeploy, platformdomain.RealizeHardwareCounters, platformdomain.RealizeScaleIn:
 		prepared, err := PrepareSpecDeployment(ctx, p.deploy, p.modules[platform.Type], platform, requestedBy, changes.Realization)
 		if err != nil {
 			return nil, err
 		}
 		return &platformApply{deploy: prepared}, nil
+	case platformdomain.RealizeNothing:
+		if !changes.NeedsApproval {
+			return nil, fmt.Errorf("%w: the plan needs no Workflow", convergence.ErrChangePlanState)
+		}
+		// Only the node groups' first templates wait on the plan: approving it creates them.
+		spec := platform.Spec.Clone()
+		return &platformApply{templates: &spec}, nil
 	case platformdomain.RealizeGPUOperator:
 		input, err := gpuOperatorInput(p.deploy, p.modules[platform.Type], platform, requestedBy)
 		if err != nil {
@@ -634,6 +684,8 @@ func (p *PlatformPlanner) PersistApply(ctx context.Context, prepared convergence
 			return "", err
 		}
 		return result.OperationID, nil
+	case apply.templates != nil:
+		return "", ensureGeneratedTemplates(ctx, p.deploy.templates, apply.templates)
 	case apply.gpuOperator != nil && p.gpuOperators != nil:
 		result, err := p.gpuOperators.Configure(ctx, *apply.gpuOperator)
 		if err != nil {
@@ -655,7 +707,13 @@ func (p *PlatformPlanner) changes(ctx context.Context, platformID string) (*plat
 		return nil, platformdomain.PlatformChanges{}, ErrPlatformNotAdopted
 	}
 	changes, err := module.Changes(platform.Status.Applied, *platform.Spec)
-	return platform, changes, err
+	if err != nil {
+		return platform, changes, err
+	}
+	if err := templateChanges(ctx, p.deploy.templates, platform.Status.Applied != nil, *platform.Spec, &changes); err != nil {
+		return platform, changes, err
+	}
+	return platform, changes, p.deploy.queueBlockers(ctx, platform, &changes)
 }
 
 // platformApply is a planned Platform Workflow: exactly one field is set.
@@ -663,6 +721,8 @@ type platformApply struct {
 	deploy      *PreparedDeploy
 	uninstall   *UninstallPlatformInput
 	gpuOperator *ConfigureGPUOperatorInput
+	// templates is a spec whose only approved change is creating its node groups' templates.
+	templates *platformdomain.PlatformSpec
 }
 
 // WorkflowID is the deploy Workflow's preassigned id; the other Workflows get theirs when written.
@@ -693,6 +753,10 @@ func PrepareSpecDeployment(
 		return nil, err
 	}
 	input.PlatformID, input.RequestedBy, input.realization = platform.ID, requestedBy, realization
+	input.changed = addedMembers(platform.Status.Applied, *platform.Spec)
+	if realization == platformdomain.RealizeScaleIn {
+		input.removals = removedMembers(platform.Status.Applied, *platform.Spec)
+	}
 	return deploy.Prepare(ctx, input)
 }
 
@@ -711,4 +775,41 @@ func gpuOperatorInput(deploy *DeployService, module platformdomain.PlatformModul
 		settings = *input.GPUOperator
 	}
 	return &ConfigureGPUOperatorInput{PlatformID: platform.ID, Settings: settings, RequestedBy: requestedBy}, nil
+}
+
+// ErrNotRescannable means the member is not one whose hardware a rescan redetects: it is not a
+// member of the applied spec, or not one that runs workloads with GPUs (a compute member).
+var ErrNotRescannable = errors.New("the member's hardware cannot be rescanned")
+
+// Rescan redetects one member's hardware and reconfigures the Platform with it (decision 083): the deploy
+// Workflow of the applied spec runs again, non-destructively, and its gate validates only that
+// member. It is a user's action, not a spec change. The Platform must have an applied spec, run no
+// other deploy or uninstall, and serverID must be one of its compute members.
+func (s *PlatformSpecService) Rescan(ctx context.Context, platformID, serverID, requestedBy string) (string, error) {
+	platform, module, err := s.specified(ctx, platformID)
+	if err != nil {
+		return "", err
+	}
+	applied := platform.Status.Applied
+	if applied == nil {
+		return "", fmt.Errorf("%w: the Platform has no applied spec yet", ErrNotRescannable)
+	}
+	member, ok := applied.Member(serverID)
+	if !ok || !slices.Contains(member.Roles, "compute") {
+		return "", fmt.Errorf("%w: server %s is not a compute member of the Platform", ErrNotRescannable, serverID)
+	}
+	if platform.Status.Realizing != nil {
+		return "", fmt.Errorf("%w: a change of the Platform is being carried out", ErrNotRescannable)
+	}
+	input, err := s.deploy.inputFromSpec(module, platform.SiteID, platform.Name, *applied)
+	if err != nil {
+		return "", err
+	}
+	input.PlatformID, input.RequestedBy, input.realization = platform.ID, requestedBy, platformdomain.RealizeRescan
+	input.changed = []string{serverID}
+	prepared, err := s.deploy.Prepare(ctx, input)
+	if err != nil {
+		return "", err
+	}
+	return s.deploy.Persist(ctx, prepared)
 }

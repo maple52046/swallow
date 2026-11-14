@@ -302,7 +302,7 @@ func TestNetworkTargetResponseReportsSiteDHCPSubnetBesideAutomaticSuggestion(t *
 func TestDeploymentNetworkInputPreservesStaticIntent(t *testing.T) {
 	input, ok := deployServersInput(deployServersRequest{
 		Network: &deploymentNetworkRequest{
-			Mode: "static", SubnetID: "subnet-1", DefaultGateway: true,
+			Mode: "static", SubnetID: "subnet-1", DefaultGateway: boolRef(true),
 			Assignments: []deploymentNetworkAssignmentRequest{{
 				ServerID: "server-1", InterfaceID: "interface-1",
 				SubnetID: "subnet-1", IPAddress: "192.0.2.42",
@@ -317,7 +317,7 @@ func TestDeploymentNetworkInputPreservesStaticIntent(t *testing.T) {
 	if network == nil {
 		t.Fatal("network input was dropped at the HTTP boundary")
 	}
-	if network.Mode != "static" || network.SubnetID != "subnet-1" || !network.DefaultGateway {
+	if network.Mode != "static" || network.SubnetID != "subnet-1" || network.DefaultGateway == nil || !*network.DefaultGateway {
 		t.Fatalf("network input = %#v", network)
 	}
 	if len(network.Assignments) != 1 {
@@ -331,3 +331,6 @@ func TestDeploymentNetworkInputPreservesStaticIntent(t *testing.T) {
 		t.Fatalf("assignment = %#v", assignment)
 	}
 }
+
+// boolRef returns a pointer to value, for the optional booleans of a request.
+func boolRef(value bool) *bool { return &value }

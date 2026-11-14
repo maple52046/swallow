@@ -910,7 +910,7 @@ func TestDeployServersRejectsDefaultGatewayForDHCPBeforeAnyWrite(t *testing.T) {
 		Settings:  DeploymentSettingsInput{ImageID: &imageID},
 		Network: &DeploymentNetworkInput{
 			Mode:           "dhcp",
-			DefaultGateway: true,
+			DefaultGateway: boolRef(true),
 		},
 	})
 	if !errors.Is(err, provisioningdomain.ErrInvalidDeploymentBatch) {
@@ -1123,3 +1123,6 @@ func TestProvisioningTaskRetryUsesLiveLockGuard(t *testing.T) {
 		t.Fatalf("locked retry changed task state: %#v", tasks.current)
 	}
 }
+
+// boolRef returns a pointer to value, for the optional booleans of a request.
+func boolRef(value bool) *bool { return &value }

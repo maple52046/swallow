@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -21,8 +22,50 @@ type DeploymentTemplate struct {
 	SubnetID       string
 	DefaultGateway bool
 	HasUserData    bool
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// MinimumHardware is the optional hardware a Server must have to be installed from the template;
+	// nil sets no floor. It never describes exact hardware: a template installs any Server that meets it.
+	MinimumHardware *MinimumHardware
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+// MinimumHardware is a Deployment Template's optional hardware floor (glossary Deployment Template).
+// Each zero field sets no floor for its dimension. GPUModel is matched against the Server's GPU
+// Inventory model names (case-insensitively, as a substring), and GPUCount counts compute GPUs.
+type MinimumHardware struct {
+	CPUCores  int
+	MemoryMiB int64
+	StorageGB int
+	GPUModel  string
+	GPUCount  int
+}
+
+// Empty reports whether the floor constrains nothing.
+func (m MinimumHardware) Empty() bool {
+	return m.CPUCores == 0 && m.MemoryMiB == 0 && m.StorageGB == 0 && m.GPUModel == "" && m.GPUCount == 0
+}
+
+// Validate refuses a negative floor.
+func (m MinimumHardware) Validate() error {
+	if m.CPUCores < 0 || m.MemoryMiB < 0 || m.StorageGB < 0 || m.GPUCount < 0 {
+		return fmt.Errorf("%w: minimumHardware values cannot be negative", ErrInvalidDeploymentTemplate)
+	}
+	return nil
+}
+
+// DeploymentTemplateReference is one use of a template by a Platform: a node group whose members
+// are installed from it.
+type DeploymentTemplateReference struct {
+	PlatformID   string
+	PlatformName string
+	Group        string
+}
+
+// DeploymentTemplateReferenceReader lists the Platform node groups that install from templates, so a
+// referenced template is not deleted and its readers see where it is used. It is a port: the Platform
+// context owns the references, and the composition root supplies the adapter.
+type DeploymentTemplateReferenceReader interface {
+	TemplateReferences(ctx context.Context) (map[string][]DeploymentTemplateReference, error)
 }
 
 // DeploymentTemplateFilter narrows a template listing. Zero values mean no constraint.
@@ -66,6 +109,8 @@ type ProvisionerIntegrationReader interface {
 var (
 	// ErrDeploymentTemplateNotFound means the template ID is unknown.
 	ErrDeploymentTemplateNotFound = errors.New("deployment template not found")
+	// ErrDeploymentTemplateInUse means a Platform node group still installs from the template.
+	ErrDeploymentTemplateInUse = errors.New("deployment template is used by a Platform")
 	// ErrDeploymentTemplateNameTaken preserves case-insensitive uniqueness per integration.
 	ErrDeploymentTemplateNameTaken = errors.New("deployment template name already exists")
 	// ErrDeploymentTemplateUserDataMissing means no cloud-init content is stored.

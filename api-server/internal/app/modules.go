@@ -293,6 +293,21 @@ func softwareCatalog(registry *moduledomain.Registry) (*softwaredomain.Catalog, 
 func workflowKinds(registry *moduledomain.Registry) (workflowdomain.WorkflowKinds, error) {
 	kinds := workflowdomain.WorkflowKinds{}
 	for _, module := range registry.Modules() {
+		if module.Manifest.Kind == moduledomain.KindPlatform {
+			// A Platform module's kinds that the core does not list yet (a Slurm scale-in, decision 083)
+			// act on its deployed members.
+			var declared []workflowdomain.WorkflowKind
+			for _, kind := range module.Manifest.WorkflowKinds {
+				if !kinds.Valid(workflowdomain.WorkflowKind(kind)) {
+					declared = append(declared, workflowdomain.WorkflowKind(kind))
+				}
+			}
+			var err error
+			if kinds, err = kinds.With("deployed", declared...); err != nil {
+				return workflowdomain.WorkflowKinds{}, fmt.Errorf("module %s: %w", module.Manifest.Ref(), err)
+			}
+			continue
+		}
 		if module.Manifest.Kind != moduledomain.KindSoftware {
 			continue
 		}

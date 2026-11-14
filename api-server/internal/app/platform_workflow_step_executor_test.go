@@ -13,7 +13,14 @@ import (
 type recordingFinalizer struct {
 	ids           []string
 	deleteRecords []bool
+	removed       []string
 	err           error
+}
+
+func (f *recordingFinalizer) CompleteMemberRemoval(_ context.Context, platformID string, serverIDs []string) error {
+	f.ids = append(f.ids, platformID)
+	f.removed = append(f.removed, serverIDs...)
+	return f.err
 }
 
 func (f *recordingFinalizer) CompleteUninstall(_ context.Context, platformID string, deleteRecord bool) error {
@@ -85,5 +92,20 @@ func TestCompleteUninstallStepFailsWhenFinalizerErrors(t *testing.T) {
 	// The cleanup is idempotent, so a transient failure should be retryable.
 	if !result.Error.Retryable {
 		t.Errorf("error retryable = false, want true for a transient finalize failure")
+	}
+}
+
+// A scale-in's finalize Task hands the Servers that left to the Platform's finalizer (decision 083).
+func TestCompleteMemberRemovalStepInvokesFinalizer(t *testing.T) {
+	finalizer := &recordingFinalizer{}
+	executor := platformWorkflowStepExecutor{finalizer: finalizer}
+	result := executor.Execute(context.Background(), temporalworkflow.StepExecutionInput{
+		PlatformID: "platform-a",
+		Step: workflowdomain.Task{ID: completeScaleInStepID, Kind: completeScaleInTaskKind,
+			Parameters: map[string]any{"serverIds": []any{"srv-1", "srv-2"}}},
+	})
+	if result.Status != workflowdomain.TaskSucceeded || len(finalizer.ids) != 1 || finalizer.ids[0] != "platform-a" ||
+		len(finalizer.removed) != 2 || finalizer.removed[1] != "srv-2" {
+		t.Fatalf("result = %+v, finalizer = %+v; want platform-a's srv-1 and srv-2 finalized", result, finalizer)
 	}
 }

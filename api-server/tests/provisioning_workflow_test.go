@@ -172,6 +172,63 @@ func TestDeploymentTemplate_ValidatesLiveImageAndBlocksIntegrationDelete(t *test
 	}
 }
 
+// A template carries an optional hardware floor, lists the node groups that install from it, and
+// cannot be deleted while one does.
+func TestDeploymentTemplate_MinimumHardwareAndReferences(t *testing.T) {
+	f := setupPlatform(t)
+	seedProvisionerIntegration(t, f)
+
+	resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/templates", map[string]any{
+		"integrationId": testIntegrationID, "name": "GPU nodes", "imageId": "ubuntu/jammy",
+		"minimumHardware": map[string]any{"cpuCores": 32, "gpuModel": "MI300X", "gpuCount": 8},
+	}, f.adminAuth(t))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create: expected 201, got %d: %s", resp.StatusCode, rawBody(t, resp))
+	}
+	item := parseBody(t, resp)
+	minimum, _ := item["minimumHardware"].(map[string]any)
+	if minimum["cpuCores"] != float64(32) || minimum["gpuModel"] != "MI300X" || minimum["gpuCount"] != float64(8) || minimum["memoryMiB"] != nil {
+		t.Fatalf("minimumHardware = %v", item["minimumHardware"])
+	}
+	if used, ok := item["usedBy"].([]any); !ok || len(used) != 0 {
+		t.Fatalf("usedBy = %v, want an empty list", item["usedBy"])
+	}
+	id := item["id"].(string)
+
+	resp = doRequest(t, f.app, "POST", "/api/v1/provisioning/templates", map[string]any{
+		"integrationId": testIntegrationID, "name": "Negative", "imageId": "ubuntu/jammy",
+		"minimumHardware": map[string]any{"cpuCores": -1},
+	}, f.adminAuth(t))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("a negative floor: expected 400, got %d", resp.StatusCode)
+	}
+
+	resp = doRequest(t, f.app, "PATCH", "/api/v1/provisioning/templates/"+id, map[string]any{
+		"minimumHardware": map[string]any{"cpuCores": nil, "gpuModel": nil, "gpuCount": nil},
+	}, f.adminAuth(t))
+	if body := parseBody(t, resp); resp.StatusCode != http.StatusOK || body["minimumHardware"] != nil {
+		t.Fatalf("clear the floor: %d %v", resp.StatusCode, body["minimumHardware"])
+	}
+
+	f.templateRefs.refs = map[string][]provisioningdomain.DeploymentTemplateReference{
+		id: {{PlatformID: "p1", PlatformName: "lab", Group: "gpu"}},
+	}
+	resp = doRequest(t, f.app, "GET", "/api/v1/provisioning/templates/"+id, nil, f.adminAuth(t))
+	used, _ := parseBody(t, resp)["usedBy"].([]any)
+	if len(used) != 1 || used[0].(map[string]any)["platformName"] != "lab" || used[0].(map[string]any)["group"] != "gpu" {
+		t.Fatalf("usedBy = %v", used)
+	}
+	resp = doRequest(t, f.app, "DELETE", "/api/v1/provisioning/templates/"+id, nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusConflict || errorCode(t, resp) != "conflict" {
+		t.Fatalf("delete a referenced template: expected 409 conflict, got %d", resp.StatusCode)
+	}
+	f.templateRefs.refs = nil
+	resp = doRequest(t, f.app, "DELETE", "/api/v1/provisioning/templates/"+id, nil, f.adminAuth(t))
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete an unreferenced template: expected 204, got %d", resp.StatusCode)
+	}
+}
+
 func TestDeployServers_InlineAndTemplateModes(t *testing.T) {
 	t.Run("inline replace", func(t *testing.T) {
 		f := setupPlatform(t)

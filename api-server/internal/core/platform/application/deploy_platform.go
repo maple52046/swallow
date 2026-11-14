@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -138,6 +140,9 @@ type DeployService struct {
 	deviceMetricsExporters platformdomain.DeviceMetricsExporterRecorder
 	accelerator            platformdomain.Accelerator
 	readRequest            DeployRequestReader
+	templates              platformdomain.DeploymentTemplates
+	memberTemplates        platformdomain.MemberTemplateRecorder
+	readers                platformdomain.ReaderFactory
 }
 
 // DeployServiceDeps is what a DeployService is built from. Every field is required, so every
@@ -180,6 +185,14 @@ type DeployServiceDeps struct {
 	Accelerator platformdomain.Accelerator
 	// ReadRequest reads a deploy request body, which is how a Platform spec becomes a deployment.
 	ReadRequest DeployRequestReader
+	// Templates reads the Deployment Templates a Platform's node groups install from and creates the
+	// ones the Platform generates (decision 083).
+	Templates platformdomain.DeploymentTemplates
+	// MemberTemplates records which template each installed member came from.
+	MemberTemplates platformdomain.MemberTemplateRecorder
+	// Readers reads a deployed Platform's runtime, for the checks a spec write makes against it (the
+	// work still queued in a partition it removes).
+	Readers platformdomain.ReaderFactory
 }
 
 // NewDeployService constructs deployment preflight and acceptance over Server observations. Which
@@ -197,6 +210,7 @@ func NewDeployService(deps DeployServiceDeps) (*DeployService, error) {
 		requirements: deps.Requirements, deploymentKeys: deps.DeploymentKeys,
 		gpuOperators: deps.GPUOperators, omnistats: deps.Omnistats, deviceMetricsExporters: deps.DeviceMetricsExporters,
 		accelerator: deps.Accelerator, readRequest: deps.ReadRequest,
+		templates: deps.Templates, memberTemplates: deps.MemberTemplates, readers: deps.Readers,
 	}, nil
 }
 
@@ -249,6 +263,14 @@ type DeployPlatformInput struct {
 	realization platformdomain.PlatformRealization
 	// preflight stops after validation, before the Workflow is prepared (Preflight).
 	preflight bool
+	// module and spec are the Platform module and spec a spec-written deployment stands for
+	// (inputFromSpec); they plan the module's topology and the members' templates. Nil for neither.
+	module platformdomain.PlatformModule
+	spec   *platformdomain.PlatformSpec
+	// changed are the members this deployment adds (every member when empty and the spec is new);
+	// removals the members a scale-in removes.
+	changed  []string
+	removals []platformdomain.MemberRemoval
 }
 
 // DeployPlatformResult is the accepted deployment: the created platform and the operation
@@ -273,6 +295,11 @@ type validatedDeployment struct {
 	// ephemeralRoot reports that every Kubernetes member runs from a memory-backed root (see
 	// sharedEphemeralRoot). A Slurm deployment leaves it false: its roles detect the root per host.
 	ephemeralRoot bool
+	// topology is the module-owned part of the deployment (TopologyModule); warnings what validation
+	// found worth telling; templates the members' Deployment Templates (decision 083).
+	topology  platformdomain.DeploymentTopology
+	warnings  []string
+	templates memberTemplates
 }
 
 // deploymentTargetAvailability names the Platforms a target can be taken by: the one its stored
@@ -314,6 +341,20 @@ type PreparedDeploy struct {
 	targetIDs []string
 	records   []featureRecord
 	workflow  platformdomain.PreparedWorkflow
+	// warnings are what validation found worth telling but not refusing (decision 083).
+	warnings []string
+	// spec is the spec the deployment realizes, whose generated templates acceptance creates; nil
+	// for none. memberRecords are the members it installs from a template.
+	spec          *platformdomain.PlatformSpec
+	memberRecords []platformdomain.MemberTemplateRecord
+}
+
+// Warnings are what validating the deployment found worth telling the user without refusing it.
+func (p *PreparedDeploy) Warnings() []string {
+	if p == nil {
+		return nil
+	}
+	return p.warnings
 }
 
 // WorkflowID is the id the deploy Workflow will have.
@@ -356,8 +397,20 @@ func (s *DeployService) Prepare(ctx context.Context, input DeployPlatformInput) 
 // Persist is Deploy's second phase: the store transaction that accepts a prepared deployment (see
 // accept). It reports the Workflow id.
 func (s *DeployService) Persist(ctx context.Context, prepared *PreparedDeploy) (string, error) {
+	records := prepared.records
+	if spec := prepared.spec; spec != nil {
+		records = append(slices.Clone(records), func(ctx context.Context) error {
+			return ensureGeneratedTemplates(ctx, s.templates, spec)
+		})
+	}
+	if members := prepared.memberRecords; len(members) > 0 {
+		platformID := prepared.platform.ID
+		records = append(slices.Clone(records), func(ctx context.Context) error {
+			return s.memberTemplates.RecordMemberTemplates(ctx, platformID, members)
+		})
+	}
 	return s.accept(ctx, prepared.platform, prepared.existing, prepared.targets, prepared.targetIDs,
-		prepared.records, prepared.workflow)
+		records, prepared.workflow)
 }
 
 // Preflight validates a deployment as Deploy does — the Deployment Key, topology, targets, and
@@ -365,12 +418,17 @@ func (s *DeployService) Persist(ctx context.Context, prepared *PreparedDeploy) (
 // store. A Platform created through a Change Plan stores this record with its spec, and the
 // approved plan then deploys onto it (DeployPlatformInput.PlatformID).
 func (s *DeployService) Preflight(ctx context.Context, input DeployPlatformInput) (*platformdomain.Platform, error) {
-	input.preflight = true
-	prepared, err := s.Prepare(ctx, input)
+	prepared, err := s.preflightDeploy(ctx, input)
 	if err != nil {
 		return nil, err
 	}
 	return prepared.platform, nil
+}
+
+// preflightDeploy is Preflight keeping what validation found: the record and the warnings.
+func (s *DeployService) preflightDeploy(ctx context.Context, input DeployPlatformInput) (*PreparedDeploy, error) {
+	input.preflight = true
+	return s.Prepare(ctx, input)
 }
 
 // prepare finishes a validated deployment: a preflight stops here; otherwise the launcher plans
@@ -384,7 +442,7 @@ func (s *DeployService) prepare(
 ) (*PreparedDeploy, error) {
 	deploy := &PreparedDeploy{
 		platform: launch.Platform, existing: input.PlatformID != "",
-		targets: targets, targetIDs: launch.TargetServerIDs, records: records,
+		targets: targets, targetIDs: launch.TargetServerIDs, records: records, spec: input.spec,
 	}
 	if input.preflight {
 		return deploy, nil
@@ -685,6 +743,15 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 		MachinePreparation: validated.machinePreparation,
 		TimeSyncCheck:      input.TimeSyncCheck,
 		Realization:        input.realization,
+		ChangedServerIDs:   changedMembers(input, targetIDs),
+	}
+	maps.Copy(launch.TrustedVars, validated.topology.Vars)
+	if input.realization == platformdomain.RealizeScaleIn {
+		if len(input.removals) == 0 {
+			return nil, fmt.Errorf("%w: a scale-in needs members to remove", platformdomain.ErrInvalidDeployment)
+		}
+		launch.ScaleIn = &platformdomain.ScaleInLaunch{Removals: slices.Clone(input.removals)}
+		launch.ChangedServerIDs = nil
 	}
 	if containerRuntime != "" {
 		launch.ContainerRuntime = &platformdomain.ContainerRuntimeLaunch{
@@ -739,7 +806,43 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 	if input.MonitoringDashboards == nil || *input.MonitoringDashboards {
 		launch.MonitoringDashboards = &platformdomain.MonitoringDashboardsLaunch{ServerID: observability, InstallMethod: dashboardsMethod}
 	}
-	return s.prepare(ctx, input, launch, validated.targets, records)
+	prepared, err := s.prepare(ctx, input, launch, validated.targets, records)
+	if err != nil {
+		return nil, err
+	}
+	prepared.warnings = validated.warnings
+	prepared.memberRecords = memberTemplateRecords(validated.templates, provisionedMembers(validated), time.Now().UTC())
+	return prepared, nil
+}
+
+// changedMembers are the members a deployment validates: the ones it adds, every member when the
+// caller did not say (nil: a new Platform), never a Server outside targetIDs. A redeploy that adds
+// no member validates none.
+func changedMembers(input DeployPlatformInput, targetIDs []string) []string {
+	if input.changed == nil {
+		return slices.Clone(targetIDs)
+	}
+	ids := []string{}
+	for _, id := range input.changed {
+		if slices.Contains(targetIDs, id) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// provisionedMembers are the targets a provision_os deployment installs an OS on: the ready ones.
+func provisionedMembers(validated validatedDeployment) []string {
+	if validated.machinePreparation.Mode != platformdomain.MachinePreparationProvisionOS {
+		return nil
+	}
+	var ids []string
+	for _, target := range validated.targets {
+		if target.Provisioning != nil && target.Provisioning.State == "ready" {
+			ids = append(ids, target.ID)
+		}
+	}
+	return ids
 }
 
 // validateSlurm resolves and checks the Slurm topology and targets before any record exists.
@@ -791,9 +894,25 @@ func (s *DeployService) validateSlurm(ctx context.Context, input DeployPlatformI
 		}
 		targetIDs = append(targetIDs, assignment.ServerID)
 	}
+	preparation, templates, err := s.resolveMemberTemplates(ctx, input, preparation)
+	if err != nil {
+		return invalid, err
+	}
 	targets, err := s.checkTargets(ctx, input.SiteID, input.PlatformID, targetIDs, preparation, minimum)
 	if err != nil {
 		return invalid, err
+	}
+	changed := changedMembers(input, targetIDs)
+	warnings, err := s.checkMemberTemplates(templates, targets, changed)
+	if err != nil {
+		return invalid, err
+	}
+	var topology platformdomain.DeploymentTopology
+	if planner, ok := input.module.(platformdomain.TopologyModule); ok && input.spec != nil {
+		if topology, err = planner.DeploymentTopology(*input.spec, topologyTargets(targets, s.accelerator)); err != nil {
+			return invalid, err
+		}
+		warnings = append(warnings, topology.Warnings...)
 	}
 
 	if controllers == 0 {
@@ -818,7 +937,10 @@ func (s *DeployService) validateSlurm(ctx context.Context, input DeployPlatformI
 	}
 	spec.WorkloadStorage = normalized
 
-	return validatedDeployment{slurmSpec: spec, targets: targets, machinePreparation: preparation}, nil
+	return validatedDeployment{
+		slurmSpec: spec, targets: targets, machinePreparation: preparation,
+		topology: topology, warnings: warnings, templates: templates,
+	}, nil
 }
 
 // defaultWorkloadMountPath is the shared workload filesystem mountpoint used when the user
@@ -907,7 +1029,19 @@ func (s *DeployService) validate(ctx context.Context, input DeployPlatformInput)
 	if err != nil {
 		return invalid, err
 	}
-	ephemeralRoot, err := sharedEphemeralRoot(targets, preparation)
+	rootPreparation := preparation
+	if rootPreparation.Ephemeral == nil && rootPreparation.TemplateID != "" {
+		// A request that names only a Deployment Template deploys the template's mode.
+		intent, err := s.templates.Find(ctx, rootPreparation.TemplateID)
+		if err != nil {
+			return invalid, err
+		}
+		if intent != nil {
+			ephemeral := intent.Ephemeral
+			rootPreparation.Ephemeral = &ephemeral
+		}
+	}
+	ephemeralRoot, err := sharedEphemeralRoot(targets, rootPreparation)
 	if err != nil {
 		return invalid, err
 	}
@@ -996,8 +1130,8 @@ func (s *DeployService) validate(ctx context.Context, input DeployPlatformInput)
 // (ready under provision_os) takes the requested Deploy Target, nil meaning disk; a Server already
 // deployed (reused under provision_os, or any target under existing_os) keeps the root it was
 // deployed with, its observed Provisioning.Ephemeral. A request that names only a Deployment
-// Template leaves the Deploy Target nil; the provisioner then uses the template's, which this
-// layer cannot read, so such a request counts as disk here. targets must have passed checkTargets,
+// Template is given the template's mode by the caller; a nil Deploy Target that remains
+// counts as disk. targets must have passed checkTargets,
 // which guarantees each one a Provisioning state. A mix is ErrInvalidDeployment naming the RAM and
 // the disk Servers. Slurm does not call it: its roles detect the root per host.
 func sharedEphemeralRoot(targets []*serverdomain.Server, preparation platformdomain.MachinePreparation) (bool, error) {

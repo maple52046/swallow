@@ -86,6 +86,25 @@ func (Platform) SpecFromDeployRequest(body map[string]any) (platformdomain.Platf
 		}
 		spec.Members = append(spec.Members, platformdomain.PlatformMember{ServerID: serverID, Roles: roles})
 	}
+	if len(spec.Members) == 0 {
+		// A request that names its members only through node groups gives each Server the roles of
+		// its groups.
+		for _, group := range readTopology(spec).groups {
+			for _, id := range group.Members {
+				member, ok := spec.Member(id)
+				if !ok {
+					spec.Members = append(spec.Members, platformdomain.PlatformMember{ServerID: id})
+				}
+				if !slices.Contains(member.Roles, group.Role) {
+					for index := range spec.Members {
+						if spec.Members[index].ServerID == id {
+							spec.Members[index].Roles = append(spec.Members[index].Roles, group.Role)
+						}
+					}
+				}
+			}
+		}
+	}
 	return spec, nil
 }
 
@@ -127,16 +146,43 @@ func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdo
 		}
 	}
 	added, removed, changed := platformdomain.MemberChanges(*applied, desired)
+	controlPlane := func(roles []string) bool {
+		return slices.Contains(roles, RoleController) || slices.Contains(roles, RoleLogin)
+	}
 	for _, member := range added {
-		add(convergence.PlannedAction{Target: serverRef(member.ServerID), Action: "add-member", To: strings.Join(member.Roles, ", "), Reason: "the Server joins the Platform"}, true)
+		action := convergence.PlannedAction{Target: serverRef(member.ServerID), Action: "add-member", To: strings.Join(member.Roles, ", "), Reason: "the Server joins the Platform"}
+		if controlPlane(member.Roles) {
+			action.Reason = "the Server joins the control plane"
+			add(action, false)
+			changes.Blockers = append(changes.Blockers, fmt.Sprintf("server %s would join the control plane (%s); swallow scales only compute nodes", member.ServerID, strings.Join(member.Roles, ", ")))
+			continue
+		}
+		add(action, true)
 	}
 	for _, member := range removed {
-		add(convergence.PlannedAction{Target: serverRef(member.ServerID), Action: "remove-member", From: strings.Join(member.Roles, ", "), Destructive: true, Reason: "the Server leaves the Platform"}, false)
+		action := convergence.PlannedAction{Target: serverRef(member.ServerID), Action: "remove-member", From: strings.Join(member.Roles, ", "), Destructive: true,
+			Reason: "the Server is drained and leaves the Platform"}
+		if controlPlane(member.Roles) {
+			action.Reason = "the Server leaves the control plane"
+			add(action, false)
+			changes.Blockers = append(changes.Blockers, fmt.Sprintf("server %s is in the control plane (%s); swallow scales only compute nodes", member.ServerID, strings.Join(member.Roles, ", ")))
+			continue
+		}
+		add(action, true)
 	}
 	for _, member := range changed {
 		previous, _ := applied.Member(member.ServerID)
 		add(convergence.PlannedAction{Target: serverRef(member.ServerID), Action: "change-node-role", From: strings.Join(previous.Roles, ", "), To: strings.Join(member.Roles, ", "), Destructive: true, Reason: "the Server's Slurm roles change"}, false)
+		changes.Blockers = append(changes.Blockers, fmt.Sprintf("server %s would change its roles from %s to %s; swallow does not change a node's roles", member.ServerID,
+			strings.Join(previous.Roles, ", "), strings.Join(member.Roles, ", ")))
 	}
+	if len(added) > 0 && len(removed) > 0 {
+		changes.Blockers = append(changes.Blockers, "add and remove members in separate changes")
+	}
+	if len(removed) > 0 && len(computeMembers(desired)) == 0 && len(computeMembers(*applied)) > 0 {
+		changes.Blockers = append(changes.Blockers, "the Platform's last compute node cannot be removed; uninstall the Platform instead")
+	}
+	deploys := topologyChanges(*applied, desired, add)
 	for _, feature := range []string{"omnistat", "deviceMetricsExporter"} {
 		was, is := platformdomain.SettingEnabled(*applied, feature), platformdomain.SettingEnabled(desired, feature)
 		switch {
@@ -211,15 +257,127 @@ func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdo
 	}
 	if !changes.Empty() {
 		changes.Realization = platformdomain.RealizeDeploy
-		if !slices.ContainsFunc(changes.Actions, func(action convergence.PlannedAction) bool {
+		switch {
+		case len(removed) > 0:
+			// Removing compute members drains and cleans them; the reconfigure it runs carries every
+			// other change of the spec with it.
+			changes.Realization = platformdomain.RealizeScaleIn
+		case !slices.ContainsFunc(changes.Actions, func(action convergence.PlannedAction) bool {
 			return action.Action != "enable-hardware-counters" && action.Action != "disable-hardware-counters"
-		}) {
+		}):
 			// Alone, the counters reconfigure only Omnistat; with another change the convergent deploy
 			// reruns Omnistat with them anyway.
 			changes.Realization = platformdomain.RealizeHardwareCounters
+		case !slices.ContainsFunc(changes.Actions, func(action convergence.PlannedAction) bool {
+			return !slices.Contains(templateOnlyActions, action.Action)
+		}) && !deploys:
+			// A group's template only decides how its next member is installed.
+			changes.Realization = platformdomain.RealizeNothing
 		}
 	}
 	return changes, nil
+}
+
+// templateOnlyActions change only which Deployment Template a group's next member is installed from.
+var templateOnlyActions = []string{"change-group-template"}
+
+// computeMembers returns the members that run slurmd.
+func computeMembers(spec platformdomain.PlatformSpec) []string {
+	var ids []string
+	for _, member := range spec.Members {
+		if slices.Contains(member.Roles, RoleCompute) {
+			ids = append(ids, member.ServerID)
+		}
+	}
+	return ids
+}
+
+// topologyChanges classifies the node group and partition changes (decision 083): a new compute group
+// or partition, a partition's limits, default, or groups, and a group's expected GPU count are
+// non-destructive and converge by redeploying; a group's template takes effect at its next member;
+// removing a partition is destructive (its queued jobs are checked by the core). A group that changes
+// role or a control-plane group added or removed is blocked. It reports whether any change needs the
+// convergent deploy.
+func topologyChanges(applied, desired platformdomain.PlatformSpec, add func(convergence.PlannedAction, bool)) bool {
+	before, after := readTopology(applied), readTopology(desired)
+	ref := func(kind, id string) convergence.ResourceRef { return convergence.ResourceRef{Kind: kind, ID: id} }
+	deploys := false
+	beforeGroups := map[string]nodeGroup{}
+	for _, group := range before.groups {
+		beforeGroups[group.Name] = group
+	}
+	for _, group := range after.groups {
+		previous, existed := beforeGroups[group.Name]
+		switch {
+		case !existed && group.Role == RoleCompute:
+			add(convergence.PlannedAction{Target: ref("node-group", group.Name), Action: "add-node-group", To: group.Role, Reason: "a compute node group is added"}, true)
+			deploys = true
+		case !existed:
+			add(convergence.PlannedAction{Target: ref("node-group", group.Name), Action: "add-node-group", To: group.Role, Reason: "control-plane groups are not scaled"}, len(group.Members) == 0)
+		case previous.Role != group.Role:
+			add(convergence.PlannedAction{Target: ref("node-group", group.Name), Action: "change-node-group-role", From: previous.Role, To: group.Role, Destructive: true, Reason: "the group's members change their roles"}, false)
+		default:
+			if previous.TemplateID != group.TemplateID && previous.TemplateID != "" {
+				add(convergence.PlannedAction{Target: ref("node-group", group.Name), Action: "change-group-template", From: previous.TemplateID, To: group.TemplateID,
+					Reason: "the group's next members are installed from another template; its members stay as they are"}, true)
+			}
+			if group.Role == RoleCompute && !sameSet(previous.Members, group.Members) {
+				// A member moved between groups, or joined or left this one: the partitions and
+				// Features it gets follow its groups.
+				deploys = true
+			}
+			if previous.ExpectedGPUsPerNode != group.ExpectedGPUsPerNode {
+				add(convergence.PlannedAction{Target: ref("node-group", group.Name), Action: "change-expected-gpus", From: fmt.Sprint(previous.ExpectedGPUsPerNode), To: fmt.Sprint(group.ExpectedGPUsPerNode),
+					Reason: "nodes with fewer GPUs are marked degraded; jobs keep running"}, true)
+				deploys = true
+			}
+		}
+		delete(beforeGroups, group.Name)
+	}
+	for _, group := range before.groups {
+		if _, gone := beforeGroups[group.Name]; !gone {
+			continue
+		}
+		add(convergence.PlannedAction{Target: ref("node-group", group.Name), Action: "remove-node-group", From: group.Role, Reason: "the node group is removed"}, group.Role == RoleCompute)
+		deploys = deploys || group.Role == RoleCompute
+	}
+	beforePartitions := map[string]partition{}
+	for _, p := range before.partitions {
+		beforePartitions[p.Name] = p
+	}
+	for _, p := range after.partitions {
+		previous, existed := beforePartitions[p.Name]
+		switch {
+		case !existed:
+			add(convergence.PlannedAction{Target: ref("partition", p.Name), Action: "add-partition", To: strings.Join(p.Groups, ", "), Reason: "a partition is added; running jobs are unaffected"}, true)
+			deploys = true
+		case !samePartition(previous, p):
+			add(convergence.PlannedAction{Target: ref("partition", p.Name), Action: "change-partition", Reason: "the partition's limits, default, or node groups change; running jobs keep running"}, true)
+			deploys = true
+		}
+		delete(beforePartitions, p.Name)
+	}
+	for _, p := range before.partitions {
+		if _, gone := beforePartitions[p.Name]; gone {
+			add(convergence.PlannedAction{Target: ref("partition", p.Name), Action: "remove-partition", From: strings.Join(p.Groups, ", "), Destructive: true,
+				Reason: "jobs can no longer be submitted to the partition"}, true)
+			deploys = true
+		}
+	}
+	return deploys
+}
+
+func samePartition(a, b partition) bool {
+	normalize := func(p partition) partition {
+		if p.MaxTime == "" {
+			p.MaxTime = defaultMaxTime
+		}
+		p.Groups, p.AllowGroups = slices.Clone(p.Groups), slices.Clone(p.AllowGroups)
+		slices.Sort(p.Groups)
+		slices.Sort(p.AllowGroups)
+		return p
+	}
+	return reflect.DeepEqual(normalize(a), normalize(b))
 }
 
 // hardwareCountersRequested reads omnistat.hardwareCounters; absent is off, as in a deploy request.

@@ -38,11 +38,13 @@ type DeploymentNetworkAssignmentInput struct {
 	IPAddress   string
 }
 
-// DeploymentNetworkInput is swallow's common DHCP/static deployment intent.
+// DeploymentNetworkInput is swallow's common DHCP/static deployment intent. With a template, an empty
+// Mode or SubnetID and a nil DefaultGateway keep the template's value: a request that only
+// adds per-target assignments must not reset what the template holds.
 type DeploymentNetworkInput struct {
 	Mode           string
 	SubnetID       string
-	DefaultGateway bool
+	DefaultGateway *bool
 	Assignments    []DeploymentNetworkAssignmentInput
 }
 
@@ -334,8 +336,14 @@ func (uc *DeployServersUseCase) preflight(
 		if requested := strings.ToLower(strings.TrimSpace(input.Network.Mode)); requested != "" {
 			networkMode = provisioningdomain.DeploymentNetworkMode(requested)
 		}
-		subnetID = strings.TrimSpace(input.Network.SubnetID)
-		defaultGateway = input.Network.DefaultGateway
+		if requested := strings.TrimSpace(input.Network.SubnetID); requested != "" || !templateMode {
+			subnetID = requested
+		}
+		if input.Network.DefaultGateway != nil {
+			defaultGateway = *input.Network.DefaultGateway
+		} else if !templateMode {
+			defaultGateway = false
+		}
 	}
 	// Normalize folds an empty value (a Template stored without network intent) into Automatic,
 	// so downstream code and the provider adapter only ever see automatic, dhcp, or static.
@@ -733,13 +741,14 @@ func (uc *DeployServersUseCase) ResolveOperationInput(ctx context.Context, input
 	}
 	imageID := resolved.image.ID
 	ephemeral := resolved.ephemeral
+	defaultGateway := resolved.defaultGateway
 	frozen := DeployServersInput{
 		Comment:   input.Comment,
 		ServerIDs: append([]string(nil), input.ServerIDs...),
 		Settings:  DeploymentSettingsInput{ImageID: &imageID, Ephemeral: &ephemeral},
 		UserData:  DeploymentUserDataInput{Mode: "omit"},
 		Network: &DeploymentNetworkInput{
-			Mode: string(resolved.networkMode), DefaultGateway: resolved.defaultGateway,
+			Mode: string(resolved.networkMode), DefaultGateway: &defaultGateway,
 			Assignments: make([]DeploymentNetworkAssignmentInput, len(resolved.assignments)),
 		},
 		// Preserve the verification-run bypass into the frozen snapshot so the durable executor's

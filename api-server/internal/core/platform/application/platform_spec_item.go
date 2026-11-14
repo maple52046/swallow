@@ -14,6 +14,22 @@ type PlatformSpecItem struct {
 	Settings           map[string]any          `json:"settings"`
 	MachinePreparation *MachinePreparationItem `json:"machinePreparation"`
 	Removal            *PlatformRemovalItem    `json:"removal"`
+	// MemberRemovals are how the members the spec drops leave the Platform (platforms.md, "Remove
+	// Members").
+	MemberRemovals []MemberRemovalItem `json:"memberRemovals"`
+}
+
+// MemberRemovalItem is how one dropped member leaves: drained for drainTimeoutSeconds, its work
+// ended at the timeout when force, and released to the provisioner when releaseServer.
+type MemberRemovalItem struct {
+	ServerID            string `json:"serverId"`
+	ReleaseServer       bool   `json:"releaseServer"`
+	Erase               bool   `json:"erase"`
+	SecureErase         bool   `json:"secureErase"`
+	QuickErase          bool   `json:"quickErase"`
+	UnbindStaticIPs     bool   `json:"unbindStaticIps"`
+	DrainTimeoutSeconds int    `json:"drainTimeoutSeconds"`
+	Force               bool   `json:"force"`
 }
 
 // PlatformMemberItem is one member of a spec: a Server and its roles in the type's vocabulary.
@@ -29,6 +45,17 @@ type MachinePreparationItem struct {
 	Settings   MachinePreparationSettingsItem `json:"settings"`
 	UserData   MachinePreparationUserDataItem `json:"userData"`
 	Network    *MachinePreparationNetworkItem `json:"network,omitempty"`
+	// GeneratedTemplates are the Deployment Templates the Platform creates for its node groups.
+	GeneratedTemplates []GeneratedTemplateItem `json:"generatedTemplates,omitempty"`
+}
+
+// GeneratedTemplateItem is a Deployment Template the Platform creates from its machine preparation
+// for a node group.
+type GeneratedTemplateItem struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	IntegrationID string `json:"integrationId"`
+	Group         string `json:"group"`
 }
 
 // MachinePreparationSettingsItem names the OS image and the deploy target ("disk" or "ram").
@@ -46,7 +73,7 @@ type MachinePreparationUserDataItem struct {
 type MachinePreparationNetworkItem struct {
 	Mode           string                             `json:"mode"`
 	SubnetID       string                             `json:"subnetId,omitempty"`
-	DefaultGateway bool                               `json:"defaultGateway"`
+	DefaultGateway *bool                              `json:"defaultGateway,omitempty"`
 	Assignments    []MachinePreparationAssignmentItem `json:"assignments"`
 }
 
@@ -56,6 +83,7 @@ type MachinePreparationAssignmentItem struct {
 	InterfaceID string `json:"interfaceId,omitempty"`
 	SubnetID    string `json:"subnetId,omitempty"`
 	IPAddress   string `json:"ipAddress,omitempty"`
+	TemplateID  string `json:"templateId,omitempty"`
 }
 
 // PlatformRemovalItem is how an absent Platform's uninstall treats its members.
@@ -78,6 +106,18 @@ type PlatformStatusItem struct {
 	Conditions          []convergence.ConditionItem `json:"conditions"`
 	Applied             *PlatformSpecItem           `json:"applied"`
 	RealizingWorkflowID *string                     `json:"realizingWorkflowId"`
+	// MemberTemplates records the Deployment Template each member was installed from (platforms.md,
+	// "Node Groups And Templates").
+	MemberTemplates []MemberTemplateItem `json:"memberTemplates"`
+}
+
+// MemberTemplateItem is the template a member was installed from. MatchesTemplate is false when
+// the template has changed since, or no longer exists.
+type MemberTemplateItem struct {
+	ServerID        string `json:"serverId"`
+	TemplateID      string `json:"templateId"`
+	DeployedAt      string `json:"deployedAt"`
+	MatchesTemplate bool   `json:"matchesTemplate"`
 }
 
 // ToPlatformSpecItem maps a spec onto its wire shape; nil stays nil.
@@ -85,7 +125,18 @@ func ToPlatformSpecItem(spec *platformdomain.PlatformSpec) *PlatformSpecItem {
 	if spec == nil {
 		return nil
 	}
-	item := &PlatformSpecItem{Desired: string(spec.Desired), Members: make([]PlatformMemberItem, 0, len(spec.Members)), Settings: spec.Settings}
+	item := &PlatformSpecItem{
+		Desired: string(spec.Desired), Members: make([]PlatformMemberItem, 0, len(spec.Members)), Settings: spec.Settings,
+		MemberRemovals: make([]MemberRemovalItem, 0, len(spec.MemberRemovals)),
+	}
+	for _, removal := range spec.MemberRemovals {
+		item.MemberRemovals = append(item.MemberRemovals, MemberRemovalItem{
+			ServerID: removal.ServerID, ReleaseServer: removal.ReleaseServer,
+			Erase: removal.ReleaseOptions.Erase, SecureErase: removal.ReleaseOptions.SecureErase,
+			QuickErase: removal.ReleaseOptions.QuickErase, UnbindStaticIPs: removal.ReleaseOptions.UnbindStaticIPs,
+			DrainTimeoutSeconds: removal.DrainTimeoutSeconds, Force: removal.Force,
+		})
+	}
 	if item.Settings == nil {
 		item.Settings = map[string]any{}
 	}
@@ -115,6 +166,11 @@ func toMachinePreparationItem(preparation platformdomain.MachinePreparation) *Ma
 		Settings: MachinePreparationSettingsItem{ImageID: preparation.ImageID},
 		UserData: MachinePreparationUserDataItem{Mode: preparation.UserDataMode},
 	}
+	for _, generated := range preparation.GeneratedTemplates {
+		item.GeneratedTemplates = append(item.GeneratedTemplates, GeneratedTemplateItem{
+			ID: generated.ID, Name: generated.Name, IntegrationID: generated.IntegrationID, Group: generated.Group,
+		})
+	}
 	if preparation.Ephemeral != nil {
 		target := "disk"
 		if *preparation.Ephemeral {
@@ -129,7 +185,8 @@ func toMachinePreparationItem(preparation platformdomain.MachinePreparation) *Ma
 		}
 		for _, assignment := range preparation.Assignments {
 			network.Assignments = append(network.Assignments, MachinePreparationAssignmentItem{
-				ServerID: assignment.ServerID, InterfaceID: assignment.InterfaceID, SubnetID: assignment.SubnetID, IPAddress: assignment.IPAddress,
+				ServerID: assignment.ServerID, InterfaceID: assignment.InterfaceID, SubnetID: assignment.SubnetID,
+				IPAddress: assignment.IPAddress, TemplateID: assignment.TemplateID,
 			})
 		}
 		item.Network = network
@@ -140,7 +197,8 @@ func toMachinePreparationItem(preparation platformdomain.MachinePreparation) *Ma
 func toPlatformStatusItem(status platformdomain.PlatformStatus) PlatformStatusItem {
 	item := PlatformStatusItem{
 		ObservedGeneration: status.ObservedGeneration, Conditions: convergence.ConditionItems(status.Conditions),
-		Applied: ToPlatformSpecItem(status.Applied),
+		Applied:         ToPlatformSpecItem(status.Applied),
+		MemberTemplates: []MemberTemplateItem{},
 	}
 	if status.Realizing != nil {
 		item.RealizingWorkflowID = &status.Realizing.WorkflowID

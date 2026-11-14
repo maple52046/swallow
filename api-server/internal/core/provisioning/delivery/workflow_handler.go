@@ -20,6 +20,8 @@ type createDeploymentTemplateRequest struct {
 	DeployTarget  *string                           `json:"deployTarget"`
 	UserData      string                            `json:"userData"`
 	Network       *deploymentNetworkSettingsRequest `json:"network"`
+	// MinimumHardware is the optional hardware floor; omitted or null sets none.
+	MinimumHardware *minimumHardwareRequest `json:"minimumHardware"`
 }
 
 type updateDeploymentTemplateRequest struct {
@@ -28,6 +30,26 @@ type updateDeploymentTemplateRequest struct {
 	ImageID      *string                           `json:"imageId"`
 	DeployTarget *string                           `json:"deployTarget"`
 	Network      *deploymentNetworkSettingsRequest `json:"network"`
+	// MinimumHardware, when present, replaces the floor; an object whose fields are all null clears it.
+	MinimumHardware *minimumHardwareRequest `json:"minimumHardware"`
+}
+
+// minimumHardwareRequest is a template's hardware floor; an omitted or null field sets no floor.
+type minimumHardwareRequest struct {
+	CPUCores  *int    `json:"cpuCores"`
+	MemoryMiB *int64  `json:"memoryMiB"`
+	StorageGB *int    `json:"storageGB"`
+	GPUModel  *string `json:"gpuModel"`
+	GPUCount  *int    `json:"gpuCount"`
+}
+
+func (r *minimumHardwareRequest) input() *application.MinimumHardwareInput {
+	if r == nil {
+		return nil
+	}
+	return &application.MinimumHardwareInput{
+		CPUCores: r.CPUCores, MemoryMiB: r.MemoryMiB, StorageGB: r.StorageGB, GPUModel: r.GPUModel, GPUCount: r.GPUCount,
+	}
 }
 
 type replaceTemplateUserDataRequest struct {
@@ -54,10 +76,12 @@ type deploymentNetworkAssignmentRequest struct {
 	IPAddress   string `json:"ipAddress"`
 }
 
+// deploymentNetworkRequest is an OS deployment's network intent. With a template, an omitted mode,
+// subnetId, or defaultGateway keeps the template's value.
 type deploymentNetworkRequest struct {
 	Mode           string                               `json:"mode"`
 	SubnetID       string                               `json:"subnetId"`
-	DefaultGateway bool                                 `json:"defaultGateway"`
+	DefaultGateway *bool                                `json:"defaultGateway"`
 	Assignments    []deploymentNetworkAssignmentRequest `json:"assignments"`
 }
 
@@ -125,13 +149,14 @@ func (h *ProvisioningHandler) CreateTemplate(c *fiber.Ctx) error {
 	}
 	ephemeral := resolved != nil && *resolved
 	item, err := h.templates.Create(c.Context(), application.CreateDeploymentTemplateInput{
-		IntegrationID: req.IntegrationID,
-		Name:          req.Name,
-		Description:   req.Description,
-		ImageID:       req.ImageID,
-		Ephemeral:     ephemeral,
-		UserData:      req.UserData,
-		Network:       deploymentTemplateNetworkInput(req.Network),
+		IntegrationID:   req.IntegrationID,
+		Name:            req.Name,
+		Description:     req.Description,
+		ImageID:         req.ImageID,
+		Ephemeral:       ephemeral,
+		UserData:        req.UserData,
+		Network:         deploymentTemplateNetworkInput(req.Network),
+		MinimumHardware: req.MinimumHardware.input(),
 	})
 	if err != nil {
 		return RespondError(c, err)
@@ -171,6 +196,7 @@ func (h *ProvisioningHandler) UpdateTemplate(c *fiber.Ctx) error {
 	item, err := h.templates.Update(c.Context(), c.Params("id"), application.UpdateDeploymentTemplateInput{
 		Name: req.Name, Description: req.Description, ImageID: req.ImageID,
 		Ephemeral: ephemeral, Network: deploymentTemplateNetworkInput(req.Network),
+		MinimumHardware: req.MinimumHardware.input(),
 	})
 	if err != nil {
 		return RespondError(c, err)

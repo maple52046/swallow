@@ -12,6 +12,7 @@ import (
 	platformdelivery "github.com/maple52046/swallow/internal/core/platform/delivery"
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
 	softwareapp "github.com/maple52046/swallow/internal/core/software/application"
@@ -68,6 +69,10 @@ type platformOperationDeps struct {
 	// validation plans and records the gate a Slurm deployment composes (validation.md §5).
 	// Required: buildPlatformOperations refuses nil.
 	validation *validationapp.Service
+	// templates is the Deployment Template store node groups install from (decision 083).
+	templates provisioningdomain.DeploymentTemplateRepository
+	// readers reads a deployed Platform's runtime for the checks a spec write makes against it.
+	readers platformdomain.ReaderFactory
 }
 
 // newPlatformMonitoringAccess reads the installation's monitoring addresses from the process's
@@ -89,6 +94,7 @@ type platformRecords interface {
 	platformdomain.GPUOperatorRecorder
 	platformdomain.OmnistatRecorder
 	platformdomain.DeviceMetricsExporterRecorder
+	platformdomain.MemberTemplateRecorder
 }
 
 // claimingServers is the Server store that also holds the Servers' Platform Claims.
@@ -112,6 +118,7 @@ func newPlatformService(
 	integrations sitedomain.IntegrationRepository,
 	assignments softwaredomain.AssignmentRepository,
 	canceler platformdomain.PlatformOperationCanceler,
+	templates provisioningdomain.DeploymentTemplateRepository,
 ) (*platformapp.PlatformService, error) {
 	service, err := platformapp.NewPlatformService(platformapp.PlatformServiceDeps{
 		Transactor: transactor, Platforms: platforms, Sites: sites, Servers: servers,
@@ -124,6 +131,7 @@ func newPlatformService(
 		GPUOperators: platforms, Omnistats: platforms, DeviceMetricsExporters: platforms,
 		ExporterAssignments:  deviceMetricsExporterAssignments{assignments: assignments},
 		OwnedMonitoringLinks: ownedMonitoringLinks,
+		Templates:            platformDeploymentTemplates{repo: templates},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("compose the platform service: %w", err)
@@ -149,6 +157,7 @@ func buildPlatformOperations(deps platformOperationDeps) (platformOperations, er
 		operations: deps.operations, orchestrations: deps.orchestrations, deployments: deps.deployments, servers: deps.servers,
 		bootMedia: deps.bootMedia, software: deps.software, ntp: deps.ntp, nodeExporter: deps.nodeExporter,
 		monitoring: deps.monitoring, monitoringTokens: deps.monitoringTokens, gate: gate,
+		registry: deps.modules.registry, catalog: gate.launcher.catalog,
 	}
 	// The GPU Operator and the Device Metrics Exporter are the AMD Accelerator module's Platform
 	// features, so they serve its GPUs.
@@ -161,6 +170,7 @@ func buildPlatformOperations(deps platformOperationDeps) (platformOperations, er
 		Requirements:       deps.requirements, DeploymentKeys: deps.keys,
 		GPUOperators: deps.platforms, Omnistats: deps.platforms, DeviceMetricsExporters: deps.platforms,
 		Accelerator: accelerator, ReadRequest: platformdelivery.DeployInputFromRequest,
+		Templates: platformDeploymentTemplates{repo: deps.templates}, MemberTemplates: deps.platforms, Readers: deps.readers,
 	})
 	if err != nil {
 		return platformOperations{}, fmt.Errorf("compose the platform deploy service: %w", err)

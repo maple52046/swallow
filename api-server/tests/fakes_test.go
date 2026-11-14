@@ -1221,6 +1221,23 @@ func (r *fakePlatformRepo) Update(_ context.Context, platform *platformdomain.Pl
 	return nil
 }
 
+func (r *fakePlatformRepo) RecordMemberTemplates(_ context.Context, platformID string, records []platformdomain.MemberTemplateRecord) error {
+	platform, ok := r.platforms[platformID]
+	if !ok {
+		return platformdomain.ErrPlatformNotFound
+	}
+	for _, record := range records {
+		kept := platform.MemberTemplates[:0]
+		for _, existing := range platform.MemberTemplates {
+			if existing.ServerID != record.ServerID {
+				kept = append(kept, existing)
+			}
+		}
+		platform.MemberTemplates = append(kept, record)
+	}
+	return nil
+}
+
 func (r *fakePlatformRepo) UpdateSyncState(
 	_ context.Context, id, integrationID string, state platformdomain.SyncState,
 ) error {

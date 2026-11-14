@@ -26,6 +26,14 @@ var (
 type PlatformChanges struct {
 	Actions     []convergence.PlannedAction
 	Unsupported []string
+	// Blockers are refusals the module explains itself (for example removing a Platform's last
+	// compute node): they block the Change Plan of a destructive change and refuse the write of a
+	// non-destructive one.
+	Blockers []string
+	// NeedsApproval makes a change that has no destructive action wait for a Change Plan anyway:
+	// the core sets it when an already applied Platform would create its node groups' first
+	// Deployment Templates, so they are not written without anyone seeing them (decision 083).
+	NeedsApproval bool
 	// Realization is the Workflow that carries out the supported actions.
 	Realization PlatformRealization
 }
@@ -48,6 +56,13 @@ const (
 	// the deployed members (DeploymentLaunch.Realization). The Platform stays active meanwhile: its
 	// lifecycle follows only deploy and uninstall Workflows.
 	RealizeHardwareCounters PlatformRealization = "hardware-counters"
+	// RealizeScaleIn runs the type's scale-in Workflow: the members the desired spec drops are
+	// drained, the Platform is reconfigured without them, and they are cleaned and optionally
+	// released (decision 083). Like the hardware counters change it leaves the Platform active.
+	RealizeScaleIn PlatformRealization = "scale-in"
+	// RealizeRescan reruns the deploy of the applied spec to redetect one member's hardware (its GPUs)
+	// and reconfigure the Platform with it; only that member is validated.
+	RealizeRescan PlatformRealization = "rescan"
 )
 
 // UnsupportedDestructive reports whether an action swallow cannot carry out yet is destructive:
@@ -64,9 +79,10 @@ func (c PlatformChanges) UnsupportedDestructive() (blocking, refusing []string) 
 	return blocking, refusing
 }
 
-// Destructive reports whether any action is destructive, which makes the write a Change Plan.
+// Destructive reports whether the change waits for a Change Plan: any action is destructive, or the
+// change needs approval for another reason (NeedsApproval).
 func (c PlatformChanges) Destructive() bool {
-	return slices.ContainsFunc(c.Actions, func(action convergence.PlannedAction) bool { return action.Destructive })
+	return c.NeedsApproval || slices.ContainsFunc(c.Actions, func(action convergence.PlannedAction) bool { return action.Destructive })
 }
 
 // Empty reports whether realizing the spec changes nothing.

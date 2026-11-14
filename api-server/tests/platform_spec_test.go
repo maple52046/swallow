@@ -147,6 +147,9 @@ func TestReplacePlatformSpec(t *testing.T) {
 	if body["plan"] != nil || body["platform"].(map[string]any)["generation"] != float64(2) {
 		t.Fatalf("response = %v, want generation 2 without a plan", body)
 	}
+	if warnings, ok := body["warnings"].([]any); !ok || len(warnings) != 0 {
+		t.Errorf("warnings = %v, want an empty list", body["warnings"])
+	}
 
 	resp = doRequest(t, f.app, "PUT", "/api/v1/platforms/platform-1/spec", map[string]any{"generation": 1, "spec": grown}, f.adminAuth(t))
 	if resp.StatusCode != http.StatusConflict {
@@ -161,6 +164,18 @@ func TestReplacePlatformSpec(t *testing.T) {
 	resp = doRequest(t, f.app, "PUT", "/api/v1/platforms/platform-1/spec", map[string]any{"spec": grown}, f.adminAuth(t))
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("missing generation status = %d, want 400", resp.StatusCode)
+	}
+	for _, removal := range []map[string]any{
+		{"serverId": "srv-2", "drainTimeoutSeconds": -1},
+		{"serverId": "srv-2", "drainTimeoutSeconds": 86401},
+		{"drainTimeoutSeconds": 60},
+	} {
+		shrunk := kubernetesSpecBody(member("srv-1", "control-plane", "workloads"))
+		shrunk["memberRemovals"] = []any{removal}
+		resp = doRequest(t, f.app, "PUT", "/api/v1/platforms/platform-1/spec", map[string]any{"generation": 2, "spec": shrunk}, f.adminAuth(t))
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("member removal %v status = %d, want 400", removal, resp.StatusCode)
+		}
 	}
 }
 

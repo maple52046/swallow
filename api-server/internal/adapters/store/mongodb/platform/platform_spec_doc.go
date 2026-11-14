@@ -25,6 +25,8 @@ type platformSpecDoc struct {
 	// credential key because it may carry secrets; it never appears in MachinePreparation.
 	SealedUserData string              `bson:"sealedUserData,omitempty"`
 	Removal        *platformRemovalDoc `bson:"removal,omitempty"`
+	// MemberRemovals are how the members the spec drops leave the Platform.
+	MemberRemovals []memberRemovalDoc `bson:"memberRemovals,omitempty"`
 	// userData is the plain user data between toSpecDoc and the repository sealing it.
 	userData string
 }
@@ -36,6 +38,17 @@ type platformRemovalDoc struct {
 	QuickErase            bool `bson:"quickErase,omitempty"`
 	UnbindStaticIPs       bool `bson:"unbindStaticIps,omitempty"`
 	CancelActiveWorkflows bool `bson:"cancelActiveWorkflows,omitempty"`
+}
+
+type memberRemovalDoc struct {
+	ServerID            string `bson:"serverId"`
+	ReleaseServer       bool   `bson:"releaseServer,omitempty"`
+	Erase               bool   `bson:"erase,omitempty"`
+	SecureErase         bool   `bson:"secureErase,omitempty"`
+	QuickErase          bool   `bson:"quickErase,omitempty"`
+	UnbindStaticIPs     bool   `bson:"unbindStaticIps,omitempty"`
+	DrainTimeoutSeconds int    `bson:"drainTimeoutSeconds,omitempty"`
+	Force               bool   `bson:"force,omitempty"`
 }
 
 type platformMemberDoc struct {
@@ -69,8 +82,10 @@ type machinePreparationJSON struct {
 	UserData       string                  `json:"userData,omitempty"`
 	NetworkMode    string                  `json:"networkMode,omitempty"`
 	SubnetID       string                  `json:"subnetId,omitempty"`
-	DefaultGateway bool                    `json:"defaultGateway,omitempty"`
+	DefaultGateway *bool                   `json:"defaultGateway,omitempty"`
 	Assignments    []machineAssignmentJSON `json:"assignments,omitempty"`
+	// GeneratedTemplates are the Deployment Templates the Platform creates for its node groups.
+	GeneratedTemplates []generatedTemplateJSON `json:"generatedTemplates,omitempty"`
 }
 
 type machineAssignmentJSON struct {
@@ -78,6 +93,14 @@ type machineAssignmentJSON struct {
 	InterfaceID string `json:"interfaceId,omitempty"`
 	SubnetID    string `json:"subnetId,omitempty"`
 	IPAddress   string `json:"ipAddress,omitempty"`
+	TemplateID  string `json:"templateId,omitempty"`
+}
+
+type generatedTemplateJSON struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	IntegrationID string `json:"integrationId"`
+	Group         string `json:"group"`
 }
 
 func toSpecDoc(spec *platformdomain.PlatformSpec) *platformSpecDoc {
@@ -102,6 +125,14 @@ func toSpecDoc(spec *platformdomain.PlatformSpec) *platformSpecDoc {
 			QuickErase: removal.ReleaseOptions.QuickErase, UnbindStaticIPs: removal.ReleaseOptions.UnbindStaticIPs,
 			CancelActiveWorkflows: removal.CancelActiveWorkflows,
 		}
+	}
+	for _, removal := range spec.MemberRemovals {
+		doc.MemberRemovals = append(doc.MemberRemovals, memberRemovalDoc{
+			ServerID: removal.ServerID, ReleaseServer: removal.ReleaseServer,
+			Erase: removal.ReleaseOptions.Erase, SecureErase: removal.ReleaseOptions.SecureErase,
+			QuickErase: removal.ReleaseOptions.QuickErase, UnbindStaticIPs: removal.ReleaseOptions.UnbindStaticIPs,
+			DrainTimeoutSeconds: removal.DrainTimeoutSeconds, Force: removal.Force,
+		})
 	}
 	if raw, _ := json.Marshal(preparation); string(raw) != "{}" {
 		doc.MachinePreparation = string(raw)
@@ -128,6 +159,15 @@ func (d *platformSpecDoc) toDomain() *platformdomain.PlatformSpec {
 			},
 		}
 	}
+	for _, removal := range d.MemberRemovals {
+		spec.MemberRemovals = append(spec.MemberRemovals, platformdomain.MemberRemoval{
+			ServerID: removal.ServerID, ReleaseServer: removal.ReleaseServer,
+			ReleaseOptions: platformdomain.ServerReleaseOptions{
+				Erase: removal.Erase, SecureErase: removal.SecureErase, QuickErase: removal.QuickErase, UnbindStaticIPs: removal.UnbindStaticIPs,
+			},
+			DrainTimeoutSeconds: removal.DrainTimeoutSeconds, Force: removal.Force,
+		})
+	}
 	if d.MachinePreparation != "" {
 		var preparation machinePreparationJSON
 		if err := json.Unmarshal([]byte(d.MachinePreparation), &preparation); err == nil {
@@ -141,8 +181,19 @@ func toMachinePreparationJSON(p platformdomain.MachinePreparation) machinePrepar
 	return machinePreparationJSON{
 		Mode: string(p.Mode), TemplateID: p.TemplateID, ImageID: p.ImageID, Ephemeral: p.Ephemeral,
 		UserDataMode: p.UserDataMode, UserData: p.UserData, NetworkMode: p.NetworkMode, SubnetID: p.SubnetID,
-		DefaultGateway: p.DefaultGateway,
+		DefaultGateway: p.DefaultGateway, GeneratedTemplates: toGeneratedJSON(p.GeneratedTemplates),
 	}
+}
+
+func toGeneratedJSON(generated []platformdomain.GeneratedTemplate) []generatedTemplateJSON {
+	if len(generated) == 0 {
+		return nil
+	}
+	out := make([]generatedTemplateJSON, len(generated))
+	for i, g := range generated {
+		out[i] = generatedTemplateJSON{ID: g.ID, Name: g.Name, IntegrationID: g.IntegrationID, Group: g.Group}
+	}
+	return out
 }
 
 func toAssignmentJSON(assignments []platformdomain.MachineNetworkAssignment) []machineAssignmentJSON {
@@ -151,7 +202,7 @@ func toAssignmentJSON(assignments []platformdomain.MachineNetworkAssignment) []m
 	}
 	out := make([]machineAssignmentJSON, len(assignments))
 	for i, a := range assignments {
-		out[i] = machineAssignmentJSON{ServerID: a.ServerID, InterfaceID: a.InterfaceID, SubnetID: a.SubnetID, IPAddress: a.IPAddress}
+		out[i] = machineAssignmentJSON{ServerID: a.ServerID, InterfaceID: a.InterfaceID, SubnetID: a.SubnetID, IPAddress: a.IPAddress, TemplateID: a.TemplateID}
 	}
 	return out
 }
@@ -159,12 +210,16 @@ func toAssignmentJSON(assignments []platformdomain.MachineNetworkAssignment) []m
 func (j machinePreparationJSON) toDomain() platformdomain.MachinePreparation {
 	assignments := make([]platformdomain.MachineNetworkAssignment, len(j.Assignments))
 	for i, a := range j.Assignments {
-		assignments[i] = platformdomain.MachineNetworkAssignment{ServerID: a.ServerID, InterfaceID: a.InterfaceID, SubnetID: a.SubnetID, IPAddress: a.IPAddress}
+		assignments[i] = platformdomain.MachineNetworkAssignment{ServerID: a.ServerID, InterfaceID: a.InterfaceID, SubnetID: a.SubnetID, IPAddress: a.IPAddress, TemplateID: a.TemplateID}
+	}
+	var generated []platformdomain.GeneratedTemplate
+	for _, g := range j.GeneratedTemplates {
+		generated = append(generated, platformdomain.GeneratedTemplate{ID: g.ID, Name: g.Name, IntegrationID: g.IntegrationID, Group: g.Group})
 	}
 	return platformdomain.MachinePreparation{
 		Mode: platformdomain.MachinePreparationMode(j.Mode), TemplateID: j.TemplateID, ImageID: j.ImageID, Ephemeral: j.Ephemeral,
 		UserDataMode: j.UserDataMode, UserData: j.UserData, NetworkMode: j.NetworkMode, SubnetID: j.SubnetID,
-		DefaultGateway: j.DefaultGateway, Assignments: assignments,
+		DefaultGateway: j.DefaultGateway, Assignments: assignments, GeneratedTemplates: generated,
 	}
 }
 
@@ -279,7 +334,10 @@ func nonNilStrings(values []string) []string {
 	return values
 }
 
-var _ platformdomain.PlatformSpecStore = (*MongoPlatformRepo)(nil)
+var (
+	_ platformdomain.PlatformSpecStore      = (*MongoPlatformRepo)(nil)
+	_ platformdomain.MemberTemplateRecorder = (*MongoPlatformRepo)(nil)
+)
 
 // WriteSpec implements platformdomain.PlatformSpecStore with one conditional update on the stored
 // generation, so two writers cannot both replace a spec they read at the same generation.

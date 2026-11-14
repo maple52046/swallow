@@ -39,6 +39,7 @@ type PlatformService struct {
 	claims                 serverdomain.PlatformClaimStore
 	exporterAssignments    platformdomain.DeviceMetricsExporterAssignments
 	ownedLinks             []string
+	templates              platformdomain.DeploymentTemplates
 }
 
 // PlatformServiceDeps is what a PlatformService is built from. Every field is required, in every
@@ -81,6 +82,9 @@ type PlatformServiceDeps struct {
 	// other link, which stays user-owned. The composition root owns the names, because which UIs a
 	// Platform gets is the Platform type's; an empty list removes none.
 	OwnedMonitoringLinks []string
+	// Templates reads the Deployment Templates members were installed from, so a read can tell a
+	// member that differs from its template now (status.memberTemplates).
+	Templates platformdomain.DeploymentTemplates
 }
 
 // NewPlatformService constructs the platform application service. It returns an error naming
@@ -94,6 +98,7 @@ func NewPlatformService(deps PlatformServiceDeps) (*PlatformService, error) {
 		lifecycle: deps.Lifecycle, integrations: deps.Integrations, canceler: deps.Canceler, claims: deps.Claims,
 		gpuOperators: deps.GPUOperators, omnistats: deps.Omnistats, deviceMetricsExporters: deps.DeviceMetricsExporters,
 		exporterAssignments: deps.ExporterAssignments, ownedLinks: deps.OwnedMonitoringLinks,
+		templates: deps.Templates,
 	}, nil
 }
 
@@ -410,6 +415,9 @@ func (s *PlatformService) List(ctx context.Context, siteID string) ([]PlatformIt
 		if err := s.attachPool(ctx, platform, &item); err != nil {
 			return nil, err
 		}
+		if err := s.attachMemberTemplates(ctx, platform, &item); err != nil {
+			return nil, err
+		}
 		items = append(items, item)
 	}
 	return items, nil
@@ -429,7 +437,33 @@ func (s *PlatformService) Get(ctx context.Context, id string) (*PlatformItem, er
 	if err := s.attachPool(ctx, platform, &item); err != nil {
 		return nil, err
 	}
+	if err := s.attachMemberTemplates(ctx, platform, &item); err != nil {
+		return nil, err
+	}
 	return &item, nil
+}
+
+// attachMemberTemplates lists the template each member was installed from, and whether the
+// template still installs the same thing (its digest is unchanged).
+func (s *PlatformService) attachMemberTemplates(ctx context.Context, platform *platformdomain.Platform, item *PlatformItem) error {
+	digests := map[string]string{}
+	for _, record := range platform.MemberTemplates {
+		if _, read := digests[record.TemplateID]; !read {
+			intent, err := s.templates.Find(ctx, record.TemplateID)
+			if err != nil {
+				return err
+			}
+			digests[record.TemplateID] = ""
+			if intent != nil {
+				digests[record.TemplateID] = intent.Digest
+			}
+		}
+		item.Status.MemberTemplates = append(item.Status.MemberTemplates, MemberTemplateItem{
+			ServerID: record.ServerID, TemplateID: record.TemplateID, DeployedAt: wire.Time(record.DeployedAt),
+			MatchesTemplate: digests[record.TemplateID] != "" && digests[record.TemplateID] == record.Digest,
+		})
+	}
+	return nil
 }
 
 // PoolOf returns the Pool a Platform belongs to ("" for none) and whether the Platform exists, for
@@ -508,6 +542,9 @@ func (s *PlatformService) Update(ctx context.Context, id string, input UpdatePla
 	}
 	item := toPlatformItem(platform, lifecycle)
 	if err := s.attachPool(ctx, platform, &item); err != nil {
+		return nil, err
+	}
+	if err := s.attachMemberTemplates(ctx, platform, &item); err != nil {
 		return nil, err
 	}
 	return &item, nil
@@ -839,4 +876,38 @@ func optionalTime(t *time.Time) *string {
 		return nil
 	}
 	return wire.TimePtr(*t)
+}
+
+// CompleteMemberRemoval finishes the removal of members a scale-in drained, reconfigured out, and
+// cleaned (decision 083): their membership is cleared, and the device-metrics-exporter records of those
+// Servers are marked absent, because the node cleanup removed the exporter. Their Platform Claims
+// follow the applied spec, which the platform controller releases once the scale-in succeeded. It is
+// idempotent, so a retried Task repeats it safely; a Server that is gone is skipped.
+func (s *PlatformService) CompleteMemberRemoval(ctx context.Context, platformID string, serverIDs []string) error {
+	platform, err := s.platforms.FindByID(ctx, platformID)
+	if errors.Is(err, platformdomain.ErrPlatformNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, id := range serverIDs {
+		server, err := s.servers.FindByID(ctx, id)
+		if errors.Is(err, serverdomain.ErrServerNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if server.Membership != nil && server.Membership.PlatformID == platformID {
+			if err := s.servers.SetMembership(ctx, id, nil); err != nil {
+				return err
+			}
+		}
+	}
+	if platform == nil || len(serverIDs) == 0 {
+		return nil
+	}
+	// The scale-in's node cleanup removes the Device Metrics Exporter it composed.
+	return s.exporterAssignments.MarkDeviceMetricsExporterRemoved(ctx, serverIDs)
 }
