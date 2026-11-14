@@ -630,13 +630,10 @@ test.describe('user interactions', () => {
     await expect(page.getByRole('switch', { name: 'Enable Job monitoring' })).toBeChecked()
     await expect(page.getByRole('radio', { name: /Omnistat/ })).toBeChecked()
     await expect(page.getByText(/Its job report tool reads the metrics through the Platform Grafana/)).toBeVisible()
-    // Omnistat proposes its GPU hardware counters (the API's default is off); the option can be
-    // dropped and taken again.
+    // Omnistat's GPU hardware counters are off by default, like the API; this run asks for them.
     const counters = page.getByRole('checkbox', { name: /GPU hardware counters/ })
-    await expect(counters).toBeChecked()
-    await expect(page.getByText(/Collecting needs CAP_PERFMON and about 160 MB of GPU memory per GPU/)).toBeVisible()
-    await counters.locator('xpath=following-sibling::*[1]').click()
     await expect(counters).not.toBeChecked()
+    await expect(page.getByText(/Collecting needs CAP_PERFMON and about 160 MB of GPU memory per GPU/)).toBeVisible()
     await counters.locator('xpath=following-sibling::*[1]').click()
     await expect(counters).toBeChecked()
     await expect(page.getByRole('switch', { name: 'Enable Platform Grafana' })).toBeChecked()
@@ -660,8 +657,22 @@ test.describe('user interactions', () => {
     await page.getByLabel('GPU driver module options').fill('pcie_p2p=0')
     await next.click()
 
-    // Slurm has no platform networking step, so Features is followed by Review.
+    // Groups and partitions are suggested from the roles and the GPU Inventory: the controller in its
+    // own group, the MI300X compute nodes in `mi300x` expecting 8 GPUs, and a default partition for it.
+    await expect(page.getByRole('heading', { name: 'Node groups and partitions' })).toBeVisible()
+    await expect(page.getByLabel('Name of the controller group controller')).toHaveValue('controller')
+    await expect(page.getByLabel('Name of the compute group mi300x')).toHaveValue('mi300x')
+    await expect(page.getByLabel('Expected GPUs per node in mi300x')).toHaveValue('8')
+    await expect(page.getByLabel('Name of partition mi300x')).toHaveValue('mi300x')
+    await page.getByLabel('Name of partition mi300x').fill('gpu')
+    await page.getByLabel('Time limit of partition gpu').fill('bad')
+    await expect(page.getByText(/has a time limit Slurm does not read/)).toBeVisible()
+    await expect(next).toBeDisabled()
+    await page.getByLabel('Time limit of partition gpu').fill('2-00:00:00')
+    await next.click()
+
     await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
+    await expect(page.getByText('Partition gpu (default)', { exact: true })).toBeVisible()
     const nodesReview = page.locator('.sw-platform-review-card').filter({ has: page.getByRole('heading', { name: 'Nodes and roles' }) })
     await expect(nodesReview.getByText('gpu-node-01', { exact: true })).toBeVisible()
     await expect(nodesReview.getByText('gpu-node-01, gpu-node-02, gpu-node-03', { exact: true })).toBeVisible()
@@ -682,6 +693,13 @@ test.describe('user interactions', () => {
     expect(deployBody?.monitoringDashboards).toBe(true)
     expect(deployBody?.gpuDriver).toEqual({ moduleOptions: { pcie_p2p: '0' } })
     expect((deployBody?.slurm as { gpuGresType?: string } | undefined)?.gpuGresType).toBe('mi308x_vf')
+    expect((deployBody?.slurm as { nodeGroups?: unknown } | undefined)?.nodeGroups).toEqual([
+      { name: 'controller', role: 'controller', members: ['srv-1'] },
+      { name: 'mi300x', role: 'compute', expectedGpusPerNode: 8, members: ['srv-1', 'srv-2', 'srv-3'] },
+    ])
+    expect((deployBody?.slurm as { partitions?: unknown } | undefined)?.partitions).toEqual([
+      { name: 'gpu', default: true, groups: ['mi300x'], maxTime: '2-00:00:00' },
+    ])
     await page.getByRole('tablist', { name: 'Platform workspace' }).getByRole('tab', { name: 'Monitoring' }).click()
     await expect(page.getByLabel('Omnistat', { exact: true })).toContainText('Installing')
     await expect(page.getByLabel('Omnistat', { exact: true })).toContainText('installed natively')
@@ -729,6 +747,8 @@ test.describe('user interactions', () => {
     await page.getByRole('checkbox', { name: /Native OCI/ }).locator('xpath=following-sibling::*[1]').click()
     await page.getByRole('checkbox', { name: /Docker CE/ }).locator('xpath=following-sibling::*[1]').click()
     await page.getByRole('switch', { name: 'Enable MPI with PMIx' }).locator('xpath=following-sibling::*[1]').click()
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Node groups and partitions' })).toBeVisible()
     await next.click()
 
     await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
@@ -804,6 +824,8 @@ test.describe('user interactions', () => {
     await expect(page.getByRole('heading', { name: 'OS installation' })).toBeVisible()
     await expect(page.getByRole('radio', { name: 'RAM deploy' })).toBeChecked()
     await expect(page.getByRole('heading', { name: 'OS networking' })).toBeVisible()
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Node groups and partitions' })).toBeVisible()
     await next.click()
 
     await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
@@ -989,6 +1011,8 @@ test.describe('user interactions', () => {
     const osHeadingBox = await page.getByRole('heading', { name: 'Operating system', exact: true }).boundingBox()
     expect(bannerBox && osHeadingBox && bannerBox.y < osHeadingBox.y).toBe(true)
     await next.click()
+    await expect(page.getByRole('heading', { name: 'Node groups and partitions' })).toBeVisible()
+    await next.click()
 
     // Every review card's Edit button is named after its card and returns to that card's step.
     await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
@@ -996,6 +1020,8 @@ test.describe('user interactions', () => {
     await expect(page.getByRole('button', { name: 'Edit Nodes and roles', exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Edit Operating system', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'OS installation' })).toBeVisible()
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Node groups and partitions' })).toBeVisible()
     await next.click()
 
     // While the proposal is submitted, nothing tells the user to return to an incomplete step.
@@ -1020,6 +1046,8 @@ test.describe('user interactions', () => {
     await expect(page.getByRole('radio', { name: /^Container/ })).toBeChecked()
     await expect(page.getByText('Run Grafana in a container on gpu-node-01, installing Docker CE there unless it already has a container engine.')).toBeVisible()
     await next.click()
+    await expect(page.getByRole('heading', { name: 'Node groups and partitions' })).toBeVisible()
+    await next.click()
     await expect(page.getByText('In a container on gpu-node-01, which gets Docker CE to run it unless it already has a container engine', { exact: true })).toBeVisible()
 
     // A container engine the deploy requests is the one the Grafana container uses.
@@ -1027,6 +1055,8 @@ test.describe('user interactions', () => {
     await page.getByRole('switch', { name: 'Enable Container runtime' }).locator('xpath=following-sibling::*[1]').click()
     await page.getByRole('checkbox', { name: /Podman/ }).locator('xpath=following-sibling::*[1]').click()
     await expect(page.getByText('Run Grafana in a container on gpu-node-01, installing Podman there, the container engine chosen above.')).toBeVisible()
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Node groups and partitions' })).toBeVisible()
     await next.click()
     await expect(page.getByText('In a container on gpu-node-01, which gets Podman to run it', { exact: true })).toBeVisible()
   })
@@ -2598,6 +2628,8 @@ test.describe('user interactions', () => {
     await page.getByRole('radio', { name: 'Automatic', exact: true }).locator('..').click()
     await expect(warning).toBeVisible()
     await expect(next).toBeEnabled()
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Node groups and partitions' })).toBeVisible()
     await next.click()
 
     await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()

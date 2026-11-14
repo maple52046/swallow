@@ -16,10 +16,6 @@ const FEATURE_COPY: Readonly<Record<ExperimentalFeature, { label: string; descri
     label: 'OS image upload',
     description: 'Uploading a custom OS image from OS images.',
   },
-  deploymentTemplates: {
-    label: 'Deployment Templates',
-    description: 'The Templates workspace, Create template on OS images, and choosing or saving a template while deploying.',
-  },
   virtualMachines: {
     label: 'Virtual machines',
     description: 'Enrolling libvirt virtual machines by name from Add servers, and Boot Media through a virtual machine’s hypervisor.',

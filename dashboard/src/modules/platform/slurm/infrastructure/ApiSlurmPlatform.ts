@@ -1,9 +1,10 @@
 import type { operations } from '@/infrastructure/api/generated/openapi'
 import type { JsonRequestBody, JsonResponse } from '@/infrastructure/api/contractTypes'
 import { apiRequest } from '@/infrastructure/api/client'
-import { toPlatformChangeResult, type PlatformSpecWrite } from '@/application/platform/platformChangeResult'
+import { APPROVE_PLATFORM_WRITE, toPlatformChangeResult, type PlatformSpecWrite } from '@/application/platform/platformChangeResult'
 import type { MinimumResources, SlurmCluster } from '@/domain/platform/types'
 import type { SlurmPlatformPort } from '../SlurmPlatformPort'
+import { applySlurmTopologyChange, type SlurmTopologyChange } from '../slurmTopology'
 
 /**
  * Contract-typed Slurm adapter. Live-read failures deliberately propagate so the module can
@@ -61,5 +62,41 @@ export class ApiSlurmPlatform implements SlurmPlatformPort {
       { method: 'PUT', body: JSON.stringify(body) },
     )
     return toPlatformChangeResult(written as PlatformSpecWrite)
+  }
+
+  // Reads the Platform right before the write, like setHardwareCounters, so only this change is
+  // written over the stored spec; the machine preparation (with any templates the Platform generates)
+  // goes back exactly as read.
+  async changeTopology(platformId: string, change: SlurmTopologyChange) {
+    const platform = await apiRequest<JsonResponse<operations['getPlatform'], 200>>(
+      `/api/v1/platforms/${encodeURIComponent(platformId)}`,
+    )
+    if (!platform.spec) {
+      throw new Error('This platform has no spec yet; Swallow adopts it shortly after the API starts.')
+    }
+    const next = applySlurmTopologyChange(platform.spec, change)
+    const spec = {
+      members: next.members,
+      settings: next.settings,
+      memberRemovals: next.memberRemovals,
+      ...(next.machinePreparation ? { machinePreparation: next.machinePreparation } : {}),
+    }
+    // The read model keeps machine preparation compatibility fields wider than the generated write
+    // contract; the backend returned this exact spec, and the change touches only members, the slurm
+    // setting's groups and partitions, and memberRemovals.
+    const body = { generation: platform.generation, spec } as JsonRequestBody<operations['replacePlatformSpec']>
+    const written = await apiRequest<JsonResponse<operations['replacePlatformSpec'], 200> | JsonResponse<operations['replacePlatformSpec'], 202>>(
+      `/api/v1/platforms/${encodeURIComponent(platformId)}/spec?${APPROVE_PLATFORM_WRITE}`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    )
+    return toPlatformChangeResult(written as PlatformSpecWrite)
+  }
+
+  async rescanNode(platformId: string, serverId: string) {
+    const accepted = await apiRequest<JsonResponse<operations['rescanSlurmNode'], 202>>(
+      `/api/v1/platforms/${encodeURIComponent(platformId)}/slurm/nodes/${encodeURIComponent(serverId)}/rescan`,
+      { method: 'POST' },
+    )
+    return accepted.operationId
   }
 }

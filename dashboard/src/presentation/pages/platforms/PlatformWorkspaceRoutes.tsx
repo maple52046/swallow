@@ -494,13 +494,22 @@ export function PlatformModuleRoute({ route }: { route: string }) {
   const entry = module?.tabs.find((candidate) =>
     candidate.value === route && candidate.available(context.platform) && (!candidate.requiresOperate || operable))
   if (!entry) return <PlatformWorkspaceNotFound />
-  if (entry.requiresMembers) return <MemberBackedModuleRoute entry={entry} />
+  if (entry.requiresMembers) return <MemberBackedModuleRoute entry={entry} canOperate={operable} />
   const Content = entry.Content
-  return <Content platform={context.platform} members={[]} loginNodes={[]} onOpenServer={(serverId) => navigate(scopedHref('/servers/' + encodeURIComponent(serverId), context.platform.siteId))} />
+  return (
+    <Content
+      platform={context.platform}
+      members={[]}
+      loginNodes={[]}
+      onOpenServer={(serverId) => navigate(scopedHref('/servers/' + encodeURIComponent(serverId), context.platform.siteId))}
+      canOperate={operable}
+      onChanged={() => context.reload()}
+    />
+  )
 }
 
-function MemberBackedModuleRoute({ entry }: { entry: NonNullable<ReturnType<typeof platformModuleUI>>['tabs'][number] }) {
-  const { platform } = usePlatformWorkspaceContext()
+function MemberBackedModuleRoute({ entry, canOperate }: { entry: NonNullable<ReturnType<typeof platformModuleUI>>['tabs'][number]; canOperate: boolean }) {
+  const { platform, reload } = usePlatformWorkspaceContext()
   const { scopedHref, siteId } = useSiteScope()
   const navigate = useNavigate()
   const members = usePlatformMembers(platform, siteId)
@@ -521,6 +530,10 @@ function MemberBackedModuleRoute({ entry }: { entry: NonNullable<ReturnType<type
         members={members.data.members}
         loginNodes={members.data.loginNodes}
         onOpenServer={(serverId) => navigate(scopedHref('/servers/' + encodeURIComponent(serverId), platform.siteId))}
+        canOperate={canOperate}
+        // Reloads only the Platform: reloading the members would unmount the tab while they load and
+        // drop what it shows about the change it just made (for example the API's warnings).
+        onChanged={() => reload()}
       />
     </>
   )

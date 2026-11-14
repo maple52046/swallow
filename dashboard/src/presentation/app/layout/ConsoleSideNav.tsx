@@ -69,7 +69,6 @@ const NAVIGATION: ReadonlyArray<readonly NavEntry[]> = [
       path: '/provisioning/templates',
       icon: FileStack,
       activeFor: ['/provisioning/templates'],
-      feature: 'deploymentTemplates',
       adminOnly: true,
     },
     { label: 'Infrastructure', path: '/infrastructure/sites', icon: Network, activeFor: ['/infrastructure'], adminOnly: true },

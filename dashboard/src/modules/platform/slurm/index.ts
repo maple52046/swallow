@@ -64,7 +64,7 @@ export const slurmModule: PlatformModuleUI = {
   },
   tabs: [
     { value: 'nodes', label: 'Nodes', icon: Server, available: () => true, requiresMembers: true, Content: SlurmNodesRoute },
-    { value: 'partitions', label: 'Partitions', icon: LayoutGrid, available: () => true, requiresMembers: true, Content: SlurmPartitionsRoute },
+    { value: 'partitions', label: 'Groups & partitions', icon: LayoutGrid, available: () => true, requiresMembers: true, Content: SlurmPartitionsRoute },
   ],
   deploy: { icon: Cpu, namePlaceholder: 'lab-slurm', useForm: useSlurmDeployForm },
   Settings: SlurmSettingsPage,

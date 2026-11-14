@@ -37,7 +37,6 @@ import { DescriptionList } from '@/presentation/components/ui/description-list'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
 import { useAuth } from '@/presentation/contexts/AuthContext'
-import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import { useViewWorkflowToastAction } from '@/presentation/hooks/useViewWorkflowToastAction'
 import { useServerWorkingSet } from '@/presentation/pages/servers/useServerWorkingSet'
 import { AddressingModeField } from './AddressingModeField'
@@ -239,7 +238,6 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
   const navigate = useNavigate()
   const { showToast } = useToast()
   const viewWorkflow = useViewWorkflowToastAction()
-  const templatesEnabled = useExperimentalFeature('deploymentTemplates')
   const workingSet = useServerWorkingSet({ siteId: context.siteId, includeAbsent: true })
   const [resourceState, setResourceState] = useState<ResourceState>(
     admin ? { status: 'loading' } : { status: 'ready', integrations: null },
@@ -1021,38 +1019,36 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
             </Table.Body>
           </Table.Root>
         </StickyTableFrame>
-        {templatesEnabled && (
-          <Card.Root size="sm">
-            <Card.Body gap="3">
-              <Heading size="sm">Reuse this configuration</Heading>
-              <Checkbox
-                checked={saveTemplate}
-                onCheckedChange={(checked) => {
+        <Card.Root size="sm">
+          <Card.Body gap="3">
+            <Heading size="sm">Reuse this configuration</Heading>
+            <Checkbox
+              checked={saveTemplate}
+              onCheckedChange={(checked) => {
+                markDirty()
+                setSaveTemplate(checked)
+              }}
+            >
+              Save as a deployment template
+            </Checkbox>
+            {saveTemplate && (
+              <Input
+                aria-label="New deployment template name"
+                value={templateName}
+                placeholder="Template name"
+                onChange={(event) => {
                   markDirty()
-                  setSaveTemplate(checked)
+                  setTemplateName(event.target.value)
                 }}
-              >
-                Save as a deployment template
-              </Checkbox>
-              {saveTemplate && (
-                <Input
-                  aria-label="New deployment template name"
-                  value={templateName}
-                  placeholder="Template name"
-                  onChange={(event) => {
-                    markDirty()
-                    setTemplateName(event.target.value)
-                  }}
-                />
-              )}
-              {saveTemplate && !reusableNetworkValid && (
-                <Alert status="warning" title="Static templates require one shared subnet">
-                  Choose the same subnet for every target before saving this configuration.
-                </Alert>
-              )}
-            </Card.Body>
-          </Card.Root>
-        )}
+              />
+            )}
+            {saveTemplate && !reusableNetworkValid && (
+              <Alert status="warning" title="Static templates require one shared subnet">
+                Choose the same subnet for every target before saving this configuration.
+              </Alert>
+            )}
+          </Card.Body>
+        </Card.Root>
         <Alert status="warning" title="Deployment starts immediately after preflight">
           Accepted provider requests cannot be rolled back as a batch.
         </Alert>

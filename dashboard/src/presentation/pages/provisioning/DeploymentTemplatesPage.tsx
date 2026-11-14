@@ -24,6 +24,15 @@ import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDateTime } from '@/shared/utils/time'
 import { defaultDeployTargetForImage } from './osDeploymentFlow'
+import {
+  EMPTY_MINIMUM_HARDWARE_DRAFT,
+  formatMinimumHardware,
+  formatTemplateUses,
+  minimumHardwareDraft,
+  minimumHardwareIsEmpty,
+  parseMinimumHardware,
+  type MinimumHardwareDraft,
+} from './minimumHardwareForm'
 
 type TemplatesState =
   | { status: 'loading' }
@@ -40,6 +49,7 @@ interface TemplateDraft {
   networkMode: DeploymentNetworkMode
   subnetId: string
   defaultGateway: boolean
+  minimum: MinimumHardwareDraft
 }
 
 const EMPTY_DRAFT: TemplateDraft = {
@@ -51,7 +61,17 @@ const EMPTY_DRAFT: TemplateDraft = {
   networkMode: 'automatic',
   subnetId: '',
   defaultGateway: false,
+  minimum: EMPTY_MINIMUM_HARDWARE_DRAFT,
 }
+
+/** The editor's minimum hardware fields: label, draft key, input mode, and helper text. */
+const MINIMUM_HARDWARE_FIELDS: ReadonlyArray<{ key: keyof MinimumHardwareDraft; label: string; numeric: boolean; helper: string }> = [
+  { key: 'cpuCores', label: 'Minimum CPU cores', numeric: true, helper: 'Physical cores from the hardware inventory.' },
+  { key: 'memoryGiB', label: 'Minimum memory (GiB)', numeric: true, helper: 'Installed memory.' },
+  { key: 'storageGB', label: 'Minimum storage (GB)', numeric: true, helper: 'Total disk capacity.' },
+  { key: 'gpuModel', label: 'GPU model', numeric: false, helper: 'Matched within the compute GPU model name, for example MI300X.' },
+  { key: 'gpuCount', label: 'Minimum compute GPUs', numeric: true, helper: 'Compute GPUs, not display controllers.' },
+]
 
 
 /**
@@ -67,8 +87,7 @@ function templateNetworkLabel(template: DeploymentTemplate, separator: string): 
 
 /**
  * CRUD workspace for swallow-owned deployment intent and write-only cloud-init: the Deployment
- * Templates page (`/provisioning/templates`, its own sidebar entry beside OS Images, behind the
- * `deploymentTemplates` experimental feature). Template writes and the provisioner Integrations it
+ * Templates page (`/provisioning/templates`, its own sidebar entry beside OS Images). Template writes and the provisioner Integrations it
  * names are admin routes, so the page is an admin's; OS Images links here to create a template for
  * one of its images (`?create=1&integrationId=…&imageId=…`).
  */
@@ -171,17 +190,24 @@ export function DeploymentTemplatesPage() {
     setSearchParams(next, { replace: true })
   }
 
+  // The floor is parsed on every render so the form names a bad value before Save, not after.
+  const parsedMinimum = parseMinimumHardware(draft.minimum)
+  const minimumError = 'error' in parsedMinimum ? parsedMinimum.error : ''
+
   const submit = async () => {
-    if (saving || !draft.name.trim() || !draft.integrationId || !draft.imageId || (Boolean(imageError) && !draft.id)) return
+    if (saving || !draft.name.trim() || !draft.integrationId || !draft.imageId || (Boolean(imageError) && !draft.id) || !('minimum' in parsedMinimum)) return
+    const minimum = parsedMinimum.minimum
     setSaving(true)
     try {
       if (draft.id) {
+        // An update always sends the floor: all-null fields clear a stored one.
         await provisioning.updateTemplate(draft.id, {
           name: draft.name.trim(),
           description: draft.description.trim(),
           imageId: draft.imageId,
           deployTarget: deployTargetForEphemeral(draft.ephemeral),
           network: { mode: draft.networkMode, subnetId: draft.subnetId.trim() || undefined, defaultGateway: draft.defaultGateway },
+          minimumHardware: minimum,
         })
         showToast({ tone: 'success', title: 'Deployment template updated' })
       } else {
@@ -192,6 +218,7 @@ export function DeploymentTemplatesPage() {
           imageId: draft.imageId,
           deployTarget: deployTargetForEphemeral(draft.ephemeral),
           network: { mode: draft.networkMode, subnetId: draft.subnetId.trim() || undefined, defaultGateway: draft.defaultGateway },
+          ...(minimumHardwareIsEmpty(minimum) ? {} : { minimumHardware: minimum }),
         })
         showToast({ tone: 'success', title: 'Deployment template created' })
       }
@@ -204,6 +231,9 @@ export function DeploymentTemplatesPage() {
     }
   }
 
+  // A template a Platform node group installs from cannot be deleted; the API refuses it with a
+  // `conflict` naming the Platforms, which the error toast shows. The page does not pre-empt it, so
+  // the API stays the one place that decides.
   const removeTemplate = async (template: DeploymentTemplate) => {
     if (!window.confirm(`Delete deployment template "${template.name}"?`)) return
     try {
@@ -253,6 +283,7 @@ export function DeploymentTemplatesPage() {
       networkMode: template.network?.mode ?? 'automatic',
       subnetId: template.network?.subnetId ?? '',
       defaultGateway: template.network?.defaultGateway ?? false,
+      minimum: minimumHardwareDraft(template.minimumHardware),
     })
     setFormOpen(true)
   }
@@ -356,6 +387,29 @@ export function DeploymentTemplatesPage() {
                 </Field.Root>
               )}
             </div>
+            <fieldset className="sw-template-minimum">
+              <legend>
+                <Heading as="span" size="xs">Minimum hardware</Heading>
+              </legend>
+              <Text color="fg.muted" fontSize="sm">
+                Optional. A Server joining a Platform node group that installs from this template must meet every value you set; a Server whose inventory
+                does not report a value does not meet it. Leave a field empty to set no minimum. Deploying single Servers ignores it.
+              </Text>
+              <div className="sw-form-grid">
+                {MINIMUM_HARDWARE_FIELDS.map((field) => (
+                  <Field.Root key={field.key}>
+                    <Field.Label>{field.label}</Field.Label>
+                    <Input
+                      value={draft.minimum[field.key]}
+                      inputMode={field.numeric ? 'decimal' : 'text'}
+                      onChange={(event) => setDraft((current) => ({ ...current, minimum: { ...current.minimum, [field.key]: event.target.value } }))}
+                    />
+                    <Field.HelperText>{field.helper}</Field.HelperText>
+                  </Field.Root>
+                ))}
+              </div>
+              {minimumError && <Text color="fg.error" fontSize="sm" role="alert">{minimumError}</Text>}
+            </fieldset>
             <div className="sw-form-actions">
               <Button variant="ghost" onClick={closeForm}>
                 Cancel
@@ -363,7 +417,7 @@ export function DeploymentTemplatesPage() {
               <Button
                 colorPalette="brand"
                 loading={saving}
-                disabled={saving || !draft.name.trim() || !draft.integrationId || !draft.imageId || (draft.networkMode === 'static' && !draft.subnetId.trim()) || (Boolean(imageError) && !draft.id)}
+                disabled={saving || !draft.name.trim() || !draft.integrationId || !draft.imageId || (draft.networkMode === 'static' && !draft.subnetId.trim()) || (Boolean(imageError) && !draft.id) || Boolean(minimumError)}
                 onClick={() => void submit()}
               >
                 Save
@@ -425,6 +479,8 @@ export function DeploymentTemplatesPage() {
                 <Table.ColumnHeader>Ephemeral</Table.ColumnHeader>
                 <Table.ColumnHeader>Network</Table.ColumnHeader>
                 <Table.ColumnHeader>Cloud-init</Table.ColumnHeader>
+                <Table.ColumnHeader>Minimum hardware</Table.ColumnHeader>
+                <Table.ColumnHeader>Used by</Table.ColumnHeader>
                 <Table.ColumnHeader>Updated</Table.ColumnHeader>
                 <Table.ColumnHeader />
               </Table.Row>
@@ -444,6 +500,8 @@ export function DeploymentTemplatesPage() {
                   <Table.Cell>{template.ephemeral ? 'Yes' : 'No'}</Table.Cell>
                   <Table.Cell>{templateNetworkLabel(template, ' - ')}</Table.Cell>
                   <Table.Cell>{template.hasUserData ? 'Configured' : '-'}</Table.Cell>
+                  <Table.Cell>{formatMinimumHardware(template.minimumHardware)}</Table.Cell>
+                  <Table.Cell>{formatTemplateUses(template.usedBy)}</Table.Cell>
                   <Table.Cell>{formatDateTime(template.updatedAt)}</Table.Cell>
                   <Table.Cell textAlign="end">
                     <span className="sw-row-actions">
@@ -511,6 +569,8 @@ export function DeploymentTemplatesPage() {
                   <ResourceCardField label="Ephemeral">{template.ephemeral ? 'Yes' : 'No'}</ResourceCardField>
                   <ResourceCardField label="Network">{templateNetworkLabel(template, ' · ')}</ResourceCardField>
                   <ResourceCardField label="Cloud-init">{template.hasUserData ? 'Configured' : 'Not configured'}</ResourceCardField>
+                  <ResourceCardField label="Minimum hardware">{formatMinimumHardware(template.minimumHardware)}</ResourceCardField>
+                  <ResourceCardField label="Used by">{formatTemplateUses(template.usedBy)}</ResourceCardField>
                 </ResourceCard>
               ))}
             </div>

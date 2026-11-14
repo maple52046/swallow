@@ -1281,6 +1281,27 @@ tbody .sw-sticky-selection { z-index: 2; }
   gap: 1.5rem;
 }
 
+.sw-slurm-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--chakra-colors-border);
+  border-radius: var(--chakra-radii-l2);
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.sw-template-minimum {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
 /* ---- Wide provider tables ------------------------------------------------ */
 
 .sw-network-assignment-table { min-width: 960px; }

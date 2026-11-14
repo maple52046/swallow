@@ -1,13 +1,13 @@
 import { expect, test } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
-// In-development features (alerts, OS image upload, Deployment Templates, virtual machines) are
+// In-development features (alerts, OS image upload, virtual machines) are
 // shown on the dev server and hidden in release builds. These journeys run on the dev server:
 // switching every feature off through the dev-only setting reproduces the release view, because
 // release builds bind the same gates to settings that are always off (tests/production covers the
 // real build). Basic monitoring is released and behind no switch.
 
-const RELEASE_VIEW = { alerts: false, osImageUpload: false, deploymentTemplates: false, virtualMachines: false }
+const RELEASE_VIEW = { alerts: false, osImageUpload: false, virtualMachines: false }
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -27,10 +27,10 @@ test('Experimental features are on in development and switch live from the accou
   await page.getByRole('button', { name: 'Account menu' }).click()
   await page.getByRole('menuitem', { name: 'Experimental features' }).click()
   const dialog = page.getByRole('dialog', { name: 'Experimental features' })
-  for (const label of ['Alerts', 'OS image upload', 'Deployment Templates', 'Virtual machines']) {
+  for (const label of ['Alerts', 'OS image upload', 'Virtual machines']) {
     await expect(dialog.getByLabel(label, { exact: true })).toBeChecked()
   }
-  for (const released of ['Monitoring', 'Validation']) {
+  for (const released of ['Monitoring', 'Validation', 'Deployment Templates']) {
     await expect(dialog.getByLabel(released, { exact: true })).toHaveCount(0)
   }
 
@@ -122,33 +122,22 @@ test.describe('with every in-development feature hidden (the release view)', () 
     expect(alertRequests).toEqual([])
   })
 
-  test('image upload and Deployment Templates are not offered anywhere', async ({ page }) => {
-    const templateRequests: string[] = []
-    page.on('request', (request) => {
-      const path = new URL(request.url()).pathname
-      if (path.startsWith('/api/v1/provisioning/templates')) templateRequests.push(path)
-    })
+  test('image upload is not offered, while Deployment Templates stay released', async ({ page }) => {
     await installApiFixtures(page, { readyServerCount: 1 })
 
     await page.goto('/provisioning/images?site=site-a')
     await expect(page.getByRole('heading', { name: 'OS Images', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Upload image' })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: /Create template/ })).toHaveCount(0)
     // Verifying an existing custom image is not part of upload and stays available.
     const customImage = page.getByRole('row', { name: 'Ubuntu 24.04 ROCm catalog data', exact: true })
     await customImage.getByRole('button', { name: 'More actions for Ubuntu 24.04 ROCm' }).click()
     await expect(page.getByRole('menuitem', { name: 'Test deployment' })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: 'Create deployment template' })).toBeVisible()
     await page.keyboard.press('Escape')
-    await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Deployment Templates' })).toHaveCount(0)
+    await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Deployment Templates' })).toBeVisible()
 
     await page.goto('/provisioning/templates?site=site-a')
-    await expect(page).toHaveURL('/provisioning/images?site=site-a')
-    await expect(page.getByRole('tab', { name: 'Deploy OS', exact: true })).toHaveCount(0)
-
-    await page.goto('/platforms/deploy/kubernetes?site=site-a')
-    await expect(page.getByLabel('Platform name')).toBeVisible()
-
-    expect(templateRequests).toEqual([])
+    await expect(page).toHaveURL('/provisioning/templates?site=site-a')
   })
 
   test('Validation is released: its entry, pages, and sections stay with every feature off', async ({ page }) => {

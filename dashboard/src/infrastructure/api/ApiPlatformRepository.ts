@@ -47,7 +47,7 @@ export class ApiPlatformRepository implements PlatformRepository {
     // runs) and a 202 (the uninstall's plan) both carry the Platform.
     return written
       ? toPlatformChangeResult(written)
-      : { platformId: id, planId: null, deleted: true, awaitingApproval: false, waitReason: '', blocked: false }
+      : { platformId: id, planId: null, deleted: true, awaitingApproval: false, waitReason: '', blocked: false, warnings: [] }
   }
 
   async deletePlatformRecord(id: string): Promise<void> {

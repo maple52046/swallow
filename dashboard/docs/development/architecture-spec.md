@@ -170,7 +170,7 @@ dashboard 不自行推導。
 
 ## Experimental features
 
-開發中的 dashboard 功能（目前為 `alerts`、`osImageUpload`、`deploymentTemplates`、`virtualMachines`）只在
+開發中的 dashboard 功能（目前為 `alerts`、`osImageUpload`、`virtualMachines`）只在
 development build（Vite dev server，含 Playwright）顯示；release build（`vite build`）一律隱藏。基礎監控（health、
 目前值與用量圖）已發行，不在開關後面；`alerts` 只涵蓋 Alertmanager 的告警（Monitoring 的告警列表與 acknowledge、
 Overview 的 Alerts 卡片與告警 attention item）。

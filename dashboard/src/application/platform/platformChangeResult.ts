@@ -5,6 +5,7 @@ import type { Platform, PlatformChangeResult } from '@/domain/platform/types'
 export interface PlatformSpecWrite {
   platform: Platform
   plan: ChangePlan | null
+  warnings: string[]
 }
 
 /**
@@ -22,6 +23,7 @@ export function toPlatformChangeResult(written: PlatformSpecWrite): PlatformChan
     awaitingApproval,
     waitReason: awaitingApproval ? plan.stateReason : '',
     blocked: awaitingApproval && plan.blockers.length > 0,
+    warnings: written.warnings,
   }
 }
 

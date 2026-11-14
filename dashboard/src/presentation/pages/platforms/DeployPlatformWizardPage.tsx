@@ -53,7 +53,6 @@ import { Select } from '@/presentation/components/ui/select'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
-import { useExperimentalFeature } from '@/presentation/contexts/ExperimentalFeaturesContext'
 import { formatQuantity } from '@/shared/utils/quantity'
 import { useDeployableServers } from './useDeployableServers'
 import { AdvancedSettings } from './AdvancedSettings'
@@ -204,7 +203,6 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
   const [serverQuery, setServerQuery] = useState('')
   const [wizardStep, setWizardStep] = useState(0)
   const [candidateRevision, setCandidateRevision] = useState(0)
-  const templatesEnabled = useExperimentalFeature('deploymentTemplates')
   const [templates, setTemplates] = useState<DeploymentTemplate[]>([])
   const [templateId, setTemplateId] = useState('')
   const [images, setImages] = useState<OSImage[]>([])
@@ -232,7 +230,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
     const existing = existingPlatformAssignment(server, sitePlatforms)
     return existing ? 'assigned to ' + existing.platformName : null
   }
-  const form = module.deploy.useForm({ platformName: name, servers: candidates, heldBy })
+  const form = module.deploy.useForm({ platformName: name, siteId: effectiveSiteId, servers: candidates, heldBy })
   const features = useDeployFeatures(platformDeployFeatures(platformType), form.featureContext)
 
 
@@ -256,7 +254,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
 
   // Deployment templates are per-Site; the OS step filters them to the derived provisioner.
   useEffect(() => {
-    if (!effectiveSiteId || !templatesEnabled) return
+    if (!effectiveSiteId) return
     let canceled = false
     provisioning
       .listTemplates({ siteId: effectiveSiteId })
@@ -269,7 +267,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
     return () => {
       canceled = true
     }
-  }, [effectiveSiteId, provisioning, templatesEnabled])
+  }, [effectiveSiteId, provisioning])
 
   const visibleServers = state.status === 'ready'
     ? state.data.servers.filter((server) => serverMatchesDeployQuery(server, serverQuery))
@@ -394,11 +392,8 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
   }, [integrationId, needsProvisioning, preparationTargetKey, provisioning])
 
   // Ignore a template left selected from a previously derived provisioner so it can never leak
-  // another provisioner's image/network into this deploy, or one selected before templates
-  // were hidden.
-  const selectedTemplate = templatesEnabled
-    ? templates.find((template) => template.id === templateId && template.integrationId === integrationId)
-    : undefined
+  // another provisioner's image/network into this deploy.
+  const selectedTemplate = templates.find((template) => template.id === templateId && template.integrationId === integrationId)
   const effectiveImageId = selectedTemplate?.imageId ?? imageId
   const effectiveDeployTarget = selectedTemplate
     ? deployTargetForEphemeral(selectedTemplate.ephemeral)
@@ -807,7 +802,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
                 .catch((error: Error) => setProvisioningError(failureOf(error, 'OS images could not be loaded.')))
                 .finally(() => setProvisioningLoading(false))
             }}
-            configurationSource={templatesEnabled ? {
+            configurationSource={{
               value: templateId,
               onChange: selectTemplate,
               options: [
@@ -816,7 +811,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
                   .filter((template) => template.integrationId === integrationId)
                   .map((template) => ({ value: template.id, label: template.name })),
               ],
-            } : undefined}
+            }}
           />
         ),
       })

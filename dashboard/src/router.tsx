@@ -69,7 +69,6 @@ import { AdminRoute } from './presentation/components/AdminRoute'
 import { UsersPage } from './presentation/pages/users/UsersPage'
 import { PoolsPage } from './presentation/pages/pools/PoolsPage'
 import { PoolAccessPage } from './presentation/pages/pools/PoolAccessPage'
-import { FeatureRoute } from './presentation/components/FeatureRoute'
 import { ValidationRedirect } from './presentation/pages/validation/ValidationRedirect'
 import { ValidationRunsPage } from './presentation/pages/validation/ValidationRunsPage'
 import { ValidationRunDetailPage } from './presentation/pages/validation/ValidationRunDetailPage'
@@ -156,9 +155,7 @@ export const router = createBrowserRouter([
         path: 'provisioning/templates',
         element: (
           <AdminRoute>
-            <FeatureRoute feature="deploymentTemplates" redirectTo="/provisioning/images">
-              <DeploymentTemplatesPage />
-            </FeatureRoute>
+            <DeploymentTemplatesPage />
           </AdminRoute>
         ),
       },

@@ -98,6 +98,8 @@ test('Slurm Review groups keep feature ownership and return directly to editing'
   await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
   await next.click()
   await next.click()
+  await expect(page.getByRole('heading', { name: 'Node groups and partitions' })).toBeVisible()
+  await next.click()
 
   await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Nodes and roles' })).toBeVisible()
@@ -149,6 +151,8 @@ test('Slurm with shared storage switched off omits the workload-storage intent',
   await next.click()
   await expect(page.getByRole('switch', { name: 'Enable Shared workload storage' })).not.toBeChecked()
   await next.click()
+  await expect(page.getByRole('heading', { name: 'Node groups and partitions' })).toBeVisible()
+  await next.click()
   await page.getByRole('button', { name: 'Deploy Slurm Platform' }).click()
 
   await expectPlatformInstallStarted(page)
@@ -182,6 +186,8 @@ test('the clock check is required by default and can be relaxed to a warning', a
       await expect(clocks).not.toBeChecked()
       await expect(page.getByText(/only reported as a warning/)).toBeVisible()
     }
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Node groups and partitions' })).toBeVisible()
     await next.click()
     await expect(page.getByText(relax ? /^Warning only/ : /^Required: an unsynchronized node/)).toBeVisible()
     await page.getByRole('button', { name: 'Deploy Slurm Platform' }).click()

@@ -51,6 +51,28 @@ export interface DeploymentNetworkSettings {
   defaultGateway: boolean;
 }
 
+/**
+ * A Deployment Template's optional hardware floor (provisioning.md "Deployment Templates", decision
+ * 083): what a Server must have to join a Platform node group installed from the template. A `null`
+ * dimension sets no floor; `gpuModel` matches within the GPU Inventory's compute GPU model name and
+ * `gpuCount` counts compute GPUs. Only Platform node groups read it, when a spec write adds a member;
+ * missing inventory counts as not met.
+ */
+export interface MinimumHardware {
+  cpuCores: number | null;
+  memoryMiB: number | null;
+  storageGB: number | null;
+  gpuModel: string | null;
+  gpuCount: number | null;
+}
+
+/** A Platform node group that installs its new members from a template (`group` is `machine preparation` for a Platform's own default). */
+export interface DeploymentTemplateUse {
+  platformId: string;
+  platformName: string;
+  group: string;
+}
+
 /** Reusable, integration-owned deployment intent. Cloud-init is never readable. */
 export interface DeploymentTemplate {
   id: string;
@@ -62,6 +84,10 @@ export interface DeploymentTemplate {
   ephemeral: boolean;
   network: DeploymentNetworkSettings;
   hasUserData: boolean;
+  /** The hardware floor; null sets none. */
+  minimumHardware: MinimumHardware | null;
+  /** The Platform node groups installing from it; a template with any cannot be deleted. */
+  usedBy: DeploymentTemplateUse[];
   createdAt: string;
   updatedAt: string;
 }
@@ -76,6 +102,7 @@ export interface CreateDeploymentTemplateInput {
   deployTarget?: DeployTarget;
   network?: DeploymentNetworkSettings;
   userData?: string;
+  minimumHardware?: MinimumHardware | null;
 }
 
 /** Templates never move integration and cloud-init has dedicated write-only methods. */
@@ -85,6 +112,8 @@ export interface UpdateDeploymentTemplateInput {
   imageId?: string;
   deployTarget?: DeployTarget;
   network?: DeploymentNetworkSettings;
+  /** Replaces the floor; a floor whose dimensions are all null clears it. Omitted keeps it. */
+  minimumHardware?: MinimumHardware;
 }
 
 /** Cloud-init handling for one deployment request. */

@@ -51,6 +51,36 @@ export interface PlatformMember {
   roles: string[];
 }
 
+/**
+ * How one member a spec drops leaves the Platform (platforms.md "Remove members"): how long its
+ * running jobs are waited for (`drainTimeoutSeconds`, 0 for the API's default of 600, at most 86400),
+ * whether they are cancelled at that timeout (`force`) instead of failing the removal, and whether the
+ * Server is then released to its provisioner with the erase and static-IP options. An entry for a
+ * Server that stays a member is ignored by the API.
+ */
+export interface PlatformMemberRemoval {
+  serverId: string;
+  drainTimeoutSeconds: number;
+  force: boolean;
+  releaseServer: boolean;
+  erase: boolean;
+  secureErase: boolean;
+  quickErase: boolean;
+  unbindStaticIps: boolean;
+}
+
+/**
+ * The Deployment Template a member was installed from (platforms.md "Spec and status").
+ * `matchesTemplate` is false when the template installs something else since (it changed after the
+ * member was installed) or no longer exists. Written by swallow, never by a client.
+ */
+export interface PlatformMemberTemplate {
+  serverId: string;
+  templateId: string;
+  deployedAt: string;
+  matchesTemplate: boolean;
+}
+
 /** The removal choices an absent Platform's spec carries. */
 export interface PlatformRemoval {
   releaseServers: boolean;
@@ -70,6 +100,8 @@ export interface PlatformSpec {
   members: PlatformMember[];
   settings: Record<string, unknown>;
   machinePreparation: PlatformSpecMachinePreparation | null;
+  /** Choices for the members this spec drops; empty when no removal is pending. */
+  memberRemovals: PlatformMemberRemoval[];
   removal: PlatformRemoval | null;
 }
 
@@ -86,8 +118,14 @@ export interface PlatformSpecMachinePreparation {
     mode?: string;
     subnetId?: string;
     defaultGateway?: boolean;
-    assignments?: Array<{ serverId: string; interfaceId?: string; subnetId?: string; ipAddress?: string }>;
+    assignments?: Array<{ serverId: string; interfaceId?: string; subnetId?: string; ipAddress?: string; templateId?: string }>;
   };
+  /**
+   * The Deployment Templates the Platform creates from this machine preparation for its node groups
+   * (decision 083). A client writes them back unchanged: a group may name one that is created only
+   * when the change is carried out.
+   */
+  generatedTemplates?: Array<{ id: string; name: string; integrationId: string; group: string }>;
 }
 
 /**
@@ -101,6 +139,8 @@ export interface PlatformStatus {
   realizingWorkflowId: string | null;
   /** The Pool every node is placed in; null when they are in different Pools or none (admins manage it). */
   poolId: string | null;
+  /** The template each member installed from a Deployment Template came from; empty when none did. */
+  memberTemplates: PlatformMemberTemplate[];
 }
 /** Whether swallow registered the platform or deployed it through a durable operation. */
 export type PlatformOrigin = "registered" | "deployed";
@@ -453,6 +493,10 @@ export interface SlurmWorkloadStorageSpec {
  * combination. `workloadStorage` is optional shared user-data storage.
  */
 export interface SlurmDeploymentSpec {
+  /** Node groups (glossary Node Group); omitted, the API derives one per role from the assignments. */
+  nodeGroups?: SlurmNodeGroupSpec[];
+  /** Partitions (glossary Slurm Partition); omitted, the one default partition `main` over every compute node. */
+  partitions?: SlurmPartitionSpec[];
   clusterName?: string;
   apiVersion?: string;
   stateSaveLocation?: string;
@@ -464,6 +508,36 @@ export interface SlurmDeploymentSpec {
   ociContainers?: boolean;
   /** Installs OpenMPI with PMIx for `srun --mpi=pmix_v5` (platforms.md "MPI (PMIx)"). */
   pmix?: boolean;
+}
+
+/**
+ * One node group of a Slurm Platform's `slurm.nodeGroups` (platforms.md "Node groups and
+ * partitions"): members sharing one role that the Platform scales together, installing new members
+ * from `templateId` (omitted: the machine preparation's template, or one the Platform generates).
+ * `expectedGpusPerNode` marks a node with fewer GPUs `gpu_degraded` instead of refusing it.
+ */
+export interface SlurmNodeGroupSpec {
+  name: string;
+  role: 'controller' | 'compute' | 'login';
+  templateId?: string;
+  expectedGpusPerNode?: number;
+  members: string[];
+}
+
+/**
+ * One partition of `slurm.partitions`: a scheduling queue over compute groups. Exactly one is the
+ * default; `maxTime` is a Slurm time or `INFINITE`; `defMemPerCpu` (MiB) is otherwise the smallest
+ * per-CPU share of the partition's nodes; `overSubscribe` is `NO` unless set (and `EXCLUSIVE` on
+ * every partition with Omnistat).
+ */
+export interface SlurmPartitionSpec {
+  name: string;
+  default: boolean;
+  groups: string[];
+  maxTime?: string;
+  defMemPerCpu?: number;
+  overSubscribe?: 'NO' | 'YES' | 'FORCE' | 'EXCLUSIVE';
+  allowGroups?: string[];
 }
 
 /**
@@ -593,6 +667,12 @@ export interface PlatformChangeResult {
   waitReason: string;
   /** The waiting plan has blockers, so it cannot be approved until they are resolved. */
   blocked: boolean;
+  /**
+   * Sentences about the written spec that did not refuse it, in the API's words (for Slurm: a node
+   * with fewer GPUs than its group expects, a group mixing GPU models); empty when there are none and
+   * for a delete. The caller shows them after the write.
+   */
+  warnings: string[];
 }
 
 /** The report a membership sync returns; `unmatched` names members with no server. */

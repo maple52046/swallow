@@ -144,7 +144,7 @@ function ChoiceCards<T extends string>({ label, value, onChange, options, column
  * choosing implementation details. Job monitoring is one switch with an exporter choice because the
  * API refuses the Device Metrics Exporter and Omnistat together; the exporter's card warns, without
  * blocking here (the page blocks the step), when no selected compute node has AMD GPUs. With Omnistat
- * chosen, an option card (checked by default, unlike the API's default) asks for the GPU hardware
+ * chosen, an option card (off by default, like the API) asks for the GPU hardware
  * counters and states their host cost, since each node decides for itself and never fails. The Platform
  * Grafana is its own switch, on by default, with its install method; without a monitoring exporter
  * the API installs it natively, so the card says so instead of offering a choice it ignores. The

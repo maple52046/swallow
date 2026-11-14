@@ -350,7 +350,16 @@ const osImages = [
   catalogImage({ id: 'ubuntu-24.04-rocm', name: 'Ubuntu 24.04 ROCm', osSystem: 'custom', release: 'ubuntu-24.04-rocm', spec: { tags: ['gpu', 'rocm'] }, verifiedDeployTargets: ['ram'], failedDeployTargets: ['disk'] }),
 ]
 const baseDeploymentTemplates = [
-  { id: 'template-a', siteId: 'site-a', integrationId: 'maas-a', name: 'GPU compute baseline', description: 'Ubuntu baseline for accelerator nodes', imageId: 'ubuntu/jammy', ephemeral: false, network: { mode: 'dhcp', subnetId: 'subnet-a', defaultGateway: false }, hasUserData: true, createdAt: now, updatedAt: now },
+  {
+    id: 'template-a', siteId: 'site-a', integrationId: 'maas-a', name: 'GPU compute baseline', description: 'Ubuntu baseline for accelerator nodes', imageId: 'ubuntu/jammy', ephemeral: false, network: { mode: 'dhcp', subnetId: 'subnet-a', defaultGateway: false }, hasUserData: true,
+    minimumHardware: { cpuCores: 32, memoryMiB: null, storageGB: null, gpuModel: 'MI300X', gpuCount: 8 } as Record<string, unknown> | null,
+    usedBy: [{ platformId: 'platform-slurm-ha', platformName: 'lab-slurm-ha', group: 'compute' }] as Array<Record<string, string>>,
+    createdAt: now, updatedAt: now,
+  },
+  {
+    id: 'template-b', siteId: 'site-a', integrationId: 'maas-a', name: 'CPU login', description: '', imageId: 'ubuntu/noble', ephemeral: true, network: { mode: 'automatic', defaultGateway: false }, hasUserData: false,
+    minimumHardware: null as Record<string, unknown> | null, usedBy: [] as Array<Record<string, string>>, createdAt: now, updatedAt: now,
+  },
 ]
 
 const alerts = [
@@ -552,6 +561,15 @@ export interface FixtureOptions {
    * `settings.omnistat.hardwareCounters` and the generation the write names.
    */
   onHardwareCountersRequest?: (platformId: string, hardwareCounters: unknown, generation: number) => void
+  /**
+   * Receives each Slurm spec write that changes members, node groups, or partitions (platforms.md
+   * "Node groups and partitions"), with whether it approved its Change Plan.
+   */
+  onSlurmTopologyRequest?: (platformId: string, spec: Record<string, unknown>, approved: boolean) => void
+  /** Receives each rescan (`POST /platforms/{id}/slurm/nodes/{serverId}/rescan`). */
+  onSlurmRescanRequest?: (platformId: string, serverId: string) => void
+  /** Receives each Deployment Template create and update body. */
+  onTemplateRequest?: (method: 'POST' | 'PATCH', body: Record<string, unknown>) => void
   /**
    * Makes the first Slurm spec write answer `409 conflict` as if another write had changed the spec
    * since it was read; the stored generation moves on, so a retry that reads again succeeds.
@@ -1154,9 +1172,13 @@ function fixturePlatformSpec(platform: {
   deployment: { roleAssignments: Array<{ serverId: string; role: string; runWorkloads?: boolean }> } | null
   gpuOperator: Record<string, unknown> | null
 }) {
+  // A Slurm member's roles are its daemons (platforms.md "Spec And Status"): a control-plane
+  // assignment is a controller, with compute when it also runs workloads, and a worker is compute.
   const members = (platform.deployment?.roleAssignments ?? []).map((assignment) => ({
     serverId: assignment.serverId,
-    roles: assignment.role === 'control-plane' ? ['control-plane', ...(assignment.runWorkloads ? ['workloads'] : [])] : ['worker'],
+    roles: platform.type === 'slurm'
+      ? (assignment.role === 'control-plane' ? ['controller', ...(assignment.runWorkloads ? ['compute'] : [])] : ['compute'])
+      : (assignment.role === 'control-plane' ? ['control-plane', ...(assignment.runWorkloads ? ['workloads'] : [])] : ['worker']),
   }))
   const extras = fixturePlatformSpecExtras[platform.id]
   const settings: Record<string, unknown> = {
@@ -1172,7 +1194,9 @@ function fixturePlatformSpec(platform: {
   }
   return {
     desired: platform.lifecycleState === 'uninstalled' ? 'absent' : 'present', members, settings,
-    machinePreparation: extras ? structuredClone(extras.machinePreparation) : null, removal: null as ReturnType<typeof removalChoice>,
+    machinePreparation: extras ? structuredClone(extras.machinePreparation) : null,
+    memberRemovals: [] as Array<Record<string, unknown>>,
+    removal: null as ReturnType<typeof removalChoice>,
   }
 }
 
@@ -1193,7 +1217,7 @@ function platformConditions(realized: 'converged' | 'awaiting_approval' | 'conve
  */
 function fixturePlatformStatus(lifecycleState: string, spec: ReturnType<typeof fixturePlatformSpec>) {
   const pending = (reason: 'awaiting_approval' | 'converging' | 'failed', message: string) =>
-    ({ observedGeneration: 0, conditions: platformConditions(reason, 1, message), applied: null, realizingWorkflowId: null })
+    ({ observedGeneration: 0, conditions: platformConditions(reason, 1, message), applied: null, realizingWorkflowId: null, memberTemplates: [] as Array<Record<string, unknown>> })
   switch (lifecycleState) {
     case 'planned':
       return pending('awaiting_approval', 'The install waits for its Change Plan to be approved.')
@@ -1202,7 +1226,7 @@ function fixturePlatformStatus(lifecycleState: string, spec: ReturnType<typeof f
     case 'deploy_failed':
       return pending('failed', 'The deployment Workflow failed.')
     default:
-      return { observedGeneration: 1, conditions: platformConditions('converged', 1), applied: spec, realizingWorkflowId: null }
+      return { observedGeneration: 1, conditions: platformConditions('converged', 1), applied: spec, realizingWorkflowId: null, memberTemplates: [] as Array<Record<string, unknown>> }
   }
 }
 
@@ -3386,9 +3410,12 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         network: body.network ?? { mode: 'automatic', defaultGateway: false },
         ephemeral: body.deployTarget === 'ram',
         hasUserData: Boolean(body.userData),
+        minimumHardware: (body.minimumHardware ?? null) as Record<string, unknown> | null,
+        usedBy: [] as Array<Record<string, string>>,
         createdAt: now,
         updatedAt: now,
       }
+      options.onTemplateRequest?.('POST', body)
       deploymentTemplates.push(created)
       return json(route, created, 201)
     }
@@ -3407,10 +3434,18 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       if (request.method() === 'GET') return json(route, template)
       if (request.method() === 'PATCH') {
         const body = request.postDataJSON() as Record<string, unknown>
-        Object.assign(template, body, { updatedAt: now })
+        options.onTemplateRequest?.('PATCH', body)
+        const minimum = body.minimumHardware as Record<string, unknown> | undefined
+        // An all-null floor clears it (provisioning.md "Deployment Templates").
+        const floor = minimum === undefined ? template.minimumHardware : Object.values(minimum).every((value) => value === null) ? null : minimum
+        Object.assign(template, body, { minimumHardware: floor, updatedAt: now })
         return json(route, template)
       }
       if (request.method() === 'DELETE') {
+        if (template.usedBy.length > 0) {
+          const users = template.usedBy.map((use) => `${use.platformName} (${use.group})`).join(', ')
+          return json(route, { error: { code: 'conflict', message: `The deployment template cannot be deleted while ${users} installs from it.`, requestId: 'req-template-in-use' } }, 409)
+        }
         deploymentTemplates = deploymentTemplates.filter((item) => item.id !== template.id)
         return route.fulfill({ status: 204 })
       }
@@ -4042,6 +4077,46 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       // needs no Change Plan, and the controller's configure-omnistat Workflow restarts the record as
       // installing with no nodes while the Platform stays active.
       const slurmPlatform = platformItems.find((item) => item.id === platformId && item.type === 'slurm')
+      // A write that changes members or the slurm setting's groups and partitions is a topology change:
+      // removing members is destructive (its plan is approved with the write and applied at once), the
+      // rest converges directly. A group whose nodes have fewer GPUs than it expects answers a warning.
+      const writtenSpec = written.spec as unknown as { members?: Array<{ serverId: string; roles: string[] }>; settings: Record<string, unknown>; memberRemovals?: unknown[] }
+      const writtenSlurm = (writtenSpec.settings.slurm ?? {}) as { nodeGroups?: Array<{ name: string; expectedGpusPerNode?: number; members: string[] }> }
+      const storedSlurm = ((slurmPlatform?.spec?.settings as Record<string, unknown> | undefined)?.slurm ?? {}) as Record<string, unknown>
+      const topologyChanged = slurmPlatform && (
+        JSON.stringify(writtenSpec.members ?? []) !== JSON.stringify(slurmPlatform.spec?.members ?? []) ||
+        JSON.stringify(writtenSlurm) !== JSON.stringify(storedSlurm)
+      )
+      if (slurmPlatform && topologyChanged) {
+        const approved = url.searchParams.get('approve') === 'true'
+        options.onSlurmTopologyRequest?.(platformId, writtenSpec as unknown as Record<string, unknown>, approved)
+        if (written.generation !== slurmPlatform.generation) {
+          return json(route, { error: { code: 'conflict', message: 'The platform spec changed since it was read; read it again and retry.' } }, 409)
+        }
+        const removed = (slurmPlatform.spec?.members ?? []).filter((member) => !(writtenSpec.members ?? []).some((kept) => kept.serverId === member.serverId))
+        const warnings = (writtenSlurm.nodeGroups ?? []).flatMap((group) => group.members.flatMap((serverId) => {
+          const gpus = fleet.find((server) => server.id === serverId)?.status.gpus.filter((gpu) => gpu.kind === 'compute').reduce((total, gpu) => total + gpu.count, 0) ?? 0
+          return group.expectedGpusPerNode && gpus < group.expectedGpusPerNode
+            ? [`server ${serverId} in node group ${group.name} has ${gpus} of the ${group.expectedGpusPerNode} GPUs the group expects; it is marked gpu_degraded and scheduled last`]
+            : []
+        }))
+        slurmPlatform.generation += 1
+        slurmPlatform.spec = { ...slurmPlatform.spec, members: writtenSpec.members, settings: writtenSpec.settings, memberRemovals: writtenSpec.memberRemovals ?? [] } as typeof slurmPlatform.spec
+        const workflowId = `op-slurm-topology-${slurmPlatform.generation}`
+        slurmPlatform.status = {
+          ...slurmPlatform.status,
+          conditions: platformConditions('converging', slurmPlatform.generation, `Workflow ${workflowId} carries out generation ${slurmPlatform.generation}`),
+          realizingWorkflowId: workflowId,
+        }
+        if (removed.length === 0) return json(route, { platform: slurmPlatform, plan: null, warnings })
+        const plan = changePlan(`plan-scale-in-${slurmPlatform.generation}`, platformId, approved ? 'applied' : 'pending_approval', {
+          expiresAt: '2099-01-01T00:00:00Z', generation: slurmPlatform.generation, workflowId: approved ? workflowId : '',
+          stateReason: approved ? '' : 'submitted without approval',
+          actions: removed.map((member) => ({ target: { kind: 'server', id: member.serverId }, action: 'remove-member', from: member.roles.join(', '), to: '', destructive: true, reason: 'the Server leaves the Platform' })),
+        })
+        changePlanItems = [plan, ...changePlanItems]
+        return json(route, { platform: slurmPlatform, plan, warnings }, 202)
+      }
       if (slurmPlatform) {
         const omnistatSetting = written.spec.settings.omnistat as { hardwareCounters?: unknown } | undefined
         options.onHardwareCountersRequest?.(platformId, omnistatSetting?.hardwareCounters, written.generation)
@@ -4067,7 +4142,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
             hardwareCounters: { requested: omnistatSetting?.hardwareCounters === true, nodes: [] },
           }
         }
-        return json(route, { platform: slurmPlatform, plan: null })
+        return json(route, { platform: slurmPlatform, plan: null, warnings: [] })
       }
       const body = (written.spec.settings.gpuOperator ?? { enabled: false }) as Record<string, unknown>
       options.onGPUOperatorRequest?.(platformId, body)
@@ -4093,7 +4168,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         const earlier = (item: (typeof changePlanItems)[number]) => item.resource.id === platformId && (item.state === 'pending_approval' || item.state === 'approved')
         if (plan.state === 'pending_approval') {
           changePlanItems = [plan, ...changePlanItems.filter((item) => !earlier(item))]
-          return json(route, { platform, plan }, 202)
+          return json(route, { platform, plan, warnings: [] }, 202)
         }
         // Approved with the write: the controller applies it, so the Workflow starts right away.
         const workflowId = `op-gpu-operator-${platform.generation}`
@@ -4101,7 +4176,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         platform.gpuOperator = enabled
           ? { ...previous, ...body, state: 'installing', lastWorkflowId: workflowId, updatedAt: now } as typeof platform.gpuOperator
           : { ...previous, state: 'uninstalling', lastWorkflowId: workflowId, updatedAt: now } as typeof platform.gpuOperator
-        return json(route, { platform, plan }, 202)
+        return json(route, { platform, plan, warnings: [] }, 202)
       }
       platform.gpuOperator = {
         enabled: true, version: (body.version as string | undefined) ?? 'v1.5.1',
@@ -4112,7 +4187,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         state: 'installing', lastWorkflowId: 'op-gpu-operator-new', updatedAt: now,
       }
       platform.gpuStackOwner = 'gpu-operator'
-      return json(route, { platform, plan: null })
+      return json(route, { platform, plan: null, warnings: [] })
     }
 
     // Create (platforms.md "Create A Platform"): the Platform is stored `planned` with its members
@@ -4133,10 +4208,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         ...submittedPlan(url),
       })
       const planned = (platform: Record<string, unknown>) => {
-        const spec = { desired: 'present', members: created.spec.members, settings: created.spec.settings, machinePreparation: null, removal: null }
+        const spec = { desired: 'present', members: created.spec.members, settings: created.spec.settings, machinePreparation: null, memberRemovals: [], removal: null }
         return {
           ...platform, lifecycleState: 'planned', lifecycleOperationId: null, generation: 1, spec,
-          status: { observedGeneration: 0, conditions: platformConditions('awaiting_approval', 1, waitingMessage(installPlan)), applied: null, realizingWorkflowId: null },
+          status: { observedGeneration: 0, conditions: platformConditions('awaiting_approval', 1, waitingMessage(installPlan)), applied: null, realizingWorkflowId: null, memberTemplates: [] },
         }
       }
       /** Stores the install plan; one approved with the create is applied, starting the deploy. */
@@ -4230,7 +4305,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         const platform = planned(platformItems.pop() as Record<string, unknown>)
         platformItems.push(platform as (typeof platformItems)[number])
         submitted()
-        return json(route, { platform, plan: installPlan }, 202)
+        return json(route, { platform, plan: installPlan, warnings: [] }, 202)
       }
       const roleAssignments = body.roleAssignments ?? []
       const controllerCount = roleAssignments.filter(
@@ -4279,7 +4354,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       const platform = planned(platformItems.pop() as Record<string, unknown>)
       platformItems.push(platform as (typeof platformItems)[number])
       submitted()
-      return json(route, { platform, plan: installPlan }, 202)
+      return json(route, { platform, plan: installPlan, warnings: [] }, 202)
     }
     if (path === '/api/v1/platforms') {
       const siteId = url.searchParams.get('siteId')
@@ -4287,6 +4362,11 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     }
     // Live Slurm cluster read. Returns a Slurm-native cluster only for the deployed HA fixture;
     // any other platform answers 422 so the Slurm view exercises its degrade path.
+    const slurmRescanMatch = path.match(/^\/api\/v1\/platforms\/([^/]+)\/slurm\/nodes\/([^/]+)\/rescan$/)
+    if (slurmRescanMatch && request.method() === 'POST') {
+      options.onSlurmRescanRequest?.(slurmRescanMatch[1], slurmRescanMatch[2])
+      return json(route, { operationId: `op-slurm-rescan-${slurmRescanMatch[2]}` }, 202)
+    }
     const slurmClusterMatch = path.match(/^\/api\/v1\/platforms\/([^/]+)\/slurm$/)
     if (slurmClusterMatch && request.method() === 'GET') {
       if (options.slurmDeployed && slurmClusterMatch[1] === 'platform-slurm-ha') {
@@ -4409,7 +4489,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       // choices return the plan that waits, approved when the request may approve it. Different
       // choices, or no plan waiting (rejected, expired, or a failed uninstall), propose it again.
       if (removed.spec.desired === 'absent') {
-        if (removed.lifecycleState === 'uninstalling') return json(route, { platform: removed, plan: null })
+        if (removed.lifecycleState === 'uninstalling') return json(route, { platform: removed, plan: null, warnings: [] })
         const waiting = changePlanItems.find(unfinished)
         if (waiting && JSON.stringify(removed.spec.removal) === JSON.stringify(requested)) {
           if (waiting.state !== 'pending_approval' || waiting.blockers.length > 0 || submittedPlan(url).state !== 'approved') {
@@ -4449,7 +4529,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         removed.status = { ...removed.status, conditions: platformConditions('awaiting_approval', removed.generation, waitingMessage(plan)) }
         changePlanItems = [plan, ...changePlanItems.map(superseded)]
       }
-      return json(route, { platform: removed, plan }, 202)
+      return json(route, { platform: removed, plan, warnings: [] }, 202)
     }
     if (platformMatch) {
       const platform = platformItems.find((item) => item.id === platformMatch[1])

@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Badge, Button, Field, HStack, Input } from '@chakra-ui/react'
+import { useApp } from '@/di/AppProvider'
 import { hasAMDComputeGPU } from '@/domain/platform/gpuOperator'
 import { formatGPUDriverModuleOptions, isValidGPUGresType, parseGPUDriverModuleOptions } from '@/domain/platform/gpuDriver'
 import { evaluateMinimumResourceEligibility, formatMinimumResources } from '@/domain/platform/resourceEligibility'
 import type { ObservabilityInstallMethod, SlurmContainerRuntime } from '@/domain/platform/types'
+import type { DeploymentTemplate } from '@/domain/provisioning/types'
 import { serverDisplayName, type Server } from '@/domain/server/types'
 import type { PlatformDeployContext, PlatformDeployForm } from '@/modules/types'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
@@ -14,6 +16,9 @@ import { deployReviewServerNames } from '@/presentation/pages/platforms/deployRe
 import { platformGrafanaContainerCopy, slurmContainerRuntimeLabel } from './slurmGrafanaCopy'
 import { SlurmDeploymentFeatures, type GPUGresTypeMode, type SlurmMonitoringChoice } from './SlurmDeploymentFeatures'
 import { useSlurmDeploymentRequirement } from './useSlurmDeploymentRequirement'
+import { slurmTopologyProblem, suggestSlurmTopology, type SlurmRole } from './slurmTopology'
+import { applyTopologyEdits, NO_TOPOLOGY_EDITS, type SlurmTopologyEdits } from './slurmTopologyDraft'
+import { SlurmTopologyStep } from './SlurmTopologyStep'
 
 type SlurmDaemon = 'controller' | 'compute' | 'login'
 
@@ -24,7 +29,8 @@ const NO_DAEMONS = { controller: false, compute: false, login: false }
  * Slurm features, and the cluster's advanced identity. The policy loads fail-closed, so node
  * selection waits until it is known.
  */
-export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDeployContext): PlatformDeployForm {
+export function useSlurmDeployForm({ platformName, siteId, servers, heldBy }: PlatformDeployContext): PlatformDeployForm {
+  const { provisioning } = useApp()
   const { state: requirementState, reload: reloadRequirement } = useSlurmDeploymentRequirement()
   const [clusterName, setClusterName] = useState('')
   const [apiVersion, setAPIVersion] = useState('')
@@ -47,9 +53,22 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
   // Device Metrics Exporter (per-GPU, jobs share nodes), never both; the Site Prometheus scrapes it.
   // Omnistat is proposed because it suits every Slurm Platform; "none" stays an explicit choice.
   const [monitoring, setMonitoring] = useState<SlurmMonitoringChoice>('omnistat')
-  // Omnistat's GPU hardware counters (decision 063): asked for by default here, while the API
-  // defaults to off so an older Platform's redeploy never turns them on; sent only with Omnistat.
-  const [hardwareCounters, setHardwareCounters] = useState(true)
+  // Omnistat's GPU hardware counters (decision 063): off by default, like the API, because they keep
+  // a profiler session on every GPU; a user turns them on here. Sent only with Omnistat.
+  const [hardwareCounters, setHardwareCounters] = useState(false)
+  // Edits over the suggested node groups and partitions (decision 083), kept by suggested names.
+  const [topologyEdits, setTopologyEdits] = useState<SlurmTopologyEdits>(NO_TOPOLOGY_EDITS)
+  // The Site's Deployment Templates a group may install from; a failed read offers only the
+  // generated template, which the API creates from the OS settings.
+  const [templates, setTemplates] = useState<DeploymentTemplate[]>([])
+  useEffect(() => {
+    if (!siteId) return
+    let cancelled = false
+    provisioning.listTemplates({ siteId })
+      .then((items) => { if (!cancelled) setTemplates(items) })
+      .catch(() => { if (!cancelled) setTemplates([]) })
+    return () => { cancelled = true }
+  }, [provisioning, siteId])
   // The Platform's own Grafana on the primary controller (platforms.md "Platform Monitoring
   // Dashboards"), on by default like the API's monitoringDashboards. Its install method travels in
   // the monitoring feature's object, so without a feature the API installs it natively.
@@ -108,6 +127,17 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
   // primary; it also hosts the Platform's Grafana.
   const primaryController = servers.find((server) => server.id === controllerIds[0])
   const primaryControllerName = primaryController ? serverDisplayName(primaryController) : 'the primary controller'
+
+  // The groups and partitions follow the selected nodes and their roles; the user's edits apply on top.
+  const topologySuggestion = useMemo(() => suggestSlurmTopology(selectedIds.flatMap((serverId) => {
+    const server = servers.find((candidate) => candidate.id === serverId)
+    if (!server) return []
+    const roles = (['controller', 'compute', 'login'] as const).filter((role) => daemons[serverId]?.[role]) as SlurmRole[]
+    return [{ server, roles }]
+  })), [selectedIds, servers, daemons])
+  const topology = applyTopologyEdits(topologySuggestion, topologyEdits)
+  const topologyProblem = topology.invalidExpectation || slurmTopologyProblem(topology)
+  const templateLabel = (templateId: string | undefined) => (templateId ? templates.find((template) => template.id === templateId)?.name ?? templateId : 'Generated when Swallow installs the OS')
 
   // Toggle one Slurm role on a node. A node keeps whichever roles are checked; a node with none
   // is simply not part of the cluster. Login is a submission/client host (no cluster daemon).
@@ -264,7 +294,23 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
             ? 'Choose native OCI containers or a container engine, or turn Container runtime off.'
             : 'Correct the advanced GPU settings.',
     },
-    extraSteps: () => [],
+    extraSteps: () => [{
+      id: 'deploy-slurm-topology',
+      name: 'Groups & Partitions',
+      title: 'Node groups and partitions',
+      canProceed: topologyProblem === '',
+      blockedReason: topologyProblem || undefined,
+      content: (
+        <SlurmTopologyStep
+          suggestion={topologySuggestion}
+          effective={topology}
+          edits={topologyEdits}
+          onEditsChange={setTopologyEdits}
+          servers={servers}
+          templates={templates}
+        />
+      ),
+    }],
     reviewGroups: ({ name, site, preparationSummary }) => [
       {
         title: 'Platform',
@@ -354,7 +400,20 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
         ],
       },
     ],
-    reviewGroupsAfterOS: () => [],
+    reviewGroupsAfterOS: () => [{
+      title: 'Node groups and partitions',
+      stepId: 'deploy-slurm-topology',
+      items: [
+        ...topology.groups.map((group) => ({
+          label: `Group ${group.name} (${group.role})`,
+          value: `${deployReviewServerNames(servers, group.members)} · ${templateLabel(group.templateId)}${group.expectedGpusPerNode ? ` · expects ${group.expectedGpusPerNode} GPUs per node` : ''}`,
+        })),
+        ...topology.partitions.map((partition) => ({
+          label: `Partition ${partition.name}${partition.default ? ' (default)' : ''}`,
+          value: `${partition.groups.join(', ')} · time limit ${partition.maxTime ?? 'INFINITE'}`,
+        })),
+      ],
+    }],
     deployModeNotice: () => null,
     input: () => ({
       gpuStackOwner: 'provisioning',
@@ -371,6 +430,8 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
         ...(gresTypeMode === 'custom' ? { gpuGresType: gresType.trim() } : {}),
         ...(ociRequested ? { ociContainers: true } : {}),
         ...(pmix ? { pmix: true } : {}),
+        nodeGroups: topology.groups,
+        partitions: topology.partitions,
         clusterName: clusterName.trim() || undefined,
         apiVersion: apiVersion.trim() || undefined,
         // stateSaveLocation is intentionally omitted: swallow provisions the HA shared
@@ -400,7 +461,8 @@ export function useSlurmDeployForm({ platformName, servers, heldBy }: PlatformDe
       setContainersEnabled(false)
       setContainerRuntime('')
       setMonitoring('omnistat')
-      setHardwareCounters(true)
+      setHardwareCounters(false)
+      setTopologyEdits(NO_TOPOLOGY_EDITS)
       setPlatformGrafana(true)
       setGrafanaInstallMethod('container')
       setOCIContainers(false)

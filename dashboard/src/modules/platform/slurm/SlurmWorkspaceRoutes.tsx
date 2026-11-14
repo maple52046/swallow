@@ -6,6 +6,7 @@ import { SectionHeader, StickyTableFrame } from '@/presentation/components/Conso
 import { StatusBadge } from '@/presentation/components/StatusBadge'
 import { Alert } from '@/presentation/components/ui/alert'
 import { SlurmPlatformView } from './SlurmPlatformView'
+import { SlurmTopologyManager } from './SlurmTopologyManager'
 import { useSlurmCluster } from './useSlurmCluster'
 
 /** Slurm login access, controller state, and compute-node scheduler state. */
@@ -21,8 +22,23 @@ export function SlurmNodesRoute({ platform, members, loginNodes, onOpenServer }:
   )
 }
 
-/** Live Slurm partitions remain a first-class route instead of sharing Kubernetes vocabulary. */
-export function SlurmPartitionsRoute({ platform }: PlatformTabProps) {
+/**
+ * The Slurm workspace's Partitions route: the spec's partitions and node groups, where compute nodes
+ * are added and removed (`SlurmTopologyManager`), above the live partition state slurmrestd reports.
+ * The two are read separately: the spec is what swallow converges to, the live table what Slurm runs
+ * now, so a change in progress shows in the first before the second.
+ */
+export function SlurmPartitionsRoute({ platform, members, canOperate, onChanged, onOpenServer }: PlatformTabProps) {
+  return (
+    <>
+      <SlurmTopologyManager platform={platform} members={members} canOperate={canOperate} onChanged={onChanged} onOpenServer={onOpenServer} />
+      <LivePartitions platform={platform} />
+    </>
+  )
+}
+
+/** Live Slurm partitions as slurmrestd reports them, with the read's loading, unavailable, and error states. */
+function LivePartitions({ platform }: { platform: PlatformTabProps['platform'] }) {
   const state = useSlurmCluster(platform.id, platform.integrationId)
   if (state.status === 'loading') {
     return <EmptyState title="Loading partitions" message="Reading live scheduler state from slurmrestd." />
@@ -63,7 +79,7 @@ function PartitionTable({ partitions }: { partitions: Array<{ name: string; stat
   }
   return (
     <section className="sw-section">
-      <SectionHeader title="Partitions" description="Live scheduling partitions reported by slurmrestd." />
+      <SectionHeader title="Live partitions" description="The scheduling partitions slurmrestd reports now." />
       <StickyTableFrame>
         <Table.Root size="sm" aria-label="Slurm partitions">
           <Table.Header>

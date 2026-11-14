@@ -35,6 +35,13 @@ export interface PlatformTabProps {
   loginNodes: Server[]
   /** Opens a Server's detail page by id. */
   onOpenServer: (serverId: string) => void
+  /**
+   * Whether the user may change the Platform (an admin or an owner of its Pool); a tab shows its
+   * state either way and offers write controls only when this is true. The server still authorizes.
+   */
+  canOperate: boolean
+  /** Reloads the Platform after the tab changed it, so the workspace follows the change. */
+  onChanged: () => void
 }
 
 /** A native workspace route a Platform module adds to the shared routes. */
@@ -126,6 +133,8 @@ export type DeployStaticAddresses = Readonly<Record<string, string>>
 /** What the deploy wizard shell hands a Platform module's deploy form. */
 export interface PlatformDeployContext {
   platformName: string
+  /** The Site the Platform is deployed to, for reads a form scopes to it (its Deployment Templates); undefined until chosen. */
+  siteId: string | undefined
   /** The Site's deployable candidates: Ready or Deployed and unlocked. */
   servers: Server[]
   /** Why another Platform holds a Server, for example "assigned to lab-k0s"; null when it is free. */

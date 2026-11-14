@@ -1021,6 +1021,11 @@ test.describe('Slurm Device Metrics Exporter visual review', () => {
     if (mobile) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'slurm-dme-wizard-features')
     await next.click()
+    await expect(page.getByRole('heading', { name: 'Node groups and partitions' })).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'slurm-dme-wizard-groups')
+    await next.click()
     await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
@@ -1038,6 +1043,32 @@ test.describe('Slurm Device Metrics Exporter visual review', () => {
     await prepareCapture(page, appearance)
     if (mobile) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'slurm-dme-platform-monitoring')
+  })
+})
+
+/**
+ * Captures the Slurm scaling dialogs on lab-slurm-ha's Groups & partitions route (decision 083): the
+ * removal dialog with its drain, force, and release choices and the dialog that adds a partition.
+ */
+test.describe('Slurm scaling visual review', () => {
+  test('slurm-scaling-dialogs', async ({ page }, testInfo) => {
+    const appearance = testInfo.project.name.endsWith('-dark') ? 'dark' : 'light'
+    const mobile = testInfo.project.name.startsWith('mobile-')
+    await installApiFixtures(page, { slurmDeployed: true })
+    await setAppearance(page, appearance)
+    await page.goto('/platforms/platform-slurm-ha/partitions?site=site-a')
+    await page.getByRole('group', { name: 'Node group compute' }).getByRole('button', { name: 'Remove slurm-cpt-02' }).click()
+    const remove = page.getByRole('dialog', { name: 'Remove slurm-cpt-02' })
+    await remove.getByRole('checkbox', { name: /Release the Server afterwards/ }).locator('xpath=following-sibling::*[1]').click()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'slurm-scaling-remove-dialog', false)
+    await remove.getByRole('button', { name: 'Cancel' }).click()
+    await page.getByRole('button', { name: 'Add partition' }).click()
+    await expect(page.getByRole('dialog', { name: 'Add partition' })).toBeVisible()
+    await prepareCapture(page, appearance)
+    if (mobile) await expectNoHorizontalOverflow(page)
+    await capture(page, testInfo, 'slurm-scaling-partition-dialog', false)
   })
 })
 
@@ -1089,6 +1120,8 @@ test.describe('Slurm Omnistat visual review', () => {
     if (mobile) await expectNoHorizontalOverflow(page)
     await capture(page, testInfo, 'slurm-gpu-advanced-settings')
     await page.getByLabel('GPU driver module options').fill('pcie_p2p=0')
+    await next.click()
+    await expect(page.getByRole('heading', { name: 'Node groups and partitions' })).toBeVisible()
     await next.click()
     await expect(page.getByRole('heading', { name: 'Review deployment' })).toBeVisible()
     await prepareCapture(page, appearance)
