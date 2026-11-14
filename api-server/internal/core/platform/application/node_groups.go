@@ -250,6 +250,8 @@ func memberTemplateRecords(resolved memberTemplates, provisioned []string, now t
 		templateID := resolved.byServer[id]
 		intent := resolved.intents[templateID]
 		if intent == nil {
+			// Installed from the machine preparation: a record from an earlier install is no longer true.
+			records = append(records, platformdomain.MemberTemplateRecord{ServerID: id})
 			continue
 		}
 		records = append(records, platformdomain.MemberTemplateRecord{ServerID: id, TemplateID: templateID, Digest: intent.Digest, DeployedAt: now})

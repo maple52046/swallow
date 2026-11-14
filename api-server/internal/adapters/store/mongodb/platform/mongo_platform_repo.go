@@ -67,11 +67,20 @@ func (r *MongoPlatformRepo) RecordMemberTemplates(ctx context.Context, platformI
 	docs := make([]memberTemplateDoc, 0, len(records))
 	for _, record := range records {
 		ids = append(ids, record.ServerID)
-		docs = append(docs, memberTemplateDoc{ServerID: record.ServerID, TemplateID: record.TemplateID, Digest: record.Digest, DeployedAt: record.DeployedAt})
+		if record.TemplateID != "" {
+			docs = append(docs, memberTemplateDoc{ServerID: record.ServerID, TemplateID: record.TemplateID, Digest: record.Digest, DeployedAt: record.DeployedAt})
+		}
 	}
-	if _, err := r.col.UpdateOne(ctx, bson.M{"_id": platformID},
-		bson.M{"$pull": bson.M{"memberTemplates": bson.M{"serverId": bson.M{"$in": ids}}}}); err != nil {
+	pulled, err := r.col.UpdateOne(ctx, bson.M{"_id": platformID},
+		bson.M{"$pull": bson.M{"memberTemplates": bson.M{"serverId": bson.M{"$in": ids}}}})
+	if err != nil {
 		return err
+	}
+	if len(docs) == 0 {
+		if pulled.MatchedCount == 0 {
+			return platformdomain.ErrPlatformNotFound
+		}
+		return nil
 	}
 	result, err := r.col.UpdateOne(ctx, bson.M{"_id": platformID},
 		bson.M{"$push": bson.M{"memberTemplates": bson.M{"$each": docs}}})

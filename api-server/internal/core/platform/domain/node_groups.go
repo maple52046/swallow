@@ -138,7 +138,8 @@ type MemberTemplateRecord struct {
 }
 
 // MemberTemplateRecorder records which template members were installed from. A record replaces
-// the member's previous one; it runs inside the transaction that accepts the deployment.
+// the member's previous one, and a record without a TemplateID (a member installed from the
+// machine preparation) only removes it; it runs inside the transaction that accepts the deployment.
 type MemberTemplateRecorder interface {
 	RecordMemberTemplates(ctx context.Context, platformID string, records []MemberTemplateRecord) error
 }

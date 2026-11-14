@@ -185,4 +185,11 @@ func TestPlatformSpecStoresNodeGroupState(t *testing.T) {
 	if len(stored.MemberTemplates) != 2 || records["s1"].Digest != "d2" || records["s3"].Digest != "d1" {
 		t.Errorf("member templates = %+v", stored.MemberTemplates)
 	}
+	// s3 installed again from the machine preparation: its record goes.
+	if err := repo.RecordMemberTemplates(ctx, "p1", []platformdomain.MemberTemplateRecord{{ServerID: "s3"}}); err != nil {
+		t.Fatalf("RecordMemberTemplates: %v", err)
+	}
+	if stored, _ = repo.FindByID(ctx, "p1"); len(stored.MemberTemplates) != 1 || stored.MemberTemplates[0].ServerID != "s1" {
+		t.Errorf("after s3 installed without a template: member templates = %+v", stored.MemberTemplates)
+	}
 }

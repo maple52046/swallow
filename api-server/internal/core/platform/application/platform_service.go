@@ -444,10 +444,14 @@ func (s *PlatformService) Get(ctx context.Context, id string) (*PlatformItem, er
 }
 
 // attachMemberTemplates lists the template each member was installed from, and whether the
-// template still installs the same thing (its digest is unchanged).
+// template still installs the same thing (its digest is unchanged). A Server that left the Platform
+// is not listed, though its record stays until it is installed again.
 func (s *PlatformService) attachMemberTemplates(ctx context.Context, platform *platformdomain.Platform, item *PlatformItem) error {
 	digests := map[string]string{}
 	for _, record := range platform.MemberTemplates {
+		if !isMember(platform, record.ServerID) {
+			continue
+		}
 		if _, read := digests[record.TemplateID]; !read {
 			intent, err := s.templates.Find(ctx, record.TemplateID)
 			if err != nil {
@@ -464,6 +468,21 @@ func (s *PlatformService) attachMemberTemplates(ctx context.Context, platform *p
 		})
 	}
 	return nil
+}
+
+// isMember reports whether serverID is a member of the Platform's spec or of its applied spec.
+func isMember(platform *platformdomain.Platform, serverID string) bool {
+	if platform.Spec != nil {
+		if _, ok := platform.Spec.Member(serverID); ok {
+			return true
+		}
+	}
+	if applied := platform.Status.Applied; applied != nil {
+		if _, ok := applied.Member(serverID); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // PoolOf returns the Pool a Platform belongs to ("" for none) and whether the Platform exists, for

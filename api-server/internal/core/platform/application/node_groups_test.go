@@ -3,9 +3,11 @@ package application
 import (
 	"context"
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maple52046/swallow/internal/core/convergence"
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
@@ -282,5 +284,35 @@ func TestLeavingMembersAreNamedFromStoredFacts(t *testing.T) {
 	}
 	if _, err := service.memberNodeNames(context.Background(), "p1", []platformdomain.MemberRemoval{{ServerID: "g3"}}); !errors.Is(err, platformdomain.ErrInvalidDeployment) {
 		t.Errorf("a member without a name: error = %v, want ErrInvalidDeployment", err)
+	}
+}
+
+// A member provisioned from its group's template is recorded with it; one provisioned from the
+// machine preparation gets a record without a template, which clears an earlier one. The Platform
+// read lists only its members' records, so a Server that left shows none.
+func TestMemberTemplateRecordsFollowTheMembers(t *testing.T) {
+	now := time.Now().UTC()
+	resolved := memberTemplates{
+		byServer: map[string]string{"g1": "t-gpu"},
+		intents:  map[string]*platformdomain.DeploymentTemplateIntent{"t-gpu": {ID: "t-gpu", Digest: "d1"}},
+	}
+	records := memberTemplateRecords(resolved, []string{"g1", "g2"}, now)
+	want := []platformdomain.MemberTemplateRecord{{ServerID: "g1", TemplateID: "t-gpu", Digest: "d1", DeployedAt: now}, {ServerID: "g2"}}
+	if !reflect.DeepEqual(records, want) {
+		t.Errorf("records = %+v, want %+v", records, want)
+	}
+
+	service := &PlatformService{templates: &fakeTemplates{templates: resolved.intents}}
+	spec := groupedSpec()
+	platform := &platformdomain.Platform{ID: "p1", Spec: &spec, MemberTemplates: []platformdomain.MemberTemplateRecord{
+		{ServerID: "g1", TemplateID: "t-gpu", Digest: "d1", DeployedAt: now},
+		{ServerID: "gone", TemplateID: "t-gpu", Digest: "d1", DeployedAt: now},
+	}}
+	var item PlatformItem
+	if err := service.attachMemberTemplates(context.Background(), platform, &item); err != nil {
+		t.Fatal(err)
+	}
+	if got := item.Status.MemberTemplates; len(got) != 1 || got[0].ServerID != "g1" || !got[0].MatchesTemplate {
+		t.Errorf("member templates = %+v, want only member g1, matching its template", got)
 	}
 }
