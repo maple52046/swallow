@@ -1039,6 +1039,29 @@ func TestResyncWithdrawsThePlanOfADeletedRecord(t *testing.T) {
 	}
 }
 
+// A member removal the spec describes says, before approval, how long running work is waited for,
+// whether it is then canceled, and whether the Server is released and its operating system removed.
+func TestMemberRemovalPlanEffectsDescribeTheRemoval(t *testing.T) {
+	spec := labSpec()
+	spec.MemberRemovals = []platformdomain.MemberRemoval{
+		{ServerID: "w2", DrainTimeoutSeconds: 120, Force: true, ReleaseServer: true, ReleaseOptions: platformdomain.ServerReleaseOptions{Erase: true}},
+		{ServerID: "w3"},
+	}
+	changes := platformdomain.PlatformChanges{Actions: []convergence.PlannedAction{
+		{Target: convergence.ResourceRef{Kind: "server", ID: "w2"}, Action: "remove-member", Destructive: true},
+		{Target: convergence.ResourceRef{Kind: "server", ID: "w3"}, Action: "remove-member", Destructive: true},
+		{Target: convergence.ResourceRef{Kind: "server", ID: "w4"}, Action: "remove-member", Destructive: true},
+	}}
+	draft := platformDraft("p-1", 2, time.Now().UTC(), spec, changes, nil)
+	want := []string{
+		"server w2: running work is waited for up to 2m0s, then canceled; then it is released to the provisioner, which removes its operating system; its disks are erased and its static IP bindings are kept.",
+		"server w3: running work is waited for up to 10m0s, then the removal stops with it drained; it keeps its operating system.",
+	}
+	if !reflect.DeepEqual(draft.Effects, want) {
+		t.Errorf("effects = %q, want %q", draft.Effects, want)
+	}
+}
+
 // An uninstall that releases its members says, before approval, how many are released, that their
 // operating system goes, what happens to their disks and static IP bindings, and that the record is
 // deleted; an uninstall that keeps its members names no release.

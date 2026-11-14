@@ -1396,7 +1396,10 @@ at the timeout a removal with `force: true` cancels them, and one without fails 
 `slurm_drain_timeout`, the node left drained, so retrying waits again. `releaseServer` (default
 `false`) releases the Server to its provisioner afterwards with `erase`, `secureErase`, `quickErase`, and
 `unbindStaticIps`, as [Delete](#delete-a-platform) does. A member without an entry gets the defaults; an entry for a Server
-that stays is ignored, and an invalid one is a `validation_error`.
+that stays is ignored, and an invalid one is a `validation_error`. The Change Plan's `effects` say, for each
+removal an entry describes, how long its work is waited for, whether it is then canceled, and whether the
+Server is released (its operating system removed, its disks erased or not, its static IP bindings kept or
+removed).
 
 The approved plan starts a `scale-in-slurm` Workflow (definition `platform/slurm/slurm-scale-in`): drain
 the leaving nodes from the primary controller (each poll logs every node's job count), reconfigure the

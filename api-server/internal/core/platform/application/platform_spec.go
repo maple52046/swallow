@@ -509,6 +509,11 @@ func platformDraft(platformID string, generation int64, observedAt time.Time, sp
 			action.Target.ID = platformID
 		}
 		draft.Actions = append(draft.Actions, action)
+		if action.Action == "remove-member" && slices.ContainsFunc(spec.MemberRemovals, func(removal platformdomain.MemberRemoval) bool {
+			return removal.ServerID == action.Target.ID
+		}) {
+			draft.Effects = append(draft.Effects, memberRemovalEffect(spec.MemberRemoval(action.Target.ID)))
+		}
 	}
 	if blocking == nil {
 		unsupported, _ := changes.UnsupportedDestructive()
@@ -529,16 +534,37 @@ func releaseEffect(members int, options platformdomain.ServerReleaseOptions) str
 	if members == 1 {
 		subject, their, systems = "1 member is", "its", "operating system"
 	}
-	disks := "are not erased"
+	disks, bindings := releaseOptionWords(options)
+	return fmt.Sprintf("%s released to the provisioner, which removes %s %s; %s disks %s and %s static IP bindings %s. "+
+		"The Platform record is deleted once the release succeeds.", subject, their, systems, their, disks, their, bindings)
+}
+
+// memberRemovalEffect says, for the admin who approves a removal the spec describes, how long the
+// member's running work is waited for, what happens at the timeout, and whether the Server is
+// released afterwards, which removes its operating system.
+func memberRemovalEffect(removal platformdomain.MemberRemoval) string {
+	timeout := time.Duration(removal.DrainTimeoutSeconds) * time.Second
+	effect := fmt.Sprintf("server %s: running work is waited for up to %s, then the removal stops with it drained", removal.ServerID, timeout)
+	if removal.Force {
+		effect = fmt.Sprintf("server %s: running work is waited for up to %s, then canceled", removal.ServerID, timeout)
+	}
+	if !removal.ReleaseServer {
+		return effect + "; it keeps its operating system."
+	}
+	disks, bindings := releaseOptionWords(removal.ReleaseOptions)
+	return fmt.Sprintf("%s; then it is released to the provisioner, which removes its operating system; its disks %s and its static IP bindings %s.",
+		effect, disks, bindings)
+}
+
+func releaseOptionWords(options platformdomain.ServerReleaseOptions) (disks, bindings string) {
+	disks, bindings = "are not erased", "are kept"
 	if options.Erase || options.SecureErase || options.QuickErase {
 		disks = "are erased"
 	}
-	bindings := "are kept"
 	if options.UnbindStaticIPs {
 		bindings = "are removed"
 	}
-	return fmt.Sprintf("%s released to the provisioner, which removes %s %s; %s disks %s and %s static IP bindings %s. "+
-		"The Platform record is deleted once the release succeeds.", subject, their, systems, their, disks, their, bindings)
+	return disks, bindings
 }
 
 func platformRef(platformID string) convergence.ResourceRef {
