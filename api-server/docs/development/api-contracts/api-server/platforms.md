@@ -1360,10 +1360,12 @@ validates the new spec as a deployment:
   blocks (below) carries that blocker instead.
 - A change the type blocks is `409 conflict` with the reason when it is not destructive, and a plan
   blocker when it is. For Slurm: adding, removing, or changing the roles of a `controller` or `login`
-  member (the control plane is not scaled), adding and removing members in one change, removing the
-  last compute node, and removing a partition that still has queued or running jobs (the blocker names
+  member (the control plane is not scaled), adding and removing members in one change, and removing a
+  partition that still has queued or running jobs (the blocker names
   the count; a count that cannot be read through `slurmrestd` blocks too). A blocked plan is not
   recomputed: once the jobs end, write the spec again to propose the removal without the blocker.
+  A spec without a compute node is a `validation_error`: removing the last one means uninstalling
+  the Platform.
 - A non-destructive change swallow cannot carry out yet (turning off or changing a Slurm monitoring
   feature other than Omnistat's `hardwareCounters`, or turning off a Platform's
   `monitoringDashboards`) is `409 conflict` and writes nothing.

@@ -137,6 +137,17 @@ func TestDeploymentTopologyRefusesAnInvalidTopology(t *testing.T) {
 	}
 }
 
+// A spec without compute nodes says so, before its partitions would report only that they have no
+// nodes left.
+func TestDeploymentTopologyNeedsAComputeNode(t *testing.T) {
+	applied, _ := Platform{}.UpgradeSpec(threeNodeSpec())
+	none := withoutMember(withoutMember(applied.Clone(), "g1"), "g2")
+	if _, err := (Platform{}).DeploymentTopology(none, nil); !errors.Is(err, platformdomain.ErrInvalidDeployment) ||
+		!strings.Contains(err.Error(), "needs at least one compute node; to remove the last one, uninstall the Platform instead") {
+		t.Errorf("DeploymentTopology() error = %v", err)
+	}
+}
+
 // A legacy spec renders the partition it was deployed with: one default partition over every
 // compute node with no time limit.
 func TestALegacySpecRendersTheSinglePartition(t *testing.T) {

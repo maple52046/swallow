@@ -246,6 +246,11 @@ func (t topology) validate(spec platformdomain.PlatformSpec) error {
 				strings.Join(member.Roles, ", "), strings.Join(groups, ", "))
 		}
 	}
+	computes := slices.ContainsFunc(spec.Members, func(member platformdomain.PlatformMember) bool { return slices.Contains(member.Roles, RoleCompute) })
+	if !computes && spec.Desired != platformdomain.PlatformAbsent && len(spec.Members) > 0 {
+		// Said before the partitions, which would only report that they have no nodes left.
+		return invalid("a Slurm Platform needs at least one compute node; to remove the last one, uninstall the Platform instead")
+	}
 	defaults := 0
 	partitioned := map[string]bool{}
 	names := map[string]bool{}
