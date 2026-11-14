@@ -1054,8 +1054,10 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   RSMI autodetect／`gres/gpumem` accounting。
 - **amdgpu driver options（decision 063）**：loader 在 driver 載入前寫 swallow 擁有的
   `/etc/modprobe.d/swallow-amdgpu.conf`＝user 的 `swallow_gpu_driver_module_options`＋topology 規則
-  推導的選項（`roles/amdgpu_loader/files/amdgpu_node_state.py` 讀 sysfs）。目前唯一規則：KFD 某 GPU node
-  對同一 peer 同時有 `io_link` 與 `p2p_link`（libhsakmt peer array overflow）→ `pcie_p2p=0`。規則套用後記錄在
+  推導的選項（`roles/amdgpu_loader/files/amdgpu_node_state.py` 讀 sysfs）。規則：KFD 某 GPU node
+  對同一 peer 同時有 `io_link` 與 `p2p_link`（libhsakmt peer array overflow）→ `pcie_p2p=0`；kernel 以 `nomodeset`
+  開機且已載入的 driver 留下沒有 bind 的 AMD GPU PCI function（driver 只對部分 GPU 接受 `nomodeset`，其他以 EINVAL
+  拒絕，例如 MI250X；MI308X 不受影響）→ `modeset=1`。規則套用後記錄在
   `/var/lib/swallow/amdgpu/options.json`（條件會隨之消失，所以不每次重推導）；user 指定同名選項一律優先。
   規則要等 driver 載入後才知道，所以可能需要第二次載入；user 在 `gpuDriver.moduleOptions` 指定的選項第一次載入就生效。
   寫檔前先以 `modinfo -F parm amdgpu` 檢查名稱，不存在即 `[amdgpu_option_unknown]`（附最接近的名稱），driver

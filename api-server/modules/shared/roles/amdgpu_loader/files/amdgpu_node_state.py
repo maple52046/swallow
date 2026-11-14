@@ -6,7 +6,7 @@ Usage: amdgpu_node_state.py [--root DIR] [--parm-file FILE] [--desired BASE64_JS
 --desired is a base64-encoded JSON object of the module options the deployment wants. The report
 says whether the driver is loaded, which desired options the installed driver does not have at all
 (with the closest name it does have), which differ from the loaded parameters, which the driver has
-but does not expose for reading, and which options a topology rule derives from the KFD topology.
+but does not expose for reading, and which options a rule derives from what the node shows.
 It also says whether anything holds the driver (its module reference count and the processes that
 have a GPU device open) and whether the root filesystem lives in memory, where a reboot erases the
 operating system.
@@ -16,6 +16,10 @@ Rules name an observable condition, never a GPU model or virtualization mode:
   duplicate-peer-links  a KFD GPU node reaches the same peer node through both an io_link and a
                         p2p_link. libhsakmt then overflows its per-node peer array and HIP processes
                         corrupt the heap when they exit; pcie_p2p=0 stops KFD creating the p2p_link.
+  nomodeset-unbound     the kernel booted with nomodeset and the loaded driver left an AMD GPU PCI
+                        function unbound: the driver accepts nomodeset only for some GPUs and refuses
+                        the others with EINVAL (MI250X does, MI308X does not); modeset=1 lets it
+                        bind them.
 
 --root lets tests point the script at a fixture tree instead of /. The driver's option names come
 from "modinfo -F parm amdgpu" on the real root, or from --parm-file; a fixture root without
@@ -75,6 +79,27 @@ def gpu_nodes(root):
         if int(props.get("gfx_target_version", "0") or 0) > 0:
             nodes.append(node_dir)
     return nodes
+
+
+def unbound_gpus(root):
+    """AMD GPU PCI functions (display or processing-accelerator class) no driver is bound to."""
+    unbound = []
+    for device in sorted(glob.glob(os.path.join(root, "sys/bus/pci/devices/*"))):
+        vendor = read_text(os.path.join(device, "vendor"))
+        klass = read_text(os.path.join(device, "class")) or ""
+        if vendor == "0x1002" and klass.startswith(("0x03", "0x12")) and not os.path.exists(os.path.join(device, "driver")):
+            unbound.append(os.path.basename(device))
+    return unbound
+
+
+def boot_rules(root, loaded):
+    rules, reasons = {}, {}
+    cmdline = (read_text(os.path.join(root, "proc/cmdline")) or "").split()
+    unbound = unbound_gpus(root) if loaded and "nomodeset" in cmdline else []
+    if unbound:
+        rules["modeset"] = "1"
+        reasons["modeset"] = "nomodeset-unbound: the kernel booted with nomodeset and amdgpu left %s unbound" % ", ".join(unbound)
+    return rules, reasons
 
 
 def topology_rules(nodes):
@@ -188,6 +213,9 @@ def main():
     fstype = root_filesystem(args.root)
     nodes = gpu_nodes(args.root)
     rules, reasons = topology_rules(nodes)
+    booted, booted_reasons = boot_rules(args.root, loaded)
+    rules.update(booted)
+    reasons.update(booted_reasons)
     print(json.dumps({
         "loaded": loaded,
         "parameters": parameters,

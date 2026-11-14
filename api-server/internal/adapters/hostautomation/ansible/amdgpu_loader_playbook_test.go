@@ -107,6 +107,43 @@ func TestAMDGPUNodeStateTopologyRule(t *testing.T) {
 	}
 }
 
+// A kernel booted with nomodeset makes some GPUs refuse the driver: when the loaded driver left an
+// AMD GPU function unbound, the rule asks for modeset=1. A bound GPU, a bridge, another vendor's
+// display, or a kernel without nomodeset asks for nothing.
+func TestAMDGPUNodeStateNomodesetRule(t *testing.T) {
+	pciDevice := func(root, address, vendor, class string, bound bool) {
+		dir := filepath.Join(root, "sys", "bus", "pci", "devices", address)
+		writeFile(t, filepath.Join(dir, "vendor"), vendor+"\n")
+		writeFile(t, filepath.Join(dir, "class"), class+"\n")
+		if bound {
+			writeFile(t, filepath.Join(dir, "driver", "module"), "amdgpu\n")
+		}
+	}
+	node := func(cmdline string, mi250Bound bool) string {
+		root := t.TempDir()
+		writeFile(t, filepath.Join(root, "proc", "cmdline"), cmdline+"\n")
+		writeFile(t, filepath.Join(root, "sys", "module", "amdgpu", "refcnt"), "0\n")
+		pciDevice(root, "0000:10:00.0", "0x1002", "0x060400", false) // a PCI bridge on the GPU board
+		pciDevice(root, "0000:62:00.0", "0x1a03", "0x030000", false) // the BMC's display
+		pciDevice(root, "0000:11:00.0", "0x1002", "0x038000", mi250Bound)
+		pciDevice(root, "0000:14:00.0", "0x1002", "0x038000", true)
+		return root
+	}
+	state := runNodeState(t, node("BOOT_IMAGE=/boot-kernel nomodeset root=tar:http://maas/root.tgz", false), nil)
+	if state.Rules["modeset"] != "1" || !strings.Contains(state.RuleReasons["modeset"], "nomodeset-unbound") ||
+		!strings.Contains(state.RuleReasons["modeset"], "0000:11:00.0 unbound") {
+		t.Errorf("an unbound GPU under nomodeset: rules %v, reasons %v; want modeset=1 naming 0000:11:00.0", state.Rules, state.RuleReasons)
+	}
+	for name, root := range map[string]string{
+		"every GPU bound":   node("BOOT_IMAGE=/boot-kernel nomodeset", true),
+		"without nomodeset": node("BOOT_IMAGE=/boot-kernel quiet", false),
+	} {
+		if rules := runNodeState(t, root, nil).Rules; len(rules) != 0 {
+			t.Errorf("%s: rules = %v, want none", name, rules)
+		}
+	}
+}
+
 // Desired options are compared with the loaded parameters: booleans by meaning (0 and N agree),
 // other values exactly, and an option the driver does not expose is reported as missing.
 func TestAMDGPUNodeStateComparesLoadedParameters(t *testing.T) {

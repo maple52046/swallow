@@ -849,10 +849,11 @@ A deploy of either platform type may set amdgpu module options for its GPU nodes
 
 A name is lower-case letters, digits, and underscores (at most 64 characters); a value is letters,
 digits, and `_.,:-` (at most 128 characters); at most 16 options. Anything else is a `validation_error`. swallow also derives options from what a
-node's KFD topology shows, never from a GPU model or a virtualization mode. Today's only rule:
-when a GPU node reaches the same peer through both an XGMI `io_link` and a PCIe `p2p_link`, the
-ROCm thunk overflows its peer array and HIP processes corrupt the heap at exit, so the rule adds
-`pcie_p2p=0`. A rule option is kept once applied (the condition disappears with it); an option the
+node shows, never from a GPU model or a virtualization mode. When a GPU node reaches the same
+peer through both an XGMI `io_link` and a PCIe `p2p_link`, the ROCm thunk overflows its peer array
+and HIP processes corrupt the heap at exit, so a rule adds `pcie_p2p=0`. When the kernel booted with
+`nomodeset` and the loaded driver left an AMD GPU unbound (the driver accepts `nomodeset` only for
+some GPUs), a rule adds `modeset=1`. A rule option is kept once applied (the condition disappears with it); an option the
 user names always wins over a rule. The options apply to the Slurm GPU nodes and to the GPU
 Operator's host driver step on Kubernetes.
 
