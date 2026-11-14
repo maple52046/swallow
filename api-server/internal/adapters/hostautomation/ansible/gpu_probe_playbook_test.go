@@ -3,6 +3,7 @@ package ansible
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -137,5 +138,53 @@ func TestHIPProbeVerdicts(t *testing.T) {
 	}
 	if report, code := runHIPProbe(t, []string{"HIP_PROBE_RUNTIME=/nonexistent/libamdhip64.so"}, "--expect", "8"); code != 2 || report.OK {
 		t.Errorf("no HIP runtime: report = %+v, exit %d; want exit 2", report, code)
+	}
+}
+
+// runAMDSMIHealth runs slurm_gpu's amd_smi_health.py with a fake amd-smi that answers `static
+// --asic` with asic (and every other query with a healthy list) and returns its JSON report.
+func runAMDSMIHealth(t *testing.T, asic string) map[string]any {
+	t.Helper()
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 is not available")
+	}
+	bin := t.TempDir()
+	fake := "#!/bin/sh\ncase \"$1\" in\n" +
+		"  static) printf '%s' '" + asic + "';;\n" +
+		"  list) printf '[{\"gpu\":0},{\"gpu\":1}]';;\n" +
+		"  firmware) printf '[{\"gpu\":0,\"fw_list\":[]}]';;\n" +
+		"  *) printf '[]';;\nesac\n"
+	if err := os.WriteFile(filepath.Join(bin, "amd-smi"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(python, shippedFile(t, filepath.Join("roles", "slurm_gpu", "files", "amd_smi_health.py")), "--kfd-gpus", "2")
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("amd_smi_health.py: %v", err)
+	}
+	var report map[string]any
+	if err := json.Unmarshal(output, &report); err != nil {
+		t.Fatalf("report %q: %v", output, err)
+	}
+	return report
+}
+
+// The node names its own GPU model from AMD SMI's market name, cleaned like the module cleans an
+// inventory model ("AMD Instinct MI308X" and "Aqua Vanjaram [Instinct MI308X]" are both mi308x), so
+// a virtual function whose inventory names no model still gets its model feature; a GPU that reports
+// no market name adds none, with a note.
+func TestAMDSMIHealthNamesTheGPUModel(t *testing.T) {
+	report := runAMDSMIHealth(t, `[{"gpu":0,"asic":{"market_name":"AMD Instinct MI308X"}},{"gpu":1,"asic":{"market_name":"Aqua Vanjaram [Instinct MI308X]"}}]`)
+	if features, _ := report["model_features"].([]any); len(features) != 1 || features[0] != "mi308x" {
+		t.Errorf("model_features = %v, want [mi308x]", report["model_features"])
+	}
+	report = runAMDSMIHealth(t, `[{"gpu":0,"asic":{"market_name":""}}]`)
+	if features, _ := report["model_features"].([]any); len(features) != 0 || !strings.Contains(fmt.Sprint(report["notes"]), "no GPU model name") {
+		t.Errorf("no market name: model_features %v, notes %v", report["model_features"], report["notes"])
+	}
+	if !strings.Contains(slurmPlaybookFile(t, "roles", "slurm_gpu", "tasks", "main.yml"), "slurm_gpu_health.model_features") {
+		t.Error("slurm_gpu does not add the GPU models AMD SMI names to the node's features")
 	}
 }

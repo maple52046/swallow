@@ -209,7 +209,7 @@ func TestModelFeature(t *testing.T) {
 	for model, want := range map[string]string{
 		"Aqua Vanjaram [Instinct MI300X]":         "mi300x",
 		"Aldebaran/MI200 [Instinct MI250X/MI250]": "mi250x",
-		"AMD Instinct MI308X":                     "amd_instinct_mi308x",
+		"AMD Instinct MI308X":                     "mi308x",
 		"":                                        "",
 	} {
 		if got := modelFeature(model); got != want {

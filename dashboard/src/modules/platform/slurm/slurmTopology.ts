@@ -229,7 +229,8 @@ export function computeGPUCount(server: Server): number {
 
 /**
  * A short product name for a GPU Inventory model, for group names and labels: the product inside
- * brackets ("Aldebaran/MI200 [Instinct MI250X/MI250]" is "MI250X"), without the "Instinct" brand.
+ * brackets ("Aldebaran/MI200 [Instinct MI250X/MI250]" is "MI250X"), without the "AMD" and "Instinct"
+ * brand words ("AMD Instinct MI308X" is "MI308X").
  * Empty when the inventory names no model (a virtual function may not).
  */
 export function gpuProductName(model: string): string {
@@ -237,7 +238,7 @@ export function gpuProductName(model: string): string {
   const open = name.indexOf('[')
   const close = name.lastIndexOf(']')
   if (open >= 0 && close > open) name = name.slice(open + 1, close)
-  name = name.split('/')[0].trim().replace(/^Instinct\s+/i, '').trim()
+  name = name.split('/')[0].trim().replace(/^(AMD\s+)?(Instinct\s+)?/i, '').trim()
   return name
 }
 

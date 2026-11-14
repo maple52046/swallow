@@ -37,6 +37,7 @@ var (
 	maxTimePattern       = regexp.MustCompile(`^(INFINITE|UNLIMITED|\d+|\d+:\d{2}(:\d{2})?|\d+-\d+(:\d{2}(:\d{2})?)?)$`)
 	unixGroupPattern     = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
 	featureCleaner       = regexp.MustCompile(`[^a-z0-9]+`)
+	brandPrefix          = regexp.MustCompile(`(?i)^(amd\s+)?(instinct\s+)?`)
 	overSubscribeValues  = []string{"NO", "YES", "FORCE", "EXCLUSIVE"}
 )
 
@@ -383,16 +384,16 @@ func (Platform) DeploymentTopology(spec platformdomain.PlatformSpec, targets []p
 
 // modelFeature turns a GPU Inventory model name into a Slurm feature: the product inside brackets
 // when the name has them ("Aldebaran/MI200 [Instinct MI250X/MI250]" is "mi250x"), without the
-// "Instinct" brand, lower-cased with every other character an underscore. An empty model (a virtual
-// function reports none) has no feature.
+// "AMD" and "Instinct" brand words ("AMD Instinct MI308X" is "mi308x"), lower-cased with every
+// other character an underscore. An empty model (a virtual function often reports none) has no
+// feature; slurm_gpu then adds the model AMD SMI names on the node, cleaned the same way.
 func modelFeature(model string) string {
 	name := strings.TrimSpace(model)
 	if open, close := strings.Index(name, "["), strings.LastIndex(name, "]"); open >= 0 && close > open {
 		name = name[open+1 : close]
 	}
 	name, _, _ = strings.Cut(name, "/")
-	name = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(name), "Instinct"))
-	return cleanFeature(name)
+	return cleanFeature(brandPrefix.ReplaceAllString(strings.TrimSpace(name), ""))
 }
 
 // cleanFeature makes value a Slurm feature name: lower case, letters, digits, and underscores, at

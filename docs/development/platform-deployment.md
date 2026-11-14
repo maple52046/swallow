@@ -1251,7 +1251,8 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   `defMemPerCpu`、`overSubscribe`、`allowGroups`。沒有群組的舊 spec 讀成每個角色一個群組與預設 partition `main`
   （`Nodes=ALL`、`MaxTime=INFINITE`），controller 以 `UpgradeSpec` 存下這個形式，渲染出的 `slurm.conf` 只多了 node 的
   `Features=`。模組把它們渲染成 trusted vars `swallow_slurm_partitions`（每個 partition 的節點）、
-  `swallow_slurm_node_features`（compute node 的 GPU 型號與群組名，供 `--constraint`）、`swallow_slurm_expected_gpus`、
+  `swallow_slurm_node_features`（compute node 的群組名與 GPU Inventory 的 GPU 型號；`slurm_gpu` 再加上 AMD SMI 在節點上
+  讀到的型號（virtual function 的 inventory 常沒有型號）與 GPU type（gfx 目標），供 `--constraint`）、`swallow_slurm_expected_gpus`、
   `swallow_slurm_degraded_feature`（`gpu_degraded`）與 `swallow_slurm_degraded_weight`（100）：`slurm_gpu` 數到的 GPU 少於
   群組預期時，節點加上 `gpu_degraded` 與較高的 `Weight`（排程最後才用），部署不失敗；spec 寫入時也依 GPU Inventory 回
   warning。slurm.conf 或 gres.conf 改變時，slurmctld 在 active 時以 `scontrol reconfigure` 原地套用，不重啟 slurmd。

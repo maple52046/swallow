@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Check a GPU node's health through AMD SMI, which needs only the amdgpu driver (decision 083).
 
-Reads the device list, the uncorrectable ECC counts, and the firmware versions with the amd-smi
-CLI and prints one JSON object: available (amd-smi ran), devices, healthy, problems (what fails
-the node), unsupported (queries the device does not answer, such as ECC on a virtual function),
-and notes. It never changes the node.
+Reads the device list, the uncorrectable ECC counts, the firmware versions, and the GPUs' market
+names with the amd-smi CLI and prints one JSON object: available (amd-smi ran), devices, healthy,
+problems (what fails the node), unsupported (queries the device does not answer, such as ECC on a
+virtual function), notes, and model_features (each GPU model as a Slurm feature, for example
+"mi308x", read from the GPU itself because a virtual function's inventory often names no model).
+It never changes the node.
 """
 
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 
@@ -62,11 +65,40 @@ def uncorrectable(entry):
     return total if seen else None
 
 
+def model_feature(name):
+    """A GPU market name as the Slurm feature the Slurm module makes of a model name: the product
+    inside brackets when there are any ("Aqua Vanjaram [Instinct MI308X]"), its first alternative,
+    without the "AMD" and "Instinct" brand words, lower case with every other character an
+    underscore, at most 32 characters. Empty for an empty name."""
+    name = name.strip()
+    if "[" in name and "]" in name[name.index("["):]:
+        name = name[name.index("[") + 1:name.rindex("]")]
+    name = name.split("/")[0].strip()
+    name = re.sub(r"^(amd\s+)?(instinct\s+)?", "", name, flags=re.IGNORECASE)
+    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")[:32]
+
+
+def market_names(document):
+    """Every market_name value anywhere in an amd-smi document."""
+    names, stack = [], [document]
+    while stack:
+        value = stack.pop()
+        if isinstance(value, dict):
+            for key, inner in value.items():
+                if str(key).lower() == "market_name" and isinstance(inner, str):
+                    names.append(inner)
+                elif isinstance(inner, (dict, list)):
+                    stack.append(inner)
+        elif isinstance(value, list):
+            stack.extend(value)
+    return names
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--kfd-gpus", type=int, required=True, help="GPUs the node's KFD topology lists")
     args = parser.parse_args()
-    report = {"available": False, "healthy": False, "devices": 0, "problems": [], "unsupported": [], "notes": []}
+    report = {"available": False, "healthy": False, "devices": 0, "problems": [], "unsupported": [], "notes": [], "model_features": []}
     if AMD_SMI is None:
         report["error"] = "amd-smi is not on the PATH"
         print(json.dumps(report))
@@ -97,6 +129,11 @@ def main():
     firmware, error = run(["firmware"])
     if firmware is None or not as_list(firmware):
         report["unsupported"].append("firmware (%s)" % (error or "no versions reported"))
+    asic, error = run(["static", "--asic"])
+    features = sorted({model_feature(name) for name in market_names(asic)} - {""}) if asic is not None else []
+    if not features:
+        report["notes"].append("no GPU model name (%s)" % (error or "amd-smi reports none"))
+    report["model_features"] = features
     report["healthy"] = not report["problems"]
     print(json.dumps(report))
 

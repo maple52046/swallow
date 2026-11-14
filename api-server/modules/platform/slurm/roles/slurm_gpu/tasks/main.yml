@@ -236,8 +236,12 @@
   # The node group's features (GPU model, group name) and the gfx targets KFD reports, so a job can
   # ask for a kind of node with --constraint.
   ansible.builtin.set_fact:
+    # The node's features: what the module made of its group and GPU Inventory, the GPU models AMD SMI
+    # names on the node itself (a virtual function's inventory often has no model), its GPU types
+    # (gfx targets), and gpu_degraded when it has fewer GPUs than its group expects.
     slurm_node_features: >-
-      {{ ((swallow_slurm_node_features | default({}))[inventory_hostname] | default([]))
-         + (slurm_gpus | map(attribute='type') | unique | list)
-         + ([swallow_slurm_degraded_feature | default('gpu_degraded')] if slurm_node_degraded | bool else []) }}
+      {{ (((swallow_slurm_node_features | default({}))[inventory_hostname] | default([]))
+         + (slurm_gpu_health.model_features | default([]))
+         + (slurm_gpus | map(attribute='type') | list)
+         + ([swallow_slurm_degraded_feature | default('gpu_degraded')] if slurm_node_degraded | bool else [])) | unique | list }}
     slurm_node_weight: "{{ (swallow_slurm_degraded_weight | default(100)) if slurm_node_degraded | bool else '' }}"

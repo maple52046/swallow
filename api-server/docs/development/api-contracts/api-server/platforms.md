@@ -737,8 +737,9 @@ A Slurm Platform's members are organized in node groups, and its compute groups 
   partition `main` over every compute node, which is what a Platform deployed before groups has. Such a
   Platform's stored spec is upgraded to that form, which renders the same `slurm.conf` apart from the
   node `Features`.
-- Every compute node gets Slurm `Features` for its GPU model (`mi300x`) and its group's name, for
-  `--constraint`. A node whose GPU count is below its group's `expectedGpusPerNode` is not refused: it
+- Every compute node gets Slurm `Features` for its group's name, its GPU model (`mi300x`, from the GPU
+  Inventory or, when that names no model, from AMD SMI on the node), and its GPU type (gfx target, for
+  example `gfx942`), for `--constraint`. A node whose GPU count is below its group's `expectedGpusPerNode` is not refused: it
   gets the feature `gpu_degraded` and `Weight=100`, so the scheduler uses it last, and the spec write
   answers a warning.
 - Each group installs its new members from one [Deployment Template](provisioning.md#deployment-templates):
