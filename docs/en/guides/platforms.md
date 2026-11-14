@@ -216,11 +216,16 @@ spec above the live partitions Slurm reports. An owner of the Platform's Pool or
 - **Add nodes** to a compute group: each new Server is installed from the group's template (a
   deployed Server keeps its OS), joins the cluster, and is validated on its own; the other nodes
   keep running their jobs. A Server below the template's minimum hardware is refused with what it
-  lacks.
+  lacks. When swallow installs the OS, **Choose the new nodes' network** lets each new node pick
+  its interface and subnet, and its address when the template deploys static addresses; everything
+  else comes from the template.
 - **Remove** a compute node: swallow drains it, waits for its jobs up to the drain timeout (and
   cancels them at the timeout if you choose to), reconfigures the cluster without it, removes
   Slurm, the shared filesystem mount, and its GPU and monitoring setup, and releases the Server if
-  you ask. The last compute node cannot be removed; delete the Platform instead.
+  you ask. The last compute node cannot be removed; delete the Platform instead. A node whose
+  machine failed can be removed with **Cancel jobs still running at the timeout**: swallow drains it
+  from the controller, sets it DOWN if its jobs cannot end, skips the cleanup of a node it cannot
+  reach (the Workflow notes it as a warning), and finishes the removal.
 - **Rescan** a node's GPUs after one failed, so Slurm hands out what the node has now.
 - **Add compute group** or change a group's template and expected GPUs per node. A node with
   fewer GPUs than its group expects is marked `gpu_degraded` and scheduled last instead of

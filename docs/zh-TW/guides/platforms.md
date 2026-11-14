@@ -163,10 +163,13 @@ compute 群組的 partition `all`。由 swallow 安裝 OS 時，沒有 template 
 Platform 所屬 Pool 的 owner 或 admin 可以：
 
 - **Add nodes**：把 Server 加入 compute 群組。每台新 Server 從群組的 template 安裝（已部署的保留它的 OS）、加入叢集，並
-  單獨驗證；其他節點的工作照常。低於 template 最低硬體的 Server 會被拒絕並說明差多少。
+  單獨驗證；其他節點的工作照常。低於 template 最低硬體的 Server 會被拒絕並說明差多少。由 swallow 安裝 OS 時，
+  **Choose the new nodes' network** 讓每台新節點選擇介面與 subnet，template 部署 static 位址時也選擇位址；其餘設定來自
+  template。
 - **Remove**：移除 compute node。swallow 先 drain，最多等 drain 逾時讓工作結束（可選擇逾時就取消工作），叢集重新設定
   為不含它，移除 Slurm、共享檔案系統的掛載與 GPU、監控設定，需要時釋放 Server。最後一台 compute node 不能移除，要移除
-  就刪除 Platform。
+  就刪除 Platform。機器壞掉的節點勾選 **Cancel jobs still running at the timeout** 也能移除：swallow 從 controller drain
+  它，工作無法結束時把它設為 DOWN，連不到的節點跳過清理（Workflow 記成 warning），移除照常完成。
 - **Rescan**：掉卡後重新偵測節點的 GPU，讓 Slurm 分配節點現有的 GPU。
 - **Add compute group**，或調整群組的 template 與每台預期的 GPU 數。GPU 少於群組預期的節點會標上 `gpu_degraded`、排到
   最後才使用，而不是讓部署失敗；分頁會顯示例如「7 of 8 GPUs」。

@@ -1255,7 +1255,8 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   `swallow_slurm_degraded_feature`（`gpu_degraded`）與 `swallow_slurm_degraded_weight`（100）：`slurm_gpu` 數到的 GPU 少於
   群組預期時，節點加上 `gpu_degraded` 與較高的 `Weight`（排程最後才用），部署不失敗；spec 寫入時也依 GPU Inventory 回
   warning。slurm.conf 或 gres.conf 改變時，slurmctld 在 active 時以 `scontrol reconfigure` 原地套用，不重啟 slurmd。
-  - **Scale-out**：每個群組的新成員從群組的 template 裝機（成員層的 template 引用，只保留機器準備的網路設定），
+  - **Scale-out**：每個群組的新成員從群組的 template 裝機（成員層的 template 引用，只保留機器準備的網路設定：
+    dashboard 的 Add nodes 與 `swallow platforms nodes add --interface/--ip` 可為新節點寫入介面與 static 位址），
     [os-provisioning.md](os-provisioning.md) §3 的 template 最低硬體在 spec 寫入時檢查新加入的成員。provision_os 的
     Platform 每個沒有 template 的群組得到一份 template：機器準備指定的 template，否則 Platform 由機器準備產生
     `<platform>-<group>`（記在 `machinePreparation.generatedTemplates`，在接受 realization 的 transaction 內建立；已套用的
@@ -1266,6 +1267,11 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
     drain 並等待，印出每台的 job 數，逾時以 `[slurm_drain_timeout]` 失敗或在 `force` 時 `scancel`）→ `reconfigure-slurm`
     （`deploy-slurm`，留下的成員）→ `clean-nodes`（`uninstall-slurm-node`，離開的成員），之後每台要 release 的成員一個
     `release-os`，最後 internal 的 `complete-member-removal` 清除成員並釋放 Platform Claim。Platform 維持 `active`。
+    drain 只在 primary controller 執行，以 swallow 存的節點名稱（成員在這個 Platform 的 membership 的 node name，否則
+    hostname；`ScaleInLaunch.NodeNames`，經 `swallow_slurm_scale_in_nodes[].name`）指名離開的節點，不連到節點本身，所以
+    機器壞掉的節點也能移除：`force` 時取消後仍不結束的工作讓節點被設為 `DOWN`；`uninstall-slurm-node` 第一個 play 以
+    `ignore_unreachable` 試連每台，連不到且 `force` 的節點跳過清理並記一行 `[slurm_node_unreachable]` warning，移除照常
+    完成；沒有 `force` 時以 `[slurm_node_unreachable]` 失敗。
   - **擋下的變更**：controller 或 login 的增減與角色變更、同一次變更加入又移除成員、移除最後一個 compute、移除還有工作
     的 partition（經 slurmrestd 讀數量，讀不到也擋下）。
   - **重新偵測**：`POST /platforms/{id}/slurm/nodes/{serverId}/rescan` 以 realization `rescan` 對已套用的 spec 重跑

@@ -53,7 +53,10 @@ clean the leaving nodes, release them when asked, and drop them from the Platfor
 module's declarative workflow template; only the per-Server release Tasks and the internal finalize Task,
 which need per-Server parameters a template cannot carry, are built by the composition root. A type module
 blocks, with a reason, what it does not scale: for Slurm the control plane (controller and login), adding
-and removing in one change, and removing the last compute node.
+and removing in one change, and removing the last compute node. A member whose machine failed is the
+main reason to remove one, so the plan never depends on the leaving member answering: it is drained
+from the controller by the name swallow stores for it, and with force a member that cannot be reached
+is left uncleaned (with a warning) rather than blocking the removal.
 
 **Slurm partitions belong to the Slurm spec.** Partitions name compute groups, have exactly one default,
 and carry their own limits and default memory per CPU. A Platform from before groups reads as one group per

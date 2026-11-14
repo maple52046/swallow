@@ -747,7 +747,9 @@ A Slurm Platform's members are organized in node groups, and its compute groups 
   provisioner Integration and listed in `machinePreparation.generatedTemplates`. A generated template is
   created when the change is carried out; on a Platform that is already applied, a spec write that needs
   one is destructive (its Change Plan lists `create-template`). A member keeps only its own network
-  assignment from the machine preparation. Members of one group in different provisioner Integrations,
+  assignment from the machine preparation: a node added to a `provision_os` Platform may name, in
+  `machinePreparation.network.assignments`, the `interfaceId` (and `subnetId`) it deploys on and, when
+  its template's network mode is `static`, its `ipAddress`; everything else comes from the template. Members of one group in different provisioner Integrations,
   a `templateId` that does not exist, and a member added below its template's `minimumHardware` are
   `validation_error`s naming the Server and what it lacks. A group whose members' GPU models differ is a
   warning unless its template names a GPU model.
@@ -1399,6 +1401,14 @@ members that stay, clean the leaving nodes (stop `slurmd`, `munge`, and `sackd`,
 filesystem and remove its `fstab` line, remove swallow's Slurm, Omnistat, and GPU configuration;
 `slurm_unmount_busy` when the filesystem stays busy), release the ones that asked for it, then remove
 them from the Platform and release their Platform Claims. The Platform stays `active` throughout.
+
+A node whose machine failed can be removed too: the drain runs on the primary controller and names
+each node by the node name swallow stores for it (its membership's node name, else its hostname), never
+by asking the node. With `force`, a node whose canceled jobs still do not end is set `DOWN`, and a node
+that cannot be reached is not cleaned: the clean step logs a `[slurm_node_unreachable]` warning and the
+removal finishes, with the cluster reconfigured without it and its Platform Claim released. Without
+`force`, a node that cannot be reached fails the clean step with `slurm_node_unreachable`; bring it back
+and retry, or write the removal again with `force`.
 
 ## Rescan A Slurm Node
 
