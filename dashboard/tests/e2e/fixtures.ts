@@ -468,6 +468,8 @@ export interface FixtureOptions {
   controllerWorkflow?: 'succeeded' | 'pending'
   /** Replaces compute inventory with a provider-generic AMD model plus an ASPEED controller. */
   genericComputeServerIds?: string[]
+  /** Replaces compute inventory with 16 AMD GPUs whose model is empty, as MAAS reports MI308X virtual functions. */
+  unnamedComputeServerIds?: string[]
   /** Replaces inventory with a Cirrus Logic GD 5446 display controller. */
   cirrusDisplayOnlyServerIds?: string[]
   /** Overrides installed image labels for truncation and responsive presentation scenarios. */
@@ -1782,6 +1784,10 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       { vendor: 'Advanced Micro Devices, Inc. [AMD/ATI]', model: 'AMD GPU', count: 8, kind: 'compute' },
       { vendor: 'ASPEED Technology, Inc.', model: 'ASPEED Graphics Family', count: 1, kind: 'display' },
     ]
+  }
+  for (const serverId of options.unnamedComputeServerIds ?? []) {
+    const server = fleet.find((item) => item.id === serverId)
+    if (server) server.status.gpus = [{ vendor: 'Advanced Micro Devices, Inc. [AMD/ATI]', model: '', count: 16, kind: 'compute' }]
   }
   for (const serverId of options.cirrusDisplayOnlyServerIds ?? []) {
     const server = fleet.find((item) => item.id === serverId)

@@ -62,6 +62,22 @@ test('removing a compute node states the drain and release choices and approves 
   expect(slurm.nodeGroups.find((group) => group.name === 'compute')?.members).toEqual(['slurm-cpt-1'])
 })
 
+test('the deploy wizard proposes a gpu group for GPU nodes whose inventory names no model', async ({ page }) => {
+  await installApiFixtures(page, { freePlatformCandidates: true, unnamedComputeServerIds: ['srv-2'] })
+  await page.goto('/platforms/deploy/slurm?site=site-a')
+  await page.getByLabel('Platform name').fill('unnamed-gpus')
+  const next = page.getByRole('button', { name: 'Next' })
+  await next.click()
+  await page.getByRole('checkbox', { name: 'Run slurmctld on gpu-node-01' }).locator('..').click()
+  await page.getByRole('checkbox', { name: 'Run slurmd on gpu-node-02' }).locator('..').click()
+  await next.click()
+  await next.click()
+  await expect(page.getByRole('heading', { name: 'Node groups and partitions' })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Name of the compute group gpu' })).toHaveValue('gpu')
+  await expect(page.getByRole('textbox', { name: 'Name of partition gpu' })).toHaveValue('gpu')
+  await expect(page.getByLabel('Expected GPUs per node in gpu')).toHaveValue('16')
+})
+
 test('a free Server joins a compute group', async ({ page }) => {
   const writes: Array<Record<string, unknown>> = []
   await installApiFixtures(page, { slurmDeployed: true, freePlatformCandidates: true, onSlurmTopologyRequest: (_, spec) => writes.push(spec) })

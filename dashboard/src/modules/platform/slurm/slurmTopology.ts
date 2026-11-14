@@ -256,16 +256,20 @@ export function serverGPUSummary(server: Server): string {
   return product ? `${count}× ${product}` : `${count} compute GPUs`
 }
 
-/** A group name from a GPU product ("MI300X" is "mi300x"); `cpu` without one. */
-export function groupNameForProduct(product: string): string {
+/**
+ * A group name from a node's GPU product ("MI300X" is "mi300x"). Without a product it is `gpu` for a
+ * node that still has compute GPUs (a virtual function its inventory names no model for) and `cpu`
+ * for one without any, so a GPU node is never proposed into a group that reads as CPU-only.
+ */
+export function groupNameForProduct(product: string, computeGPUs = 0): string {
   const name = product.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32).replace(/-+$/g, '')
-  return name || 'cpu'
+  return name || (computeGPUs > 0 ? 'gpu' : 'cpu')
 }
 
 /**
  * The groups and partitions the deploy wizard proposes for the selected Servers and their roles
- * (decision 083): `controller` and `login` groups, one compute group per GPU product (`cpu` for nodes
- * without GPUs), each in a partition of the same name, the first of them the default. The GPU product
+ * (decision 083): `controller` and `login` groups, one compute group per GPU product (`gpu` for GPU
+ * nodes whose inventory names no model, `cpu` for nodes without GPUs), each in a partition of the same name, the first of them the default. The GPU product
  * only suggests the first grouping; the user may rename groups and partitions before deploying.
  */
 export function suggestSlurmTopology(nodes: ReadonlyArray<{ server: Server; roles: readonly SlurmRole[] }>): Pick<SlurmTopology, 'groups' | 'partitions'> {
@@ -277,7 +281,7 @@ export function suggestSlurmTopology(nodes: ReadonlyArray<{ server: Server; role
   const compute = new Map<string, { members: string[]; gpus: number[] }>()
   for (const node of nodes) {
     if (!node.roles.includes('compute')) continue
-    const name = groupNameForProduct(serverGPUProduct(node.server))
+    const name = groupNameForProduct(serverGPUProduct(node.server), computeGPUCount(node.server))
     const entry = compute.get(name) ?? { members: [], gpus: [] }
     entry.members.push(node.server.id)
     entry.gpus.push(computeGPUCount(node.server))
