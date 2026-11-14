@@ -321,10 +321,14 @@ func platformsPartitionsCmd() *cobra.Command {
 		Short: "Remove a partition (answers with a Change Plan; refused while it has jobs)",
 		Long: "Remove a partition. Its nodes stay in the cluster and in their other partitions. The change\n" +
 			"is destructive and answers with a Change Plan; it is blocked while the partition still has\n" +
-			"queued or running jobs, and the blocker names how many.",
+			"queued or running jobs, and the blocker names how many. Once they end, run it again: a\n" +
+			"partition whose removal is still pending is proposed again, without the blocker.",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return updatePlatformSpec(cmd, args[0], func(spec platformSpec) error {
+			return updatePlatform(cmd, args[0], func(platform platformRead, spec platformSpec) error {
+				if !spec.hasPartition(args[1]) && slices.Contains(platform.appliedPartitions(), args[1]) {
+					return nil
+				}
 				return spec.removePartition(args[1])
 			})
 		},
@@ -664,6 +668,11 @@ func (s platformSpec) putPartition(previous string, partition map[string]any) er
 	return nil
 }
 
+func (s platformSpec) hasPartition(name string) bool {
+	_, err := s.partition(name)
+	return err == nil
+}
+
 func (s platformSpec) removePartition(name string) error {
 	partition, err := s.partition(name)
 	if err != nil {
@@ -688,8 +697,28 @@ type platformRead struct {
 			Members []struct {
 				ServerID string `json:"serverId"`
 			} `json:"members"`
+			Settings struct {
+				Slurm struct {
+					Partitions []struct {
+						Name string `json:"name"`
+					} `json:"partitions"`
+				} `json:"slurm"`
+			} `json:"settings"`
 		} `json:"applied"`
 	} `json:"status"`
+}
+
+// appliedPartitions names the partitions of the applied spec; one the spec no longer has is still
+// waiting to be removed.
+func (p platformRead) appliedPartitions() []string {
+	if p.Status.Applied == nil {
+		return nil
+	}
+	names := make([]string, 0, len(p.Status.Applied.Settings.Slurm.Partitions))
+	for _, partition := range p.Status.Applied.Settings.Slurm.Partitions {
+		names = append(names, partition.Name)
+	}
+	return names
 }
 
 // leaving lists the applied members the spec no longer has: their removal has not finished.

@@ -171,6 +171,26 @@ func TestNodesAddJoinsAComputeGroupAndPrintsWarnings(t *testing.T) {
 	}
 }
 
+// A partition the applied spec still has but the spec dropped is waiting to be removed: removing it
+// again writes the spec back unchanged, which proposes the removal again; an unknown one is refused.
+func TestPartitionsRemoveProposesAPendingRemovalAgain(t *testing.T) {
+	pending := `{"generation":7,"spec":{"members":[{"serverId":"g1","roles":["compute"]}],` +
+		`"settings":{"slurm":{"nodeGroups":[{"name":"compute","role":"compute","members":["g1"]}],"partitions":[{"name":"main","default":true,"groups":["compute"]}]}}},` +
+		`"status":{"applied":{"settings":{"slurm":{"partitions":[{"name":"main"},{"name":"solo"}]}}}}}`
+	requests := scalingServer(t, pending, `{"platform":{},"plan":{"id":"p3","state":"pending_approval"},"warnings":[]}`)
+	if _, err := runScaling(t, platformsPartitionsCmd, "remove", "plat-1", "solo"); err != nil {
+		t.Fatal(err)
+	}
+	partitions := writtenSpec(t, *requests)["settings"].(map[string]any)["slurm"].(map[string]any)["partitions"].([]any)
+	if len(partitions) != 1 || partitions[0].(map[string]any)["name"] != "main" {
+		t.Errorf("partitions = %v, want the spec written back as read", partitions)
+	}
+	before := len(*requests)
+	if _, err := runScaling(t, platformsPartitionsCmd, "remove", "plat-1", "gone"); err == nil || len(*requests) != before+1 {
+		t.Errorf("an unknown partition: err = %v, requests %d, want refused after the read", err, len(*requests)-before)
+	}
+}
+
 // Groups and partitions are added and changed in the slurm setting; making a partition the default
 // clears the other default, and removing the default partition is refused.
 func TestGroupAndPartitionCommandsEditTheSlurmSetting(t *testing.T) {

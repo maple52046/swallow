@@ -726,7 +726,8 @@ DOWN when its jobs cannot end, and its cleanup is skipped with a warning when it
 `nodes add --interface <serverId>=<interfaceId>` and `--ip <serverId>=<address>` (static templates)
 override a new node's network on a platform whose members Swallow installs. Partitions are
 scheduling queues over compute groups, with exactly one default; changing them reconfigures Slurm in
-place. These commands read the platform, change its spec, and write it back at the generation they
+place. A partition removal blocked by its jobs is not proposed again by itself: once they end, run
+`partitions remove` again. These commands read the platform, change its spec, and write it back at the generation they
 read; a warning the API answers (for example a node with fewer GPUs than its group expects, which is
 scheduled last instead of refused) is printed on stderr.
 
