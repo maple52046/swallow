@@ -233,8 +233,8 @@ func TestMemberTemplatesCheckTheHardwareFloor(t *testing.T) {
 	}
 }
 
-// Removing a partition with jobs, or one whose jobs cannot be counted, is blocked; an empty one is
-// not.
+// Removing a partition with jobs, or one whose jobs cannot be counted, is blocked, saying to propose
+// the removal again since a blocked plan is not recomputed; an empty one is not.
 func TestRemovingABusyPartitionIsBlocked(t *testing.T) {
 	service, _, _ := newDeployHarness()
 	platform := &platformdomain.Platform{ID: "p1"}
@@ -243,8 +243,13 @@ func TestRemovingABusyPartitionIsBlocked(t *testing.T) {
 	}
 	service.readers = &fakeQueueReaders{jobs: map[string]int{"debug": 3}}
 	busy := changes()
-	if err := service.queueBlockers(context.Background(), platform, busy); err != nil || len(busy.Blockers) != 1 || !strings.Contains(busy.Blockers[0], "3 jobs") {
+	if err := service.queueBlockers(context.Background(), platform, busy); err != nil || len(busy.Blockers) != 1 ||
+		busy.Blockers[0] != "partition debug still has 3 jobs queued or running; propose its removal again once they end" {
 		t.Errorf("a busy partition = %+v, %v", busy.Blockers, err)
+	}
+	service.readers = &fakeQueueReaders{jobs: map[string]int{"debug": 1}}
+	if one := changes(); service.queueBlockers(context.Background(), platform, one) != nil || !strings.Contains(one.Blockers[0], "still has 1 job queued") {
+		t.Errorf("one job = %+v", one.Blockers)
 	}
 	service.readers = &fakeQueueReaders{err: errors.New("slurmrestd is down")}
 	unknown := changes()

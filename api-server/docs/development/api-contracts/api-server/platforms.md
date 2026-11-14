@@ -1362,7 +1362,8 @@ validates the new spec as a deployment:
   blocker when it is. For Slurm: adding, removing, or changing the roles of a `controller` or `login`
   member (the control plane is not scaled), adding and removing members in one change, removing the
   last compute node, and removing a partition that still has queued or running jobs (the blocker names
-  the count; a count that cannot be read through `slurmrestd` blocks too).
+  the count; a count that cannot be read through `slurmrestd` blocks too). A blocked plan is not
+  recomputed: once the jobs end, write the spec again to propose the removal without the blocker.
 - A non-destructive change swallow cannot carry out yet (turning off or changing a Slurm monitoring
   feature other than Omnistat's `hardwareCounters`, or turning off a Platform's
   `monitoringDashboards`) is `409 conflict` and writes nothing.

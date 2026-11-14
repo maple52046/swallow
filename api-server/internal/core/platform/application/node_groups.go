@@ -401,7 +401,11 @@ func (s *DeployService) queueBlockers(ctx context.Context, platform *platformdom
 	}
 	for _, queue := range queues {
 		if count := counts[queue]; count > 0 {
-			changes.Blockers = append(changes.Blockers, fmt.Sprintf("partition %s still has %d jobs queued or running; it is removed once they end", queue, count))
+			jobs := "jobs"
+			if count == 1 {
+				jobs = "job"
+			}
+			changes.Blockers = append(changes.Blockers, fmt.Sprintf("partition %s still has %d %s queued or running; propose its removal again once they end", queue, count, jobs))
 		}
 	}
 	return nil
