@@ -85,6 +85,7 @@ type fakePlanner struct {
 	action         string
 	nonDestructive bool
 	held           bool
+	noWorkflow     bool
 	persisted      []string
 }
 
@@ -101,6 +102,9 @@ func (f *fakePlanner) Plan(_ context.Context, id string) (PlanDraft, error) {
 }
 func (f *fakePlanner) Held(context.Context, string) (bool, error) { return f.held, nil }
 func (f *fakePlanner) PrepareApply(_ context.Context, plan *ChangePlan) (PreparedApply, error) {
+	if f.noWorkflow {
+		return preparedFake{}, nil
+	}
 	return preparedFake{id: "wf-" + plan.ID}, nil
 }
 func (f *fakePlanner) PersistApply(ctx context.Context, prepared PreparedApply) (string, error) {
@@ -408,6 +412,14 @@ func TestApplyApproved(t *testing.T) {
 	}}, "admin")
 	if id, err := service.ApplyApproved(ctx, ResourceRef{Kind: "widget", ID: "w2"}); err != nil || id == "" || repo.plans[onSubmit.ID].State != PlanApplied {
 		t.Errorf("approved on submit: %q, %v, %s; want it applied", id, err, repo.plans[onSubmit.ID].State)
+	}
+
+	planner.noWorkflow = true
+	inPlace, _ := service.Propose(ctx, ResourceRef{Kind: "widget", ID: "w3"}, PlanDraft{Generation: 1, Actions: []PlannedAction{
+		{Target: ResourceRef{Kind: "server", ID: "w3-member"}, Action: "uninstall", To: "absent", Destructive: true},
+	}}, "admin")
+	if _, err := service.ApplyApproved(ctx, ResourceRef{Kind: "widget", ID: "w3"}); err != nil || repo.plans[inPlace.ID].StateReason != "applied without a Workflow" {
+		t.Errorf("a plan carried out without a Workflow: %v, reason %q", err, repo.plans[inPlace.ID].StateReason)
 	}
 }
 

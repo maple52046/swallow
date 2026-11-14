@@ -320,13 +320,22 @@ func (s *ChangePlanService) ApplyApproved(ctx context.Context, resource Resource
 		}
 		workflowID = id
 		return s.plans.Transition(ctx, plan.ID, []ChangePlanState{PlanApproved}, PlanApplied,
-			PlanTransition{Reason: "applied as Workflow " + id, WorkflowID: id, At: s.now()})
+			PlanTransition{Reason: appliedReason(id), WorkflowID: id, At: s.now()})
 	})
 	if err != nil {
 		return "", err
 	}
-	s.record(ctx, plan, EventPlanApplied, "applied as Workflow "+workflowID)
+	s.record(ctx, plan, EventPlanApplied, appliedReason(workflowID))
 	return workflowID, nil
+}
+
+// appliedReason names the Workflow an applied plan became; a plan carried out in its apply
+// transaction itself (creating a Platform's templates) has none.
+func appliedReason(workflowID string) string {
+	if workflowID == "" {
+		return "applied without a Workflow"
+	}
+	return "applied as Workflow " + workflowID
 }
 
 // supersedeChanged ends an approved plan whose recomputation draft no longer matches it. When the
