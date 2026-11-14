@@ -706,14 +706,22 @@ func (p *PlatformPlanner) changes(ctx context.Context, platformID string) (*plat
 	if !ok || platform.Spec == nil {
 		return nil, platformdomain.PlatformChanges{}, ErrPlatformNotAdopted
 	}
-	changes, err := module.Changes(platform.Status.Applied, *platform.Spec)
+	changes, err := p.classify(ctx, module, platform.Status.Applied, *platform.Spec)
 	if err != nil {
 		return platform, changes, err
 	}
-	if err := templateChanges(ctx, p.deploy.templates, platform.Status.Applied != nil, *platform.Spec, &changes); err != nil {
-		return platform, changes, err
-	}
 	return platform, changes, p.deploy.queueBlockers(ctx, platform, &changes)
+}
+
+// classify is the module's classification of spec against applied plus the templates the spec
+// generates that do not exist yet; the controller judges a spec realized by the same changes the
+// plan lists, so it never applies a spec whose templates still wait on a Change Plan.
+func (p *PlatformPlanner) classify(ctx context.Context, module platformdomain.PlatformModule, applied *platformdomain.PlatformSpec, spec platformdomain.PlatformSpec) (platformdomain.PlatformChanges, error) {
+	changes, err := module.Changes(applied, spec)
+	if err != nil {
+		return changes, err
+	}
+	return changes, templateChanges(ctx, p.deploy.templates, applied != nil, spec, &changes)
 }
 
 // platformApply is a planned Platform Workflow: exactly one field is set.

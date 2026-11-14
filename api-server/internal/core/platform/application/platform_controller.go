@@ -279,7 +279,7 @@ func (c *PlatformController) act(ctx context.Context, module platformdomain.Plat
 		status.Realizing = &platformdomain.PlatformRealizing{Generation: platform.Generation, WorkflowID: workflowID, Spec: platform.Spec.Clone(), StartedAt: started}
 		return nil
 	}
-	changes, err := module.Changes(status.Applied, *platform.Spec)
+	changes, err := c.planner.classify(ctx, module, status.Applied, *platform.Spec)
 	if err != nil {
 		return err
 	}
@@ -361,7 +361,7 @@ func (c *PlatformController) judge(
 			// module classifies any absent spec as an uninstall, which would read as a missing plan.
 			break
 		}
-		if changes, err := module.Changes(status.Applied, *platform.Spec); err != nil || !changes.Empty() {
+		if changes, err := c.planner.classify(ctx, module, status.Applied, *platform.Spec); err != nil || !changes.Empty() {
 			realized.Status, realized.Reason = convergence.ConditionFalse, ReasonPlanRequired
 			realized.Message = "the change needs an approved Change Plan; write the spec again to propose one"
 			if platform.Spec.Desired == platformdomain.PlatformAbsent {

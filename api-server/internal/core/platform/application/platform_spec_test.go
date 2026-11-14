@@ -388,6 +388,37 @@ func TestAChangeRealizedOutsideTheLifecycleIsAppliedWhenItsWorkflowSucceeds(t *t
 	}
 }
 
+// A spec of an applied Platform whose generated templates do not exist yet waits for its Change Plan:
+// the controller neither applies it nor reports it realized, and applies it once the templates exist.
+func TestTemplatesWaitingOnAPlanKeepTheSpecUnapplied(t *testing.T) {
+	h := newSpecHarness(nil)
+	platform := h.installed(t)
+	templates := &fakeTemplates{}
+	h.controller.planner.deploy.templates = templates
+	changed := platform.Spec.Clone()
+	changed.MachinePreparation.GeneratedTemplates = []platformdomain.GeneratedTemplate{{ID: "t-worker", Name: "lab-k0s-worker", IntegrationID: "maas-1", Group: "worker"}}
+	generation, err := (&memorySpecs{repo: h.platforms}).WriteSpec(context.Background(), platform.ID, platform.Generation, changed)
+	if err != nil {
+		t.Fatalf("WriteSpec() error = %v", err)
+	}
+
+	h.reconcile(t, platform.ID)
+	realized, _ := convergence.FindCondition(platform.Status.Conditions, convergence.ConditionRealized)
+	if platform.Status.ObservedGeneration == generation || len(platform.Status.Applied.MachinePreparation.GeneratedTemplates) != 0 ||
+		realized.Reason != ReasonPlanRequired {
+		t.Errorf("before the templates exist: observed %d, applied templates %v, realized %q; want generation %d unapplied, plan required",
+			platform.Status.ObservedGeneration, platform.Status.Applied.MachinePreparation.GeneratedTemplates, realized.Reason, generation)
+	}
+	if err := ensureGeneratedTemplates(context.Background(), templates, &changed); err != nil {
+		t.Fatal(err)
+	}
+	h.reconcile(t, platform.ID)
+	if platform.Status.ObservedGeneration != generation || len(platform.Status.Applied.MachinePreparation.GeneratedTemplates) != 1 {
+		t.Errorf("after the templates exist: observed %d, applied %+v; want generation %d applied",
+			platform.Status.ObservedGeneration, platform.Status.Applied.MachinePreparation, generation)
+	}
+}
+
 // Creating a Platform validates it, stores it at generation 1 with its members claimed, and
 // proposes its install; nothing is launched before the plan is approved.
 func TestCreateProposesTheInstallAndClaimsTheMembers(t *testing.T) {
