@@ -91,20 +91,3 @@ deploy/release/omnistat-rocprof/upload.sh         # 在發佈機上，需要 gh
   時拒絕。重建的 sha256 會不同，所以是新的 revision。
 - 先上傳、後宣告：上傳之後才把 `declarations.json` 放進 Slurm 模組的 `artifacts.files`。在那之前 URL 是 404，使用
   Local Repository 的 Site 會拒絕每一個部署。
-
-## swallow 建置的 image
-
-Slurm 的驗收 gate 以 swallow 的 GPU probe image 在容器內證明 GPU 可用
-（[decision 083](../../docs/decisions/083-platform-member-scaling.md)（Platform member scaling））：對 job 能開啟的每張
-GPU 跑 HIP vector-add，以 AMD 固定版本的 ROCm 開發 image 為 `gfx90a`、`gfx942`、`gfx950` 建置。工具在
-[`gpu-probe/`](gpu-probe/)：
-
-```bash
-deploy/release/gpu-probe/build.sh     # 建置 image，並在沒有 GPU 的情況下執行一次
-deploy/release/gpu-probe/upload.sh    # 在發佈機上，已登入 ghcr.io
-```
-
-- image 名稱與 base 固定在兩支 script、Slurm 模組的 `artifacts.images` 與 `GPUProbeImage`
-  （`api-server/modules/platform/slurm/module.go`）；要一起修改。
-- `upload.sh` 拒絕已發佈的 tag：probe 或 base 改變就是新的 tag。
-- 先上傳、後宣告：宣告的 image 取不到時，使用 Local Repository 的 Site 會拒絕每一個 Slurm 部署。
