@@ -39,8 +39,10 @@ const NO_INTEGRATIONS: Integration[] = []
  * Scope-keyed state prevents a previous Site from remaining visible, while manual or
  * verification-triggered refresh failures retain the last-good catalog. Individual provider
  * failures are successful partial results owned by `OSImageCatalog.failures`, not hook errors.
+ * Nothing is read while `scopeLoading`: until the Site list loads, a requested Site is not yet
+ * resolved and the read would cover every Site.
  */
-export function useOSImageCatalog(siteId?: string): {
+export function useOSImageCatalog(siteId: string | undefined, scopeLoading: boolean): {
   state: OSImageCatalogState
   reload: () => void
   isRefreshing: boolean
@@ -55,15 +57,16 @@ export function useOSImageCatalog(siteId?: string): {
   const reloadInFlight = useRef(false)
 
   const reload = useCallback(() => {
-    if (reloadInFlight.current) return
+    if (reloadInFlight.current || scopeLoading) return
     reloadInFlight.current = true
     setIsRefreshing(true)
     setNonce((value) => value + 1)
-  }, [])
+  }, [scopeLoading])
 
   // One catalog read per scope, user kind, or reload; `cancelled` drops the answer of a scope the
   // page left, and the in-flight flag lets the next manual reload start once this one settles.
   useEffect(() => {
+    if (scopeLoading) return
     let cancelled = false
     Promise.all([
       loadOSImageCatalog(provisioning, siteId),
@@ -96,7 +99,7 @@ export function useOSImageCatalog(siteId?: string): {
     return () => {
       cancelled = true
     }
-  }, [admin, nonce, provisioning, scopeKey, siteId, sites])
+  }, [admin, nonce, provisioning, scopeKey, scopeLoading, siteId, sites])
 
   const state = stored.scopeKey === scopeKey ? stored.value : { status: 'loading' as const }
   return { state, reload, isRefreshing }

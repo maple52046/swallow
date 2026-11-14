@@ -57,6 +57,7 @@ GET    /api/v1/platforms/gpu-operator/releases
 GET    /api/v1/platforms/{platformId}
 PATCH  /api/v1/platforms/{platformId}
 PUT    /api/v1/platforms/{platformId}/spec
+PUT    /api/v1/platforms/{platformId}/pool
 DELETE /api/v1/platforms/{platformId}
 POST   /api/v1/platforms/{platformId}/sync
 POST   /api/v1/platforms/sync
@@ -73,8 +74,8 @@ Authorization ([conventions](conventions.md#authorization)): a Platform belongs 
 (`status.poolId`, [Platform and Pool](#platform-and-pool)). Listing is Pool read and filtered by that
 Pool; reading a Platform and its Slurm view is Pool read; creating one, `PATCH`, `PUT /spec`, `DELETE`,
 and `POST /{id}/sync` are Pool operate. `GET /deployment-requirements/slurm` and
-`GET /gpu-operator/releases` are reference; `PUT /deployment-requirements/slurm` and `POST /sync` are
-admin. The wire shape
+`GET /gpu-operator/releases` are reference; `PUT /deployment-requirements/slurm`, `POST /sync`, and
+`PUT /{id}/pool` are admin. The wire shape
 (paths, parameters, schemas, status codes) is specified in
 [`../openapi/areas/platforms.yaml`](../openapi/areas/platforms.yaml); this document keeps the
 behavior.
@@ -278,8 +279,44 @@ Its owners may then manage it and its members may read it; otherwise only admins
   none are `400 validation_error`, a Pool the caller does not own `403 forbidden` (`404 not_found` when
   it cannot read a member at all). Admins are not limited, but a Platform they build across Pools
   belongs to admins only.
-- A claimed Server can be placed only in the Platform's Pool or in no Pool ([infrastructure.md](infrastructure.md),
-  Server placement), so a Platform does not end up across two Pools by moving one of its Servers.
+- A claimed Server changes Pool only with its Platform ([infrastructure.md](infrastructure.md), Server
+  placement): an admin moves the whole Platform ([Move A Platform To Another Pool](#move-a-platform-to-another-pool)),
+  so a Platform does not end up across Pools by moving one of its Servers.
+
+## Move A Platform To Another Pool
+
+`PUT /api/v1/platforms/{platformId}/pool` places every Server of the Platform in one Pool. Only an admin
+may call it.
+
+```json
+{ "poolId": "4c1e…" }
+```
+
+- `poolId` is required: the id of an existing Pool (`404 not_found` otherwise), or `null` to take every
+  Server of the Platform out of every Pool, which leaves the Platform to admins. A missing `poolId`, or one
+  that is not a string or `null`, is `400 validation_error`.
+- The Servers are those that decide the Platform's Pool: every Server in `spec.members` and every Server
+  it still claims. Each one's placement spec gets `poolId`, conditional on its spec generation; its Zone is
+  kept, and a Server already in the Pool is not written. All of them are written in one transaction, so a
+  Server whose spec changed during the request, or one not adopted yet, fails the request with `409
+  conflict` and nothing is written. A Platform with no Servers is `409 conflict`.
+- The move works in any lifecycle state. It changes who may use the Platform and its Servers at once
+  (their Pool's owners manage them, its members read them and log in), and nothing else: the hosts, the
+  Platform's spec and Workflows, and the provisioner are unchanged.
+
+The response is `200` with the Platform's Pool and every Server's placement after the request, ordered by
+`serverId`:
+
+```json
+{
+  "platformId": "platform-id",
+  "poolId": "4c1e…",
+  "servers": [
+    { "serverId": "server-a", "generation": 6, "zoneId": "b8d1…", "poolId": "4c1e…" },
+    { "serverId": "server-b", "generation": 3, "zoneId": null, "poolId": "4c1e…" }
+  ]
+}
+```
 
 ## Registering An Existing Platform Is Removed
 
@@ -1505,6 +1542,10 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 
 ## Compatibility Notes
 
+- Since 2026-11-14 `PUT /platforms/{id}/pool` moves a Platform with all its Servers to another Pool (see
+  [Move A Platform To Another Pool](#move-a-platform-to-another-pool)). It replaces taking each Server out
+  of every Pool and placing it in the new one, which `PUT /servers/{id}/placement` now refuses for a
+  claimed Server.
 - Since 2026-11-09 a deployed Slurm Platform with Omnistat turns `omnistat.hardwareCounters` on or
   off with `PUT /platforms/{id}/spec`: the write is answered `200 OK` with `plan: null`, and a
   `configure-omnistat` Workflow carries it out while the Platform stays `active` (see

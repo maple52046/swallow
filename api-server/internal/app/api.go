@@ -393,8 +393,9 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 		return nil, fmt.Errorf("platform repo init: %w", err)
 	}
 	// Access (decision 082): the Authorizer every route below is checked with, Users, Pool
-	// Memberships, and the Directory's status. A Platform's Pool is derived by one resolver, which the
-	// Platform responses, authorization, and the placement guard share.
+	// Memberships, and the Directory's status. A Platform's Pool, and the Servers it is derived from,
+	// come from one resolver, which the Platform responses, authorization, the placement guard, and a
+	// Platform's move to another Pool share.
 	platformPools := platformapp.NewPoolResolver(platformRepo, serverRepo, serverRepo)
 	sshKeyRepo, err := sshkeystore.NewMongoKeyRepo(db, sealer)
 	if err != nil {
@@ -1137,6 +1138,9 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 		create: with(g.PlatformMembersInBody(platformSpecMembers)),
 		spec:   with(platformOperate, g.PlatformMembersInBody(platformSpecMembers)),
 	})
+	// Moving a Platform to another Pool writes its Servers' placement, so the grouping feature serves
+	// it; like a Server's placement it is an admin's (decision 082).
+	platforms.Put("/:id/pool", adminRoute(deps.infrastructure.MovePlatformToPool)...)
 
 	// Managed Software: install/uninstall a single piece of host software on deployed Servers and
 	// read the swallow-owned Software Assignment records (contract: software.md, decision 038).

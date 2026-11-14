@@ -25,6 +25,7 @@ func newPlatformsCommand() *cobra.Command {
 		platformsSetSpecCmd(),
 		platformsUpdateCmd(),
 		platformsDeleteCmd(),
+		platformsSetPoolCmd(),
 		platformsSyncCmd(),
 		platformsSyncAllCmd(),
 		platformsSlurmCmd(),
@@ -307,6 +308,33 @@ func platformsDeleteCmd() *cobra.Command {
 	cmd.Flags().Bool("unbind-static-ips", false, "unbind static IPs on release (requires --release-servers)")
 	addEraseFlags(cmd)
 	addCancelActiveWorkflowsFlag(cmd)
+	return cmd
+}
+
+// platformsSetPoolCmd moves a Platform with every one of its Servers to one Pool (platforms.md,
+// "Move A Platform To Another Pool"). It is the only way a Server a Platform claims changes Pool:
+// `servers placement` refuses a Pool change for it. Exactly one of --pool and --clear-pool is
+// required, so a forgotten flag never takes a Platform out of its Pool; the route is admin-only.
+func platformsSetPoolCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "set-pool <platformId>",
+		Short: "Move a platform with all its Servers to another Pool (admins only)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pool, _ := cmd.Flags().GetString("pool")
+			clearPool, _ := cmd.Flags().GetBool("clear-pool")
+			if (pool != "") == clearPool {
+				return fmt.Errorf("pass exactly one of --pool and --clear-pool")
+			}
+			body := map[string]any{"poolId": nil}
+			if pool != "" {
+				body["poolId"] = pool
+			}
+			return sendJSON(cmd, "PUT", fmt.Sprintf("platforms/%s/pool", args[0]), nil, body)
+		},
+	}
+	cmd.Flags().String("pool", "", "move every Server of the platform to this Pool id")
+	cmd.Flags().Bool("clear-pool", false, "take every Server of the platform out of every Pool (admins only then)")
 	return cmd
 }
 

@@ -302,7 +302,7 @@ test('hardware facets, deterministic grouping, sorting, and URL fallback are sha
   await mixedGpuSummary.hover()
   await expect(page.getByRole('tooltip')).toHaveText('8 × AMD MI300X + 4 × NVIDIA H100')
 
-  await page.goto('/servers?site=site-a&gpu=present&architecture=amd64%2Fgeneric&systemVendor=Supermicro&systemProduct=AS-8125GS-TNHR&zone=rack-a&pool=accelerators&tag=east&tag=production&membership=assigned&health=up')
+  await page.goto('/servers?site=site-a&gpu=present&architecture=amd64%2Fgeneric&systemVendor=Supermicro&systemProduct=AS-8125GS-TNHR&zone=rack-a&pool=none&tag=east&tag=production&membership=assigned&health=up')
   await expect(table.getByText('gpu-node-01', { exact: true })).toBeVisible()
   await expect(table.getByText('gpu-node-02', { exact: true })).toHaveCount(0)
   await expect(table.getByText('gpu-node-03', { exact: true })).toHaveCount(0)
@@ -715,8 +715,9 @@ test('mobile cards preserve operational and hardware facts without horizontal ov
   await expect(card.locator('.sw-server-hardware-entry')).toHaveCount(3)
   await expect(card.getByText('Zone', { exact: true })).toBeVisible()
   await expect(card.getByText('rack-a', { exact: true }).first()).toBeVisible()
+  // Pool is the swallow Pool, not the provisioner's resource pool; this Server is in none.
   await expect(card.getByText('Pool', { exact: true })).toBeVisible()
-  await expect(card.getByText('accelerators', { exact: true }).first()).toBeVisible()
+  await expect(card.locator('dt', { hasText: /^Pool$/ }).locator('xpath=following-sibling::dd')).toHaveText('N/A', { useInnerText: true })
   await expect(card.getByRole('button', { name: 'Edit tags for gpu-node-01' })).toBeVisible()
   const powerAction = card.getByRole('button', { name: 'Power actions for gpu-node-01' })
   await expect(powerAction).toHaveText('ON')

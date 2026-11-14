@@ -25,7 +25,7 @@ func TestPoolRoutes(t *testing.T) {
 	pools := &memoryPools{byID: map[string]*infradomain.Pool{}}
 	placements := &memoryPlacements{current: infradomain.ServerPlacement{ServerID: "srv-1", SiteID: "site-b", Generation: 1}}
 	service := application.NewGroupingService(nil, pools, nil, placements, noReferences{}, noProviders{},
-		noPlatformPools{}, noPoolAccess{}, &storetest.Transactor{})
+		platformServers{}, noPoolAccess{}, &storetest.Transactor{})
 	handler := NewInfrastructureHandler(service)
 	app := fiber.New()
 	app.Use(apicontract.ResponseValidator(t))
@@ -68,6 +68,51 @@ func TestPoolRoutes(t *testing.T) {
 	}
 	if resp := do(t, app, "DELETE", "/api/v1/infrastructure/pools/"+id, ""); resp.StatusCode != http.StatusNoContent {
 		t.Errorf("delete Pool: status %d, want 204", resp.StatusCode)
+	}
+}
+
+// A Platform's Server refuses a Pool of its own (409) and moves with its Platform, which answers
+// with the Platform's Pool and every Server's placement; poolId must be given, as an id or null.
+func TestPlatformPoolRoute(t *testing.T) {
+	pools := &memoryPools{byID: map[string]*infradomain.Pool{"p-1": {ID: "p-1", Name: "research"}}}
+	placements := &memoryPlacements{current: infradomain.ServerPlacement{ServerID: "srv-1", SiteID: "site-a", Generation: 1, ZoneID: "z-1", PlatformID: "plat-1"}}
+	service := application.NewGroupingService(nil, pools, nil, placements, noReferences{}, noProviders{},
+		platformServers{"plat-1": {"srv-1"}}, noPoolAccess{}, &storetest.Transactor{})
+	handler := NewInfrastructureHandler(service)
+	app := fiber.New()
+	app.Use(apicontract.ResponseValidator(t))
+	app.Put("/api/v1/servers/:id/placement", handler.AssignServerPlacement)
+	app.Put("/api/v1/platforms/:id/pool", handler.MovePlatformToPool)
+
+	if resp := do(t, app, "PUT", "/api/v1/servers/srv-1/placement", `{"poolId":"p-1"}`); resp.StatusCode != http.StatusConflict {
+		t.Errorf("placing a claimed Server in a Pool: status %d, want 409", resp.StatusCode)
+	}
+	for _, body := range []string{`{}`, `{"poolId":5}`, `not json`} {
+		if resp := do(t, app, "PUT", "/api/v1/platforms/plat-1/pool", body); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("moving with body %s: status %d, want 400", body, resp.StatusCode)
+		}
+	}
+	if resp := do(t, app, "PUT", "/api/v1/platforms/missing/pool", `{"poolId":"p-1"}`); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("moving an unknown Platform: status %d, want 404", resp.StatusCode)
+	}
+	if resp := do(t, app, "PUT", "/api/v1/platforms/plat-1/pool", `{"poolId":"p-missing"}`); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("moving to an unknown Pool: status %d, want 404", resp.StatusCode)
+	}
+
+	resp := do(t, app, "PUT", "/api/v1/platforms/plat-1/pool", `{"poolId":"p-1"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("moving the Platform: status %d, want 200", resp.StatusCode)
+	}
+	var moved application.PlatformPoolResult
+	if err := json.NewDecoder(resp.Body).Decode(&moved); err != nil {
+		t.Fatalf("decode the move: %v", err)
+	}
+	if len(moved.Servers) != 1 || moved.Servers[0].PoolID == nil || *moved.Servers[0].PoolID != "p-1" ||
+		moved.Servers[0].ZoneID == nil || *moved.Servers[0].ZoneID != "z-1" {
+		t.Errorf("moved = %+v, want srv-1 in p-1, still in z-1", moved)
+	}
+	if resp := do(t, app, "PUT", "/api/v1/platforms/plat-1/pool", `{"poolId":null}`); resp.StatusCode != http.StatusOK {
+		t.Errorf("moving the Platform out of every Pool: status %d, want 200", resp.StatusCode)
 	}
 }
 
@@ -166,9 +211,13 @@ func (noProviders) For(context.Context, string) (provisioningdomain.OSProvisioni
 	return nil, provisioningdomain.ErrIntegrationNotProvisioner
 }
 
-type noPlatformPools struct{}
+// platformServers maps a Platform id onto its Servers; an absent id is an unknown Platform.
+type platformServers map[string][]string
 
-func (noPlatformPools) PoolOf(context.Context, string) (string, bool, error) { return "", false, nil }
+func (p platformServers) ServersOf(_ context.Context, platformID string) ([]string, bool, error) {
+	ids, ok := p[platformID]
+	return ids, ok, nil
+}
 
 type noPoolAccess struct{}
 

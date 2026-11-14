@@ -9,6 +9,8 @@ import { failureOf, type DisplayedFailure } from '@/presentation/components/fail
 import { Alert } from '@/presentation/components/ui/alert'
 import { Modal } from '@/presentation/components/ui/modal'
 import { Select } from '@/presentation/components/ui/select'
+import { usePlatformNamesById } from '@/presentation/hooks/usePlatformNames'
+import { claimedPoolReason } from './serverListPresentation'
 
 interface ServerPlacementDialogProps {
   server: Server
@@ -43,6 +45,9 @@ const NO_GROUP = 'no-group'
  * hint. Only changed selections are sent, and submit stays disabled until something changes. The
  * backend moves the machine to its Zone afterwards, and the Server's provisioner sync status reports
  * when it has; a Pool takes effect at once and never touches the provisioner.
+ *
+ * A Server a Platform claims changes Pool only with its whole Platform, which the API enforces, so
+ * its Pool field is disabled with the reason as its help text; its Zone may still change.
  */
 export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlacementDialogProps) {
   const { infrastructure } = useApp()
@@ -55,6 +60,9 @@ export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlac
   const [submitting, setSubmitting] = useState(false)
 
   const siteId = server.status.source.siteId
+  const claimingPlatformId = server.status.platformClaim?.platformId
+  const platformNames = usePlatformNamesById(claimingPlatformId ? [claimingPlatformId] : [], siteId)
+  const poolLockedReason = claimedPoolReason(server, platformNames)
 
   // Reads the choices once per Server Site; the flag drops a late answer after the dialog closed.
   useEffect(() => {
@@ -178,10 +186,13 @@ export function ServerPlacementDialog({ server, onClose, onChanged }: ServerPlac
                 id="placement-pool"
                 value={poolId}
                 aria-label="Pool"
+                disabled={Boolean(poolLockedReason)}
                 onChange={setPoolId}
                 options={poolOptions}
               />
-              <Field.HelperText>Pool members get access to this server in any site; nothing changes in the provisioner.</Field.HelperText>
+              <Field.HelperText>
+                {poolLockedReason ?? 'Pool members get access to this server in any site; nothing changes in the provisioner.'}
+              </Field.HelperText>
             </Field.Root>
           </>
         )}

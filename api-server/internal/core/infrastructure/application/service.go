@@ -7,14 +7,16 @@
 // provider write: the zone is removed from each provisioner before the record, so a provisioner
 // that refuses keeps both. Pools are installation-wide records that exist only in swallow
 // (decision 082): no use case here calls a provisioner for them. A Server's placement is part of
-// the Server's spec; this package validates and writes it, and the Server controller realizes the
-// Zone. The package depends only on domain ports, so it runs without MongoDB, HTTP, or a live
+// the Server's spec; this package validates and writes it — one Server at a time, or all the Servers
+// of a Platform together when the Platform moves to another Pool — and the Server controller realizes
+// the Zone. The package depends only on domain ports, so it runs without MongoDB, HTTP, or a live
 // provider.
 package application
 
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -36,7 +38,7 @@ type GroupingService struct {
 	placements infradomain.ServerPlacements
 	references infradomain.PlacementReferences
 	providers  provisioningdomain.ProviderFactory
-	platforms  infradomain.PlatformPools
+	platforms  infradomain.PlatformServers
 	access     infradomain.PoolAccessCleaner
 	tx         store.Transactor
 	now        func() time.Time
@@ -47,9 +49,9 @@ type GroupingService struct {
 // Zone from the provisioners that hold it. now and newID are injected so tests get a
 // deterministic clock and id; production uses UTC wall-clock time and a random UUID.
 //
-// platforms keeps a Platform-claimed Server in its Platform's Pool, and access removes a deleted
-// Pool's memberships and Sudo Policy in the transaction tx runs with the Pool's deletion
-// (decision 082).
+// platforms tells which Servers belong to a Platform, so a claimed Server changes Pool only with its
+// Platform, and access removes a deleted Pool's memberships and Sudo Policy in the transaction tx
+// runs with the Pool's deletion (decision 082).
 func NewGroupingService(
 	zones infradomain.ZoneRepository,
 	pools infradomain.PoolRepository,
@@ -57,7 +59,7 @@ func NewGroupingService(
 	placements infradomain.ServerPlacements,
 	references infradomain.PlacementReferences,
 	providers provisioningdomain.ProviderFactory,
-	platforms infradomain.PlatformPools,
+	platforms infradomain.PlatformServers,
 	access infradomain.PoolAccessCleaner,
 	tx store.Transactor,
 ) *GroupingService {
@@ -337,11 +339,10 @@ type PlacementResult struct {
 // Zone afterwards, and the Pool takes effect at once. A referenced Zone must belong to the Server's
 // Site (ErrGroupingSiteMismatch); a Pool may hold Servers of any Site. A Server that is not adopted
 // yet is ErrServerNotAdopted, and a
-// concurrent spec change ErrPlacementConflict. A Platform-claimed Server may change Pool only into
-// the Pool its Platform belongs to, or out of every Pool (ErrPlatformPoolMismatch otherwise), so a
-// Platform never ends up across two Pools. Clearing a node's Pool leaves the Platform in no Pool,
-// which only admins manage; a Platform in no Pool may have its Servers moved, which is how an admin
-// moves a Platform to another Pool: out of the old one, then into the new one.
+// concurrent spec change ErrPlacementConflict. A Server a Platform claims keeps its Pool
+// (ErrClaimedServerPool for any change, including out of every Pool) while its Zone may change: its
+// Pool changes only with the whole Platform (MovePlatformToPool). A claim whose Platform no longer
+// exists does not hold the Pool.
 func (s *GroupingService) AssignServer(ctx context.Context, input AssignServerInput) (*PlacementResult, error) {
 	if !input.Zone.Set && !input.Pool.Set {
 		return nil, infradomain.ErrNothingToAssign
@@ -374,13 +375,13 @@ func (s *GroupingService) AssignServer(ctx context.Context, input AssignServerIn
 		}
 		poolID = input.Pool.ID
 	}
-	if poolID != current.PoolID && poolID != "" && current.PlatformID != "" {
-		platformPool, found, err := s.platforms.PoolOf(ctx, current.PlatformID)
+	if poolID != current.PoolID && current.PlatformID != "" {
+		_, found, err := s.platforms.ServersOf(ctx, current.PlatformID)
 		if err != nil {
 			return nil, err
 		}
-		if found && platformPool != "" && platformPool != poolID {
-			return nil, infradomain.ErrPlatformPoolMismatch
+		if found {
+			return nil, infradomain.ErrClaimedServerPool
 		}
 	}
 	generation, err := s.placements.Write(ctx, input.ServerID, current.Generation, zoneID, poolID)
@@ -388,6 +389,86 @@ func (s *GroupingService) AssignServer(ctx context.Context, input AssignServerIn
 		return nil, err
 	}
 	return &PlacementResult{ServerID: input.ServerID, Generation: generation, ZoneID: optionalID(zoneID), PoolID: optionalID(poolID)}, nil
+}
+
+// MovePlatformInput names a Platform and the Pool all its Servers move to ("" for no Pool).
+type MovePlatformInput struct {
+	PlatformID string
+	PoolID     string
+}
+
+// PlatformPoolResult is a Platform's Pool after a move (null for no Pool) and the placement spec of
+// each of its Servers, ordered by Server id (platforms.md, Move A Platform To Another Pool).
+type PlatformPoolResult struct {
+	PlatformID string            `json:"platformId"`
+	PoolID     *string           `json:"poolId"`
+	Servers    []PlacementResult `json:"servers"`
+}
+
+// MovePlatformToPool places every Server of a Platform — its spec's members and the Servers it still
+// claims — in one Pool, the only way a claimed Server changes Pool. The caller has checked that the
+// requester is an admin.
+//
+// The target Pool must exist (ErrPoolNotFound) unless PoolID is "". The Platform's Servers are read
+// and written in one transaction, each write conditional on the generation just read, keeping the
+// Zone; a Server already in the Pool is not written, so repeating a move changes nothing. An unknown
+// Platform is ErrPlatformNotFound, one with no Server ErrPlatformHasNoServers. A Server not adopted
+// yet (ErrServerNotAdopted) or changed during the move (ErrPlacementConflict) fails the whole move,
+// and nothing is written. A Server id with no record is skipped: there is no placement to write
+// (when no Server has one, the Platform has no Server to move).
+// Access follows at once; nothing reaches a provisioner, a host, or the Platform itself.
+func (s *GroupingService) MovePlatformToPool(ctx context.Context, input MovePlatformInput) (*PlatformPoolResult, error) {
+	if input.PoolID != "" {
+		if _, err := s.pools.FindByID(ctx, input.PoolID); err != nil {
+			return nil, err
+		}
+	}
+	var servers []PlacementResult
+	err := s.tx.InTransaction(ctx, func(ctx context.Context) error {
+		// The callback may run again when the store retries the transaction, so it starts over.
+		servers = nil
+		ids, found, err := s.platforms.ServersOf(ctx, input.PlatformID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return infradomain.ErrPlatformNotFound
+		}
+		slices.Sort(ids)
+		ids = slices.Compact(ids)
+		if len(ids) == 0 {
+			return infradomain.ErrPlatformHasNoServers
+		}
+		for _, id := range ids {
+			current, err := s.placements.Read(ctx, id)
+			if errors.Is(err, infradomain.ErrServerNotFound) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if current.Generation == 0 {
+				return infradomain.ErrServerNotAdopted
+			}
+			generation := current.Generation
+			if current.PoolID != input.PoolID {
+				if generation, err = s.placements.Write(ctx, id, current.Generation, current.ZoneID, input.PoolID); err != nil {
+					return err
+				}
+			}
+			servers = append(servers, PlacementResult{
+				ServerID: id, Generation: generation, ZoneID: optionalID(current.ZoneID), PoolID: optionalID(input.PoolID),
+			})
+		}
+		if len(servers) == 0 {
+			return infradomain.ErrPlatformHasNoServers
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &PlatformPoolResult{PlatformID: input.PlatformID, PoolID: optionalID(input.PoolID), Servers: servers}, nil
 }
 
 func optionalID(id string) *string {

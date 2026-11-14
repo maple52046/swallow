@@ -216,7 +216,11 @@ the arrow keys move between tabs.
 - **Configuration** shows the applied specification, desired generation and drift, Conditions,
   member roles, OS preparation, Integration, module settings, and accelerator contributions.
   It is read-only except for module actions that already have a supported Workflow, such as
-  AMD GPU Operator management.
+  AMD GPU Operator management, and the Pool: **Platform details** shows the Pool the Platform
+  belongs to (N/A when its Servers are in no Pool or in different Pools), and an admin moves
+  the Platform with all its Servers to another Pool with the pencil button beside it. The move
+  keeps each Server's Zone and changes who may use them at once; the hosts and the Platform
+  itself are not changed. It is the only way a Platform's Server changes Pool.
 - **Monitoring** links to Swallow usage charts, the Platform Grafana, other Monitoring Links,
   and the recorded state and Workflow of Omnistat or GPU monitoring components. It does not
   embed those dashboards.

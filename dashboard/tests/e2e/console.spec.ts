@@ -329,7 +329,9 @@ test.describe('user interactions', () => {
     await expect(firstRow.getByRole('group', { name: 'RAM: 512 GiB' }).locator('.sw-server-hardware-value > span')).toHaveText(['512 GiB'])
     await expect(firstRow.getByRole('group', { name: 'GPU: AMD, 8 GPUs' }).locator('.sw-server-hardware-value > span')).toHaveText(['AMD', '8 GPUs'])
     await expect(firstRow.getByText('rack-a', { exact: true })).toBeVisible()
-    await expect(firstRow.getByText('accelerators', { exact: true })).toBeVisible()
+    // The Pool column is the swallow Pool; the provisioner's resource pool stays in the details.
+    await expect(firstRow.locator('.sw-server-col--pool')).toHaveText('N/A', { useInnerText: true })
+    await expect(firstRow.getByText('accelerators', { exact: true })).toHaveCount(0)
     const identity = firstRow.locator('.sw-server-col--identity')
     await expect(identity.getByText('gpu', { exact: true })).toBeVisible()
     await expect(identity.getByText('production', { exact: true })).toBeVisible()

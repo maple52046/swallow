@@ -9,6 +9,7 @@ import (
 
 	infradomain "github.com/maple52046/swallow/internal/core/infrastructure/domain"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	"github.com/maple52046/swallow/internal/core/store"
 )
 
 type fakeZoneRepo struct {
@@ -192,27 +193,45 @@ type fakeSiteReader struct{ exists bool }
 
 func (r *fakeSiteReader) Exists(context.Context, string) (bool, error) { return r.exists, nil }
 
+// fakePlacements holds the placement of current and of the Servers in others, which a Platform's
+// move to another Pool needs; writes and inTx record each write and whether it ran inside a store
+// transaction.
 type fakePlacements struct {
 	current *infradomain.ServerPlacement
+	others  map[string]*infradomain.ServerPlacement
 	writes  []infradomain.ServerPlacement
+	inTx    []bool
+}
+
+func (p *fakePlacements) find(serverID string) *infradomain.ServerPlacement {
+	if p.current != nil && p.current.ServerID == serverID {
+		return p.current
+	}
+	return p.others[serverID]
 }
 
 func (p *fakePlacements) Read(_ context.Context, serverID string) (*infradomain.ServerPlacement, error) {
-	if p.current == nil || p.current.ServerID != serverID {
+	placement := p.find(serverID)
+	if placement == nil {
 		return nil, infradomain.ErrServerNotFound
 	}
-	copied := *p.current
+	copied := *placement
 	return &copied, nil
 }
 
-func (p *fakePlacements) Write(_ context.Context, serverID string, expected int64, zoneID, poolID string) (int64, error) {
-	if p.current.Generation != expected {
+func (p *fakePlacements) Write(ctx context.Context, serverID string, expected int64, zoneID, poolID string) (int64, error) {
+	placement := p.find(serverID)
+	if placement == nil {
+		return 0, infradomain.ErrServerNotFound
+	}
+	if placement.Generation != expected {
 		return 0, infradomain.ErrPlacementConflict
 	}
-	p.current.Generation++
-	p.current.ZoneID, p.current.PoolID = zoneID, poolID
-	p.writes = append(p.writes, *p.current)
-	return p.current.Generation, nil
+	placement.Generation++
+	placement.ZoneID, placement.PoolID = zoneID, poolID
+	p.writes = append(p.writes, *placement)
+	p.inTx = append(p.inTx, store.InTransaction(ctx))
+	return placement.Generation, nil
 }
 
 type fakeReferences struct{ zones, pools map[string]int }

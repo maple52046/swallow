@@ -86,15 +86,18 @@ type ServerPlacement struct {
 	Generation int64
 	ZoneID     string
 	PoolID     string
-	// PlatformID is the Platform that claims the Server, "" when none does; a claimed Server may be
-	// placed only in its Platform's Pool (decision 082).
+	// PlatformID is the Platform that claims the Server, "" when none does; a claimed Server changes
+	// Pool only with its Platform (identity-and-access.md §5).
 	PlatformID string
 }
 
-// PlatformPools reports the Pool a Platform belongs to (identity-and-access.md §5): "" when its
-// members are in different Pools or in none; found is false for an unknown Platform.
-type PlatformPools interface {
-	PoolOf(ctx context.Context, platformID string) (poolID string, found bool, err error)
+// PlatformServers reports the Servers of a Platform: every member of its spec and every Server it
+// still claims, the set its Pool is derived from (identity-and-access.md §5). The ids may repeat and
+// come in no particular order; callers that publish them sort them. found is false for an unknown
+// Platform, so a claim a deleted Platform left behind does not hold its Server's Pool. A call made
+// inside a store transaction reads within it.
+type PlatformServers interface {
+	ServersOf(ctx context.Context, platformID string) (serverIDs []string, found bool, err error)
 }
 
 // PoolAccessCleaner removes a deleted Pool's memberships and Sudo Policy, which the access context

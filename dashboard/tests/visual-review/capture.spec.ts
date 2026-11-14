@@ -70,6 +70,9 @@ const visualCases = [
   { name: 'pool-access-member', path: '/pools/pool-research?site=site-a', heading: 'research', authenticated: true, representative: false },
   { name: 'pools-owner-add-member', path: '/pools?site=site-a', heading: 'Pools', authenticated: true, representative: false },
   { name: 'servers-empty-member', path: '/servers?site=site-a', heading: 'Servers', authenticated: true, representative: false },
+  { name: 'servers-set-pool', path: '/servers?site=site-a', heading: 'Servers', authenticated: true, representative: false },
+  { name: 'servers-platform-pool', path: '/servers?site=site-a', heading: 'Servers', authenticated: true, representative: false },
+  { name: 'platform-move-pool', path: '/platforms/platform-a/configuration?site=site-a', heading: 'production-k0s', authenticated: true, representative: false },
   { name: 'servers-member', path: '/servers?site=site-a', heading: 'Servers', authenticated: true, representative: false },
   { name: 'server-detail-owner', path: '/servers/srv-1/summary?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
   { name: 'server-storage-member', path: '/servers/srv-1/storage?site=site-a', heading: 'gpu-node-01', authenticated: true, representative: false },
@@ -184,6 +187,14 @@ test.describe('dashboard visual review', () => {
           ? { platformPools: { 'platform-a': 'pool-research', 'platform-slurm': 'pool-research' } }
           : {}),
         ...(visualCase.name === 'server-detail-owner' ? { identity: 'owner' as const } : {}),
+        // An admin moves Servers of two Pools: srv-1 is in research, the rest in none; no Platform
+        // claims them, so each may move on its own.
+        ...(visualCase.name === 'servers-set-pool' ? { withoutPlatformClaims: true, serverPlacements: { 'srv-1': { poolId: 'pool-research' } } } : {}),
+        // The Platforms claim every Server, so their Pool shortcuts are disabled; production-k0s is in
+        // research, and an admin moves it from its details.
+        ...(['servers-platform-pool', 'platform-move-pool'].includes(visualCase.name)
+          ? { platformPools: { 'platform-a': 'pool-research' }, serverPlacements: { 'srv-1': { poolId: 'pool-research' }, 'srv-2': { poolId: 'pool-research' }, 'srv-3': { poolId: 'pool-research' } } }
+          : {}),
         // An owner reads the catalog of its Servers' provisioner and deploys only, with a custom
         // image no test has passed to show the disabled Deploy.
         ...(visualCase.name === 'os-image-list-owner'
@@ -431,6 +442,47 @@ test.describe('dashboard visual review', () => {
         await manager.getByRole('button', { name: 'Delete 2 tags' }).click()
         await expect(page.getByRole('alertdialog', { name: 'Delete 2 tags?' }).getByRole('button', { name: 'Cancel' })).toBeFocused()
         await capture(page, testInfo, `${visualCase.name}-bulk-delete-confirm`, false)
+      }
+      if (visualCase.name === 'servers-set-pool') {
+        const single = page.getByRole('button', { name: 'Set pool for gpu-node-02' })
+        await single.click()
+        const singleDialog = page.getByRole('dialog', { name: 'Set pool' })
+        await expect(singleDialog.getByText('gpu-node-02 is in no pool; only admins may use it.')).toBeVisible()
+        await capture(page, testInfo, `${visualCase.name}-single`, false)
+        await singleDialog.getByRole('button', { name: 'Cancel' }).click()
+        await expect(singleDialog).toHaveCount(0)
+
+        // The desktop table and the phone cards label the selection checkbox differently.
+        const desktop = !testInfo.project.name.startsWith('mobile-')
+        for (const name of ['gpu-node-01', 'gpu-node-02']) {
+          await page.getByLabel(desktop ? `Select ${name}` : `Mobile selection: ${name}`, { exact: true }).click()
+        }
+        await page.getByRole('button', { name: 'Set pool', exact: true }).click()
+        const dialog = page.getByRole('dialog', { name: 'Set pool' })
+        await dialog.getByRole('combobox', { name: 'Pool', exact: true }).click()
+        await page.getByRole('option', { name: 'research', exact: true }).click()
+        await expect(dialog.getByText('1 of 2 selected servers will move to research.')).toBeVisible()
+        await capture(page, testInfo, `${visualCase.name}-dialog`, false)
+      }
+      // A selection of Platform-claimed Servers: Set pool lists them and moves none.
+      if (visualCase.name === 'servers-platform-pool') {
+        const desktop = !testInfo.project.name.startsWith('mobile-')
+        for (const name of ['gpu-node-01', 'gpu-node-04']) {
+          await page.getByLabel(desktop ? `Select ${name}` : `Mobile selection: ${name}`, { exact: true }).click()
+        }
+        await page.getByRole('button', { name: 'Set pool', exact: true }).click()
+        const dialog = page.getByRole('dialog', { name: 'Set pool' })
+        await expect(dialog.getByText("2 servers keep their Platform's pool")).toBeVisible()
+        await capture(page, testInfo, `${visualCase.name}-dialog`, false)
+      }
+      // An admin moving production-k0s out of research.
+      if (visualCase.name === 'platform-move-pool') {
+        await page.getByRole('button', { name: 'Move production-k0s to another pool' }).click()
+        const dialog = page.getByRole('dialog', { name: 'Move to another pool' })
+        await dialog.getByRole('combobox', { name: 'Pool', exact: true }).click()
+        await page.getByRole('option', { name: 'No pool (admins only)', exact: true }).click()
+        await expect(dialog.getByText('production-k0s and all its servers will leave their pool; only admins may use them then.')).toBeVisible()
+        await capture(page, testInfo, `${visualCase.name}-dialog`, false)
       }
       // The owner's add-member dialog opened from the Pools page, with the accounts it may pick.
       if (visualCase.name === 'pools-owner-add-member') {

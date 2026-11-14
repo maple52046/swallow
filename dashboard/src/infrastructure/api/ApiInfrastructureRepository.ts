@@ -5,12 +5,15 @@ import type {
   InfrastructureRepository,
   UpdateGroupInput,
 } from '@/application/ports/InfrastructureRepository'
-import type { Pool, ServerPlacement, Zone } from '@/domain/infrastructure/types'
+import type { PlatformPoolMove, Pool, ServerPlacement, Zone } from '@/domain/infrastructure/types'
 import { apiRequest } from './client'
+import type { JsonRequestBody, JsonResponse } from './contractTypes'
+import type { operations } from './generated/openapi'
 
 /**
  * Maps the Active Infrastructure HTTP contract (`/api/v1/infrastructure` and
- * `PUT /api/v1/servers/{id}/placement`) onto the grouping port.
+ * `PUT /api/v1/servers/{id}/placement`) and a Platform's move to another Pool
+ * (`PUT /api/v1/platforms/{id}/pool`, platforms.md) onto the grouping port.
  *
  * Zones (Site-scoped, `?siteId=` filter) and Pools (installation-wide, no filter) have their own
  * routes and shapes. The contract's JSON fields already match {@link Zone}, {@link Pool}, and
@@ -61,6 +64,14 @@ export class ApiInfrastructureRepository implements InfrastructureRepository {
     return apiRequest<ServerPlacement>(`/api/v1/servers/${encodeURIComponent(serverId)}/placement`, {
       method: 'PUT',
       body: JSON.stringify(input),
+    })
+  }
+
+  async movePlatformToPool(platformId: string, poolId: string | null): Promise<PlatformPoolMove> {
+    const body: JsonRequestBody<operations['movePlatformToPool']> = { poolId }
+    return apiRequest<JsonResponse<operations['movePlatformToPool'], 200>>(`/api/v1/platforms/${encodeURIComponent(platformId)}/pool`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
     })
   }
 }

@@ -145,7 +145,7 @@ export function PlatformConfigurationRoute() {
 
   return (
     <div className="sw-platform-workspace__content">
-      <PlatformDetailsCard platform={platform} module={module} />
+      <PlatformDetailsCard platform={platform} module={module} onPoolChanged={() => reload()} />
       <SectionSurface
         title="Member role assignments"
         description="Desired Server roles from the Platform spec. Live membership remains a separate observed axis."

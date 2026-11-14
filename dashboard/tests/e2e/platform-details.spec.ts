@@ -24,6 +24,9 @@ function readFacts(group: Locator): Promise<Record<string, string>> {
   ])))
 }
 
+/** The Pool fact of a Platform whose Servers are in no Pool, as every fixture Platform's are by default. */
+const NO_POOL_FACT = 'N/A\nIts servers are in no pool or in different pools; only admins manage it.'
+
 /** How the browser under test formats an API timestamp, which the card shows in the viewer's locale. */
 function localTime(page: Page, iso: string): Promise<string> {
   return page.evaluate((value) => new Date(value).toLocaleString(), iso)
@@ -39,6 +42,7 @@ test('a Kubernetes Platform states its deployment, spec, k0s network, and Integr
     Type: 'Kubernetes',
     Lifecycle: 'Active',
     Site: 'Taipei Lab',
+    Pool: NO_POOL_FACT,
     Created: await localTime(page, '2026-08-10T00:00:00Z'),
     'Spec state': 'Applied (generation 1)',
   })
@@ -76,6 +80,7 @@ test('a Platform awaiting its install approval is not deployed yet and has a dir
     Type: 'Kubernetes',
     Lifecycle: 'Planned',
     Site: 'Taipei Lab',
+    Pool: NO_POOL_FACT,
     Created: await localTime(page, '2026-08-20T00:00:00Z'),
     'Spec state': 'Awaiting approval (generation 1)\nThe install waits for its Change Plan to be approved.',
   })
@@ -112,6 +117,7 @@ test('a Slurm Platform states its cluster, the Docker CE its container Grafana b
     Type: 'Slurm',
     Lifecycle: 'Active',
     Site: 'Taipei Lab',
+    Pool: NO_POOL_FACT,
     Created: await localTime(page, '2026-08-18T00:00:00Z'),
     'Spec state': 'Applied (generation 1)',
   })

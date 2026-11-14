@@ -123,7 +123,7 @@ flowchart LR
 | 共用的參考資料 | 任何已登入的 User | `GET /modules`、`GET /sites`、`GET /sites/{id}`、Zone 與 Pool 目錄的讀取、`GET /software/catalog`、`GET /provisioning/images`、`GET /provisioning/image-catalogs`、`GET /provisioning/templates(/{id})`、`GET /provisioning/tags`、`GET /platforms/deployment-requirements/slurm`、`GET /platforms/gpu-operator/releases`、`GET /validation/suites(/{suiteId})`、`GET /monitoring/metrics/names` |
 | Pool 範圍的讀取 | 能讀取資源的 User（Pool 的 owner 或 member） | `GET /servers`（過濾）、`GET /servers/stream`（過濾）、`GET /servers/{id}` 與其讀取子路由（`events`、`network`、`provisioning-tasks`、`power-state`）、`GET /platforms`（過濾）、`GET /platforms/{id}`、`GET /platforms/{id}/slurm`、`GET /software/assignments`（過濾）、`GET /workflows`（過濾）與 Workflow 的讀取子路由、`GET /change-plans`（過濾）、`GET /validation/runs`（過濾）、`GET /monitoring/metrics(/range)`（該 Server）、Pool 的 members 與 access policy 的讀取 |
 | Pool 範圍的操作 | 資源所在 Pool 的 owner | Server 的動作（`refresh`、`power-on`、`power-off`、`inspect`、`test`、`abort`、`override-failed-testing`、`lock`、`unlock`、`mark-broken`、`mark-fixed`、`rescue-mode`、`exit-rescue-mode`、`default-user`、網路 link、`provisioner-detail`、Docker Host Explorer）、`POST /provisioning/deployment-operations`、`release-operations`、`recover-operations`、`deployments/preflight`、`POST /provisioning/tags`（每個目標 Server）、`POST /software/assignments`、`POST /software/uninstall`、`POST /platforms`（每個節點都在呼叫者是 owner 的同一個 Pool）、Platform 的 `PATCH`、`PUT /spec`、`DELETE`、`sync` 與 Kubernetes explorer、Change Plan 的核准與拒絕（Platform 的 plan）、Workflow 的 `cancel`、`rerun`、Task 重試、`POST /validation/runs`、`POST /validation/runs/{runId}/cancel`、Pool 的 members 與 access policy 的寫入、Pool 的 member candidates |
-| admin | User Role `admin` | 其他所有路由：`/overview`、Site 與 Integration 的寫入與 automation、`/users`、`/access/*`、Zone 與 Pool 目錄的寫入、`PUT /servers/{id}/placement`、`DELETE /servers/{id}`、Boot Media、Redfish probe、Power Configuration、virtual machines、`/provisioning` 的其餘路由（OS Image、template 的寫入、image verification、Provisioning Task、reconcile、HTTP Proxy、Subnet DNS、Boot ISO、VM enrollment、tag 的刪除與改名）、Deployment Key 與 `POST /ssh-keys/sync`、registry credentials、`POST /platforms/sync`、`PUT /platforms/deployment-requirements/slurm`、Change Plan 政策、`POST /workflows`、Validation Suite 的寫入與 Validation Schedule、alerts |
+| admin | User Role `admin` | 其他所有路由：`/overview`、Site 與 Integration 的寫入與 automation、`/users`、`/access/*`、Zone 與 Pool 目錄的寫入、`PUT /servers/{id}/placement`、`PUT /platforms/{id}/pool`、`DELETE /servers/{id}`、Boot Media、Redfish probe、Power Configuration、virtual machines、`/provisioning` 的其餘路由（OS Image、template 的寫入、image verification、Provisioning Task、reconcile、HTTP Proxy、Subnet DNS、Boot ISO、VM enrollment、tag 的刪除與改名）、Deployment Key 與 `POST /ssh-keys/sync`、registry credentials、`POST /platforms/sync`、`PUT /platforms/deployment-requirements/slurm`、Change Plan 政策、`POST /workflows`、Validation Suite 的寫入與 Validation Schedule、alerts |
 
 - `provisioner-detail` 帶出 BMC 的連線資料（含帳號與密碼）。它屬於 Pool 範圍的操作：Pool 的 owner 被信任可以取得自己
   Pool 的 Server 的 BMC；改寫 BMC 設定的 Power Configuration 仍只有 admin。
@@ -149,9 +149,15 @@ flowchart LR
 - **建立與加入成員**：非 admin 建立 Platform 或在 spec 加入節點時，每個節點都必須在同一個 Pool，而且呼叫者是那個 Pool
   的 owner；否則 `403 forbidden`（不是那個 Pool 的 owner）或 `400 validation_error`（節點分屬不同 Pool 或沒有 Pool）。
   admin 不受限制，但它建立的跨 Pool Platform 只有 admin 能管理。
-- **placement**：被 Platform claim 的 Server 只能移到該 Platform 的 Pool，或移出所有 Pool（其他 Pool 是 `409 conflict`），
-  所以 Platform 不會因為 placement 而分屬兩個 Pool。移出 Pool 讓 Platform 沒有 Pool（只有 admin 能管理）；沒有 Pool 的
-  Platform 的 Server 可以放進任何 Pool，admin 以此把整個 Platform 搬到另一個 Pool：先全部移出，再全部放進新的 Pool。
+- **placement**：被 Platform claim 的 Server 只隨 Platform 換 Pool：改變它 `poolId` 的 placement（包括移出所有 Pool）
+  一律 `409 conflict`，只改 Zone 照常；claim 指向已不存在的 Platform 時不受此限。所以 Platform 不會因為 placement 而
+  分屬兩個 Pool。
+- **整個 Platform 換 Pool**：admin 以 `PUT /platforms/{id}/pool`
+  （[platforms](../../api-server/docs/development/api-contracts/api-server/platforms.md#move-a-platform-to-another-pool)
+  契約）把 Platform 的 Server（推導 Pool 的同一組：spec 的成員與仍被它 claim 的 Server）放進同一個 Pool，或移出所有 Pool。
+  infrastructure 的 placement use case 在一個 store transaction 內以每台的 generation 為條件寫入 `spec.poolId`，Zone 不變，
+  已在目標 Pool 的不寫入；任何一台衝突或尚未接管就整個拒絕，什麼都不寫。任何 lifecycle 狀態都可以搬：它只改變存取
+  （Host Access 隨 Directory 的下一輪收斂），不改變主機、Platform 的 spec 與 Workflow，也不呼叫 provisioner。
 
 ---
 

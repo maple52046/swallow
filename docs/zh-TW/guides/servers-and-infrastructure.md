@@ -342,7 +342,14 @@ Servers 頁的 **Manage tags** 列出 Site 知道的每個 tag、有幾台 Serve
 
 ## Zone 與 Pool
 
-Zone 與 Pool 是 swallow 擁有的 Server 分組，透過 Server 的 placement action（**Set zone / pool**）指派。
+Zone 與 Pool 是 swallow 擁有的 Server 分組，只有 admin 能把 Server 放進去。要設定多台 Server 的 Pool，在 Server 列表
+勾選它們後選 **Set pool**，每台都保留原本的 Zone。要在列表上設定一台 Server 的 Pool，按它 Pool 旁的鉛筆按鈕。
+要設定一台 Server 的 Zone 與 Pool，使用它 **Placement and labels**
+卡片上的 **Set zone and pool**，或頁面上的 **Edit → Set zone / pool**。Server 列表的 **Pool** 欄位、篩選、分組與排序都是
+swallow 的 Pool；provisioner 的 resource pool 只出現在 Server 的詳細資訊中。
+
+屬於某個 Platform 的 Server 只隨整個 Platform 換 Pool：它的鉛筆按鈕停用，**Set pool** 會列出它並保留原狀，它自己的
+**Set zone and pool** 只能改 Zone。請改為搬動 Platform（見 [Platform](platforms.md#platform-runtime-workspace)）。
 
 - **Zone** 屬於一個 Site，在 **Infrastructure → Zones** 管理。Provisioner 有能力時會實現它（MAAS 的 physical zone），
   swallow 會把 machine 搬進去；不支援時 Server 上會回報這件事，swallow 不另存一份。
@@ -352,9 +359,8 @@ Zone 與 Pool 是 swallow 擁有的 Server 分組，透過 Server 的 placement 
 
 Pool 也決定誰可以使用它的 Server。它的 member 看得到這些 Server（以及上面的 Platform、Workflow 與 Validation Run），並以
 自己的 SSH key 登入；它的 owner 可以操作它們。在 **Pools** 中點選 Pool 的名稱開啟它的頁面，在那裡管理成員與 sudo
-預設值；owner 與 admin 在 Pool 那一列也有 **Add member**。只有 admin 能在 Pool 之間移動 Server，而且一個 Platform 的所有 Server 都在同一個 Pool：被 Platform claim 的
-Server 只能移進那個 Platform 的 Pool，或移出所有 Pool（之後在它的 Server 重新都在同一個 Pool 之前，Platform 只有 admin
-能管理）。刪除 Pool 會一併刪除它的成員資格；還有 Server 在 Pool 中時拒絕刪除。
+預設值；owner 與 admin 在 Pool 那一列也有 **Add member**。只有 admin 能在 Pool 之間移動 Server，而且一個 Platform 的
+Server 只在 admin 搬動整個 Platform 時一起移動。刪除 Pool 會一併刪除它的成員資格；還有 Server 在 Pool 中時拒絕刪除。
 
 升級到 Pool 改為 installation 層級的 release 時，每個 Site 名為 `default` 的 Pool 會合併成一個，其他 Pool 連同成員一起
 刪除；有這樣的 Pool 時，升級會先要求確認已備份。之後重新建立需要的 Pool，並把 Server 重新放進去。

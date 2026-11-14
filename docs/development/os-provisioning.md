@@ -406,7 +406,8 @@ installation，只存在於 swallow。API 見
     後再接管，避免把 machine 搬回預設 zone。
   - Pool：可以是任何 Pool；`null` 代表不在任何 Pool（只有 admin 能讀取與操作，identity-and-access.md §4.1）。Pool 的
     placement 不需要實現，寫入即生效，Server controller 不搬動 machine 的 resource pool。Server 接管時不在任何 Pool，
-    不由 provisioner 的 resource pool 推導。
+    不由 provisioner 的 resource pool 推導。被 Platform claim 的 Server 只隨整個 Platform 換 Pool
+    （identity-and-access.md §5），單獨改它的 Pool 是 `409`。
 - Server 上的 observed zone 與 resource pool 是 provider 的鏡射，由 reconcile 與 Server controller 更新；resource pool
   只觀察，在 MAAS UI 搬動不是 drift。
 - `infrastructure` feature 只依賴 `provisioning` 的 domain port（`ProviderFactory`、`GroupingController`）與自己的

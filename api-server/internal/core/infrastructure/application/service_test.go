@@ -3,13 +3,14 @@ package application
 import (
 	"context"
 	"errors"
-	"github.com/maple52046/swallow/internal/core/store/storetest"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/maple52046/swallow/internal/core/convergence"
 	infradomain "github.com/maple52046/swallow/internal/core/infrastructure/domain"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
+	"github.com/maple52046/swallow/internal/core/store/storetest"
 )
 
 type serviceFixture struct {
@@ -19,17 +20,18 @@ type serviceFixture struct {
 	placements *fakePlacements
 	provider   *fakeGroupingProvider
 	references fakeReferences
-	// platformPools maps a Platform id onto the Pool it belongs to; cleaned records the Pools whose
-	// memberships were deleted.
-	platformPools fakePlatformPools
-	cleaned       *fakePoolAccess
+	// platformServers maps a Platform id onto its Servers; cleaned records the Pools whose
+	// memberships were deleted, and tx counts the transactions the service started.
+	platformServers fakePlatformServers
+	cleaned         *fakePoolAccess
+	tx              *storetest.Transactor
 }
 
-type fakePlatformPools map[string]string
+type fakePlatformServers map[string][]string
 
-func (p fakePlatformPools) PoolOf(_ context.Context, platformID string) (string, bool, error) {
-	pool, ok := p[platformID]
-	return pool, ok, nil
+func (p fakePlatformServers) ServersOf(_ context.Context, platformID string) ([]string, bool, error) {
+	ids, ok := p[platformID]
+	return slices.Clone(ids), ok, nil
 }
 
 type fakePoolAccess struct{ deleted []string }
@@ -43,14 +45,14 @@ func newServiceFixture(t *testing.T) *serviceFixture {
 	t.Helper()
 	f := &serviceFixture{
 		zones: newFakeZoneRepo(), pools: newFakePoolRepo(),
-		placements:    &fakePlacements{current: &infradomain.ServerPlacement{ServerID: "srv-1", SiteID: "site-a", Generation: 1}},
-		provider:      newFakeGroupingProvider(),
-		references:    fakeReferences{zones: map[string]int{}, pools: map[string]int{}},
-		platformPools: fakePlatformPools{}, cleaned: &fakePoolAccess{},
+		placements:      &fakePlacements{current: &infradomain.ServerPlacement{ServerID: "srv-1", SiteID: "site-a", Generation: 1}},
+		provider:        newFakeGroupingProvider(),
+		references:      fakeReferences{zones: map[string]int{}, pools: map[string]int{}},
+		platformServers: fakePlatformServers{}, cleaned: &fakePoolAccess{}, tx: &storetest.Transactor{},
 	}
 	factory := &fakeFactory{providers: map[string]provisioningdomain.OSProvisioningProvider{"maas-a": f.provider}}
 	f.service = NewGroupingService(f.zones, f.pools, &fakeSiteReader{exists: true}, f.placements, f.references, factory,
-		f.platformPools, f.cleaned, &storetest.Transactor{})
+		f.platformServers, f.cleaned, f.tx)
 	f.service.now = func() time.Time { return time.Date(2026, 10, 31, 0, 0, 0, 0, time.UTC) }
 	ids := 0
 	f.service.newID = func() string { ids++; return "id-" + string(rune('0'+ids)) }
@@ -210,8 +212,9 @@ func realizedOn(integrationID, providerName string, generation int64) infradomai
 	}
 }
 
-// A Server a Platform claims moves only into the Platform's Pool or out of every Pool, so the
-// Platform never ends up across two Pools; a Platform in no Pool may have its Servers moved.
+// A Server a Platform claims keeps its Pool — no other Pool, and not out of every Pool — while its
+// Zone may change, because its Pool changes only with the whole Platform. A claim whose Platform is
+// gone holds nothing.
 func TestAssignServer_KeepsAClaimedServerInItsPlatformsPool(t *testing.T) {
 	f := newServiceFixture(t)
 	ctx := context.Background()
@@ -219,21 +222,123 @@ func TestAssignServer_KeepsAClaimedServerInItsPlatformsPool(t *testing.T) {
 	f.pools.byID["p-b"] = &infradomain.Pool{ID: "p-b", Name: "b"}
 	f.placements.current.PoolID = "p-a"
 	f.placements.current.PlatformID = "plat-1"
-	f.platformPools["plat-1"] = "p-a"
+	f.platformServers["plat-1"] = []string{"srv-1"}
 
-	if _, err := f.service.AssignServer(ctx, AssignServerInput{ServerID: "srv-1", Pool: PlacementChange{Set: true, ID: "p-b"}}); !errors.Is(err, infradomain.ErrPlatformPoolMismatch) {
-		t.Errorf("moving a claimed Server to another Pool: err = %v, want ErrPlatformPoolMismatch", err)
+	for name, pool := range map[string]PlacementChange{
+		"another Pool":      {Set: true, ID: "p-b"},
+		"out of every Pool": {Set: true},
+	} {
+		if _, err := f.service.AssignServer(ctx, AssignServerInput{ServerID: "srv-1", Pool: pool}); !errors.Is(err, infradomain.ErrClaimedServerPool) {
+			t.Errorf("moving a claimed Server %s: err = %v, want ErrClaimedServerPool", name, err)
+		}
 	}
-	if _, err := f.service.AssignServer(ctx, AssignServerInput{ServerID: "srv-1", Zone: PlacementChange{Set: true}}); err != nil {
+	if len(f.placements.writes) != 0 {
+		t.Errorf("a refused placement wrote %v", f.placements.writes)
+	}
+	if _, err := f.service.AssignServer(ctx, AssignServerInput{ServerID: "srv-1", Zone: PlacementChange{Set: true}, Pool: PlacementChange{Set: true, ID: "p-a"}}); err != nil {
 		t.Errorf("changing only the Zone of a claimed Server: %v", err)
 	}
-	if _, err := f.service.AssignServer(ctx, AssignServerInput{ServerID: "srv-1", Pool: PlacementChange{Set: true}}); err != nil {
-		t.Errorf("clearing a claimed Server's Pool, which leaves the Platform to admins: %v", err)
-	}
-	f.platformPools["plat-1"] = ""
+	delete(f.platformServers, "plat-1")
 	if _, err := f.service.AssignServer(ctx, AssignServerInput{ServerID: "srv-1", Pool: PlacementChange{Set: true, ID: "p-b"}}); err != nil {
-		t.Errorf("moving a Server of a Platform across Pools: %v", err)
+		t.Errorf("moving a Server whose claiming Platform no longer exists: %v", err)
 	}
+}
+
+// Moving a Platform writes the Pool of each of its Servers once, in one transaction, keeping their
+// Zones; the result lists every Server in id order, and moving it again writes nothing.
+func TestMovePlatformToPool_MovesEveryServerTogether(t *testing.T) {
+	f := newServiceFixture(t)
+	ctx := context.Background()
+	f.pools.byID["p-b"] = &infradomain.Pool{ID: "p-b", Name: "b"}
+	f.placements.current = &infradomain.ServerPlacement{ServerID: "srv-1", Generation: 3, ZoneID: "z-1", PoolID: "p-a", PlatformID: "plat-1"}
+	f.placements.others = map[string]*infradomain.ServerPlacement{
+		"srv-2": {ServerID: "srv-2", Generation: 1, PlatformID: "plat-1"},
+		"srv-3": {ServerID: "srv-3", Generation: 5, PoolID: "p-b", PlatformID: "plat-1"},
+	}
+	// The claims and the spec's members overlap and come in no order.
+	f.platformServers["plat-1"] = []string{"srv-2", "srv-1", "srv-3", "srv-1"}
+
+	result, err := f.service.MovePlatformToPool(ctx, MovePlatformInput{PlatformID: "plat-1", PoolID: "p-b"})
+	if err != nil {
+		t.Fatalf("MovePlatformToPool: %v", err)
+	}
+	type row struct {
+		id         string
+		generation int64
+		zone, pool string
+	}
+	var got []row
+	for _, server := range result.Servers {
+		got = append(got, row{server.ServerID, server.Generation, deref(server.ZoneID), deref(server.PoolID)})
+	}
+	want := []row{{"srv-1", 4, "z-1", "p-b"}, {"srv-2", 2, "", "p-b"}, {"srv-3", 5, "", "p-b"}}
+	if !slices.Equal(got, want) {
+		t.Errorf("servers = %+v, want %+v", got, want)
+	}
+	if result.PlatformID != "plat-1" || deref(result.PoolID) != "p-b" {
+		t.Errorf("result = %+v, want Platform plat-1 in p-b", result)
+	}
+	if len(f.placements.writes) != 2 || slices.Contains(f.placements.inTx, false) || f.tx.Calls() != 1 {
+		t.Errorf("writes = %d (in transaction: %v) in %d transactions, want 2 writes in one transaction",
+			len(f.placements.writes), f.placements.inTx, f.tx.Calls())
+	}
+
+	if _, err := f.service.MovePlatformToPool(ctx, MovePlatformInput{PlatformID: "plat-1", PoolID: "p-b"}); err != nil {
+		t.Fatalf("repeating the move: %v", err)
+	}
+	if len(f.placements.writes) != 2 {
+		t.Errorf("repeating the move wrote %d more placements, want none", len(f.placements.writes)-2)
+	}
+
+	out, err := f.service.MovePlatformToPool(ctx, MovePlatformInput{PlatformID: "plat-1"})
+	if err != nil {
+		t.Fatalf("moving the Platform out of every Pool: %v", err)
+	}
+	if out.PoolID != nil || out.Servers[0].PoolID != nil {
+		t.Errorf("out of every Pool: result = %+v, want null Pools", out)
+	}
+}
+
+func TestMovePlatformToPool_Refusals(t *testing.T) {
+	tests := []struct {
+		name    string
+		servers map[string][]string
+		poolID  string
+		adopted bool
+		wantErr error
+	}{
+		{name: "unknown Platform", servers: map[string][]string{}, adopted: true, wantErr: infradomain.ErrPlatformNotFound},
+		{name: "Platform without Servers", servers: map[string][]string{"plat-1": nil}, adopted: true, wantErr: infradomain.ErrPlatformHasNoServers},
+		{name: "only Servers with no record", servers: map[string][]string{"plat-1": {"gone"}}, adopted: true, wantErr: infradomain.ErrPlatformHasNoServers},
+		{name: "unknown Pool", servers: map[string][]string{"plat-1": {"srv-1"}}, poolID: "p-missing", adopted: true, wantErr: infradomain.ErrPoolNotFound},
+		{name: "Server not adopted yet", servers: map[string][]string{"plat-1": {"srv-1"}}, wantErr: infradomain.ErrServerNotAdopted},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newServiceFixture(t)
+			for id, servers := range tc.servers {
+				f.platformServers[id] = servers
+			}
+			if !tc.adopted {
+				f.placements.current.Generation = 0
+			}
+			_, err := f.service.MovePlatformToPool(context.Background(), MovePlatformInput{PlatformID: "plat-1", PoolID: tc.poolID})
+			if !errors.Is(err, tc.wantErr) {
+				t.Errorf("MovePlatformToPool error = %v, want %v", err, tc.wantErr)
+			}
+			if len(f.placements.writes) != 0 {
+				t.Errorf("a refused move wrote %v", f.placements.writes)
+			}
+		})
+	}
+}
+
+// deref is the value of an optional id, "" for none.
+func deref(id *string) string {
+	if id == nil {
+		return ""
+	}
+	return *id
 }
 
 // Deleting a Pool also deletes its memberships and Sudo Policy, refuses while a Server is placed in

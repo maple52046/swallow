@@ -1,6 +1,7 @@
 import {
   countServerHealth,
   isProvisioningInProgress,
+  serverDisplayName,
   type DeploymentAxis,
   type HealthState,
   type ProvisioningAxis,
@@ -405,7 +406,7 @@ export function matchesServerInventoryQuery(server: Server, query: ServerInvento
   if (query.systemVendors.length > 0 && !query.systemVendors.includes(server.status.systemVendor || 'unknown')) return false
   if (query.systemProducts.length > 0 && !query.systemProducts.includes(server.status.systemProduct || 'unknown')) return false
   if (query.zones.length > 0 && !query.zones.includes(server.status.providerZone || 'unknown')) return false
-  if (query.pools.length > 0 && !query.pools.includes(server.status.providerResourcePool || 'unknown')) return false
+  if (query.pools.length > 0 && !query.pools.includes(serverPoolValue(server))) return false
   if (query.tags.length > 0 && !query.tags.some((tag) => server.status.tags.includes(tag))) return false
 
   const locked = server.status.provisioning?.locked === true
@@ -448,12 +449,51 @@ function matchesSyncFilter(summary: ConvergenceSummary, filter: ServerSyncFilter
   }
 }
 
-/** Stable group label for the selected one-to-one grouping dimension. */
-export function serverInventoryGroupValue(server: Server, group: ServerInventoryGroup): string {
+/**
+ * The value that stands for "in no Pool" in the Pool filter and its URL parameter; a Pool id never
+ * takes it.
+ */
+export const NO_POOL_VALUE = 'none'
+
+/**
+ * A Server's Pool as the list filters it: the swallow Pool its spec places it in (`spec.poolId`), or
+ * NO_POOL_VALUE. The provisioner's resource pool (`status.providerResourcePool`) is only observed and
+ * has nothing to do with it (os-provisioning.md §8).
+ */
+export function serverPoolValue(server: Server): string {
+  return server.spec.poolId ?? NO_POOL_VALUE
+}
+
+/**
+ * Names a Pool for the list, its filters, and its grouping: the catalog name, "N/A" for a Server in
+ * none, and the id itself while the catalog has not answered or no longer holds the Pool.
+ */
+export function serverPoolLabel(poolId: string | null, poolNames: ReadonlyMap<string, string>): string {
+  if (poolId === null || poolId === NO_POOL_VALUE) return 'N/A'
+  return poolNames.get(poolId) ?? poolId
+}
+
+/**
+ * Why a Server's Pool cannot be set on its own, or undefined when it can: a Server a Platform claims
+ * changes Pool only when an admin moves the whole Platform (platforms.md, Move A Platform To Another
+ * Pool), and the API refuses a placement that would change it. `platformNames` names the Platform,
+ * falling back to its id while the names load.
+ */
+export function claimedPoolReason(server: Server, platformNames: ReadonlyMap<string, string>): string | undefined {
+  const platformId = server.status.platformClaim?.platformId
+  if (!platformId) return undefined
+  return `${serverDisplayName(server)} belongs to Platform ${platformNames.get(platformId) ?? platformId}; its pool changes only with the Platform.`
+}
+
+/**
+ * Stable group label for the selected one-to-one grouping dimension. `poolNames` (the Pool catalog,
+ * id to name) names the Pool group.
+ */
+export function serverInventoryGroupValue(server: Server, group: ServerInventoryGroup, poolNames: ReadonlyMap<string, string>): string {
   switch (group) {
     case 'provisioning': return serverDeploymentPhase(server).label
     case 'zone': return server.status.providerZone || 'unknown'
-    case 'pool': return server.status.providerResourcePool || 'unknown'
+    case 'pool': return serverPoolLabel(server.spec.poolId, poolNames)
     case 'architecture': return server.status.architecture || 'unknown'
     case 'power': return server.status.provisioning?.powerState ?? 'unknown'
     case 'gpu-profile': return serverGpuProfile(server)
@@ -477,7 +517,7 @@ function displayName(server: Server): string {
   return server.status.hostname ?? server.status.fqdn ?? server.status.source.providerMachineId ?? server.id
 }
 
-function sortValue(server: Server, sort: Exclude<ServerInventorySort, 'priority'>): string | number {
+function sortValue(server: Server, sort: Exclude<ServerInventorySort, 'priority'>, poolNames: ReadonlyMap<string, string>): string | number {
   switch (sort) {
     case 'name': return displayName(server).toLocaleLowerCase()
     case 'provisioning': return serverDeploymentPhase(server).label
@@ -487,23 +527,27 @@ function sortValue(server: Server, sort: Exclude<ServerInventorySort, 'priority'
     case 'storage': return server.status.storageGB
     case 'gpus': return serverGpuCount(server)
     case 'zone': return server.status.providerZone.toLocaleLowerCase()
-    case 'pool': return server.status.providerResourcePool.toLocaleLowerCase()
+    case 'pool': return serverPoolLabel(server.spec.poolId, poolNames).toLocaleLowerCase()
   }
 }
 
-/** Compares rows by explicit sort or operational priority, then by display name for stability. */
+/**
+ * Compares rows by explicit sort or operational priority, then by display name for stability.
+ * `poolNames` (the Pool catalog, id to name) orders the Pool sort by name.
+ */
 export function compareServerInventory(
   left: Server,
   right: Server,
   sort: ServerInventorySort,
   direction: ServerInventoryDirection,
+  poolNames: ReadonlyMap<string, string>,
 ): number {
   let result = 0
   if (sort === 'priority') {
     result = serverOperationalPriority(left) - serverOperationalPriority(right)
   } else {
-    const leftValue = sortValue(left, sort)
-    const rightValue = sortValue(right, sort)
+    const leftValue = sortValue(left, sort, poolNames)
+    const rightValue = sortValue(right, sort, poolNames)
     result = typeof leftValue === 'number' && typeof rightValue === 'number'
       ? leftValue - rightValue
       : String(leftValue).localeCompare(String(rightValue))

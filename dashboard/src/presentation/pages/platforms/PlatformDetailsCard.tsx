@@ -1,4 +1,8 @@
-import { useId, type ReactNode } from 'react'
+import { useId, useState, type ReactNode } from 'react'
+import { IconButton, Text } from '@chakra-ui/react'
+import { PenLine } from 'lucide-react'
+import { Link as RouterLink } from 'react-router-dom'
+import { useApp } from '@/di/AppProvider'
 import type { Condition } from '@/domain/convergence/types'
 import { formatGPUDriverModuleOptions } from '@/domain/platform/gpuDriver'
 import { platformLifecycleLabel } from '@/domain/platform/lifecycle'
@@ -8,18 +12,53 @@ import type { Platform } from '@/domain/platform/types'
 import { DEPLOY_TARGET_LABELS } from '@/domain/provisioning/types'
 import { isAdmin } from '@/domain/user/access'
 import { SectionHeader } from '@/presentation/components/ConsolePrimitives'
+import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { useAsyncData } from '@/presentation/hooks/useAsyncData'
 import { useIntegration } from '@/presentation/pages/infrastructure/useIntegrationSettings'
 import type { PlatformFact, PlatformModuleUI } from '@/modules/registry'
 import { formatDateTime } from '@/shared/utils/time'
 import { platformTopologyLabel } from './platformDetailShared'
+import { PlatformPoolDialog } from './PlatformPoolDialog'
 import { describePlatformSpecState } from './platformSpecState'
 
 interface PlatformDetailsCardProps {
   platform: Platform
   /** The module that owns the Platform's type, from the registry; undefined when none ships a UI. */
   module: PlatformModuleUI | undefined
+  /** Called after an admin moved the Platform to another Pool, so the page re-reads it. */
+  onPoolChanged: () => void
+}
+
+/**
+ * The Platform's Pool: its name, linked to the Pool's page, or "N/A" with why when it has none. A
+ * Platform belongs to the Pool every one of its Servers is in, so "none" covers Servers in no Pool and
+ * Servers across Pools alike; such a Platform is the admins'. `onMove`, given to admins only because
+ * the move is an admin route, adds the shortcut that moves the Platform with all its Servers.
+ */
+function PoolValue({ platform, poolName, href, onMove }: {
+  platform: Platform
+  poolName: string | null
+  href: string | null
+  onMove?: () => void
+}) {
+  const moveLabel = `Move ${platform.name} to another pool`
+  const none = poolName === null || href === null
+  return (
+    <FactValue details={none ? ['Its servers are in no pool or in different pools; only admins manage it.'] : []}>
+      <span className="sw-platform-pool">
+        {none ? <Text as="span" color="fg.muted">N/A</Text> : <RouterLink to={href}>{poolName}</RouterLink>}
+        {onMove && (
+          <Tooltip content={moveLabel}>
+            <IconButton variant="ghost" size="2xs" aria-label={moveLabel} onClick={onMove}>
+              <PenLine size={13} aria-hidden />
+            </IconButton>
+          </Tooltip>
+        )}
+      </span>
+    </FactValue>
+  )
 }
 
 /** One titled group of facts, rendered as an `<h3>` and the `<dl>` it labels. */
@@ -107,8 +146,9 @@ function machinePreparationFacts(platform: Platform): PlatformFact[] {
  * Platform details: the facts a user looks for first on a Platform, at the top of the Overview tab
  * below its lifecycle notices, in titled `<dl>` groups.
  *
- * - General: type, lifecycle, Site, creation time, and where its spec stands
- *   (`describePlatformSpecState`). Workflow history belongs to the route-owned Activity page.
+ * - General: type, lifecycle, Site, Pool, creation time, and where its spec stands
+ *   (`describePlatformSpecState`). Workflow history belongs to the route-owned Activity page. An admin
+ *   moves the Platform to another Pool from the Pool fact (`PlatformPoolDialog`).
  * - Conditions: the controller's current generation-aware judgements, including drift.
  * - Deployment: topology, members, and OS preparation, from the applied spec before the desired one.
  * - The type's own facts, from the owning module's `facts` and titled with its label, so this shell
@@ -117,16 +157,25 @@ function machinePreparationFacts(platform: Platform): PlatformFact[] {
  *   none), and the GPU stack, plus the GRES type and driver options only when the user set them.
  *
  * The page renders it once the Platform loaded, so it has no loading or error state of its own.
- * Everything comes from the Platform record, except the Site name (the Site scope's registry) and
- * the Integration name, which an admin's page reads once per Integration id. Both fall back to the id
- * while loading or when unreadable, so a failed lookup never blanks a fact. Each group is a named
- * `group` labelled by its heading, and the card is the "Platform details" region.
+ * Everything comes from the Platform record, except the Site name (the Site scope's registry), the
+ * Pool name (the Pool catalog, a reference read), and the Integration name, which an admin's page
+ * reads once per Integration id. Each falls back to the id while loading or when unreadable, so a
+ * failed lookup never blanks a fact. Each group is a named `group` labelled by its heading, and the
+ * card is the "Platform details" region.
  */
-export function PlatformDetailsCard({ platform, module }: PlatformDetailsCardProps) {
-  const { sites } = useSiteScope()
+export function PlatformDetailsCard({ platform, module, onPoolChanged }: PlatformDetailsCardProps) {
+  const { infrastructure } = useApp()
+  const { sites, scopedHref } = useSiteScope()
   const { currentUser } = useAuth()
+  const admin = isAdmin(currentUser)
+  const [movingPool, setMovingPool] = useState(false)
+  const poolCatalog = useAsyncData(() => infrastructure.listPools(), [infrastructure])
+  const poolId = platform.status.poolId ?? null
+  const poolName = poolId === null
+    ? null
+    : (poolCatalog.status === 'ready' ? poolCatalog.data.find((pool) => pool.id === poolId)?.name : undefined) ?? poolId
   // Reading an Integration is an admin route; other users see the Integration's id.
-  const { state: integrationState } = useIntegration(isAdmin(currentUser) ? platform.integrationId ?? undefined : undefined)
+  const { state: integrationState } = useIntegration(admin ? platform.integrationId ?? undefined : undefined)
   const headingPrefix = useId()
   const specState = describePlatformSpecState(platform)
   const siteName = sites.find((site) => site.id === platform.siteId)?.name ?? platform.siteId
@@ -144,6 +193,17 @@ export function PlatformDetailsCard({ platform, module }: PlatformDetailsCardPro
         { label: 'Type', value: module?.label ?? platform.type },
         { label: 'Lifecycle', value: platformLifecycleLabel(platform.lifecycleState) },
         { label: 'Site', value: siteName },
+        {
+          label: 'Pool',
+          value: (
+            <PoolValue
+              platform={platform}
+              poolName={poolName}
+              href={poolId === null ? null : scopedHref(`/pools/${encodeURIComponent(poolId)}`)}
+              onMove={admin ? () => setMovingPool(true) : undefined}
+            />
+          ),
+        },
         { label: 'Created', value: <Timestamp value={platform.createdAt} /> },
         { label: 'Spec state', value: <FactValue details={specState.details}>{specState.summary}</FactValue> },
       ],
@@ -196,6 +256,9 @@ export function PlatformDetailsCard({ platform, module }: PlatformDetailsCardPro
           )
         })}
       </div>
+      {movingPool && (
+        <PlatformPoolDialog platform={platform} onClose={() => setMovingPool(false)} onMoved={onPoolChanged} />
+      )}
     </section>
   )
 }

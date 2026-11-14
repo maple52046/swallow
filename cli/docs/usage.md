@@ -438,7 +438,8 @@ swallow servers network add-link srv1 <interfaceId> -f link.yaml
 swallow servers network update-link srv1 <interfaceId> <linkId> -f link.yaml
 swallow servers network delete-link srv1 <interfaceId> <linkId>
 
-# Placement (Zone/Pool) — flags or --file
+# Placement (Zone/Pool) — flags or --file; a Platform's Server changes Pool only with its Platform
+# (swallow platforms set-pool), so --pool and --clear-pool are refused for it
 swallow servers placement srv1 --zone zone1 --pool pool1
 swallow servers placement srv1 --clear-zone --clear-pool   # provisioner's default zone; out of every Pool (admins only)
 swallow servers placement srv1 -f placement.yaml   # { zoneId, poolId }
@@ -682,6 +683,8 @@ swallow platforms delete plat1 --approve              # uninstalls the platform 
 swallow platforms delete plat1 --approve --release-servers --erase   # the uninstall also releases the members
 swallow platforms delete plat1 --cancel-active-workflows   # also cancel a failed or running deployment holding the servers
 swallow platforms delete plat1 --record-only          # delete only the record; the hosts are left as they are
+swallow platforms set-pool plat1 --pool pool1         # move the platform with all its Servers to another Pool (admins)
+swallow platforms set-pool plat1 --clear-pool         # take all its Servers out of every Pool (admins only then)
 swallow platforms sync plat1
 swallow platforms sync-all
 swallow platforms slurm plat1                         # live Slurm cluster state
@@ -701,6 +704,11 @@ with the write and the change starts at once, unless the Change Plan policy requ
 approval (`swallow plans policy`); without it nothing changes until `swallow plans approve`
 approves it. Adding a member, and turning a Slurm platform's hardware counters on or off,
 converge at once.
+
+`platforms set-pool` moves every Server of the platform (its members and the Servers it still
+claims) to one Pool in a single write, keeping their Zones; access follows at once, and the hosts and
+the platform are not changed. It is the only way a platform's Server changes Pool. See
+[platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md#move-a-platform-to-another-pool).
 
 `platforms delete` uninstalls any platform whose deployment started, even one still deploying
 (add `--cancel-active-workflows`) or whose deployment failed; only a platform whose install never

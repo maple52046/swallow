@@ -3290,6 +3290,59 @@ paths:
         - platforms
     parameters:
       - $ref: '#/components/parameters/PlatformId'
+  /api/v1/platforms/{id}/pool:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    put:
+      description: Requires role `admin` (platforms.md, Move A Platform To Another Pool). Writes `poolId` into the placement spec of every Server in the Platform's spec and every Server it still claims, in one transaction and conditional on each Server's generation; Zones are kept, and a Server already in the Pool is not written. Access follows at once; nothing changes on the hosts, the Platform, or the provisioner. 400 for an invalid body; 404 for an unknown Platform or Pool; 409 when the Platform has no Servers, a Server's spec changed during the request, or a Server is not adopted yet, in which case nothing is written.
+      operationId: movePlatformToPool
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                poolId:
+                  description: The swallow id of the Pool; `null` takes every Server of the Platform out of every Pool.
+                  nullable: true
+                  type: string
+              required:
+                - poolId
+              type: object
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformPoolMove'
+          description: The Platform's Pool and its Servers' placement spec after the request.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`validation_error`: the body is not valid JSON, or `poolId` is missing or not a string or `null`.'
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`not_found`: the Platform or the Pool does not exist.'
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`conflict`: the Platform has no Servers, a Server''s spec changed during the request, or a Server is not adopted yet. Nothing is written.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Move every Server of a Platform to one Pool together.
+      tags:
+        - platforms
   /api/v1/platforms/{id}/slurm:
     get:
       description: 'Pool read: an admin, or a User with any Pool Role in the Pool the resource belongs to. Read on demand; writes nothing. 400 for a Kubernetes Platform or a Slurm Platform without a recorded slurmrestd Integration; 404 for an unknown Platform or when the read is not wired; 503 when slurmrestd cannot be reached or rejects the credential.'
@@ -6449,7 +6502,7 @@ paths:
         schema:
           type: string
     put:
-      description: Requires role `admin` (infrastructure.md). Writes the placement into the Server's spec, conditional on its generation, and answers at once. An omitted field is unchanged; at least one field must be given. A Zone must belong to the Server's Site; the Server controller moves the machine to it and the Server's conditions report when it has (a provisioner that cannot group keeps the spec and reports `capability_missing`). A Pool may be of any Site's Servers and takes effect at once; nothing changes in the provisioner.
+      description: Requires role `admin` (infrastructure.md). Writes the placement into the Server's spec, conditional on its generation, and answers at once. An omitted field is unchanged; at least one field must be given. A Zone must belong to the Server's Site; the Server controller moves the machine to it and the Server's conditions report when it has (a provisioner that cannot group keeps the spec and reports `capability_missing`). A Pool may be of any Site's Servers and takes effect at once; nothing changes in the provisioner. A Server a Platform claims changes Pool only with its Platform (`PUT /api/v1/platforms/{id}/pool`).
       operationId: assignServerPlacement
       requestBody:
         content:
@@ -6494,7 +6547,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`conflict`: the Server is not adopted yet (retry shortly), or its spec changed during the request.'
+          description: '`conflict`: the Server is not adopted yet (retry shortly), its spec changed during the request, or a Platform claims it and the request changes its Pool.'
         default:
           $ref: '#/components/responses/Error'
       summary: Set a Server's Zone and/or Pool; its controller moves the machine to the Zone.
@@ -14065,6 +14118,25 @@ components:
       required:
         - requested
         - nodes
+      type: object
+    PlatformPoolMove:
+      description: A Platform's Pool after it was moved, with the placement spec of each of its Servers.
+      properties:
+        platformId:
+          type: string
+        poolId:
+          description: The Pool every Server of the Platform is now in; `null` for no Pool.
+          nullable: true
+          type: string
+        servers:
+          description: Every Server of the Platform (its spec's members and the Servers it still claims), ordered by `serverId`, with its placement spec after the request; a Server that was already in the Pool keeps its generation.
+          items:
+            $ref: '#/components/schemas/ServerPlacement'
+          type: array
+      required:
+        - platformId
+        - poolId
+        - servers
       type: object
     PlatformRemoval:
       description: The optional removal choices of a Delete; every field defaults to false.

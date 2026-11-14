@@ -234,10 +234,11 @@ addressed by its `serverId`.
   field leaves it unchanged. A request that gives neither is `400 validation_error`.
 - A referenced Zone or Pool must exist (`404 not_found`). A Zone must belong to the same Site as
   the Server (`400 validation_error` otherwise); a Pool may hold Servers of any Site.
-- A Server claimed by a Platform may be placed only in the Pool the Platform belongs to, or in no Pool:
-  any other Pool is `409 conflict` ([platforms.md](platforms.md#platform-and-pool)). Clearing the Pool
-  leaves the Platform in no Pool, which only admins manage; then its Servers may be placed in any Pool,
-  which is how an admin moves a Platform to another Pool.
+- A Server claimed by a Platform changes Pool only with its Platform: a placement that changes its
+  `poolId`, including `null`, is `409 conflict`, while its Zone may still change. An admin moves the
+  Platform with all its Servers instead
+  ([platforms.md](platforms.md#move-a-platform-to-another-pool)), so a Platform never ends up across
+  Pools by moving one of its Servers. A claim whose Platform no longer exists does not hold the Pool.
 - The write is conditional on the Server's spec generation: `409 conflict` when the spec changed
   during the request, or when the Server is not adopted yet (a newly discovered Server is adopted
   within moments; retry).
@@ -272,7 +273,7 @@ Beyond the shared codes in [conventions.md](conventions.md):
 | --- | ---: | --- |
 | `validation_error` | 400 | The body is not valid JSON; a missing/blank `name`, a Zone without `siteId`, or a `name` over 100 characters; a placement field that is not a string or `null`, a placement naming neither a Zone nor a Pool, or a Zone in another Site; a provisioner refused a Zone delete. |
 | `not_found` | 404 | The Zone, Pool, Site, or Server does not exist. |
-| `conflict` | 409 | A Zone with this `name` already exists in the Site, or a Pool with this `name` in the installation; a Server is still placed in the Zone/Pool being deleted; a placement raced another spec change or targeted a Server not adopted yet; a placement would move a Platform-claimed Server into a Pool other than the Platform's. |
+| `conflict` | 409 | A Zone with this `name` already exists in the Site, or a Pool with this `name` in the installation; a Server is still placed in the Zone/Pool being deleted; a placement raced another spec change or targeted a Server not adopted yet; a placement would change the Pool of a Platform-claimed Server. |
 | `provider_unavailable` | 503 | A Zone delete could not reach a provisioner, or it has no credential. |
 
 ## Compatibility Notes
@@ -303,6 +304,10 @@ longer accepts it; a Pool delete no longer calls the provisioners and no longer 
 provisioner's default resource pool; and a Pool placement no longer moves the machine. On upgrade each
 Site's Pool named `default` is merged into one Pool and every other Pool is deleted, with its memberships,
 Sudo Policy, and the placements that named it.
+
+Since 2026-11-14 a placement that changes the Pool of a Platform-claimed Server is `409` even when it
+takes the Server out of every Pool; the Platform is moved as a whole instead
+([platforms.md](platforms.md#move-a-platform-to-another-pool)).
 
 ## Implementation Notes
 

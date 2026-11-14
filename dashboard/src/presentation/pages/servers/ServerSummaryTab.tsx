@@ -31,6 +31,7 @@ import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { useAsyncData, type AsyncData } from '@/presentation/hooks/useAsyncData'
 import { ServerBootMediaDialog, type ServerBootMediaDialogMode } from './ServerBootMediaDialog'
 import { ServerDefaultUserDialog } from './ServerDefaultUserDialog'
+import { ServerPlacementDialog } from './ServerPlacementDialog'
 import { ServerPowerConfigurationDialog } from './ServerPowerConfigurationDialog'
 import { ServerTagEditor } from './ServerTagEditor'
 import { useBootMediaApplyWatch } from './useBootMediaApplyWatch'
@@ -115,7 +116,7 @@ function powerPanelState(
  */
 export function ServerSummaryTab() {
   const { server, detail, detailError, reload } = useServerDetailContext()
-  const { servers } = useApp()
+  const { servers, infrastructure } = useApp()
   const { showToast } = useToast()
   const { scopedHref } = useSiteScope()
   const { currentUser } = useAuth()
@@ -125,6 +126,7 @@ export function ServerSummaryTab() {
   const admin = isAdmin(currentUser)
   const canOperate = canOperatePool(currentUser, server.spec.poolId)
   const [tagEditorOpen, setTagEditorOpen] = useState(false)
+  const [placementOpen, setPlacementOpen] = useState(false)
   const [defaultUserOpen, setDefaultUserOpen] = useState(false)
   const [powerDialogOpen, setPowerDialogOpen] = useState(false)
   const [savedPower, setSavedPower] = useState<ServerPowerConfiguration | null>(null)
@@ -135,6 +137,14 @@ export function ServerSummaryTab() {
   const management = detail?.sections.find((section) => section.title === 'BMC')
   const storage = detail ? findTable(detail.tables, 'Storage') : undefined
   const deployedImageHref = deployedImageCatalogHref(server, scopedHref)
+  // The Pool catalog names the Server's swallow Pool; any signed-in user may read it, and anyone
+  // who reads the Server may open its Pool's page. Until the catalog answers the Pool shows its id.
+  const poolCatalog = useAsyncData(() => infrastructure.listPools(), [infrastructure])
+  const poolId = server.spec.poolId
+  const pool = poolId === null ? null : {
+    name: (poolCatalog.status === 'ready' ? poolCatalog.data.find((item) => item.id === poolId)?.name : undefined) ?? poolId,
+    href: scopedHref(`/pools/${encodeURIComponent(poolId)}`),
+  }
   // Unknown until the provisioner detail arrives; only an explicit false skips the read.
   const powerSupported = admin && detail?.capabilities.powerConfiguration !== false
   const powerConfiguration = useAsyncData(
@@ -281,7 +291,12 @@ export function ServerSummaryTab() {
         <HardwareProfileCard server={server} system={system} />
       </div>
       <div className="sw-server-summary-grid sw-server-summary-grid--expand-single">
-        <DetailsCard server={server} onEditTags={canOperate ? () => setTagEditorOpen(true) : undefined} />
+        <DetailsCard
+          server={server}
+          pool={pool}
+          onEditPlacement={admin ? () => setPlacementOpen(true) : undefined}
+          onEditTags={canOperate ? () => setTagEditorOpen(true) : undefined}
+        />
       </div>
       {/* Renders nothing while the Validation area is hidden (an experimental feature). */}
       <RecentValidationRuns serverId={server.id} canRun={canOperate} />
@@ -291,6 +306,9 @@ export function ServerSummaryTab() {
           onClose={() => setTagEditorOpen(false)}
           onSaved={reload}
         />
+      )}
+      {placementOpen && (
+        <ServerPlacementDialog server={server} onClose={() => setPlacementOpen(false)} onChanged={reload} />
       )}
       {defaultUserOpen && (
         <ServerDefaultUserDialog server={server} onClose={() => setDefaultUserOpen(false)} onChanged={reload} />

@@ -1,5 +1,5 @@
 import { Box, Card, Heading, HStack, IconButton, Link as ChakraLink, Text } from '@chakra-ui/react'
-import { Cpu, Eye, EyeOff, HardDrive, MemoryStick, Microchip, Monitor, Tags } from 'lucide-react'
+import { Cpu, Eye, EyeOff, HardDrive, MapPinned, MemoryStick, Microchip, Monitor, Tags } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { gpuInventoryCount, serverGPUsByKind } from '@/domain/server/gpu'
@@ -160,32 +160,59 @@ export function CapacityCard({ server, storageDeviceCount }: { server: Server; s
 }
 
 /**
- * Shows provider placement and labels, with an icon-only tag editor kept next to the tags it
- * changes. The Tooltip and accessible name make the compact control understandable without
- * relying on the glyph. Tags are what the provisioner reports; "Provisioner sync" says whether
- * that already matches the tags swallow owns, since a saved edit is applied asynchronously.
+ * Shows the Server's placement and labels, with icon-only editors kept next to what they change: the
+ * Zone and Pool placement (an admin's) and the tags. The Tooltips and accessible names make the
+ * compact controls understandable without relying on the glyphs.
+ *
+ * The Pool is the swallow Pool its spec places it in, which decides who may use it; `pool` names it
+ * (`null` for none, shown as "N/A": only admins may use such a Server) and links its page when given
+ * an href. The Zone and the resource pool are what
+ * the provisioner reports; the resource pool is only observed and grants nothing. Tags are what the
+ * provisioner reports; "Provisioner sync" says whether that already matches the Zone and tags
+ * swallow owns, since a saved edit is applied asynchronously.
  */
-export function DetailsCard({ server, onEditTags }: { server: Server; onEditTags?: () => void }) {
+export function DetailsCard({ server, pool, onEditPlacement, onEditTags }: {
+  server: Server
+  /** The Server's swallow Pool: its name and, when the caller may open it, its page. */
+  pool: { name: string; href?: string } | null
+  onEditPlacement?: () => void
+  onEditTags?: () => void
+}) {
   return (
     <Card.Root className="sw-server-summary-card">
       <Card.Body gap="4">
         <HStack justify="space-between" gap="2">
           <Box>
             <Heading size="sm">Placement and labels</Heading>
-            <Text color="fg.muted" fontSize="sm" mt="1">Provider grouping and operational tags.</Text>
+            <Text color="fg.muted" fontSize="sm" mt="1">Who may use the Server, where the provisioner keeps it, and its tags.</Text>
           </Box>
-          {onEditTags && (
-            <Tooltip content="Edit tags">
-              <IconButton size="sm" variant="ghost" aria-label="Edit tags" onClick={onEditTags}>
-                <Tags size={18} />
-              </IconButton>
-            </Tooltip>
-          )}
+          <HStack gap="1">
+            {onEditPlacement && (
+              <Tooltip content="Set zone and pool">
+                <IconButton size="sm" variant="ghost" aria-label="Set zone and pool" onClick={onEditPlacement}>
+                  <MapPinned size={18} />
+                </IconButton>
+              </Tooltip>
+            )}
+            {onEditTags && (
+              <Tooltip content="Edit tags">
+                <IconButton size="sm" variant="ghost" aria-label="Edit tags" onClick={onEditTags}>
+                  <Tags size={18} />
+                </IconButton>
+              </Tooltip>
+            )}
+          </HStack>
         </HStack>
         <DescriptionList
           items={[
+            {
+              label: 'Pool',
+              value: pool === null
+                ? <Text as="span" color="fg.muted">N/A</Text>
+                : pool.href ? <RouterLink to={pool.href}>{pool.name}</RouterLink> : pool.name,
+            },
             { label: 'Zone', value: server.status.providerZone },
-            { label: 'Resource pool', value: server.status.providerResourcePool },
+            { label: 'Provisioner resource pool', value: server.status.providerResourcePool },
             { label: 'VM host', value: server.status.providerPod },
             { label: 'Tags', value: server.status.tags.length ? <TagBadges tags={server.status.tags} /> : null },
             {

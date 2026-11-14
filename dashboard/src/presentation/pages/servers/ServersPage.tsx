@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Badge, Box, Button, Flex, Heading, HStack, IconButton, Popover, Portal, Table, Text } from '@chakra-ui/react'
 import {
   ArrowUpRight,
@@ -17,6 +17,7 @@ import {
   Tags,
   TriangleAlert,
   UploadCloud,
+  UsersRound,
   type LucideIcon,
 } from 'lucide-react'
 import { Link as RouterLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
@@ -53,12 +54,14 @@ import { ServerHardwareSummary } from '@/presentation/components/ServerHardwareS
 import { Tooltip } from '@/presentation/components/ui/tooltip'
 import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { useAsyncData } from '@/presentation/hooks/useAsyncData'
 import { usePlatformNames } from '@/presentation/hooks/usePlatformNames'
 import { formatQuantity } from '@/shared/utils/quantity'
 import { formatDateTime, formatRelative } from '@/shared/utils/time'
 import { actionLabel, isRamDeploy, serverActionAvailability, type ServerMenuAction } from './serverActions'
 import { ServerLockDialog } from './ServerLockDialog'
 import { ServerDeleteDialog } from './ServerDeleteDialog'
+import { ServerPoolDialog } from './ServerPoolDialog'
 import { ServerReleaseDialog } from './ServerReleaseDialog'
 import { ServerPowerDialog } from './ServerPowerDialog'
 import { ServerPowerOffWarningDialog } from './ServerPowerOffWarningDialog'
@@ -75,6 +78,7 @@ import { useInspectionAttention } from './useInspectionAttention'
 import { DeployOSDialog } from '@/presentation/pages/provisioning/DeployOSDialog'
 import { SERVER_ACTIVITY_SECTION_TITLES } from './serverActivitySections'
 import {
+  claimedPoolReason,
   compareServerInventory,
   hasServerInventoryFilters,
   isServerChanging,
@@ -89,6 +93,8 @@ import {
   serverFleetFacts,
   serverGpuProfile,
   serverInventoryGroupValue,
+  serverPoolLabel,
+  serverPoolValue,
   serverRowTone,
   sortedServerTags,
   type ServerContextAction,
@@ -230,20 +236,26 @@ function controlId(value: string): string {
 }
 
 
-function renderGroups(items: Server[], group: ServerInventoryGroup): RenderGroup[] {
+function renderGroups(items: Server[], group: ServerInventoryGroup, poolNames: ReadonlyMap<string, string>): RenderGroup[] {
   if (group === 'none') return [{ key: '', label: '', items }]
   const groups = new Map<string, Server[]>()
   items.forEach((server) => {
-    const value = serverInventoryGroupValue(server, group)
+    const value = serverInventoryGroupValue(server, group, poolNames)
     groups.set(value, [...(groups.get(value) ?? []), server])
   })
   return [...groups.entries()].map(([key, grouped]) => ({ key, label: key, items: grouped }))
 }
 
+/**
+ * One filter's options over the working set: each value it holds (and each selected one, even at
+ * zero) with its Server count, sorted by label. `labelOf` names a value whose URL form is an id, as
+ * the Pool filter's is; by default a value is its own label.
+ */
 function facetOptions(
   servers: readonly Server[],
   valuesOf: (server: Server) => readonly string[],
   selected: readonly string[],
+  labelOf: (value: string) => string = (value) => value,
 ): FilterOption[] {
   const counts = new Map<string, number>()
   servers.forEach((server) => {
@@ -255,8 +267,8 @@ function facetOptions(
     if (!counts.has(value)) counts.set(value, 0)
   })
   return [...counts.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([value, count]) => ({ value, label: value, count }))
+    .map(([value, count]) => ({ value, label: labelOf(value), count }))
+    .sort((left, right) => left.label.localeCompare(right.label))
 }
 
 function activeAdvancedFilterCount(query: ServerInventoryQuery): number {
@@ -287,11 +299,16 @@ function integrationNameOf(server: Server, integrations: readonly Integration[])
   return integrations.find((integration) => integration.id === server.status.source.integrationId)?.name ?? server.status.source.integrationId
 }
 
-/** Complete mirrored Server facts shared by desktop disclosure and mobile card details. */
+/**
+ * Complete Server facts shared by desktop disclosure and mobile card details. The Pool is the swallow
+ * Pool its spec places it in, named through `poolNames`; the resource pool is the provisioner's,
+ * only observed.
+ */
 function serverDetailFacts(
   server: Server,
   sites: readonly Site[],
   integrations: readonly Integration[],
+  poolNames: ReadonlyMap<string, string>,
 ): DetailFactGroup[] {
   const provisioning = server.status.provisioning
   return [
@@ -325,8 +342,9 @@ function serverDetailFacts(
     {
       title: 'Resource organization',
       facts: [
+        { label: 'Pool', value: serverPoolLabel(server.spec.poolId, poolNames) },
         { label: 'Zone', value: textOrDash(server.status.providerZone) },
-        { label: 'Pool', value: textOrDash(server.status.providerResourcePool) },
+        { label: 'Provisioner resource pool', value: textOrDash(server.status.providerResourcePool) },
         { label: 'Pod', value: textOrDash(server.status.providerPod) },
         { label: 'Tags', value: sortedServerTags(server).join(', ') || '—' },
       ],
@@ -440,7 +458,7 @@ function ServerFleetOverview({ servers }: { servers: readonly Server[] }) {
  * discovery state derives the visible inventory without additional API reads.
  */
 export function ServersPage() {
-  const { sites: siteRepository, servers: serverRepository } = useApp()
+  const { sites: siteRepository, servers: serverRepository, infrastructure } = useApp()
   const { sites, siteId, scopedHref } = useSiteScope()
   const { currentUser } = useAuth()
   // Provisioner Integrations are admin reads (sites-integrations.md); a user who is not an admin sees
@@ -463,6 +481,7 @@ export function ServersPage() {
   const [deleteTargets, setDeleteTargets] = useState<Server[] | null>(null)
   const [releaseTargets, setReleaseTargets] = useState<ServerActionTarget[] | null>(null)
   const [tagEditorTargets, setTagEditorTargets] = useState<Server[] | null>(null)
+  const [poolTargets, setPoolTargets] = useState<Server[] | null>(null)
   const [managingTags, setManagingTags] = useState(false)
   const [lastActionResult, setLastActionResult] = useState<ServerActionRunResult | null>(null)
   const [resultDialogOpen, setResultDialogOpen] = useState(false)
@@ -553,6 +572,13 @@ export function ServersPage() {
   const workingSetQuery = useMemo(() => ({ siteId, includeAbsent: true }), [siteId])
   const { state, reload, isRefreshing, streamStatus } = useServerWorkingSet(workingSetQuery)
   const workingSet = state.status === 'ready' ? state.data.servers : EMPTY_SERVERS
+  // The Pool catalog names each Server's swallow Pool; any signed-in user may read it
+  // (infrastructure.md). Until it answers, or if it fails, a Pool shows its id.
+  const poolCatalog = useAsyncData(() => infrastructure.listPools(), [infrastructure], { unavailableStatuses: [] })
+  const poolNames = useMemo<ReadonlyMap<string, string>>(
+    () => new Map(poolCatalog.status === 'ready' ? poolCatalog.data.map((pool) => [pool.id, pool.name]) : []),
+    [poolCatalog],
+  )
   const platformNames = usePlatformNames(siteId, workingSet)
   const bulk = useServerBulkActions()
 
@@ -617,8 +643,8 @@ export function ServersPage() {
 
   const visibleServers = useMemo(() => workingSet.filter((server) => matchesServerInventoryQuery(server, query)), [query, workingSet])
   const sortedServers = useMemo(() => [...visibleServers].sort((left, right) => (
-    compareServerInventory(left, right, query.sort, query.direction)
-  )), [query.direction, query.sort, visibleServers])
+    compareServerInventory(left, right, query.sort, query.direction, poolNames)
+  )), [poolNames, query.direction, query.sort, visibleServers])
   const totalPages = Math.max(1, Math.ceil(sortedServers.length / pageSize))
   const safePage = Math.min(query.page, totalPages)
   const pageItems = useMemo(() => sortedServers.slice((safePage - 1) * pageSize, safePage * pageSize), [pageSize, safePage, sortedServers])
@@ -644,9 +670,9 @@ export function ServersPage() {
     systemVendor: facetOptions(workingSet, (server) => [server.status.systemVendor || 'unknown'], query.systemVendors),
     systemProduct: facetOptions(workingSet, (server) => [server.status.systemProduct || 'unknown'], query.systemProducts),
     zone: facetOptions(workingSet, (server) => [server.status.providerZone || 'unknown'], query.zones),
-    pool: facetOptions(workingSet, (server) => [server.status.providerResourcePool || 'unknown'], query.pools),
+    pool: facetOptions(workingSet, (server) => [serverPoolValue(server)], query.pools, (value) => serverPoolLabel(value, poolNames)),
     tag: facetOptions(workingSet, (server) => server.status.tags, query.tags),
-  }), [query, workingSet])
+  }), [poolNames, query, workingSet])
 
   const filterParams = new URLSearchParams(paramsKey)
   for (const key of ['group', 'sort', 'dir', 'page']) filterParams.delete(key)
@@ -1020,6 +1046,7 @@ export function ServersPage() {
                 </span>
               </Tooltip>
               {targetsOperable && <Button variant="outline" size="sm" onClick={() => setTagEditorTargets(actionTargets)}><Tags size={16} />Edit tags</Button>}
+              {admin && <Button variant="outline" size="sm" onClick={() => setPoolTargets(actionTargets)}><UsersRound size={16} />Set pool</Button>}
               <ServerTakeActionMenu
                 targets={actionTargets}
                 includeSingleOnly={false}
@@ -1077,7 +1104,7 @@ export function ServersPage() {
                           </Table.Row>
                         </Table.Header>
                         <Table.Body>
-                          {renderGroups(pageItems, query.group).map((group) => (
+                          {renderGroups(pageItems, query.group, poolNames).map((group) => (
                             <ServerGroupRows
                               key={group.key || 'all'}
                               group={group}
@@ -1088,6 +1115,7 @@ export function ServersPage() {
                               integrations={provisioners}
                               scopedHref={scopedHref}
                               platformNames={platformNames}
+                              poolNames={poolNames}
                               onCollapse={() => setCollapsedGroups((current) => {
                                 const next = new Set(current)
                                 if (next.has(group.key)) next.delete(group.key)
@@ -1099,6 +1127,7 @@ export function ServersPage() {
                               onAction={(action, id) => void runAction(action, [id])}
                               onDeploy={(server) => setDeploymentTargets([server])}
                               onEditTags={(server) => setTagEditorTargets([server])}
+                              onSetPool={admin ? (server) => setPoolTargets([server]) : undefined}
                             />
                           ))}
                         </Table.Body>
@@ -1107,7 +1136,7 @@ export function ServersPage() {
                   }
                   mobile={
                     <div className="sw-server-card-list" aria-label="Servers">
-                      {renderGroups(pageItems, query.group).map((group) => (
+                      {renderGroups(pageItems, query.group, poolNames).map((group) => (
                         <section key={group.key || 'all'}>
                           {query.group !== 'none' && (
                             <HStack className="sw-server-mobile-group" gap="2">
@@ -1124,10 +1153,12 @@ export function ServersPage() {
                                 integrations={provisioners}
                                 scopedHref={scopedHref}
                                 platformNames={platformNames}
+                                poolNames={poolNames}
                                 onToggle={() => toggleOne(server.id)}
                                 onAction={(action) => void runAction(action, [server.id])}
                                 onDeploy={() => setDeploymentTargets([server])}
                                 onEditTags={() => setTagEditorTargets([server])}
+                                onSetPool={admin ? () => setPoolTargets([server]) : undefined}
                               />
                             ))}
                           </div>
@@ -1159,6 +1190,17 @@ export function ServersPage() {
           onClose={() => setTagEditorTargets(null)}
           onSaved={() => {
             clearSelection()
+            reload()
+          }}
+        />
+      )}
+      {poolTargets && (
+        <ServerPoolDialog
+          servers={poolTargets}
+          platformNames={platformNames}
+          onClose={() => setPoolTargets(null)}
+          onChanged={(movedIds) => {
+            updateSelection((current) => new Set([...current].filter((id) => !movedIds.includes(id))))
             reload()
           }}
         />
@@ -1407,12 +1449,14 @@ function ServerGroupRows({
   integrations,
   scopedHref,
   platformNames,
+  poolNames,
   onCollapse,
   onToggleOne,
   onToggleGroup,
   onAction,
   onDeploy,
   onEditTags,
+  onSetPool,
 }: {
   group: RenderGroup
   grouped: boolean
@@ -1422,12 +1466,15 @@ function ServerGroupRows({
   integrations: readonly Integration[]
   scopedHref: (path: string) => string
   platformNames: ReadonlyMap<string, string>
+  poolNames: ReadonlyMap<string, string>
   onCollapse: () => void
   onToggleOne: (id: string) => void
   onToggleGroup: (ids: string[], checked: boolean) => void
   onAction: (action: ServerMenuAction, id: string) => void
   onDeploy: (server: Server) => void
   onEditTags: (server: Server) => void
+  /** Admins only; without it the rows show the Pool without the shortcut that sets it. */
+  onSetPool?: (server: Server) => void
 }) {
   const ids = group.items.map((server) => server.id)
   const all = ids.length > 0 && ids.every((id) => selected.has(id))
@@ -1456,10 +1503,12 @@ function ServerGroupRows({
           integrations={integrations}
           scopedHref={scopedHref}
           platformNames={platformNames}
+          poolNames={poolNames}
           onToggle={() => onToggleOne(server.id)}
           onAction={(action) => onAction(action, server.id)}
           onDeploy={() => onDeploy(server)}
           onEditTags={() => onEditTags(server)}
+          onSetPool={onSetPool && (() => onSetPool(server))}
         />
       ))}
     </>
@@ -1795,10 +1844,12 @@ function ServerRow({
   integrations,
   scopedHref,
   platformNames,
+  poolNames,
   onToggle,
   onAction,
   onDeploy,
   onEditTags,
+  onSetPool,
 }: {
   server: Server
   checked: boolean
@@ -1806,10 +1857,12 @@ function ServerRow({
   integrations: readonly Integration[]
   scopedHref: (path: string) => string
   platformNames: ReadonlyMap<string, string>
+  poolNames: ReadonlyMap<string, string>
   onToggle: () => void
   onAction: (action: ServerMenuAction) => void
   onDeploy: () => void
   onEditTags: () => void
+  onSetPool?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [powerDialogOpen, setPowerDialogOpen] = useState(false)
@@ -1831,7 +1884,7 @@ function ServerRow({
         <Table.Cell className="sw-server-col--deployment"><ServerDeployment server={server} scopedHref={scopedHref} onDeploy={onDeploy} /></Table.Cell>
         <Table.Cell className="sw-server-col--hardware"><ServerHardwareSummary server={server} /></Table.Cell>
         <Table.Cell className="sw-server-col--zone">{textOrDash(server.status.providerZone)}</Table.Cell>
-        <Table.Cell className="sw-server-col--pool">{textOrDash(server.status.providerResourcePool)}</Table.Cell>
+        <Table.Cell className="sw-server-col--pool"><ServerPoolValue server={server} poolNames={poolNames} platformNames={platformNames} onEdit={onSetPool} /></Table.Cell>
         <Table.Cell className="sw-server-col--health"><HealthBadge axis={server.status.health} /></Table.Cell>
         <Table.Cell className="sw-server-row-actions">
           <ServerTakeActionMenu targets={[server]} trigger="actions" targetName={serverDisplayName(server)} platformNames={platformNames} onAction={onAction} />
@@ -1839,7 +1892,7 @@ function ServerRow({
       </Table.Row>
       {expanded && (
         <Table.Row id={detailId} className="sw-server-detail-row">
-          <Table.Cell colSpan={10}><ServerDetailsPanel groups={serverDetailFacts(server, sites, integrations)} /></Table.Cell>
+          <Table.Cell colSpan={10}><ServerDetailsPanel groups={serverDetailFacts(server, sites, integrations, poolNames)} /></Table.Cell>
         </Table.Row>
       )}
       {powerDialogOpen && (
@@ -1856,6 +1909,59 @@ function ServerRow({
   )
 }
 
+/**
+ * A Server's swallow Pool for the list: its name, or "N/A" in muted text for a Server only admins
+ * may use. It is the Pool its spec places it in, never the provisioner's resource pool. `onEdit`, given
+ * to admins only because placement is an admin route, adds a shortcut that sets this Server's Pool.
+ *
+ * A Server a Platform claims changes Pool only with its Platform, so its shortcut is disabled: the
+ * reason is its Tooltip and, for assistive technology, the button's description. The description's
+ * source is `hidden`, so a screen reader reading the cell does not read the reason a second time.
+ */
+function ServerPoolValue({
+  server,
+  poolNames,
+  platformNames,
+  onEdit,
+}: {
+  server: Server
+  poolNames: ReadonlyMap<string, string>
+  platformNames: ReadonlyMap<string, string>
+  onEdit?: () => void
+}) {
+  const reasonId = useId()
+  const label = serverPoolLabel(server.spec.poolId, poolNames)
+  const value = server.spec.poolId === null ? <Text as="span" color="fg.muted">{label}</Text> : <span>{label}</span>
+  if (!onEdit) return value
+  const actionLabel = `Set pool for ${serverDisplayName(server)}`
+  const lockedReason = claimedPoolReason(server, platformNames)
+  if (lockedReason) {
+    return (
+      <span className="sw-server-pool">
+        {value}
+        <Tooltip content={lockedReason}>
+          <span>
+            <IconButton variant="ghost" size="2xs" aria-label={actionLabel} aria-describedby={reasonId} disabled>
+              <PenLine size={13} aria-hidden />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <span id={reasonId} hidden>{lockedReason}</span>
+      </span>
+    )
+  }
+  return (
+    <span className="sw-server-pool">
+      {value}
+      <Tooltip content={actionLabel}>
+        <IconButton variant="ghost" size="2xs" aria-label={actionLabel} onClick={onEdit}>
+          <PenLine size={13} aria-hidden />
+        </IconButton>
+      </Tooltip>
+    </span>
+  )
+}
+
 /** Mobile card with the same axes, discovery facts, details, and navigation as a desktop row. */
 function ServerMobileCard({
   server,
@@ -1864,10 +1970,12 @@ function ServerMobileCard({
   integrations,
   scopedHref,
   platformNames,
+  poolNames,
   onToggle,
   onAction,
   onDeploy,
   onEditTags,
+  onSetPool,
 }: {
   server: Server
   checked: boolean
@@ -1875,13 +1983,15 @@ function ServerMobileCard({
   integrations: readonly Integration[]
   scopedHref: (path: string) => string
   platformNames: ReadonlyMap<string, string>
+  poolNames: ReadonlyMap<string, string>
   onToggle: () => void
   onAction: (action: ServerMenuAction) => void
   onDeploy: () => void
   onEditTags: () => void
+  onSetPool?: () => void
 }) {
   const [powerDialogOpen, setPowerDialogOpen] = useState(false)
-  const details = serverDetailFacts(server, sites, integrations).flatMap((group) => (
+  const details = serverDetailFacts(server, sites, integrations, poolNames).flatMap((group) => (
     group.facts.map((fact) => ({ ...fact, label: `${group.title} · ${fact.label}` }))
   ))
   return (
@@ -1902,7 +2012,7 @@ function ServerMobileCard({
         <ResourceCardField label="Deployment"><ServerDeployment server={server} scopedHref={scopedHref} onDeploy={onDeploy} /></ResourceCardField>
         <ResourceCardField label="Hardware"><ServerHardwareSummary server={server} /></ResourceCardField>
         <ResourceCardField label="Zone">{textOrDash(server.status.providerZone)}</ResourceCardField>
-        <ResourceCardField label="Pool">{textOrDash(server.status.providerResourcePool)}</ResourceCardField>
+        <ResourceCardField label="Pool"><ServerPoolValue server={server} poolNames={poolNames} platformNames={platformNames} onEdit={onSetPool} /></ResourceCardField>
       </ResourceCard>
       {powerDialogOpen && (
         <ServerPowerDialog

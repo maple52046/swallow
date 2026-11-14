@@ -1,4 +1,4 @@
-import type { Pool, ServerPlacement, Zone } from '@/domain/infrastructure/types'
+import type { PlatformPoolMove, Pool, ServerPlacement, Zone } from '@/domain/infrastructure/types'
 
 /** Values accepted when creating a swallow-owned Zone; a Zone belongs to one Site. */
 export interface CreateZoneInput {
@@ -49,6 +49,15 @@ export interface InfrastructureRepository {
   updatePool(id: string, input: UpdateGroupInput): Promise<Pool>
   /** Deletes a Pool with its members and Sudo Policy; refused while a Server is placed in it. */
   deletePool(id: string): Promise<void>
-  /** Sets a Server's Zone and/or Pool, returning its placement spec after the request. */
+  /**
+   * Sets a Server's Zone and/or Pool, returning its placement spec after the request. A Server a
+   * Platform claims keeps its Pool: a Pool change for it is refused with `409 conflict`.
+   */
   assignServerPlacement(serverId: string, input: AssignServerPlacementInput): Promise<ServerPlacement>
+  /**
+   * Moves every Server of a Platform to the Pool `poolId` (`null` for no Pool) in one write, keeping
+   * their Zones. It is the only way a claimed Server changes Pool; a Server whose spec changed during
+   * the move, or one not adopted yet, fails it whole with `409 conflict`.
+   */
+  movePlatformToPool(platformId: string, poolId: string | null): Promise<PlatformPoolMove>
 }

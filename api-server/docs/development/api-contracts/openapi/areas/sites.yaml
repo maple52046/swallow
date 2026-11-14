@@ -1062,7 +1062,8 @@ paths:
         one field must be given. A Zone must belong to the Server's Site; the Server controller
         moves the machine to it and the Server's conditions report when it has (a provisioner that
         cannot group keeps the spec and reports `capability_missing`). A Pool may be of any Site's
-        Servers and takes effect at once; nothing changes in the provisioner.
+        Servers and takes effect at once; nothing changes in the provisioner. A Server a Platform
+        claims changes Pool only with its Platform (`PUT /api/v1/platforms/{id}/pool`).
       requestBody:
         required: true
         content:
@@ -1105,8 +1106,8 @@ paths:
                 $ref: '#/components/schemas/Error'
         '409':
           description: >-
-            `conflict`: the Server is not adopted yet (retry shortly), or its spec changed during
-            the request.
+            `conflict`: the Server is not adopted yet (retry shortly), its spec changed during the
+            request, or a Platform claims it and the request changes its Pool.
           content:
             application/json:
               schema:

@@ -164,7 +164,10 @@ Platform detail 透過 Platform API 讀取 live Slurm state，並把 node 關聯
   network、driver 或 node 設定。
 - **Configuration** 顯示已套用的 specification、desired generation 與 drift、Conditions、member
   roles、OS preparation、Integration、module settings 與 accelerator contributions。除了已有支援
-  Workflow 的 module action（例如 AMD GPU Operator 管理）之外，這一頁是唯讀的。
+  Workflow 的 module action（例如 AMD GPU Operator 管理）與 Pool 之外，這一頁是唯讀的：**Platform details**
+  顯示 Platform 所屬的 Pool（它的 Server 不在任何 Pool 或分屬不同 Pool 時是 N/A），admin 以旁邊的鉛筆按鈕把
+  Platform 連同所有 Server 搬到另一個 Pool。搬動時每台 Server 保留原本的 Zone，誰能使用它們立即改變；主機與 Platform
+  本身不受影響。這是 Platform 的 Server 換 Pool 的唯一方式。
 - **Monitoring** 連到 Swallow usage charts、Platform Grafana、其他 Monitoring Links，以及 Omnistat
   或 GPU 監控元件記錄的狀態與 Workflow；不在頁面內嵌 dashboard。
 - **Activity** 依新到舊列出此 Platform 的 Workflows。頁碼屬於 URL；每頁可選 5、10、15 或 20 筆。

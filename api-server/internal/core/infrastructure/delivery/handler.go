@@ -22,7 +22,8 @@ import (
 	"github.com/maple52046/swallow/internal/shared/apierror"
 )
 
-// InfrastructureHandler serves the Zone, Pool, and Server-placement endpoints.
+// InfrastructureHandler serves the Zone, Pool, and placement endpoints: one Server's placement, and
+// a Platform's move to another Pool.
 type InfrastructureHandler struct {
 	groups *application.GroupingService
 }
@@ -57,6 +58,13 @@ type updateGroupRequest struct {
 // default zone, or out of every Pool); at least one must be present.
 type placementRequest struct {
 	ZoneID json.RawMessage `json:"zoneId"`
+	PoolID json.RawMessage `json:"poolId"`
+}
+
+// platformPoolRequest moves a Platform to a Pool. poolId is kept raw so a missing field, which is
+// refused, can be told from an explicit null, which takes every Server of the Platform out of every
+// Pool.
+type platformPoolRequest struct {
 	PoolID json.RawMessage `json:"poolId"`
 }
 
@@ -172,6 +180,26 @@ func (h *InfrastructureHandler) AssignServerPlacement(c *fiber.Ctx) error {
 	return c.JSON(result)
 }
 
+// MovePlatformToPool handles PUT /platforms/{id}/pool (platforms.md, Move A Platform To Another
+// Pool). It is defined in this feature because it writes the placement of the Platform's Servers,
+// and mounted under the platforms group behind the admin guard. poolId is required: a Pool id, or
+// null for no Pool.
+func (h *InfrastructureHandler) MovePlatformToPool(c *fiber.Ctx) error {
+	var req platformPoolRequest
+	if err := c.BodyParser(&req); err != nil {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
+	}
+	pool, ok := placementChange(req.PoolID)
+	if !ok || !pool.Set {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "poolId is required: a pool id, or null for no pool."))
+	}
+	result, err := h.groups.MovePlatformToPool(c.Context(), application.MovePlatformInput{PlatformID: c.Params("id"), PoolID: pool.ID})
+	if err != nil {
+		return respondError(c, err)
+	}
+	return c.JSON(result)
+}
+
 // --- shared endpoint shapes ---
 
 // createGroup handles a Zone create for the given service method. siteId and name are required
@@ -241,8 +269,9 @@ func (h *InfrastructureHandler) deleteGroup(
 // respondError maps grouping and provider failures onto the shared API error envelope.
 //
 // Not-found domain errors become 404; name collisions (per Site for a Zone, installation-wide for
-// a Pool), a group still in use, and a placement that raced another spec change or a Server not
-// adopted yet become 409; the validation-class domain errors (bad name, cross-Site Zone placement,
+// a Pool), a group still in use, a placement that raced another spec change, targeted a Server not
+// adopted yet, or would change a claimed Server's Pool, and a Platform with no Server to move become
+// 409; the validation-class domain errors (bad name, cross-Site Zone placement,
 // empty placement) become 400. Provider failures — only a Zone delete calls a provisioner — reuse
 // the provisioning surface's classification: a rejected request keeps the provider's own wording as
 // a 400, and an unreachable provider or a missing credential is a 503.
@@ -256,6 +285,8 @@ func respondError(c *fiber.Ctx, err error) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Site not found."))
 	case errors.Is(err, infradomain.ErrServerNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Server not found."))
+	case errors.Is(err, infradomain.ErrPlatformNotFound):
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Platform not found."))
 	case errors.Is(err, sitedomain.ErrIntegrationNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "Integration not found."))
 
@@ -284,9 +315,12 @@ func respondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, infradomain.ErrServerNotAdopted):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
 			"The server is still being adopted; try again in a moment."))
-	case errors.Is(err, infradomain.ErrPlatformPoolMismatch):
+	case errors.Is(err, infradomain.ErrClaimedServerPool):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
-			"A platform claims this server; it can be placed only in the platform's pool or in no pool. To move the platform to another pool, take all its servers out of the pool first."))
+			"A platform claims this server, so its pool changes only with the platform: move the platform to another pool instead."))
+	case errors.Is(err, infradomain.ErrPlatformHasNoServers):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
+			"The platform has no servers to move."))
 
 	case errors.Is(err, provisioningdomain.ErrMachineNotFound):
 		return apierror.Respond(c, apierror.New(apierror.CodeNotFound,

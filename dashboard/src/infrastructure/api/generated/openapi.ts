@@ -1550,6 +1550,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/platforms/{id}/pool": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform's opaque id. */
+                id: components["parameters"]["PlatformId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Move every Server of a Platform to one Pool together.
+         * @description Requires role `admin` (platforms.md, Move A Platform To Another Pool). Writes `poolId` into the placement spec of every Server in the Platform's spec and every Server it still claims, in one transaction and conditional on each Server's generation; Zones are kept, and a Server already in the Pool is not written. Access follows at once; nothing changes on the hosts, the Platform, or the provisioner. 400 for an invalid body; 404 for an unknown Platform or Pool; 409 when the Platform has no Servers, a Server's spec changed during the request, or a Server is not adopted yet, in which case nothing is written.
+         */
+        put: operations["movePlatformToPool"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/platforms/{id}/slurm": {
         parameters: {
             query?: never;
@@ -3058,7 +3081,7 @@ export interface paths {
         get?: never;
         /**
          * Set a Server's Zone and/or Pool; its controller moves the machine to the Zone.
-         * @description Requires role `admin` (infrastructure.md). Writes the placement into the Server's spec, conditional on its generation, and answers at once. An omitted field is unchanged; at least one field must be given. A Zone must belong to the Server's Site; the Server controller moves the machine to it and the Server's conditions report when it has (a provisioner that cannot group keeps the spec and reports `capability_missing`). A Pool may be of any Site's Servers and takes effect at once; nothing changes in the provisioner.
+         * @description Requires role `admin` (infrastructure.md). Writes the placement into the Server's spec, conditional on its generation, and answers at once. An omitted field is unchanged; at least one field must be given. A Zone must belong to the Server's Site; the Server controller moves the machine to it and the Server's conditions report when it has (a provisioner that cannot group keeps the spec and reports `capability_missing`). A Pool may be of any Site's Servers and takes effect at once; nothing changes in the provisioner. A Server a Platform claims changes Pool only with its Platform (`PUT /api/v1/platforms/{id}/pool`).
          */
         put: operations["assignServerPlacement"];
         post?: never;
@@ -6420,6 +6443,14 @@ export interface components {
             /** @description The compute nodes, sorted by `serverId`; empty until the install recorded them. */
             nodes: components["schemas"]["PlatformOmnistatHardwareCounterNode"][];
             requested: boolean;
+        };
+        /** @description A Platform's Pool after it was moved, with the placement spec of each of its Servers. */
+        PlatformPoolMove: {
+            platformId: string;
+            /** @description The Pool every Server of the Platform is now in; `null` for no Pool. */
+            poolId: string | null;
+            /** @description Every Server of the Platform (its spec's members and the Servers it still claims), ordered by `serverId`, with its placement spec after the request; a Server that was already in the Pool keeps its generation. */
+            servers: components["schemas"]["ServerPlacement"][];
         };
         /** @description The optional removal choices of a Delete; every field defaults to false. */
         PlatformRemoval: {
@@ -12057,6 +12088,66 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    movePlatformToPool: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Platform's opaque id. */
+                id: components["parameters"]["PlatformId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description The swallow id of the Pool; `null` takes every Server of the Platform out of every Pool. */
+                    poolId: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description The Platform's Pool and its Servers' placement spec after the request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformPoolMove"];
+                };
+            };
+            /** @description `validation_error`: the body is not valid JSON, or `poolId` is missing or not a string or `null`. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `not_found`: the Platform or the Pool does not exist. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `conflict`: the Platform has no Servers, a Server's spec changed during the request, or a Server is not adopted yet. Nothing is written. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
     getSlurmClusterState: {
         parameters: {
             query?: never;
@@ -15410,7 +15501,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `conflict`: the Server is not adopted yet (retry shortly), or its spec changed during the request. */
+            /** @description `conflict`: the Server is not adopted yet (retry shortly), its spec changed during the request, or a Platform claims it and the request changes its Pool. */
             409: {
                 headers: {
                     [name: string]: unknown;

@@ -78,3 +78,14 @@ export interface ServerPlacement {
   readonly zoneId: string | null
   readonly poolId: string | null
 }
+
+/**
+ * A Platform's Pool after an admin moved it (null for no Pool), with the placement spec of each of
+ * its Servers — its spec's members and the Servers it still claims — ordered by Server id. A Server a
+ * Platform claims changes Pool only this way, all of the Platform's Servers together.
+ */
+export interface PlatformPoolMove {
+  readonly platformId: string
+  readonly poolId: string | null
+  readonly servers: readonly ServerPlacement[]
+}

@@ -423,7 +423,8 @@ swallow servers network add-link srv1 <interfaceId> -f link.yaml
 swallow servers network update-link srv1 <interfaceId> <linkId> -f link.yaml
 swallow servers network delete-link srv1 <interfaceId> <linkId>
 
-# Placement（Zone／Pool）— flags 或 --file
+# Placement（Zone／Pool）— flags 或 --file；Platform 的 Server 只隨 Platform 換 Pool
+#（swallow platforms set-pool），對它使用 --pool 或 --clear-pool 會被拒絕
 swallow servers placement srv1 --zone zone1 --pool pool1
 swallow servers placement srv1 --clear-zone --clear-pool   # 回到 provisioner 預設的 zone；移出所有 Pool（只剩 admin）
 swallow servers placement srv1 -f placement.yaml   # { zoneId, poolId }
@@ -653,6 +654,8 @@ swallow platforms delete plat1 --approve              # 立即 uninstall（只�
 swallow platforms delete plat1 --approve --release-servers --erase   # uninstall 時一併 release 成員
 swallow platforms delete plat1 --cancel-active-workflows   # 一併取消佔著 Server 的失敗或進行中部署
 swallow platforms delete plat1 --record-only          # 只刪紀錄，主機保持原樣
+swallow platforms set-pool plat1 --pool pool1         # 平台連同所有 Server 換到另一個 Pool（admin）
+swallow platforms set-pool plat1 --clear-pool         # 所有 Server 移出所有 Pool（之後只剩 admin）
 swallow platforms sync plat1
 swallow platforms sync-all
 swallow platforms slurm plat1                         # live Slurm cluster state
@@ -669,6 +672,10 @@ swallow platforms hardware-counters disable plat1     # 每台 compute node 改�
 GPU Operator、刪除平台）會回傳 Change Plan。加上 `--approve` 時 plan 隨寫入核准、變更立即開始，除非 Change Plan
 政策要求另外核准（`swallow plans policy`）；沒有加時，要等 `swallow plans approve` 核准才會動手。加入成員、開關 Slurm
 平台的 hardware counters 則直接收斂。
+
+`platforms set-pool` 以一次寫入把平台的每台 Server（成員與它仍 claim 的 Server）放進同一個 Pool，Zone 不變；存取立即
+跟著改變，主機與平台本身不受影響。這是平台的 Server 換 Pool 的唯一方式。見
+[platforms.md](../../api-server/docs/development/api-contracts/api-server/platforms.md#move-a-platform-to-another-pool)。
 
 `platforms delete` 會 uninstall 任何已開始部署的平台，包括仍在部署中（加上 `--cancel-active-workflows`）或部署失敗的；
 只有安裝從未開始的平台會直接刪除。對 uninstall 還在等待的平台再執行一次時，flag 相同就回傳同一份 Change Plan

@@ -481,6 +481,15 @@ export interface FixtureOptions {
   serverPlacements?: Record<string, { zoneId?: string | null; poolId?: string | null }>
   /** The Pool each seeded Platform reports in `status.poolId` by Platform id; omitted Platforms have none. */
   platformPools?: Record<string, string | null>
+  /** Called with each Server placement request (`PUT /servers/{id}/placement`) and its body. */
+  onPlacementRequest?: (serverId: string, body: { zoneId?: string | null; poolId?: string | null }) => void
+  /**
+   * Servers whose placement is refused with `409 conflict`, as one whose spec changed during the
+   * request would be. A Platform-claimed Server's Pool change is refused regardless.
+   */
+  placementConflictServerIds?: string[]
+  /** Called with each Platform move request (`PUT /platforms/{id}/pool`) and its body. */
+  onPlatformPoolRequest?: (platformId: string, body: { poolId?: string | null }) => void
   /** Adds a custom image (`Golden Custom`) that no deployment test has passed on either Deploy Target. */
   untestedCustomImage?: boolean
   serverListFailuresAfterInitial?: number
@@ -3872,6 +3881,26 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         return route.fulfill({ status: 204 })
       }
     }
+    // Server placement (infrastructure.md "Server placement"): an omitted field stays, null clears it;
+    // a Platform-claimed Server keeps its Pool, and a Server named in placementConflictServerIds is
+    // refused as one whose spec changed meanwhile would be.
+    const placementMatch = path.match(/^\/api\/v1\/servers\/([^/]+)\/placement$/)
+    if (placementMatch && request.method() === 'PUT') {
+      const item = fleet.find((server) => server.id === placementMatch[1])
+      if (!item) return json(route, { error: { code: 'not_found', message: 'Server not found' } }, 404)
+      const body = request.postDataJSON() as { zoneId?: string | null; poolId?: string | null }
+      options.onPlacementRequest?.(item.id, body)
+      if ('poolId' in body && (body.poolId ?? null) !== item.spec.poolId && item.status.platformClaim) {
+        return json(route, { error: { code: 'conflict', message: 'A platform claims this server, so its pool changes only with the platform: move the platform to another pool instead.', requestId: 'req-placement-' + item.id } }, 409)
+      }
+      if (options.placementConflictServerIds?.includes(item.id)) {
+        return json(route, { error: { code: 'conflict', message: "The server's spec changed during the request; read it and try again.", requestId: 'req-placement-' + item.id } }, 409)
+      }
+      const spec = { ...item.spec, ...('zoneId' in body ? { zoneId: body.zoneId ?? null } : {}), ...('poolId' in body ? { poolId: body.poolId ?? null } : {}) }
+      item.spec = spec
+      item.generation += 1
+      return json(route, { serverId: item.id, generation: item.generation, zoneId: spec.zoneId, poolId: spec.poolId })
+    }
     const serverMatch = path.match(/^\/api\/v1\/servers\/([^/]+)$/)
     if (serverMatch) {
       const index = fleet.findIndex((item) => item.id === serverMatch[1])
@@ -3970,6 +3999,35 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           draDriverVersions: ['v1.0.1'], defaultDraDriverVersion: 'v1.0.1',
         }],
       })
+    }
+
+    // A Platform's move to another Pool (platforms.md "Move A Platform To Another Pool"): every Server
+    // of its spec and every Server it claims gets the Pool, keeping its Zone; one already there keeps
+    // its generation.
+    const platformPoolMatch = path.match(/^\/api\/v1\/platforms\/([^/]+)\/pool$/)
+    if (platformPoolMatch && request.method() === 'PUT') {
+      const platform = platformItems.find((item) => item.id === platformPoolMatch[1])
+      if (!platform) return json(route, { error: { code: 'not_found', message: 'Platform not found.' } }, 404)
+      const body = request.postDataJSON() as { poolId?: string | null }
+      options.onPlatformPoolRequest?.(platform.id, body)
+      if (!('poolId' in body)) return json(route, { error: { code: 'validation_error', message: 'poolId is required: a pool id, or null for no pool.' } }, 400)
+      const target = body.poolId ?? null
+      const serverIds = [...new Set([
+        ...(platform.spec?.members ?? []).map((member) => member.serverId),
+        ...fleet.filter((server) => server.status.platformClaim?.platformId === platform.id).map((server) => server.id),
+      ])].sort()
+      const moved = serverIds.flatMap((serverId) => {
+        const item = fleet.find((server) => server.id === serverId)
+        if (!item) return []
+        if (item.spec.poolId !== target) {
+          item.spec = { ...item.spec, poolId: target }
+          item.generation += 1
+        }
+        return [{ serverId, generation: item.generation, zoneId: item.spec.zoneId, poolId: target }]
+      })
+      if (moved.length === 0) return json(route, { error: { code: 'conflict', message: 'The platform has no servers to move.' } }, 409)
+      platform.status = { ...platform.status, poolId: target }
+      return json(route, { platformId: platform.id, poolId: target, servers: moved })
     }
 
     // Spec write (platforms.md "Change A Platform"). The dashboard writes only the GPU Operator

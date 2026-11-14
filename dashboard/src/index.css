@@ -2433,7 +2433,8 @@ html:has(.sw-wizard) {
   font-weight: var(--chakra-font-weights-normal);
 }
 /* Links inherit no colour globally; the underline keeps a detail link apart without colour alone. */
-.sw-platform-facts__detail a {
+.sw-platform-facts__detail a,
+.sw-platform-pool a {
   color: var(--chakra-colors-brand-fg);
   font-weight: var(--chakra-font-weights-medium);
   text-decoration: underline;
@@ -3775,6 +3776,14 @@ html:has(.sw-wizard) {
 .sw-server-inventory-table .sw-server-col--pool { width: 7rem; }
 .sw-server-inventory-table .sw-server-col--health { width: 7rem; }
 .sw-server-inventory-table .sw-server-row-actions { width: 8rem; }
+
+.sw-server-pool,
+.sw-platform-pool {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+}
 
 .sw-server-inventory-table .sw-server-col--health {
   display: none;

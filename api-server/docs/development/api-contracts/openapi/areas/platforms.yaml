@@ -343,6 +343,66 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /api/v1/platforms/{id}/pool:
+    parameters:
+      - $ref: '#/components/parameters/PlatformId'
+    put:
+      tags: [platforms]
+      operationId: movePlatformToPool
+      summary: Move every Server of a Platform to one Pool together.
+      description: >-
+        Requires role `admin` (platforms.md, Move A Platform To Another Pool). Writes `poolId` into the
+        placement spec of every Server in the Platform's spec and every Server it still claims, in one
+        transaction and conditional on each Server's generation; Zones are kept, and a Server already in
+        the Pool is not written. Access follows at once; nothing changes on the hosts, the Platform, or
+        the provisioner. 400 for an invalid body; 404 for an unknown Platform or Pool; 409 when the
+        Platform has no Servers, a Server's spec changed during the request, or a Server is not adopted
+        yet, in which case nothing is written.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [poolId]
+              properties:
+                poolId:
+                  type: string
+                  nullable: true
+                  description: The swallow id of the Pool; `null` takes every Server of the Platform out of every Pool.
+      responses:
+        '200':
+          description: The Platform's Pool and its Servers' placement spec after the request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformPoolMove'
+        '400':
+          description: '`validation_error`: the body is not valid JSON, or `poolId` is missing or not a string or `null`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: '`not_found`: the Platform or the Pool does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: >-
+            `conflict`: the Platform has no Servers, a Server's spec changed during the request, or a
+            Server is not adopted yet. Nothing is written.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /api/v1/platforms/{id}/sync:
     parameters:
       - $ref: '#/components/parameters/PlatformId'
@@ -1741,6 +1801,26 @@ components:
           type: string
           nullable: true
           description: Why the read failed; null on success.
+
+    PlatformPoolMove:
+      type: object
+      description: A Platform's Pool after it was moved, with the placement spec of each of its Servers.
+      required: [platformId, poolId, servers]
+      properties:
+        platformId:
+          type: string
+        poolId:
+          type: string
+          nullable: true
+          description: The Pool every Server of the Platform is now in; `null` for no Pool.
+        servers:
+          type: array
+          description: >-
+            Every Server of the Platform (its spec's members and the Servers it still claims), ordered
+            by `serverId`, with its placement spec after the request; a Server that was already in the
+            Pool keeps its generation.
+          items:
+            $ref: '#/components/schemas/ServerPlacement'
 
     PlatformUpdate:
       type: object

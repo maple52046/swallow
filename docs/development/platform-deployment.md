@@ -506,7 +506,8 @@ Platform 的 id 與 deploy 受理時間，不存 Platform 名稱（名稱可以�
   Server Delete（在呼叫 provisioner 之前，即使 Machine 已不存在）一律 `409 conflict`，訊息指名 Server 與 Platform，
   `cancelActiveWorkflows` 也繞不過。Recover 處於不可用狀態（`failed`／`broken`／`rescue`／`allocated`）的 claimed Server
   仍允許，因為那是修復失敗部署的方式。代表該 Platform 執行的 Workflow（例如 uninstall 的 `release-os`）不受此規則限制；
-  Platform 的 Server 只透過 uninstall 搭配 `releaseServers` 釋放。
+  Platform 的 Server 只透過 uninstall 搭配 `releaseServers` 釋放。claimed Server 也不能單獨換 Pool，只隨整個 Platform
+  換（[identity-and-access.md](identity-and-access.md) §5）。
 - **由 spec 推導**：Platform 的 spec 是 claim 的來源。建立 Platform、加入成員的 spec 寫入與 claim 在同一個 transaction；
   spec 移除的成員保留 claim，直到移除它的變更真的執行。worker 的 platform controller 讓 present spec 的成員都有 claim
   （spec 出現前部署的 Platform 由它從最近一次部署接管時取得），並釋放指向已不存在 Platform 的 claim。這是 desired-state
