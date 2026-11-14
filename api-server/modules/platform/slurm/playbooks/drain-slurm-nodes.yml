@@ -1,19 +1,12 @@
 ---
 # Drain the nodes that leave a Slurm Platform before it is reconfigured without them (the scale-in
-# of decision 083). The inventory is the leaving nodes and the primary controller; the leaving nodes only
-# report their hostname (the Slurm node name), and the primary drains them and waits, bounded by
-# each node's drainTimeoutSeconds, until no job runs on them. A node whose removal forces it has
-# its jobs canceled at the timeout; one that does not fails the run with [slurm_drain_timeout] and
-# stays drained, so retrying the Task waits again. Running it again on drained nodes is a no-op.
-
-- name: Read the Slurm node name of every leaving node
-  hosts: all
-  gather_facts: true
-  tasks:
-    - name: Remember this host's Slurm node name
-      # Slurm names a node by its hostname (see deploy-slurm).
-      ansible.builtin.set_fact:
-        slurm_node_name: "{{ ansible_hostname }}"
+# of decision 083). The run is the primary controller alone: each leaving node is named by the node
+# name swallow stores for it (swallow_slurm_scale_in_nodes), never read from the node, so a node
+# whose machine failed is drained the same way. The primary drains the nodes and waits, bounded by
+# each node's drainTimeoutSeconds, until no job runs on them. A node whose removal forces it has its
+# jobs canceled at the timeout, and is set DOWN when they still do not end (a dead node cannot finish
+# them); one that does not fails the run with [slurm_drain_timeout] and stays drained, so retrying
+# the Task waits again. Running it again on drained nodes is a no-op.
 
 - name: Drain the leaving nodes and wait for their jobs
   hosts: all

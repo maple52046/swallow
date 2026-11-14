@@ -185,7 +185,7 @@
             "type": "host-automation",
             "playbook": "drain-slurm-nodes"
           },
-          "targets": "selected",
+          "targets": "access",
           "timeoutSeconds": 87000
         },
         {
@@ -303,6 +303,11 @@
     "slurm_drain_timeout": {
       "failureClass": "transient",
       "remediation": "Jobs still run on a node that is leaving the Platform. Wait for them, raise the removal's drainTimeoutSeconds, or set force to end them, then retry.",
+      "retryable": true
+    },
+    "slurm_node_unreachable": {
+      "failureClass": "transient",
+      "remediation": "A node leaving the Platform cannot be reached, so it cannot be cleaned. Bring it back and retry, or set force on its removal to finish without cleaning it (the cluster already no longer uses it).",
       "retryable": true
     },
     "slurm_drain_failed": {

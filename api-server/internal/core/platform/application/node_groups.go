@@ -421,3 +421,30 @@ func (s *DeployService) queuedJobs(ctx context.Context, platform *platformdomain
 	}
 	return queues.QueuedJobs(ctx)
 }
+
+// memberNodeNames is each leaving member's node name in the Platform's runtime: the name its
+// observed membership in this Platform reports, else its observed hostname (the name the
+// deployment gave the node). It reads only what swallow stores, never the host, so a member whose
+// machine failed can still be removed. A member with neither is ErrInvalidDeployment.
+func (s *DeployService) memberNodeNames(ctx context.Context, platformID string, removals []platformdomain.MemberRemoval) (map[string]string, error) {
+	names := make(map[string]string, len(removals))
+	for _, removal := range removals {
+		server, err := s.servers.FindByID(ctx, removal.ServerID)
+		if err != nil {
+			return nil, err
+		}
+		name := ""
+		if membership := server.Membership; membership != nil && membership.PlatformID == platformID {
+			name = strings.TrimSpace(membership.NodeName)
+		}
+		if name == "" {
+			name = strings.TrimSpace(server.Observed.Hostname)
+		}
+		if name == "" {
+			return nil, fmt.Errorf("%w: server %s has no recorded node name in the Platform or hostname, so it cannot be drained by name",
+				platformdomain.ErrInvalidDeployment, server.DisplayName())
+		}
+		names[removal.ServerID] = name
+	}
+	return names, nil
+}

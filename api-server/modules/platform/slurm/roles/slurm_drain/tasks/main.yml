@@ -1,14 +1,17 @@
 ---
 # Drain the leaving nodes on the primary controller and wait for their jobs to end (decision 083). The
 # wait is bounded per node and says what it waits for: the job count of each node, printed by the
-# helper on every poll and reported in the failure. Nothing here changes a node that stays.
+# helper on every poll and reported in the failure. Every command runs on the controller, so a node
+# that cannot be reached is drained like any other. Nothing here changes a node that stays.
 
 - name: Name the leaving nodes for the drain
+  # The names come from the run's variables (what swallow stores for each member), not from the
+  # nodes, which may be unreachable.
   ansible.builtin.set_fact:
     slurm_drain_nodes: >-
       {%- set nodes = [] -%}
       {%- for node in swallow_slurm_scale_in_nodes | default([]) -%}
-      {%- set _ = nodes.append({'name': hostvars[node.server_id].slurm_node_name,
+      {%- set _ = nodes.append({'name': node.name,
             'timeout': node.drain_timeout_seconds | int, 'force': node.force | default(false) | bool}) -%}
       {%- endfor -%}
       {{ nodes }}

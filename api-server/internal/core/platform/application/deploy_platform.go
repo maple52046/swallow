@@ -750,7 +750,11 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 		if len(input.removals) == 0 {
 			return nil, fmt.Errorf("%w: a scale-in needs members to remove", platformdomain.ErrInvalidDeployment)
 		}
-		launch.ScaleIn = &platformdomain.ScaleInLaunch{Removals: slices.Clone(input.removals)}
+		names, err := s.memberNodeNames(ctx, platform.ID, input.removals)
+		if err != nil {
+			return nil, err
+		}
+		launch.ScaleIn = &platformdomain.ScaleInLaunch{Removals: slices.Clone(input.removals), NodeNames: names}
 		launch.ChangedServerIDs = nil
 	}
 	if containerRuntime != "" {

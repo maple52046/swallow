@@ -5,15 +5,56 @@
 # setup, and the amdgpu loader Slurm needed are removed. The host OS and the image's packages
 # stay, so a kept node can join another Platform; one whose removal releases its Server is
 # released after this. Safe to rerun.
+#
+# A node that cannot be reached (its machine failed) cannot be cleaned. When its removal forces it,
+# the cleanup is skipped with a [slurm_node_unreachable] warning: the controller already drained it
+# and the cluster no longer names it, so the removal finishes and the node is cleaned (or released)
+# whenever it comes back. Otherwise the run fails with [slurm_node_unreachable].
 
-- name: Hold the OS's automatic package maintenance
+- name: Hold the OS's automatic package maintenance on the nodes that can be reached
   hosts: all
   gather_facts: false
+  pre_tasks:
+    - name: Try to reach the node
+      ansible.builtin.ping:
+      ignore_unreachable: true
+      register: slurm_node_reach
+
+    - name: Note whether the node can be reached and whether its removal is forced
+      ansible.builtin.set_fact:
+        slurm_node_unreachable: "{{ slurm_node_reach.unreachable | default(false) | bool }}"
+        slurm_node_forced: >-
+          {{ (swallow_slurm_scale_in_nodes | default([])
+              | selectattr('server_id', 'equalto', inventory_hostname) | map(attribute='force') | first | default(false)) | bool }}
+
+    - name: Skip the cleanup of a forced node that cannot be reached
+      ansible.builtin.debug:
+        msg: >-
+          [slurm_node_unreachable] warning: {{ inventory_hostname }} cannot be reached, so Slurm, MUNGE, the shared
+          filesystem mount, and the GPU and monitoring setup were not removed from it. The cluster no longer names
+          it; clean or release it when it is back.
+      when: slurm_node_unreachable and slurm_node_forced
+
+    - name: Refuse to finish an unforced removal of a node that cannot be reached
+      ansible.builtin.fail:
+        msg: >-
+          [slurm_node_unreachable] {{ inventory_hostname }} cannot be reached, so it cannot be cleaned. Bring it back
+          and retry, or force its removal to finish without cleaning it.
+      when: slurm_node_unreachable and not slurm_node_forced
+
+    - name: Group the nodes that can be cleaned
+      ansible.builtin.group_by:
+        key: slurm_cleanup_reachable
+      when: not slurm_node_unreachable
+
+    - name: Leave the hold to the nodes that can be reached
+      ansible.builtin.meta: end_host
+      when: slurm_node_unreachable
   roles:
     - role: package_maintenance_hold
 
 - name: Remove Slurm from the nodes that leave the Platform
-  hosts: all
+  hosts: slurm_cleanup_reachable
   gather_facts: false
   become: true
   roles:
@@ -27,3 +68,4 @@
       ansible.builtin.include_role:
         name: package_maintenance_hold
         tasks_from: release
+      when: not (slurm_node_unreachable | default(false) | bool)

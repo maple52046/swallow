@@ -38,7 +38,8 @@ const (
 )
 
 // prepareSlurmScaleIn plans the removal of launch.ScaleIn's members from a Slurm Platform: the scale-in
-// template's drain, reconfigure, and clean Tasks, then a release Task for every member that leaves
+// template's drain (from the primary controller, naming each node by its stored node name, so a
+// node that cannot be reached is still drained), reconfigure, and clean Tasks, then a release Task for every member that leaves
 // with its Server released, then complete-member-removal. The Workflow targets every member, the
 // leaving ones included, and is not a deploy, so the Platform stays active meanwhile.
 func (l platformDeploymentLauncher) prepareSlurmScaleIn(ctx context.Context, launch platformdomain.DeploymentLaunch) (*preparedPlatformDeployment, error) {
@@ -65,11 +66,17 @@ func (l platformDeploymentLauncher) prepareSlurmScaleIn(ctx context.Context, lau
 		if timeout <= 0 {
 			timeout = platformdomain.DefaultDrainTimeoutSeconds
 		}
-		nodes = append(nodes, map[string]any{"server_id": removal.ServerID, "drain_timeout_seconds": timeout, "force": removal.Force})
+		name := launch.ScaleIn.NodeNames[removal.ServerID]
+		if name == "" {
+			return nil, fmt.Errorf("%w: server %s has no node name to drain it by", platformdomain.ErrInvalidDeployment, removal.ServerID)
+		}
+		nodes = append(nodes, map[string]any{
+			"server_id": removal.ServerID, "name": name, "drain_timeout_seconds": timeout, "force": removal.Force,
+		})
 	}
 	remaining := slices.Clone(launch.TargetServerIDs)
 	compiled, err := template.Compile(l.catalog, workflowdomain.TemplateInput{
-		Servers: leaving, Access: []string{primary}, Members: remaining, Selected: append([]string{primary}, leaving...),
+		Servers: leaving, Access: []string{primary}, Members: remaining,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("plan the scale-in: %w", err)

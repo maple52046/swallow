@@ -26,7 +26,7 @@ func TestSlurmScaleInCompilesTheModuleTemplate(t *testing.T) {
 		ScaleIn: &platformdomain.ScaleInLaunch{Removals: []platformdomain.MemberRemoval{
 			{ServerID: "s3", DrainTimeoutSeconds: 120, Force: true, ReleaseServer: true},
 			{ServerID: "s4"},
-		}},
+		}, NodeNames: map[string]string{"s3": "gpu-03", "s4": "gpu-04"}},
 	}
 	plan, err := launcher.prepareSlurmScaleIn(context.Background(), launch)
 	if err != nil {
@@ -47,9 +47,10 @@ func TestSlurmScaleInCompilesTheModuleTemplate(t *testing.T) {
 		order = append(order, step.ID)
 	}
 	drain, reconfigure, clean := byID["drain-nodes"], byID["reconfigure-slurm"], byID["clean-nodes"]
-	// The leaving nodes are in the drain's inventory only to report their Slurm node names.
-	if !slices.Equal(serverIDsOf(drain.Targets), []string{"s1", "s3", "s4"}) {
-		t.Errorf("drain targets = %v, want the primary controller and the leaving nodes", serverIDsOf(drain.Targets))
+	// The drain runs on the primary controller alone and names the leaving nodes by their stored
+	// node names, so a node that cannot be reached is drained too.
+	if !slices.Equal(serverIDsOf(drain.Targets), []string{"s1"}) {
+		t.Errorf("drain targets = %v, want the primary controller", serverIDsOf(drain.Targets))
 	}
 	if !slices.Equal(serverIDsOf(reconfigure.Targets), []string{"s1", "s2"}) || !slices.Equal(reconfigure.DependsOn, []string{"drain-nodes"}) {
 		t.Errorf("reconfigure = targets %v depends %v", serverIDsOf(reconfigure.Targets), reconfigure.DependsOn)
@@ -62,6 +63,9 @@ func TestSlurmScaleInCompilesTheModuleTemplate(t *testing.T) {
 		t.Fatalf("drain nodes = %v", nodes)
 	}
 	first, second := nodes[0].(map[string]any), nodes[1].(map[string]any)
+	if first["name"] != "gpu-03" || second["name"] != "gpu-04" {
+		t.Errorf("drain node names = %v, %v", first["name"], second["name"])
+	}
 	if first["server_id"] != "s3" || first["drain_timeout_seconds"] != float64(120) && first["drain_timeout_seconds"] != 120 || first["force"] != true {
 		t.Errorf("s3 drain = %v", first)
 	}
@@ -81,6 +85,21 @@ func TestSlurmScaleInCompilesTheModuleTemplate(t *testing.T) {
 	}
 	if ids, _ := finalize.Parameters["serverIds"].([]string); !slices.Equal(ids, []string{"s3", "s4"}) {
 		t.Errorf("finalize serverIds = %v", finalize.Parameters["serverIds"])
+	}
+}
+
+// A leaving member without a stored node name cannot be drained by name, so the scale-in is refused.
+func TestSlurmScaleInNeedsEveryNodeName(t *testing.T) {
+	modules := testModules(t)
+	launcher := slurmCompositionLauncher(t, nil)
+	launcher.registry, launcher.catalog = modules.registry, workflowPlanCatalog(modules.workflowKinds, modules.software)
+	launch := platformdomain.DeploymentLaunch{
+		Platform: &platformdomain.Platform{ID: "plat-1", Name: "lab"}, TargetServerIDs: []string{"s1"},
+		TrustedVars: map[string]any{"swallow_slurm_primary_controller_id": "s1"},
+		ScaleIn:     &platformdomain.ScaleInLaunch{Removals: []platformdomain.MemberRemoval{{ServerID: "s3"}}},
+	}
+	if _, err := launcher.prepareSlurmScaleIn(context.Background(), launch); err == nil {
+		t.Error("prepareSlurmScaleIn() without node names succeeded")
 	}
 }
 

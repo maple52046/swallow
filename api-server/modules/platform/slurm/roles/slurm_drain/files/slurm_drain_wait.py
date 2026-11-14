@@ -3,8 +3,10 @@
 
 --nodes is a JSON list of {name, timeout, force}. Every poll prints the jobs still on each node.
 When a node's timeout passes it either cancels the node's jobs (force) and waits --grace seconds for
-them to end, or the script exits 3 with a last line naming the nodes that still run jobs. It exits
-0 when every node is empty, and 2 when squeue cannot be read.
+them to end, or the script exits 3 with a last line naming the nodes that still run jobs. A forced
+node whose canceled jobs still have not ended after the grace (a node whose machine failed cannot
+end them) is set DOWN, which makes slurmctld end them, and no longer waited for. It exits 0 when
+every node is empty or set DOWN, and 2 when squeue cannot be read.
 """
 
 import argparse
@@ -35,9 +37,10 @@ def main():
     nodes = json.loads(args.nodes)
     start = time.monotonic()
     canceled = {}
+    downed = []
     while True:
         try:
-            counts = {node["name"]: jobs_on(node["name"]) for node in nodes}
+            counts = {node["name"]: jobs_on(node["name"]) for node in nodes if node["name"] not in downed}
         except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
             print("the queue of the leaving nodes cannot be read: %s" % error)
             return 2
@@ -47,6 +50,8 @@ def main():
         if not busy:
             if canceled:
                 print("canceled jobs on " + ", ".join(sorted(canceled)))
+            if downed:
+                print("set DOWN, their jobs did not end after they were canceled: " + ", ".join(downed))
             return 0
         overdue = []
         for node in nodes:
@@ -59,7 +64,16 @@ def main():
                     canceled[name] = elapsed
                     print("canceled jobs on %s after %ds" % (name, elapsed), flush=True)
                 elif elapsed - canceled[name] > args.grace:
-                    overdue.append("%s still runs %d jobs %ds after they were canceled" % (name, len(busy[name]), elapsed - canceled[name]))
+                    done = subprocess.run(["scontrol", "update", "nodename=" + name, "state=down",
+                                           "reason=swallow: leaving the Platform, jobs did not end"],
+                                          capture_output=True, text=True, timeout=60)
+                    if done.returncode != 0 and "Invalid node name" not in done.stderr:
+                        overdue.append("%s still runs %d jobs %ds after they were canceled and could not be set DOWN: %s" % (
+                            name, len(busy[name]), elapsed - canceled[name], done.stderr.strip()))
+                    else:
+                        downed.append(name)
+                        print("set %s DOWN: %d jobs did not end %ds after they were canceled" % (
+                            name, len(busy[name]), elapsed - canceled[name]), flush=True)
             else:
                 overdue.append("%s still runs %d jobs (%s) after the %ss drain timeout" % (
                     name, len(busy[name]), ",".join(busy[name][:5]), node["timeout"]))

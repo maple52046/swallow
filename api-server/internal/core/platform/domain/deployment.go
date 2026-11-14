@@ -325,6 +325,10 @@ type DeploymentLaunch struct {
 // choices. TargetServerIDs of its launch are the members that stay.
 type ScaleInLaunch struct {
 	Removals []MemberRemoval
+	// NodeNames is each leaving member's name in the platform runtime (its Slurm node name), by
+	// Server id, read from what swallow stores about the member rather than from the host, so a
+	// member that cannot be reached any more (a failed machine) is still drained and removed.
+	NodeNames map[string]string
 }
 
 // DeploymentLauncher builds the durable Operation that deploys a Platform. It is a port so the

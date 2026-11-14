@@ -257,3 +257,25 @@ func TestRemovingABusyPartitionIsBlocked(t *testing.T) {
 		t.Errorf("an empty partition = %+v", empty.Blockers)
 	}
 }
+
+// A leaving member is named by its membership in this Platform, else by its hostname, both stored by
+// swallow; a member with neither cannot be drained by name and is refused.
+func TestLeavingMembersAreNamedFromStoredFacts(t *testing.T) {
+	member := groupServer("g1", "maas-1", 64)
+	member.Observed.Hostname = "gpu-01-host"
+	member.Membership = &serverdomain.MembershipStatus{PlatformID: "p1", NodeName: "gpu-01"}
+	other := groupServer("g2", "maas-1", 64)
+	other.Observed.Hostname = "gpu-02"
+	other.Membership = &serverdomain.MembershipStatus{PlatformID: "another", NodeName: "elsewhere"}
+	nameless := groupServer("g3", "maas-1", 64)
+	nameless.Observed.Hostname = ""
+	service, _, _ := newDeployHarness(member, other, nameless)
+
+	names, err := service.memberNodeNames(context.Background(), "p1", []platformdomain.MemberRemoval{{ServerID: "g1"}, {ServerID: "g2"}})
+	if err != nil || names["g1"] != "gpu-01" || names["g2"] != "gpu-02" {
+		t.Errorf("memberNodeNames() = %v, %v; want the membership name, then the hostname", names, err)
+	}
+	if _, err := service.memberNodeNames(context.Background(), "p1", []platformdomain.MemberRemoval{{ServerID: "g3"}}); !errors.Is(err, platformdomain.ErrInvalidDeployment) {
+		t.Errorf("a member without a name: error = %v, want ErrInvalidDeployment", err)
+	}
+}
