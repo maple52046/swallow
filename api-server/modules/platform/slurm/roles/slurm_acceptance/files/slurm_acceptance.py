@@ -121,8 +121,11 @@ def whole_nodes(slurm):
     return False
 
 
+# A configless compute node has no /etc/slurm/oci.conf: slurmd keeps the controller's copy in its
+# configuration cache, whose directory depends on the Slurm version.
 CENSUS = ('printf "%s oci=%s bundle=%s mpi=%s hip=%s runtime=%s\\n" "$SLURMD_NODENAME" '
-          '"$(test -f /etc/slurm/oci.conf && echo 1 || echo 0)" "$(test -d {bundle} && echo 1 || echo 0)" '
+          '"$(for f in /etc/slurm/oci.conf /run/slurm/conf/oci.conf /var/spool/slurmd/conf-cache/oci.conf; '
+          'do test -f "$f" && echo 1 && exit; done; echo 0)" "$(test -d {bundle} && echo 1 || echo 0)" '
           '"$(test -x {mpi} && echo 1 || echo 0)" "$(test -x {hip} && echo 1 || echo 0)" '
           '"$({runtime_check} && echo 1 || echo 0)"')
 

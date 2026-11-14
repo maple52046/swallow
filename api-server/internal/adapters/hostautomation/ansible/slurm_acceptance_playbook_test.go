@@ -270,6 +270,20 @@ func TestSlurmAcceptanceJudgesTheCluster(t *testing.T) {
 	}
 }
 
+// A configless compute node reads native OCI containers as on from slurmd's configuration cache, so
+// a gate over added compute nodes alone still runs the container check.
+func TestSlurmAcceptanceFindsOCIOnConfiglessNodes(t *testing.T) {
+	script, err := os.ReadFile(shippedFile(t, filepath.Join("roles", "slurm_acceptance", "files", "slurm_acceptance.py")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/etc/slurm/oci.conf", "/run/slurm/conf/oci.conf", "/var/spool/slurmd/conf-cache/oci.conf"} {
+		if !strings.Contains(string(script), path) {
+			t.Errorf("the census does not look for %s", path)
+		}
+	}
+}
+
 // The playbook runs the acceptance once and writes what it judged through validation_report; only
 // the gate mode asks it to drain.
 func TestSlurmAcceptancePlaybookReportsTheResults(t *testing.T) {
