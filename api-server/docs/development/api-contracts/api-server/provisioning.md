@@ -388,14 +388,26 @@ A template response contains:
     "defaultGateway": false
   },
   "hasUserData": true,
+  "minimumHardware": { "cpuCores": 32, "memoryMiB": null, "storageGB": null, "gpuModel": "MI308X", "gpuCount": 8 },
+  "usedBy": [ { "platformId": "platform-id", "platformName": "lab-slurm", "group": "mi308x" } ],
   "createdAt": "2026-08-28T10:00:00Z",
   "updatedAt": "2026-08-28T10:00:00Z"
 }
 ```
 
+`minimumHardware` is the template's optional hardware floor, `null` when it sets none; within it a
+`null` field sets no floor for that dimension. `gpuModel` matches, case-insensitively, within the
+compute GPU model name of a Server's GPU Inventory, and `gpuCount` counts compute GPUs. The floor
+applies when a Server joins a Platform node group installed from the template: a Platform spec write
+that adds a Server below it is refused, naming what the Server lacks, and inventory that does not
+report a dimension counts as not met ([platforms](platforms.md#node-groups-and-partitions)). An OS
+deployment of single Servers does not read it. `usedBy` lists the Platform node groups whose new members
+install from the template (`group` is `machine preparation` for a Platform's own default); always an
+array.
+
 `POST /templates` accepts `integrationId`, required `name`, optional
 `description`, required `imageId`, optional `deployTarget` (`"disk"` | `"ram"`,
-default `disk`), optional `network`, and optional write-only `userData`. The stored template
+default `disk`), optional `network`, optional `minimumHardware`, and optional write-only `userData`. The stored template
 carries the `ephemeral` boolean; `deployTarget` maps onto it (`disk ↔ false`,
 `ram ↔ true`). `network.mode` is `automatic`, `dhcp`, or
 `static` (glossary Network Configuration); missing network intent defaults to Automatic, on
@@ -408,7 +420,9 @@ longer an alias of `automatic`, and a template stored with `dhcp` reads as DHCP.
 gateway can be requested only for Static intent. It returns `201` and never echoes `userData`.
 
 `PATCH /templates/{id}` accepts any subset of `name`, `description`,
-`imageId`, the deploy mode (`deployTarget`), and `network`. It cannot change `integrationId` and
+`imageId`, the deploy mode (`deployTarget`), `network`, and `minimumHardware` (which replaces the floor;
+an object whose fields are all `null` clears it). A negative value in `minimumHardware` is a
+`400 validation_error`. It cannot change `integrationId` and
 never accepts `userData`. Image or network changes validate the live provider
 catalog before persistence. Templates never store a provider interface ID or a
 target-specific static IP. Historical records without `network` read as Automatic.
@@ -421,8 +435,9 @@ updated `hasUserData` flag; neither mutation echoes secret content.
 Template names are trimmed and case-insensitively unique within one Integration.
 `GET /templates` returns a plain, unpaginated array; its filters are conjunctive, and a Site and Integration that do not match yield an empty array. An
 unknown Site, Integration, or template is `404 not_found`; a non-provisioner Integration
-or invalid/missing field is `400 validation_error`; duplicate names and deletion of an
-Integration still referenced by a template are `409 conflict`. Create, and an update that
+or invalid/missing field is `400 validation_error`; duplicate names, deletion of an
+Integration still referenced by a template, and deletion of a template a Platform node group
+installs from (the message names the Platforms and groups) are `409 conflict`. Create, and an update that
 changes the network, require a provisioner with network configuration: on one without it
 they are `400 validation_error`, like any unsupported capability. A provisioner catalog that cannot be read is
 `503 provider_unavailable`.
@@ -625,9 +640,9 @@ cover `POST /deployment-operations` and platform deploys. See
 Without a template, a missing `network`, or a `network` without `mode`, resolves to swallow's
 Automatic default on every subnet, including one without provisioner DHCP; swallow never switches a
 deployment to `dhcp` by itself (see [Network Inspection](#network-inspection)). With a template, a
-missing `network` takes the template's network intent, and a `network` without `mode` keeps the
-template's mode while its `subnetId`, `defaultGateway`, and `assignments` apply as sent, so a
-request can add the per-target static IPs a Static template cannot hold. The Workflow freezes the
+missing `network` takes the template's network intent, and a `network` without `mode`, `subnetId`, or
+`defaultGateway` keeps the template's value for each one it omits while its `assignments` apply as
+sent, so a request can add the per-target static IPs a Static template cannot hold. The Workflow freezes the
 resolved mode, so a later template change does not alter it. `network.mode` accepts
 `automatic`, `dhcp`, or `static`; keep-current is not valid intent. Automatic is realized
 by the provider's auto-assign capability, so the deployed address is stable and always
@@ -1060,6 +1075,11 @@ answers `200`, and the same message is recorded as the Integration's last sync e
 unknown Integration is `404 not_found` and a non-provisioner Integration `400 validation_error`.
 
 ## Compatibility Notes
+
+On 2026-11-14 a Deployment Template gained `minimumHardware` and `usedBy` (additive), and deleting a
+template a Platform node group installs from became `409 conflict`. The same day a deployment with a
+template began keeping the template's `subnetId` and `defaultGateway` when the request's `network`
+omits them; they used to be replaced by the request's empty values.
 
 On 2026-11-13 `GET /image-catalogs` was added: the image catalogs of every provisioner of a Site
 in one reference read, so a user who may not list Integrations can see OS Images. It is additive;

@@ -120,10 +120,24 @@ Deployment Templates。
   catalog 消失時 template 仍在、但無法用來部署；UI 必須顯示這個狀態，而不是把 image metadata 複製進 template。
 - 名稱在同一 Integration 內 case-insensitive 唯一；Integration 仍被 template 參照時不能刪除（`409`）。
 - 沒有 `network` 的舊紀錄讀為 `automatic`；2026-09-06 前存成 `dhcp` 的 template 現在代表 DHCP（§6）。
+- 選用的最低硬體（`minimumHardware`）：CPU 核心數、記憶體 MiB、儲存 GB、GPU 型號（在 GPU Inventory 的 compute GPU
+  型號中以不分大小寫的子字串比對）、compute GPU 數，每一項都可以不填。它只約束 Platform 的節點群組：spec 寫入時，
+  這次加入的成員要達到它的 template 的每一項，inventory 缺漏也算未達（fail-closed），拒絕時說明差多少；已在 Platform
+  的成員不重新檢查。單台的 OS 部署不讀它。Platform type 的 Minimum Resource Requirement 照舊另外檢查。
+- 用途：template 被 Platform 的節點群組引用時，回應的 `usedBy` 列出 Platform 與群組，template 不能刪除（`409`，訊息
+  說明哪個 Platform 的哪個群組在用）。修改 template 只影響之後從它裝機的成員，既有成員不重裝；每個成員記下部署時的
+  template 與內容摘要，讀者能看出成員和目前的 template 是否不同。
+- Platform 產生的 template：provision_os 的 Platform 為沒有 template 的節點群組，以機器準備的內容（image、Deploy
+  Target、網路、sealed cloud-init）在成員所屬的 Integration 建立 `<platform>-<group>`（名稱已被用時加上 id 前綴），
+  之後就是一般的 template，user 可以修改或改為引用別的 template（[decision 083](../decisions/083-platform-member-scaling.md)
+  （Platform member scaling））。
+- 用 template 部署時，請求沒填的網路 mode、subnet 與 default gateway 沿用 template 的值；只指定 template 的
+  Kubernetes 部署以 template 的 Deploy Target 決定 root 的模式。
 
 **設計理由**：沒有任何外部系統擁有「某個 Integration 上可重用的 image、部署模式與 cloud-init 組合」，所以由
 swallow 擁有；可變的 automation 內容屬於 release 內的 playbook，不屬於資料庫（退場的 `ProvisioningProfile`
 正是越過這條線）。image 識別與能力只在單一 provisioner Integration 內成立，所以 template 不做成 fleet-wide。
+最低硬體是資格門檻而不是規格：同一份 template 可以裝 CPU、記憶體不同的機器，Slurm 的節點設定本來就逐台偵測。
 見 [decision 009](../decisions/009-deployment-template-ownership.md)。
 
 ---

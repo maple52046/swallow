@@ -433,7 +433,8 @@ per-Task，故分組後即與 deploy 一致，無需另外處理。Release 捷�
 `uninstall-platform` 成功時由結果類完成行為 `platform-uninstall` 做的投影清理（`CompleteUninstall`，§2.5），
 只需要 Platform id、不帶 ansible result；released 主機已被清除，所以不還原 exporter。保留主機的路徑不變。
 
-- 只用於整個 Platform 的 uninstall。未來的 scale-in 必須先把節點從叢集移除（drain／remove）再 release，不沿用此捷徑。
+- 只用於整個 Platform 的 uninstall。scale-in（移除 Slurm compute 成員，§6.3「節點群組、partition 與擴縮」）先把節點
+  從叢集移除（drain、重新設定、清理）再 release，不沿用此捷徑。
 - Workflow kind 仍是 `uninstall-kubernetes`／`uninstall-slurm`（definition `platform-uninstall` v1），lifecycle 照舊由
   Workflow 狀態推導（`uninstalling` → `uninstalled`），`retryOfOperationId` 的重試規則相同。
 - 設計理由：否決「保留 uninstall step 但當 no-op」、「改接通用的 operation-success hook」與「受理時就清理投影」，
@@ -652,6 +653,11 @@ client/user **不可偽造**（user 只能提供非 `swallow_` 前綴的變數�
   | --- | --- |
   | `swallow_slurm_gpu_compute_ids` | 有 AMD compute GPU 的 compute serverId（一律為 list） |
   | `swallow_slurm_gpu_gres_type` | GPU node 的 GRES type；空字串＝依 GPU 架構推導（一律送出） |
+  | `swallow_slurm_partitions` | 每個 partition 的 `name`、`default`、`nodes`（serverId）、`max_time`、`def_mem_per_cpu`（0＝依節點推導）、`over_subscribe`、`allow_groups`；由 Slurm 模組的 `DeploymentTopology` 產生（§6.3） |
+  | `swallow_slurm_node_features` | compute serverId → Slurm Features（GPU 型號、群組名） |
+  | `swallow_slurm_expected_gpus` | compute serverId → 群組預期的 GPU 數（只列有預期的） |
+  | `swallow_slurm_degraded_feature`／`swallow_slurm_degraded_weight` | GPU 少於預期的節點加上的 Feature（`gpu_degraded`）與 `Weight`（100） |
+  | `swallow_slurm_scale_in_nodes` | scale-in 時每台離開的成員 `{server_id, drain_timeout_seconds, force}`（只在 `slurm-scale-in` 的 Task） |
   | `swallow_gpu_driver_module_options` | user 的 amdgpu module options（`{name: value}`，一律送出，可為空）；Slurm 與 GPU Operator 共用 |
   | `swallow_slurm_omnistat_enabled` | `deploy-slurm` 渲染 Omnistat 的 Slurm 端 overlay |
   | `swallow_omnistat_version` / `swallow_omnistat_port` | Omnistat 版本（`1.15.0`）與 exporter port（`8001`） |
@@ -946,14 +952,16 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   controller＋compute → `control-plane` 且 `runWorkloads`、compute → `worker`；login-only 不是 role assignment，
   另列在 `loginServerIds`。因此 slurmrestd 只把 compute 回報成 member 時，controller 仍會被計入與列出。
 - **Job**：重用 `ensure-os`（用 user 的 Slurm image 佈 OS 或重用已 `deployed` 者），新增
-  `configure-slurm` Job 只含 `install-platform`（ansible），之後是 gate 的 `validate-slurm` Job。**無
-  `validate-platform-health`**——deployed integration 要等 install 步驟成功後才存在。`deploy-slurm` 只確認叢集成形
-  （`slurm_verify`：`scontrol ping` 與每台 compute 在 `sinfo --Node` 註冊為可排程）；叢集能不能用由 Validation Suite
-  `slurm-acceptance` 以 gate 驗收（[validation.md](validation.md) §5、§7）：launcher 在 `install-platform` 之後組入它的
-  Task（從 primary controller 進入，gate mode，`gpuServers` 是部署對應的 GPU compute node）與 `complete-validation`，
-  兩者同屬 `validate-slurm` Job，所以重試這個 Job 會重跑整個 suite；之後組入的 Job 都依賴它。gate 的 run 與 Workflow 在
-  同一個 transaction 寫入。gating check 沒有通過時部署以 `validation_gate_failed` 停在 `requires_attention`；`srun-all-nodes`
-  不是 gating，只記在 run。成員由背景 membership sync 補上。
+  `configure-slurm` Job 只含 `install-platform`（ansible），之後是組入的軟體（下表）、GPU probe image 的拉取，最後是
+  gate 的 `validate-slurm` Job。**無 `validate-platform-health`**——deployed integration 要等 install 步驟成功後才存在。
+  `deploy-slurm` 只確認叢集成形（`slurm_verify`：`scontrol ping` 與每台 compute 在 `sinfo --Node` 註冊為可排程）；叢集
+  能不能用由 Validation Suite `slurm-acceptance` 以 gate 驗收（[validation.md](validation.md) §5、§7）：launcher 在最後
+  組入它的 Task（從 primary controller 進入，gate mode，`gpuServers` 是部署對應的 GPU compute node）與
+  `complete-validation`，兩者同屬 `validate-slurm` Job，所以重試這個 Job 會重跑整個 suite。gate 放在最後，因為它的容器 GPU
+  檢查需要 container runtime 與 probe image（[decision 083](../decisions/083-platform-member-scaling.md)（Platform member
+  scaling））。加入成員的部署只驗變動的成員（`nodes` 參數；只改排程設定、沒有變動成員的部署不組 gate）。gate 的 run 與
+  Workflow 在同一個 transaction 寫入。gating check 沒有通過時部署以 `validation_gate_failed` 停在 `requires_attention`；
+  `srun-all-nodes` 不是 gating，只記在 run。成員由背景 membership sync 補上。
 - **trusted vars**（`swallow_slurm_*`，client 不可偽造）：`cluster_name`（未指定時為清理過的 Platform 名稱）、
   `platform_name`、`controller_ids`（有序，第一個為 primary）、`compute_ids`、`login_ids`、`primary_controller_id`、
   `high_availability`、`controller_state_mode`（`local`／`shared`）、HA 時的 `state_server_id` 與 `state_export`
@@ -1012,8 +1020,9 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   讀取失敗則 fail closed；Kubernetes 不讀也不套用。它只是資格門檻：不保留資源、不改 Slurm scheduler 容量、不從 image
   推導，也不保證任意 image 的 ephemeral rootfs 一定能容納。
 - **uninstall**：`uninstall-slurm`（[uninstall-slurm.yml](../../api-server/modules/platform/slurm/playbooks/uninstall-slurm.yml)）
-  比照 `uninstall-kubernetes`：停用 slurmctld/slurmd/slurmrestd/munge、移除 swallow 佈的
-  設定/金鑰/controller state（保留 OS 與 image 套件），可選擇同時 release 成員機。已在 lab
+  比照 `uninstall-kubernetes`：停用 slurmctld/slurmd/slurmrestd/munge/sackd、移除 swallow 佈的
+  設定/金鑰/controller state（保留 OS 與 image 套件），卸載並移除 workload 共享檔案系統的 mount 與 fstab 行，可選擇同時
+  release 成員機。每台節點的清理在 `slurm_node_cleanup` role，scale-in 的 `uninstall-slurm-node` 共用它。已在 lab
   以 5 節點驗證(rc=0、platform → uninstalled)。
 - **login 角色 + workload 共享儲存**：Slurm 節點角色新增 **login**(提交/client 主機,不跑
   cluster daemon;可兼任 NFS server)。`nodeAssignments[]` 帶 `login` 旗標,login-only 節點合法。login host 是
@@ -1056,14 +1065,18 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   以 `[amdgpu_reload_blocked]` 失敗並列出佔用者（整個 role 只有這一個 reboot，靜態測試守住 guard）。之後逐一
   比對 `/sys/module/amdgpu/parameters`，不符以 `[amdgpu_option_not_applied]` 失敗；modinfo 有但 sysfs 不公開的
   只列為 unverifiable。不比對任何 GPU 型號或 SR-IOV。
-- **GPU 可用性驗收（decision 063）**：共用 role `gpu_probe` 在每台 GPU node 安裝
-  `/usr/local/libexec/swallow/hip-probe`（ctypes 呼叫 `libamdhip64`，無 device code、與架構無關）並直接執行：
-  `hipGetDeviceCount`＝KFD GPU 數，每張 GPU `hipSetDevice`／`hipMalloc`／`hipMemset`／`hipDeviceSynchronize`／
-  `hipFree`，連續 3 次、每次獨立 process（結束時 crash 也算失敗）；失敗時 `slurm_gpu` drain 該節點並以
-  `[gpu_probe_failed]`（無 HIP runtime 為 `[hip_runtime_missing]`）失敗。`slurm-acceptance` gate 的 `gpu-gres` 再透過
-  Slurm 跑三種作業：無 GPU request（看到 0）、`--gres=gpu:1`（看到 1 且 `ROCR_VISIBLE_DEVICES=0`）、整台（節點 GRES 只有
-  一種 type 時是該 GRES，否則 `gpu:<數量>`，probe 3 次），並要求 `gpuServers` 的每台都提供 GPU GRES；失敗的節點
-  `scontrol update state=drain`（只有 gate mode 會 drain），部署以 `validation_gate_failed` 停下。
+- **GPU 可用性驗收（decision 063、decision 083）**：host 只需要 amdgpu driver，不需要與 GPU 相符的 ROCm。硬性關卡是 KFD
+  的 GPU 數（`[slurm_gpu_missing]`）與 AMD SMI 健康檢查（`files/amd_smi_health.py`：裝置清單、uncorrectable ECC）：沒有
+  `amd-smi` 以 `[amd_smi_missing]`、沒有裝置或有 uncorrectable ECC 以 `[amd_smi_unhealthy]` 失敗；AMD SMI 數到的裝置數和
+  KFD 不同只記錄。共用 role `gpu_probe` 的 host HIP probe（ctypes 呼叫 `libamdhip64`，每張 GPU
+  `hipSetDevice`／`hipMalloc`／`hipMemset`／`hipDeviceSynchronize`／`hipFree`）只記錄結果到
+  `/var/lib/swallow/gpu/hip-probe.json`，不 drain 節點、不讓部署失敗：host 的 ROCm 不一定涵蓋 GPU 的 gfx 目標。
+  `slurm-acceptance` gate 的 `gpu-gres` 透過 Slurm 跑三種作業：無 GPU request（看到 0）、`--gres=gpu:1`（看到 1 且
+  `ROCR_VISIBLE_DEVICES=0`）、整台（節點 GRES 只有一種 type 時是該 GRES，否則 `gpu:<數量>`），作業數的是 job 的 device
+  cgroup 允許開啟的 render 裝置；GPU node 有 container runtime 時，同一個作業再以 swallow 的 GPU probe image（模組
+  `artifacts.images`，`prepare-gpu-probe` 預先拉取）在容器內只掛那些裝置跑 HIP kernel（`--pull=never`），容器自帶 ROCm。
+  要求 `gpuServers` 的每台都提供 GPU GRES；失敗的節點 `scontrol update state=drain`（只有 gate mode 會 drain），部署以
+  `validation_gate_failed` 停下。
 - **選用功能：container runtime（decision 063）**：deploy request 帶 `containerRuntime.kind`
   （`docker-ce`／`podman`）時，`Platform.containerRuntime` 記下選擇，`DeploymentLaunch.ContainerRuntime`
   帶 compute ∪ login 的 serverId；launcher 把該 runtime 當 Managed Software 組入（見下表），每台 Server
@@ -1076,8 +1089,9 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   失敗只 `logger -t swallow-prolog`，永遠 `exit 0`——hook 只負責把 job 歸屬給監控，不能讓 job 失敗或讓節點 drain。
   configless 不配送 script，所以 hook 與 dispatcher 都由 Ansible 下發。每個 Slurm 部署都有 dispatcher（即使沒有
   hook），舊 Platform 重佈時取代 Omnistat 先前的 Prolog/Epilog 檔。非 Omnistat 時
-  partition `OverSubscribe=NO`（既有叢集在下次重佈時生效，之後 job 以 `--exclusive` 要求整台節點）；偵測 play 依 `slurmd -C` 的 `RealMemory` 扣 OS 保留（5%，2–16 GiB，至多一半）
-  得到 `slurm_node_schedulable_memory`，`slurm_config` 取各節點「可排程記憶體／CPU」最小值為 `DefMemPerCPU`。
+  partition 預設 `OverSubscribe=NO`（partition 可另指定；既有叢集在下次重佈時生效，之後 job 以 `--exclusive` 要求整台節點）；偵測 play 依 `slurmd -C` 的 `RealMemory` 扣 OS 保留（5%，2–16 GiB，至多一半）
+  得到 `slurm_node_schedulable_memory`，`slurm_config` 取各節點「可排程記憶體／CPU」最小值為全域 `DefMemPerCPU`；
+  每個 partition 用自己的 `defMemPerCpu`，沒有時取該 partition 節點的最小值，和全域值不同時才寫在 partition 行。
   `slurm-acceptance` 的 `shared-node` 以兩個未帶 `--mem` 的一 CPU job 同時在同一節點 RUNNING 驗證（partition 是
   `OverSubscribe=EXCLUSIVE` 時 `skipped`）。
   `group_by` 與結果檔 `changed_when: false`，收斂的叢集重跑 `changed=0`。
@@ -1129,7 +1143,7 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   `patch`；以 pip 建的舊環境缺少 lock 的建置依賴，第一次執行時重建一次。uninstall 照舊移除整個 `/opt/omnistat`；
   swallow 提供的 uv（`/opt/swallow/uv`、`/opt/swallow/bin/uv`）與 OS 的 `python3.12` 套件保留，就像其他 OS 套件。
 - **Omnistat 的 hardware counters（decision 063）**：deploy request 的 `omnistat.hardwareCounters`（API 省略時 `false`，
-  部署精靈預設勾選）記在 Platform 的 Omnistat 上，launcher 以 `swallow_omnistat_hardware_counters` 交給
+  部署精靈預設也不勾）記在 Platform 的 Omnistat 上，launcher 以 `swallow_omnistat_hardware_counters` 交給
   `configure-omnistat`。每台 compute 在 `tasks/hardware_counters.yml` 依序判斷，任何一步不通過就以原因關掉 counters，
   exporter 照常，Task 不失敗：
   1. 沒有 AMD compute GPU：`no_gpu`。
@@ -1230,6 +1244,33 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   `python3-mpi4py`（不裝 recommends；SchedMD 的 `mpi_pmix_v5.so` RPATH 指向 Ubuntu `libpmix2` 的目錄），compute 裝
   `files/mpi-probe.py`；套件新裝時 slurmd 重啟。`slurm-acceptance` 跑單節點 2 rank、兩節點各 1 rank、（OCI 時）兩節點容器
   各 1 rank，要求同一 PMIx namespace、barrier 通過，並確認失敗 rank 讓 step 失敗。關閉時移除 `oci.conf` 與 bundle，crun 套件保留（Podman 也依賴它）。
+- **節點群組、partition 與擴縮（[decision 083](../decisions/083-platform-member-scaling.md)）**：Slurm 設定的
+  `nodeGroups[]` 與 `partitions[]` 是 Slurm 模組的 spec（`modules/platform/slurm/topology.go`）。群組有名稱、一個角色、
+  Deployment Template、可選的 `expectedGpusPerNode` 與成員；每個成員的角色是它所屬群組的角色的聯集。partition 有名稱、
+  是否預設（剛好一個）、compute 群組（至少一個，有成員的 compute 群組至少在一個 partition）、`maxTime`、可選的
+  `defMemPerCpu`、`overSubscribe`、`allowGroups`。沒有群組的舊 spec 讀成每個角色一個群組與預設 partition `main`
+  （`Nodes=ALL`、`MaxTime=INFINITE`），controller 以 `UpgradeSpec` 存下這個形式，渲染出的 `slurm.conf` 只多了 node 的
+  `Features=`。模組把它們渲染成 trusted vars `swallow_slurm_partitions`（每個 partition 的節點）、
+  `swallow_slurm_node_features`（compute node 的 GPU 型號與群組名，供 `--constraint`）、`swallow_slurm_expected_gpus`、
+  `swallow_slurm_degraded_feature`（`gpu_degraded`）與 `swallow_slurm_degraded_weight`（100）：`slurm_gpu` 數到的 GPU 少於
+  群組預期時，節點加上 `gpu_degraded` 與較高的 `Weight`（排程最後才用），部署不失敗；spec 寫入時也依 GPU Inventory 回
+  warning。slurm.conf 或 gres.conf 改變時，slurmctld 在 active 時以 `scontrol reconfigure` 原地套用，不重啟 slurmd。
+  - **Scale-out**：每個群組的新成員從群組的 template 裝機（成員層的 template 引用，只保留機器準備的網路設定），
+    [os-provisioning.md](os-provisioning.md) §3 的 template 最低硬體在 spec 寫入時檢查新加入的成員。provision_os 的
+    Platform 每個沒有 template 的群組得到一份 template：機器準備指定的 template，否則 Platform 由機器準備產生
+    `<platform>-<group>`（記在 `machinePreparation.generatedTemplates`，在接受 realization 的 transaction 內建立；已套用的
+    Platform 需要 Change Plan）。部署成功的成員記下 template 與內容摘要（`status.memberTemplates`）。
+  - **Scale-in**：從 compute 群組移除成員是破壞性的 realization `scale-in`，`memberRemovals[]` 指定每台的
+    `drainTimeoutSeconds`（預設 600，上限 86400）、`force` 與是否 release。launcher（`prepareSlurmScaleIn`）編譯 Slurm 模組
+    的宣告式 template `slurm-scale-in`（kind `scale-in-slurm`）：`drain-nodes`（`drain-slurm-nodes`，primary controller
+    drain 並等待，印出每台的 job 數，逾時以 `[slurm_drain_timeout]` 失敗或在 `force` 時 `scancel`）→ `reconfigure-slurm`
+    （`deploy-slurm`，留下的成員）→ `clean-nodes`（`uninstall-slurm-node`，離開的成員），之後每台要 release 的成員一個
+    `release-os`，最後 internal 的 `complete-member-removal` 清除成員並釋放 Platform Claim。Platform 維持 `active`。
+  - **擋下的變更**：controller 或 login 的增減與角色變更、同一次變更加入又移除成員、移除最後一個 compute、移除還有工作
+    的 partition（經 slurmrestd 讀數量，讀不到也擋下）。
+  - **重新偵測**：`POST /platforms/{id}/slurm/nodes/{serverId}/rescan` 以 realization `rescan` 對已套用的 spec 重跑
+    `configure-slurm`（`deploy-slurm` 在每台重新偵測 GPU，沒變的節點不改變），gate 只驗該台，讓 GRES 跟實際一致；它是
+    動作，不是 spec 變更。
 - **非目標（後續）**：SlurmDBD/accounting、RSMI GPU accounting、production 等級/外部 HA controller-state
   filesystem（controller state 目前為 lab 等級 managed NFS）、非 NFS 的 workload 儲存型別、多個
   workload filesystem、使用者的家目錄與共享儲存、`pam_slurm_adopt`、`auth/slurm`、部署後單獨
@@ -1247,7 +1288,9 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
 Slurm playbook：[`deploy-slurm.yml`](../../api-server/modules/platform/slurm/playbooks/deploy-slurm.yml) 與
 Slurm 模組的 `roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_gpu`、
 `slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、
-`slurm_cluster_credential`、`slurm_job_hooks`）與共用的 `gpu_probe`；gate 的 suite：
+`slurm_cluster_credential`、`slurm_job_hooks`）與共用的 `gpu_probe`；scale-in：`drain-slurm-nodes.yml`（`roles/slurm_drain`）、
+`uninstall-slurm-node.yml`（`roles/slurm_node_cleanup`，`uninstall-slurm.yml` 共用）；GPU probe image：`prepare-gpu-probe.yml`
+（`roles/slurm_gpu_probe_image`，image 由 `deploy/release/gpu-probe/` 建置）；gate 的 suite：
 [`validate-slurm-acceptance.yml`](../../api-server/modules/platform/slurm/playbooks/validate-slurm-acceptance.yml) 與
 `roles/slurm_acceptance`（檢查在 `files/slurm_acceptance.py`），組入部署的程式在 `internal/app/validation_gate.go`；Device Metrics Exporter：
 [`deploy-device-metrics-exporter.yml`](../../api-server/modules/software/device-metrics-exporter/playbooks/deploy-device-metrics-exporter.yml)

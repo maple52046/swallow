@@ -31,6 +31,15 @@ axis. (Clients now submit OS deployments as a durable `deploy-os` Workflow, and
 this direct batch remains as a deprecated endpoint; see the current spec. The
 template owns no execution lifecycle on either path.)
 
+A template may also carry an optional minimum hardware floor (CPU cores, memory,
+storage, GPU model, GPU count). It is an eligibility check for Servers joining a
+Platform node group installed from the template, not a hardware specification:
+one template still installs machines with different CPUs and memory. A template
+a Platform node group references cannot be deleted, and a Platform may generate
+templates from its machine preparation, which are ordinary templates once
+created ([decision 083](083-platform-member-scaling.md) (Platform member
+scaling)).
+
 OS Images are read live from each Integration and are never mirrored into the
 template collection. Creating, changing, or using a template validates its image
 against the current provider catalog.
@@ -69,3 +78,4 @@ cannot be rolled back safely.
 ## Revision history
 
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
+- 2026-11-14: templates gained the optional minimum hardware floor, protection while a Platform node group references them, and Platform-generated templates (decision 083); they no longer sit behind an experimental flag.

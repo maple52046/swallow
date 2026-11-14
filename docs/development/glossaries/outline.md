@@ -80,6 +80,8 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Platform Claim](terms/platform-claim.md): The record on a Server that an accepted
   Platform deployment targets it; released by that Platform's successful uninstall or deletion,
   and the reason a claimed Server cannot be released directly.
+- [Node Group](terms/node-group.md): A named set of a Platform's members sharing one role and one Deployment Template, scaled together; today a Slurm Platform's groups, of which only `compute` groups grow or shrink.
+- [Slurm Partition](terms/slurm-partition.md): A Slurm Platform's scheduling queue over compute Node Groups, with its own default, time limit, memory per CPU, and access; exactly one is the default.
 - [Node Role](terms/node-role.md): The part a server plays in a Platform — `control-plane` or `worker` — used both for observed membership and for assigning roles when deploying a Platform.
 - [Kubernetes Topology](terms/kubernetes-topology.md): The supported placement and availability
   shape of a Kubernetes deployment — standalone, non-HA multi-node, or high availability.
@@ -117,7 +119,8 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 - [Provider Recovery](terms/provider-recovery.md): The policy and the Recover/Release intents that return a `failed`, `broken`, `rescue`, or `allocated` Server to `ready`.
 - [Rescue Mode](terms/rescue-mode.md): A provider diagnostic environment; exiting restores the prior state and does not by itself reach `ready`.
 - [Deployment Template](terms/deployment-template.md): Reusable,
-  integration-scoped deployment intent without automation content.
+  integration-scoped deployment intent without automation content, with an optional
+  minimum hardware floor; Platform Node Groups install their new members from one.
 - [Network Configuration](terms/network-configuration.md): Typed NIC subnet-link
   and addressing state plus the explicit intent swallow can apply.
 - [IP Binding](terms/ip-binding.md): One explicit static address associated with

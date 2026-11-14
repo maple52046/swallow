@@ -98,7 +98,9 @@ split keeps its single `cluster-admin` token for both until a deployment on it s
   and rotation posture covers both.
 - Day-2 lifecycle (scale nodes, upgrade k0s, etcd snapshot) is explicitly out of the first
   wave but bounded here as lifecycle-plane Workflows, not explorer RPCs, so it is not built
-  ad hoc later.
+  ad hoc later. Scaling Slurm compute nodes is now such a Workflow, driven by the Platform
+  spec and its Change Plans ([decision 083](083-platform-member-scaling.md) (Platform member
+  scaling)); the Slurm control plane and Kubernetes members are not scaled yet.
 - The planned `/planes` surface (kubeconfig-registered management planes) is superseded: it
   described registering foreign planes, which this decision removes.
 
@@ -121,3 +123,4 @@ split keeps its single `cluster-admin` token for both until a deployment on it s
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
 - 2026-11-03: `exporterOwner` is no longer a Platform field (decision 003 retired the exporter owner), so it left the editable fields; the decision is unchanged.
 - 2026-11-05: split the deployment credential into a read-only token for background and explorer reads and a `cluster-admin` operator token for the explorer's writes and Secret list; Platforms deployed earlier keep their single token until redeployed.
+- 2026-11-14: Slurm compute scaling became a lifecycle-plane Workflow (decision 083); the decision is unchanged.

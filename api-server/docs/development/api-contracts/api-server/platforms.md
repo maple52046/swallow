@@ -45,6 +45,9 @@ apply, node cordon) is a separate live surface, [platforms-kubernetes.md](platfo
 - [Omnistat Hardware Counters](../../../../../docs/development/glossaries/terms/omnistat-hardware-counters.md)
 - [Device Metrics Exporter](../../../../../docs/development/glossaries/terms/device-metrics-exporter.md)
 - [Managed Software](../../../../../docs/development/glossaries/terms/managed-software.md)
+- [Node Group](../../../../../docs/development/glossaries/terms/node-group.md)
+- [Slurm Partition](../../../../../docs/development/glossaries/terms/slurm-partition.md)
+- [Deployment Template](../../../../../docs/development/glossaries/terms/deployment-template.md)
 
 ## Endpoints
 
@@ -62,6 +65,7 @@ DELETE /api/v1/platforms/{platformId}
 POST   /api/v1/platforms/{platformId}/sync
 POST   /api/v1/platforms/sync
 GET    /api/v1/platforms/{platformId}/slurm
+POST   /api/v1/platforms/{platformId}/slurm/nodes/{serverId}/rescan
 ```
 
 `POST /api/v1/platforms/` creates a Platform from its spec, which swallow then installs;
@@ -73,7 +77,7 @@ specified in [platforms-kubernetes.md](platforms-kubernetes.md).
 Authorization ([conventions](conventions.md#authorization)): a Platform belongs to the Pool every one of its nodes is placed in
 (`status.poolId`, [Platform and Pool](#platform-and-pool)). Listing is Pool read and filtered by that
 Pool; reading a Platform and its Slurm view is Pool read; creating one, `PATCH`, `PUT /spec`, `DELETE`,
-and `POST /{id}/sync` are Pool operate. `GET /deployment-requirements/slurm` and
+`POST /{id}/sync`, and `POST /{id}/slurm/nodes/{serverId}/rescan` are Pool operate. `GET /deployment-requirements/slurm` and
 `GET /gpu-operator/releases` are reference; `PUT /deployment-requirements/slurm`, `POST /sync`, and
 `PUT /{id}/pool` are admin. The wire shape
 (paths, parameters, schemas, status codes) is specified in
@@ -225,6 +229,7 @@ Every Platform response also carries `generation`, `spec`, and `status`:
     ],
     "settings": { "k0sVersion": "v1.36.3+k0s.2", "podCidr": "10.244.0.0/16" },
     "machinePreparation": { "mode": "existing_os", "settings": {}, "userData": {} },
+    "memberRemovals": [],
     "removal": null
   },
   "status": {
@@ -233,8 +238,9 @@ Every Platform response also carries `generation`, `spec`, and `status`:
       { "type": "realized", "status": "false", "reason": "converging", "message": "Workflow w-2 carries out generation 2", "lastTransitionTime": "2026-11-01T12:00:00Z", "observedGeneration": 2 },
       { "type": "drifted", "status": "false", "reason": "in_sync", "message": "", "lastTransitionTime": "2026-11-01T11:00:00Z", "observedGeneration": 2 }
     ],
-    "applied": { "desired": "present", "members": [ /* generation 1 */ ], "settings": {}, "machinePreparation": null, "removal": null },
-    "realizingWorkflowId": "w-2"
+    "applied": { "desired": "present", "members": [ /* generation 1 */ ], "settings": {}, "machinePreparation": null, "memberRemovals": [], "removal": null },
+    "realizingWorkflowId": "w-2",
+    "memberTemplates": []
   }
 }
 ```
@@ -247,11 +253,19 @@ Every Platform response also carries `generation`, `spec`, and `status`:
 - `spec.machinePreparation` is how members that are not deployed get their OS. Inline user data
   is stored sealed and never returned; a spec written back with the same `userData.mode` and no
   `value` keeps the stored value.
+- `spec.machinePreparation.generatedTemplates` lists the Deployment Templates the Platform creates from
+  its machine preparation for its node groups (`id`, `name`, `integrationId`, `group`), and an assignment's
+  `templateId` installs that member from a template ([Node groups and partitions](#node-groups-and-partitions)).
+- `spec.memberRemovals` holds the choices for members the spec drops (see
+  [Remove members](#remove-members)); always an array, empty when no removal is pending.
 - `spec.desired` is `absent` once the Platform is deleted; `spec.removal` holds the
   [Delete](#delete-a-platform) choices.
 - `status.applied` is the spec the last successful Workflow realized, which the next change is
   planned against; `status.observedGeneration` is its generation. `status.realizingWorkflowId`
-  names the Workflow carrying out a newer generation.
+  names the Workflow carrying out a newer generation. `status.memberTemplates` records, for each member
+  installed from a Deployment Template, the `templateId` and `deployedAt`; `matchesTemplate` is `false`
+  when the template installs something else since (it was changed after the member was installed) or no
+  longer exists. Always an array.
 - `status.conditions` are the shared `realized` and `drifted` Conditions. `realized` is
   `converging` while a Workflow runs or an approved Change Plan is about to start one,
   `awaiting_approval` while a Change Plan waits for approval (its message names the plan), `plan_required`
@@ -685,12 +699,64 @@ responsibility.
 [Native OCI Containers](#native-oci-containers)); `pmix` (default `false`) installs the host MPI
 stack (see [MPI (PMIx)](#mpi-pmix)). `monitoringDashboards` (a setting beside `slurm`, default
 `true`) gives the Platform its own Grafana (see
-[Platform monitoring dashboards](#platform-monitoring-dashboards)).
+[Platform monitoring dashboards](#platform-monitoring-dashboards)). `nodeGroups` and `partitions`
+are described in [Node groups and partitions](#node-groups-and-partitions).
+
+### Node groups and partitions
+
+A Slurm Platform's members are organized in node groups, and its compute groups in partitions
+([decision 083](../../../../../docs/decisions/083-platform-member-scaling.md) (Platform member scaling)):
+
+```json
+"slurm": {
+  "nodeGroups": [
+    { "name": "controller", "role": "controller", "members": ["server-a"] },
+    { "name": "login", "role": "login", "members": ["server-d"] },
+    { "name": "mi308x", "role": "compute", "templateId": "template-id", "expectedGpusPerNode": 8,
+      "members": ["server-b", "server-c"] }
+  ],
+  "partitions": [
+    { "name": "main", "default": true, "groups": ["mi308x"], "maxTime": "INFINITE" },
+    { "name": "big", "default": false, "groups": ["mi308x"], "maxTime": "2-00:00:00",
+      "defMemPerCpu": 8192, "overSubscribe": "EXCLUSIVE", "allowGroups": ["hpc"] }
+  ]
+}
+```
+
+- A group has a `name` (1–32 lower-case letters, digits, or hyphens, unique), a `role` (`controller`,
+  `compute`, or `login`), an optional `templateId`, an optional `expectedGpusPerNode`, and its
+  `members`. Every member is in at least one group, and a member's `roles` must be exactly the roles of
+  its groups; anything else is a `validation_error`.
+- A partition has a `name` (up to 32 letters, digits, underscores, or hyphens, unique), `default`
+  (exactly one partition is), `groups` (at least one compute group, and every compute group with
+  members is in at least one partition), `maxTime` (minutes, `[days-]hours:minutes[:seconds]`, or
+  `INFINITE`, the default), an optional `defMemPerCpu` (MiB; otherwise the smallest per-CPU share of the
+  partition's own nodes), `overSubscribe` (`NO`, the default, `YES`, `FORCE`, or `EXCLUSIVE`; every
+  partition is `EXCLUSIVE` with [Omnistat](#omnistat)), and optional `allowGroups` (Unix groups).
+- Omitted, the groups are one per role (`controller`, `login` when there is one, `compute`) and the one
+  partition `main` over every compute node, which is what a Platform deployed before groups has. Such a
+  Platform's stored spec is upgraded to that form, which renders the same `slurm.conf` apart from the
+  node `Features`.
+- Every compute node gets Slurm `Features` for its GPU model (`mi300x`) and its group's name, for
+  `--constraint`. A node whose GPU count is below its group's `expectedGpusPerNode` is not refused: it
+  gets the feature `gpu_degraded` and `Weight=100`, so the scheduler uses it last, and the spec write
+  answers a warning.
+- Each group installs its new members from one [Deployment Template](provisioning.md#deployment-templates):
+  its `templateId`, otherwise the machine preparation's template, otherwise one the Platform generates
+  from its machine preparation (`provision_os` only) named `<platform>-<group>` in the members'
+  provisioner Integration and listed in `machinePreparation.generatedTemplates`. A generated template is
+  created when the change is carried out; on a Platform that is already applied, a spec write that needs
+  one is destructive (its Change Plan lists `create-template`). A member keeps only its own network
+  assignment from the machine preparation. Members of one group in different provisioner Integrations,
+  a `templateId` that does not exist, and a member added below its template's `minimumHardware` are
+  `validation_error`s naming the Server and what it lacks. A group whose members' GPU models differ is a
+  warning unless its template names a GPU model.
 
 Every Slurm deployment proves the cluster works with the `slurm-acceptance`
-[Validation Suite](validation.md) as its gate. After `install-platform` the Workflow runs the Job
-`validate-slurm`: the suite's check Task from the primary controller, then `complete-validation`;
-the Jobs that follow depend on it. The gate's Validation Run (`mode: gate`, `trigger.kind:
+[Validation Suite](validation.md) as its gate. After `install-platform`, the composed software, and the
+pull of the GPU probe image, the Workflow runs the Job `validate-slurm`: the suite's check Task from the
+primary controller, then `complete-validation`. A change that adds members validates only those members;
+a change that adds none (a partition change) runs no gate. The gate's Validation Run (`mode: gate`, `trigger.kind:
 deployment`, `workflowId` the deployment's) holds each check's verdict per node. A gating check
 that does not pass fails `complete-validation` with the retryable `validation_gate_failed`, whose
 diagnostic names the checks, nodes, and summaries and whose remediation points at the run; the
@@ -700,12 +766,13 @@ each behavior.
 
 ### Node sharing, memory, and job hooks
 
-Jobs share a compute node: the `main` partition is `OverSubscribe=NO` (separate CPUs, memory, and
-GPUs per job, never oversubscribed CPUs) unless [Omnistat](#omnistat) needs whole nodes. Each node's
-`RealMemory` is what `slurmd -C` detects minus the memory kept for the operating system (5%, at
-least 2 GiB and at most 16 GiB, never more than half), and `DefMemPerCPU` is the smallest per-CPU
-share of schedulable memory over the compute nodes, so a job that names no memory gets memory in
-proportion to its CPUs instead of the whole node. The deployment proves it: two one-CPU jobs without
+Jobs share a compute node: a partition is `OverSubscribe=NO` (separate CPUs, memory, and
+GPUs per job, never oversubscribed CPUs) unless it says otherwise or [Omnistat](#omnistat) needs whole
+nodes. Each node's `RealMemory` is what `slurmd -C` detects minus the memory kept for the operating
+system (5%, at least 2 GiB and at most 16 GiB, never more than half), and `DefMemPerCPU` is the smallest
+per-CPU share of schedulable memory over the compute nodes, or over a partition's own nodes for that
+partition, so a job that names no memory gets memory in proportion to its CPUs instead of the whole
+node. The deployment proves it: two one-CPU jobs without
 `--mem` must run on one node at the same time, otherwise the gate's `shared-node` check fails.
 
 `slurm.conf` names exactly one Prolog and one Epilog, swallow's dispatchers
@@ -755,14 +822,15 @@ their GPUs by the device cgroup; the GPU device nodes are opened to every job us
 cgroup is the access boundary. A selected Server whose KFD topology shows no GPU fails the
 deployment (`slurm_gpu_missing`).
 
-GPUs must be usable, not merely listed: on every GPU node the HIP probe
-(`/usr/local/libexec/swallow/hip-probe`) calls `hipGetDeviceCount` (which must equal the KFD GPU
-count), then `hipSetDevice`, `hipMalloc`, `hipMemset`, `hipDeviceSynchronize`, and `hipFree` on
-every GPU, three times, each in its own process so a crash at exit fails it. It runs directly on
-the node, where a failure fails `install-platform` with `gpu_probe_failed` (`hip_runtime_missing`
-when the image has no HIP runtime), and again through Slurm in the gate's `gpu-gres` check: a job
-without a GPU request sees no GPU, a `--gres=gpu:1` job sees exactly one as device `0`, and a job
-requesting every GPU of the node passes the probe. Either failure drains the node
+GPUs must be usable, not merely listed, and the host needs only the `amdgpu` driver
+([decision 083](../../../../../docs/decisions/083-platform-member-scaling.md)). On every GPU node the
+deployment reads AMD SMI: no `amd-smi` fails `install-platform` with `amd_smi_missing`, and no device or an
+uncorrectable ECC error with `amd_smi_unhealthy`. The host HIP probe still runs but only records its
+result (`/var/lib/swallow/gpu/hip-probe.json`): the host's ROCm may not cover the GPU. The gate's
+`gpu-gres` check then runs jobs through Slurm: a job without a GPU request sees no GPU, a
+`--gres=gpu:1` job sees exactly one as device `0`, and a job requesting every GPU of the node can open
+them; when the node has a [container runtime](#container-runtime), the same job runs swallow's GPU probe
+image in a container with only the job's GPUs and runs a HIP kernel on each. A failure drains the node
 (`reason=swallow: GPU probe failed`) and stops the deployment. The live
 [Slurm cluster read](#read-slurm-cluster-state) reports each node's `gres`.
 
@@ -918,7 +986,7 @@ AMD's Slurm-aware GPU monitoring, in the same Workflow
   "siteId": "site-id",
   "name": "lab-slurm",
   "type": "slurm",
-  "omnistat": { "enabled": true, "installMethod": "container", "hardwareCounters": true },
+  "omnistat": { "enabled": true, "installMethod": "container" },
   "slurm": {},
   "machinePreparation": { "mode": "provision_os", "settings": { "imageId": "slurm-os-image-id" } }
 }
@@ -950,8 +1018,8 @@ mutually exclusive) returns `409 conflict` before anything is created.
 [hardware counters](../../../../../docs/development/glossaries/terms/omnistat-hardware-counters.md) through
 ROCProfiler-SDK; today only `VALUBusy`, which Omnistat serves as
 `omnistat_hardware_counter{source="gpu",card="<n>",name="VALUBusy"}`. Omitted, it is `false`, so redeploying
-a Platform deployed before does not turn them on; the dashboard's deploy wizard asks for them by
-default. Each compute node decides for itself: it collects them only when it has AMD compute GPUs, its
+a Platform deployed before does not turn them on, and the dashboard's deploy wizard leaves them off
+unless the user asks for them. Each compute node decides for itself: it collects them only when it has AMD compute GPUs, its
 ROCm minor has an extension swallow publishes
 ([decision 079](../../../../../docs/decisions/079-release-built-host-artifacts.md) (release-built host
 artifacts)), its glibc is not older than the extension's builder, and a probe in a separate process
@@ -1270,29 +1338,78 @@ validates the new spec as a deployment:
 
 - A non-destructive change (adding a member, turning on the GPU Operator, a Slurm monitoring
   feature, a Platform's `monitoringDashboards`, or a first container runtime or workload
-  storage, or turning Omnistat's `hardwareCounters` on or off) is written and answered `200 OK`
-  with `plan: null`; the platform controller converges it. Adding a member runs the type's deploy
-  Workflow over every member; members already in the Platform are left as they are. Turning the
-  hardware counters on or off alone runs a `configure-omnistat` Workflow instead
-  ([Omnistat](#omnistat)).
-- A destructive change (changing or turning off the GPU Operator, and the changes below) is written
-  together with a Change Plan and answered `202 Accepted`; with `?approve=true` the plan is approved
-  with the write as in [Create A Platform](#create-a-platform). When swallow cannot carry the change out
-  yet — removing a member, changing a member's roles, changing `k0sVersion`, `gpuStackOwner`, or
-  `gpuDriver`, and changing or turning off Slurm workload storage, the container runtime, OCI
-  containers, PMIx, `stateSaveLocation`, or `gpuGresType` — the plan carries the blocker
-  `swallow cannot carry out <action> yet` and cannot be approved.
+  storage, turning Omnistat's `hardwareCounters` on or off, or adding a Slurm node group or partition
+  and changing a partition or a group's template or `expectedGpusPerNode`) is written and answered
+  `200 OK` with `plan: null`; the platform controller converges it. Adding a member runs the type's
+  deploy Workflow over every member; members already in the Platform are left as they are, and the
+  Slurm gate validates only the new ones. Turning the hardware counters on or off alone runs a
+  `configure-omnistat` Workflow instead ([Omnistat](#omnistat)); a change to templates alone runs none.
+- A destructive change (changing or turning off the GPU Operator, removing Slurm compute members or a
+  partition, a Slurm change that needs a generated template on an applied Platform, and the changes
+  below) is written together with a Change Plan and answered `202 Accepted`; with `?approve=true` the
+  plan is approved with the write as in [Create A Platform](#create-a-platform). When swallow cannot
+  carry the change out yet — removing a Kubernetes member, changing a member's roles, changing
+  `k0sVersion`, `gpuStackOwner`, or `gpuDriver`, and changing or turning off Slurm workload storage, the
+  container runtime, OCI containers, PMIx, `stateSaveLocation`, or `gpuGresType` — the plan carries the
+  blocker `swallow cannot carry out <action> yet` and cannot be approved. A destructive change the type
+  blocks (below) carries that blocker instead.
+- A change the type blocks is `409 conflict` with the reason when it is not destructive, and a plan
+  blocker when it is. For Slurm: adding, removing, or changing the roles of a `controller` or `login`
+  member (the control plane is not scaled), adding and removing members in one change, removing the
+  last compute node, and removing a partition that still has queued or running jobs (the blocker names
+  the count; a count that cannot be read through `slurmrestd` blocks too).
 - A non-destructive change swallow cannot carry out yet (turning off or changing a Slurm monitoring
   feature other than Omnistat's `hardwareCounters`, or turning off a Platform's
   `monitoringDashboards`) is `409 conflict` and writes nothing.
 - An immutable field (`podCidr`, `serviceCidr`, `apiVip`, `apiVipPrefix`, Slurm `clusterName`) is
   `409 conflict`: changing it means deleting the Platform and creating it again.
 
+Both `200` and `202` answer `warnings`, an array of sentences about the new spec that do not refuse it
+(for Slurm: a node with fewer GPUs than its group expects, a group mixing GPU models); empty when there
+are none.
+
 A stale `generation` is `409 conflict`; read the Platform again. A spec write after the uninstall
 started, or before the controller adopted the Platform, is `409 conflict`. A Platform marked absent
 whose uninstall has not started may be written back to present, which withdraws its plan. Every
 write that adds a member claims it in the same transaction; a member a spec drops keeps its claim
 until the change removing it is carried out.
+
+### Remove members
+
+Dropping Slurm compute members from `spec.members` (and from their node group) removes them. The spec
+may say how, per member, in `memberRemovals`:
+
+```json
+"memberRemovals": [
+  { "serverId": "server-c", "drainTimeoutSeconds": 1800, "force": false,
+    "releaseServer": true, "erase": true, "secureErase": false, "quickErase": true, "unbindStaticIps": false }
+]
+```
+
+`drainTimeoutSeconds` (0–86400, default 600) bounds how long the node's running jobs are waited for;
+at the timeout a removal with `force: true` cancels them, and one without fails the Workflow with
+`slurm_drain_timeout`, the node left drained, so retrying waits again. `releaseServer` (default
+`false`) releases the Server to its provisioner afterwards with `erase`, `secureErase`, `quickErase`, and
+`unbindStaticIps`, as [Delete](#delete-a-platform) does. A member without an entry gets the defaults; an entry for a Server
+that stays is ignored, and an invalid one is a `validation_error`.
+
+The approved plan starts a `scale-in-slurm` Workflow (definition `platform/slurm/slurm-scale-in`): drain
+the leaving nodes from the primary controller (each poll logs every node's job count), reconfigure the
+members that stay, clean the leaving nodes (stop `slurmd`, `munge`, and `sackd`, unmount the workload
+filesystem and remove its `fstab` line, remove swallow's Slurm, Omnistat, and GPU configuration;
+`slurm_unmount_busy` when the filesystem stays busy), release the ones that asked for it, then remove
+them from the Platform and release their Platform Claims. The Platform stays `active` throughout.
+
+## Rescan A Slurm Node
+
+`POST /api/v1/platforms/{platformId}/slurm/nodes/{serverId}/rescan` re-detects a compute node's GPUs
+after deployment (for example after a GPU failed) and reconfigures the cluster so its GRES match the
+node again, without removing and adding it. It runs the Slurm deploy Workflow of the applied spec again,
+which converges every node (a node whose hardware did not change reports no change and keeps its jobs),
+and its gate validates only that node. It is an action, not a spec change. It answers `202 Accepted`
+with the `operationId` of the Workflow. A Platform that is not an applied Slurm Platform, or a Server that is not
+one of its compute members, is `409 conflict`; a Platform with a Workflow already running is
+`409 conflict` too.
 
 ## Delete A Platform
 
@@ -1542,6 +1659,18 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 
 ## Compatibility Notes
 
+- Since 2026-11-14 a Slurm Platform scales its compute nodes through its spec
+  ([Node groups and partitions](#node-groups-and-partitions), [Remove members](#remove-members)). Removing a
+  compute member is a Change Plan that can be approved instead of one carrying a blocker, and adding or
+  removing a controller or login member is refused (`409` or a blocker) where it used to be accepted
+  (adding) or carry the generic blocker. Additive fields: `spec.memberRemovals`, `status.memberTemplates`,
+  the spec write's `warnings`, `machinePreparation.generatedTemplates` and an assignment's `templateId`,
+  and `slurm.nodeGroups` and `slurm.partitions`; a client that writes a spec back keeps fields it does not
+  know. A Slurm Platform's stored spec gains the groups and partition its roles imply on upgrade, so a
+  spec read afterwards shows them. `POST /platforms/{id}/slurm/nodes/{serverId}/rescan` is new. The GPU
+  check of a Slurm deployment gates on AMD SMI instead of the host HIP probe (`amd_smi_missing`,
+  `amd_smi_unhealthy` replace `gpu_probe_failed` and `hip_runtime_missing` there), and the gate runs after
+  the composed software.
 - Since 2026-11-14 `PUT /platforms/{id}/pool` moves a Platform with all its Servers to another Pool (see
   [Move A Platform To Another Pool](#move-a-platform-to-another-pool)). It replaces taking each Server out
   of every Pool and placing it in the new one, which `PUT /servers/{id}/placement` now refuses for a

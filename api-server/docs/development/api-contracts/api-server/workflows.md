@@ -511,3 +511,10 @@ secrets in task output (`[REDACTED]`), and an `ansible_failed` error carries a `
 On 2026-11-09 a `configure-omnistat` Workflow of its own began to appear: the platform controller
 creates one when a deployed Slurm Platform turns Omnistat's hardware counters on or off. The kind
 was already in the enum (the Omnistat Job of a deployment); no field, status, or error changed.
+
+On 2026-11-14 the kind `scale-in-slurm` was added (additive): the Workflow that removes compute
+members from a Slurm Platform after its Change Plan is approved
+([platforms](platforms.md#remove-members)). Its Tasks have the kinds `ansible-playbook`, `release-os`,
+and `complete-member-removal`, and its Jobs the labels `Drain Nodes`, `Reconfigure Slurm`, `Clean Removed Nodes`,
+`Release Servers`, and `Finalize Member Removal`. A Slurm deployment may also show the Job
+`prepare-gpu-probe` (label `Prepare GPU Probe`) before its gate.

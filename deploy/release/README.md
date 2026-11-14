@@ -105,3 +105,21 @@ deploy/release/omnistat-rocprof/upload.sh         # on the release machine, with
 - Upload first, then declare: copy `declarations.json` into the Slurm module's `artifacts.files`
   only after the upload. Until then the URL answers 404, and a Site that uses its Local Repository
   would refuse every deployment.
+
+## Images swallow builds
+
+The Slurm acceptance gate proves GPUs inside a container with swallow's GPU probe image
+([decision 083](../../docs/decisions/083-platform-member-scaling.md) (Platform member scaling)): a HIP
+vector-add on each GPU the job may open, built for `gfx90a`, `gfx942`, and `gfx950` on AMD's pinned ROCm
+development image. The tools are in [`gpu-probe/`](gpu-probe/):
+
+```bash
+deploy/release/gpu-probe/build.sh     # builds the image and runs it once without GPUs
+deploy/release/gpu-probe/upload.sh    # on the release machine, logged in to ghcr.io
+```
+
+- The image name and its base are pinned in both scripts, in the Slurm module's `artifacts.images`, and
+  in `GPUProbeImage` (`api-server/modules/platform/slurm/module.go`); change them together.
+- `upload.sh` refuses a tag that is already published: a changed probe or base is a new tag.
+- Upload first, then declare: a Site that uses its Local Repository refuses every Slurm deployment
+  while a declared image cannot be fetched.

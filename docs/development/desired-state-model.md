@@ -232,14 +232,21 @@ Default User、Boot Media）尚未遷移，維持現行行為。
 | 第一次啟用 workload storage 或 container runtime | 非破壞性 | 加入新的能力，不影響執行中的工作 |
 | 變更或停用 workload storage、container runtime | 破壞性 | 重新掛載或改變工作的執行環境 |
 | 網路身分（`podCidr`、`serviceCidr`、`apiVip`、Slurm `clusterName`） | 不可變更 | 改變等於重建叢集；寫入回 `409`，要改就 uninstall 後重新建立 |
+| 移除 Slurm compute 成員（2026-11-14 定案，[decision 083](../decisions/083-platform-member-scaling.md)（Platform member scaling）） | 破壞性，可執行 | 成員離開 Platform（§5.1 第 2 點）；核准後以 scale-in Workflow drain、重新設定留下的成員、清理並依請求釋放離開的成員 |
+| 新增 Slurm compute 群組或 partition、變更 partition 的限制、預設或群組、變更群組的 template 或預期 GPU 數 | 非破壞性 | 只改變之後裝機的方式或排程設定，以 `scontrol reconfigure` 套用，執行中的工作不受影響 |
+| 移除 Slurm partition | 破壞性 | 送進該 partition 的工作失去佇列；還有排隊或執行中的工作時擋下並顯示數量，數量讀不到也擋下 |
+| Platform 產生 Deployment Template（已套用的 Platform） | 需要 Change Plan | 不改變主機，但會在 provisioner Integration 建立一份 user 沒有親手建立的 template，所以先讓人看到再建立；第一次部署時隨安裝的 Change Plan 一起核准 |
+| Slurm control plane（controller、login）的增減或角色變更、同一次變更同時加入和移除成員、移除最後一個 compute | 擋下 | swallow 這次只擴縮 compute；寫入回 `409` 並說明原因 |
 
-swallow 還沒有自動化的破壞性變更（移除成員、改變 Node Role、版本升級等）仍可寫入 spec，它的 Change Plan 帶
-「swallow 還不能執行」的阻擋事項而無法核准；還沒有自動化的非破壞性變更直接拒絕寫入。
+swallow 還沒有自動化的破壞性變更（Kubernetes 移除成員、改變 Node Role、版本升級等）仍可寫入 spec，它的 Change Plan
+帶「swallow 還不能執行」的阻擋事項而無法核准；還沒有自動化的非破壞性變更直接拒絕寫入。type 模組明確擋下的變更（上表最後一列）
+是非破壞性時直接拒絕寫入，是破壞性時同樣以阻擋事項留在 Change Plan。
 
 Platform 的 controller 在 worker 執行：第一次看到沒有 spec 的 Platform 時，由最近一次部署的紀錄接管（generation 1，
 已 active 的 spec 視為已套用）；讓 present spec 的成員都有 Platform Claim；非破壞性變更以 type 模組指定的 Workflow
-收斂（加入成員是對所有成員重跑可收斂的部署；只切換 Omnistat 的 hardware counters 是只跑 `configure-omnistat`
-的 Workflow，Platform 維持 active）；核准的 Change Plan 由它 apply；Workflow 成功後把當時那個 generation
+收斂（加入成員是對所有成員重跑可收斂的部署，驗證 gate 只驗新成員；只切換 Omnistat 的 hardware counters 是只跑
+`configure-omnistat` 的 Workflow，Platform 維持 active；只改變 template 引用的變更不跑 Workflow，在接受 realization 的
+transaction 內建立 template 後直接記為已套用）；核准的 Change Plan 由它 apply；Workflow 成功後把當時那個 generation
 的 spec 記為已套用。同一個 generation 的 Workflow 失敗後不自動重啟，由 user 重跑或寫入新的 spec；新的 spec
 取代失敗的舊 generation 時，舊 generation 仍停在 `requires_attention` 的 Workflow 會佔著 target，controller 先取消它
 （原因 `Superseded by a newer spec of its Platform.`），等它結束後才啟動新 generation 的 Workflow。成員的

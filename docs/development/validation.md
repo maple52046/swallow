@@ -175,8 +175,8 @@ Platform 模組可以把自己的 suite 組入部署，作為部署成功的條�
 Workflow（[core-and-extensions.md](core-and-extensions.md) §5.4）：
 
 - 部署受理時，launcher 以範本編譯 suite 的 Tasks（mode `gate`，Task id 帶 `gate-` 前綴，access Server 與參數由 launcher
-  決定），接在部署的安裝 Task 之後，再接 `gate-complete-validation`（mode `gate`），它屬於 suite 的最後一個 Job，所以
-  重試這個 Job 會連同 check 一起重跑；之後的 Job 依賴它。Job 的顯示名稱與重試粒度取自範本。同一個 transaction 寫入 run
+  決定），接在部署的安裝 Task（Slurm 是組入的軟體與 GPU probe image 的拉取）之後，再接 `gate-complete-validation`
+  （mode `gate`），它屬於 suite 的最後一個 Job，所以重試這個 Job 會連同 check 一起重跑。Job 的顯示名稱與重試粒度取自範本。同一個 transaction 寫入 run
   （trigger `deployment`、`workflowId` 是部署的 Workflow）。部署先佈 OS 時，check 的目標可以是同一個部署才佈好的 Server。
 - gate 的 `complete-validation` 讀 run 的 results，任何 gating check 不是 `passed` 或 `skipped` 時以可重試的
   `validation_gate_failed` 失敗，diagnostic 列出失敗的 check、目標與 summary，remediation 指向 run；部署照它原本的
@@ -186,7 +186,10 @@ Workflow（[core-and-extensions.md](core-and-extensions.md) §5.4）：
 - Slurm 部署一律組入 `slurm-acceptance`（§7），所以 decision 063、066 的閘門不變：GPU 不能用、container 與 MPI 跑不起來的
   Slurm Platform 不算部署完成，GPU 失敗的節點照樣 drain。它從 primary controller 進入（install 結束時它就能回答整個叢集），
   `gpuServers` 是部署對應 GPU GRES 的 compute node，Job 是 `validate-slurm`；沒有可用的 Validation service 時 Slurm
-  部署被拒絕，不會在沒有 gate 的情況下受理。
+  部署被拒絕，不會在沒有 gate 的情況下受理。加入成員的部署以參數 `nodes` 只驗變動的成員（`gpuServers` 也只列其中的
+  GPU node），既有成員與它們的工作不受打擾；沒有變動成員的部署（例如只改 partition）不組入 gate。GPU node 有 container
+  runtime 時參數 `containerImage`、`containerRuntime` 帶入 GPU probe image 與 runtime（[decision 083](../decisions/083-platform-member-scaling.md)
+  （Platform member scaling））。
 
 ## 6. Validation Schedule
 
@@ -232,8 +235,10 @@ Validation Schedule 是 desired state（[desired-state-model.md](desired-state-m
   `platform_node_name` 把節點名稱對回 Server；對不回的節點以 Platform 為目標，summary 帶節點名稱。
 - `slurm-acceptance` 是原本 `slurm_verify` 的重型檢查（[platform-deployment.md](platform-deployment.md) 的 Slurm）：
   `slurm_verify` 只留 controller 的 ping 與 compute 的註冊。它從叢集本身讀出節點、CPU、GRES 與 partition 的
-  `OverSubscribe`，再以每台節點一個 task 讀出啟用的功能（`oci.conf`、OCI probe bundle、MPI probe、HIP probe），所以單獨執行
-  與組入部署是同一份內容；功能沒有啟用的 check 是 `skipped`，啟用了卻缺 probe 是 `error`（提示重新部署）。每個 job 都帶
+  `OverSubscribe`，再以每台節點一個 task 讀出啟用的功能（`oci.conf`、OCI probe bundle、MPI probe、HIP probe、GPU probe
+  image），所以單獨執行與組入部署是同一份內容；參數 `nodes` 把每台節點的 check 限縮到那些節點。`gpu-gres` 數的是 job 的
+  device cgroup 允許開啟的 render 裝置；有 `containerImage` 時同一個 job 再以 `containerRuntime` 在容器內只掛那些裝置跑 HIP
+  kernel（`--pull=never`，image 由部署預先拉取），容器自帶 ROCm，所以 host 的 ROCm 不必涵蓋 GPU 的 gfx 目標；功能沒有啟用的 check 是 `skipped`，啟用了卻缺 probe 是 `error`（提示重新部署）。每個 job 都帶
   `--time` 與 `--immediate`，job 名稱是 `swallow-validation-<run>`。單獨執行時只回報，不 drain；只有 gate mode 依
   decision 063 drain 失敗的 GPU node。它與叢集的 workload 搶資源，忙碌的叢集上 check 可能因為等不到節點而失敗。
 - `kubernetes-smoke` 在 control-plane member 以 k0s 的 kubectl 執行，在 namespace `swallow-validation`（Pod Security
