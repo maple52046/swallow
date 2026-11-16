@@ -164,7 +164,8 @@ Platform 所屬 Pool 的 owner 或 admin 可以：
 
 - **Add nodes**：把 Server 加入 compute 群組。每台新 Server 從群組的 template 安裝（已部署的保留它的 OS）、加入叢集，並
   單獨驗證；其他節點的工作照常，也不會重新安裝。只有新節點安裝 container runtime 與監控 exporter，Platform 的 Grafana
-  照常運作，Platform 維持 Active。低於 template 最低硬體的 Server 會被拒絕並說明差多少。由 swallow 安裝 OS 時，
+  照常運作，Platform 維持 Active：加入節點期間，Platforms 列表與 Platform 頁面在 Active 旁顯示 **Scaling out**（移除節點
+  時是 **Scaling in**），變更沒有成功時顯示 **Scaling out failed**。低於 template 最低硬體的 Server 會被拒絕並說明差多少。由 swallow 安裝 OS 時，
   **Choose the new nodes' network** 讓每台新節點選擇介面與 subnet，template 部署 static 位址時也選擇位址；其餘設定來自
   template。
 - **Remove**：移除 compute node。swallow 先 drain，最多等 drain 逾時讓工作結束（可選擇逾時就取消工作），叢集重新設定

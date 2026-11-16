@@ -218,7 +218,10 @@ spec above the live partitions Slurm reports. An owner of the Platform's Pool or
 - **Add nodes** to a compute group: each new Server is installed from the group's template (a
   deployed Server keeps its OS), joins the cluster, and is validated on its own; the other nodes
   keep running their jobs and are not reinstalled. Only the new nodes get the container runtime and
-  the monitoring exporter, the Platform's Grafana keeps working, and the Platform stays Active. A Server below the template's minimum hardware is refused with what it
+  the monitoring exporter, the Platform's Grafana keeps working, and the Platform stays Active:
+  **Scaling out** appears beside Active on the Platforms list and the Platform's page while the
+  nodes are added (**Scaling in** while nodes are removed), and reads **Scaling out failed** when
+  the change did not succeed. A Server below the template's minimum hardware is refused with what it
   lacks. When swallow installs the OS, **Choose the new nodes' network** lets each new node pick
   its interface and subnet, and its address when the template deploys static addresses; everything
   else comes from the template.

@@ -47,3 +47,27 @@ test('a settled Platform shows no running cue', async ({ page }) => {
   await expect(header.getByText('Active', { exact: true })).toBeVisible()
   await expect(header.locator('.sw-progress-spinner')).toHaveCount(0)
 })
+
+// A Platform that adds or removes nodes stays Active: the change has its own badge beside the
+// lifecycle, running with the spinner, and says "failed" when its Workflow did not succeed. The
+// in-progress filter finds the running one.
+test('a Platform that scales keeps its lifecycle and shows the change beside it', async ({ page }) => {
+  await installApiFixtures(page, {
+    platformLifecycleStates: { 'platform-b': 'active' },
+    platformChanges: { 'platform-a': { change: 'scale-out' }, 'platform-b': { change: 'scale-in', failed: true } },
+  })
+
+  await page.goto('/platforms?site=site-a')
+  const scaling = page.getByRole('row').filter({ hasText: 'production-k0s' })
+  await expect(scaling.getByText('Active', { exact: true })).toBeVisible()
+  await expect(scaling.getByText('Scaling out', { exact: true })).toBeVisible()
+  await expect(scaling.locator('.sw-progress-spinner')).toBeVisible()
+  const failed = page.getByRole('row').filter({ hasText: 'edge-staging' })
+  await expect(failed.getByText('Active', { exact: true })).toBeVisible()
+  await expect(failed.getByText('Scaling in failed', { exact: true })).toBeVisible()
+  await expect(failed.locator('.sw-progress-spinner')).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'In progress' }).click()
+  await expect(page.getByRole('row').filter({ hasText: 'production-k0s' })).toBeVisible()
+  await expect(page.getByRole('row').filter({ hasText: 'edge-staging' })).toHaveCount(0)
+})

@@ -199,7 +199,7 @@ var preferredColumns = []string{
 	"id", "name", "hostname", "siteId", "kind", "type", "providerKind",
 	"role", "status", "state", "provisioning.state", "provisioning.powerState",
 	"health.state", "membership.platformId", "enabled", "severity", "phase",
-	"fingerprint", "lifecycleState", "requestedAt", "updatedAt", "createdAt",
+	"fingerprint", "lifecycleState", "status.realizingChange", "requestedAt", "updatedAt", "createdAt",
 }
 
 // maxColumns bounds how many columns a table shows so a wide payload stays

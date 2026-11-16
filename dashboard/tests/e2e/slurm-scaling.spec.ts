@@ -92,6 +92,10 @@ test('a free Server joins a compute group', async ({ page }) => {
   const added = writes.at(-1) as { members: Array<{ serverId: string; roles: string[] }>; settings: { slurm: { nodeGroups: Array<{ name: string; members: string[] }> } } }
   expect(added.members.at(-1)).toEqual({ serverId: 'srv-4', roles: ['compute'] })
   expect(added.settings.slurm.nodeGroups.find((group) => group.name === 'compute')?.members).toEqual(['slurm-cpt-1', 'slurm-cpt-2', 'srv-4'])
+  // The Platform stays Active while it scales out; the change has its own badge.
+  const header = page.getByRole('main')
+  await expect(header.getByText('Active', { exact: true }).first()).toBeVisible()
+  await expect(header.getByText('Scaling out', { exact: true }).first()).toBeVisible()
 })
 
 test('a node added to a Platform that installs its OS may choose its interface and static address', async ({ page }) => {

@@ -63,7 +63,7 @@ export function PlatformOverviewRoute() {
       >
         <KeyValueGrid
           items={[
-            { label: 'Lifecycle', value: <PlatformLifecycleBadge state={platform.lifecycleState} /> },
+            { label: 'Lifecycle', value: <PlatformLifecycleBadge platform={platform} /> },
             { label: 'Topology', value: platformTopologyLabel(platform, module, 'External or legacy runtime') },
             { label: 'Members', value: `${counts.matched} matched · ${counts.total} total` },
             { label: 'Specification', value: specState.summary },

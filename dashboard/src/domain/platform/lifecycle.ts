@@ -1,3 +1,4 @@
+import { ConditionTypes, findCondition } from '@/domain/convergence/types'
 import { operationStatus, type Operation } from '@/domain/operation/types'
 import type { Platform, PlatformLifecycleState } from './types'
 
@@ -25,6 +26,45 @@ export function platformLifecycleLabel(state: PlatformLifecycleState): string {
  */
 export function isPlatformLifecycleInProgress(state: PlatformLifecycleState): boolean {
   return state === 'deploying' || state === 'uninstalling'
+}
+
+const CHANGE_LABELS: Record<string, string> = {
+  'scale-out': 'Scaling out',
+  'scale-in': 'Scaling in',
+  reconfigure: 'Reconfiguring',
+  'hardware-counters': 'Changing hardware counters',
+  'gpu-operator': 'Changing the GPU Operator',
+  deploy: 'Updating',
+  uninstall: 'Uninstalling',
+}
+
+/** A change an installed Platform is going through, shown beside its lifecycle state. */
+export interface PlatformChange {
+  /** What the change does, ending in "failed" when its Workflow did not succeed. */
+  label: string
+  /** Whether its Workflow failed; the Platform keeps running what was applied before. */
+  failed: boolean
+}
+
+/**
+ * The change a Platform's realizing Workflow carries out while its lifecycle stays as it is
+ * (platforms.md "Spec And Status"): adding or removing nodes, reconfiguring, or another change of a
+ * Platform that remains usable. Null when no Workflow realizes its spec, or when the lifecycle itself
+ * reports the work (a deployment or an uninstall running). A change the dashboard does not know reads
+ * as "Changing".
+ */
+export function platformChange(platform: Platform): PlatformChange | null {
+  if (!platform.status.realizingWorkflowId || isPlatformLifecycleInProgress(platform.lifecycleState)) return null
+  const label = CHANGE_LABELS[platform.status.realizingChange ?? ''] ?? 'Changing'
+  const realized = findCondition(platform.status.conditions, ConditionTypes.realized)
+  const failed = realized?.status === 'false' && realized.reason === 'failed'
+  return { label: failed ? `${label} failed` : label, failed }
+}
+
+/** Whether the Platform has durable work running: its lifecycle's, or a change while it stays usable. */
+export function isPlatformWorkInProgress(platform: Platform): boolean {
+  const change = platformChange(platform)
+  return isPlatformLifecycleInProgress(platform.lifecycleState) || (change !== null && !change.failed)
 }
 
 /**

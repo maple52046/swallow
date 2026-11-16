@@ -1277,7 +1277,8 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
     加進 export；`slurm_verify` 只等新成員可排程。之後 container runtime、Omnistat 或 Device Metrics Exporter 只裝在新
     成員（Omnistat 加上回報結果的 primary controller；hardware counter 結果依節點合併，其他節點的保留；DME 的 GPU
     identity 保留到新節點回報；沒有新 GPU 節點時 DME 不裝、紀錄不動），不重裝 Platform Grafana，gate 只驗新成員。
-    Platform 維持 `active`。同時開啟功能或改其他設定的變更仍是 `configure-slurm` 的完整部署。
+    Platform 維持 `active`；進行中的變更由 `status.realizingChange`（`scale-out`、`scale-in`、`reconfigure`…）表示，
+    dashboard 在 lifecycle 旁顯示它。同時開啟功能或改其他設定的變更仍是 `configure-slurm` 的完整部署。
     每個群組的新成員從群組的 template 裝機（成員層的 template 引用，只保留機器準備的網路設定：
     dashboard 的 Add nodes 與 `swallow platforms nodes add --interface/--ip` 可為新節點寫入介面與 static 位址），
     [os-provisioning.md](os-provisioning.md) §3 的 template 最低硬體在 spec 寫入時檢查新加入的成員。provision_os 的

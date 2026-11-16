@@ -541,6 +541,11 @@ export interface FixtureOptions {
    */
   platformLifecycleStates?: Record<string, 'planned' | 'deploying' | 'uninstalling' | 'active' | 'deploy_failed' | 'uninstall_failed' | 'uninstalled'>
   /**
+   * Marks a seeded Platform as realizing generation 2 with a change (`status.realizingChange`), e.g.
+   * `{ 'platform-a': { change: 'scale-out' } }`; with `failed` its `realized` Condition is `failed`.
+   */
+  platformChanges?: Record<string, { change: string; failed?: boolean }>
+  /**
    * Marks a seeded Platform absent at generation 2 with its uninstall not started yet, judged with
    * the given `realized` reason (`pendingRemoval`), e.g. `{ 'platform-a': 'plan_required' }`.
    */
@@ -1224,7 +1229,7 @@ function platformConditions(realized: 'converged' | 'awaiting_approval' | 'conve
  */
 function fixturePlatformStatus(lifecycleState: string, spec: ReturnType<typeof fixturePlatformSpec>) {
   const pending = (reason: 'awaiting_approval' | 'converging' | 'failed', message: string) =>
-    ({ observedGeneration: 0, conditions: platformConditions(reason, 1, message), applied: null, realizingWorkflowId: null, memberTemplates: [] as Array<Record<string, unknown>> })
+    ({ observedGeneration: 0, conditions: platformConditions(reason, 1, message), applied: null, realizingWorkflowId: null, realizingChange: null as string | null, memberTemplates: [] as Array<Record<string, unknown>> })
   switch (lifecycleState) {
     case 'planned':
       return pending('awaiting_approval', 'The install waits for its Change Plan to be approved.')
@@ -1233,7 +1238,7 @@ function fixturePlatformStatus(lifecycleState: string, spec: ReturnType<typeof f
     case 'deploy_failed':
       return pending('failed', 'The deployment Workflow failed.')
     default:
-      return { observedGeneration: 1, conditions: platformConditions('converged', 1), applied: spec, realizingWorkflowId: null, memberTemplates: [] as Array<Record<string, unknown>> }
+      return { observedGeneration: 1, conditions: platformConditions('converged', 1), applied: spec, realizingWorkflowId: null, realizingChange: null as string | null, memberTemplates: [] as Array<Record<string, unknown>> }
   }
 }
 
@@ -2177,6 +2182,16 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       status: { ...fixturePlatformStatus(platform.lifecycleState, spec), poolId: options.platformPools?.[platform.id] ?? null },
     }
     const removal = options.platformRemovals?.[platform.id]
+    const change = options.platformChanges?.[platform.id]
+    if (change) {
+      const workflowId = `op-${change.change}-${platform.id}`
+      seeded.generation = 2
+      seeded.status = {
+        ...seeded.status, realizingWorkflowId: workflowId, realizingChange: change.change,
+        conditions: platformConditions(change.failed ? 'failed' : 'converging', 2,
+          change.failed ? `Workflow ${workflowId} did not succeed; rerun it or change the spec` : `Workflow ${workflowId} carries out generation 2`),
+      }
+    }
     return removal ? pendingRemoval(seeded, removal) : seeded
   })
   if (options.slurmDeployed) {
@@ -2313,7 +2328,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     installing.lifecycleState = 'deploying'
     installing.lifecycleOperationId = deploy.id
     installing.status = {
-      ...installing.status, realizingWorkflowId: deploy.id,
+      ...installing.status, realizingWorkflowId: deploy.id, realizingChange: 'deploy',
       conditions: platformConditions('converging', 1, `Workflow ${deploy.id} carries out generation 1`),
     }
     return deploy.id
@@ -2327,7 +2342,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     platform.lifecycleState = 'uninstalling'
     platform.lifecycleOperationId = workflowId
     platform.status = {
-      ...platform.status, realizingWorkflowId: workflowId,
+      ...platform.status, realizingWorkflowId: workflowId, realizingChange: 'uninstall',
       conditions: platformConditions('converging', platform.generation, `Workflow ${workflowId} carries out generation ${platform.generation}`),
     }
     return workflowId
@@ -4124,12 +4139,15 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
             : []
         }))
         slurmPlatform.generation += 1
+        const previousMembers = slurmPlatform.spec?.members
         slurmPlatform.spec = { ...slurmPlatform.spec, members: writtenSpec.members, settings: writtenSpec.settings, memberRemovals: writtenSpec.memberRemovals ?? [] } as typeof slurmPlatform.spec
         const workflowId = `op-slurm-topology-${slurmPlatform.generation}`
+        const joined = (writtenSpec.members ?? []).some((member) => !(previousMembers ?? []).some((kept) => kept.serverId === member.serverId))
         slurmPlatform.status = {
           ...slurmPlatform.status,
           conditions: platformConditions('converging', slurmPlatform.generation, `Workflow ${workflowId} carries out generation ${slurmPlatform.generation}`),
           realizingWorkflowId: workflowId,
+          realizingChange: removed.length > 0 ? 'scale-in' : joined ? 'scale-out' : 'reconfigure',
         }
         if (removed.length === 0) return json(route, { platform: slurmPlatform, plan: null, warnings })
         const plan = changePlan(`plan-scale-in-${slurmPlatform.generation}`, platformId, approved ? 'applied' : 'pending_approval', {
@@ -4158,6 +4176,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
           ...slurmPlatform.status,
           conditions: platformConditions('converging', slurmPlatform.generation, `Workflow ${workflowId} carries out generation ${slurmPlatform.generation}`),
           realizingWorkflowId: workflowId,
+          realizingChange: 'hardware-counters',
         }
         if (slurmPlatform.omnistat) {
           slurmPlatform.omnistat = {
@@ -4234,7 +4253,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         const spec = { desired: 'present', members: created.spec.members, settings: created.spec.settings, machinePreparation: null, memberRemovals: [], removal: null }
         return {
           ...platform, lifecycleState: 'planned', lifecycleOperationId: null, generation: 1, spec,
-          status: { observedGeneration: 0, conditions: platformConditions('awaiting_approval', 1, waitingMessage(installPlan)), applied: null, realizingWorkflowId: null, memberTemplates: [] },
+          status: { observedGeneration: 0, conditions: platformConditions('awaiting_approval', 1, waitingMessage(installPlan)), applied: null, realizingWorkflowId: null, realizingChange: null, memberTemplates: [] },
         }
       }
       /** Stores the install plan; one approved with the create is applied, starting the deploy. */

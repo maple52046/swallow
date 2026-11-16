@@ -128,6 +128,17 @@ export interface PlatformSpecMachinePreparation {
   generatedTemplates?: Array<{ id: string; name: string; integrationId: string; group: string }>;
 }
 
+/** The change a Platform's realizing Workflow carries out (platforms.md "Spec And Status"). */
+export type PlatformRealizingChange =
+  | 'deploy'
+  | 'scale-out'
+  | 'scale-in'
+  | 'reconfigure'
+  | 'hardware-counters'
+  | 'gpu-operator'
+  | 'uninstall'
+  | (string & {});
+
 /**
  * What swallow realized and judged for a Platform's spec: the generation the applied spec
  * realized, the shared Conditions (`realized`, `drifted`), and the Workflow realizing a newer one.
@@ -137,6 +148,12 @@ export interface PlatformStatus {
   conditions: Condition[];
   applied: PlatformSpec | null;
   realizingWorkflowId: string | null;
+  /**
+   * What `realizingWorkflowId` carries out, while `lifecycleState` follows only deploys and
+   * uninstalls; kept while that Workflow has failed. Null without a realizing Workflow or for one
+   * started before the API reported it. A newer backend may send another value.
+   */
+  realizingChange: PlatformRealizingChange | null;
   /** The Pool every node is placed in; null when they are in different Pools or none (admins manage it). */
   poolId: string | null;
   /** The template each member installed from a Deployment Template came from; empty when none did. */

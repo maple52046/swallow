@@ -107,7 +107,7 @@ export function PlatformWorkspacePage() {
             <HStack gap="2" wrap="wrap">
               <span className="sw-platform-workspace__icon" aria-hidden><Icon size={20} /></span>
               <Badge colorPalette={module?.badgePalette ?? 'gray'} variant="subtle">{module?.label ?? platform.type}</Badge>
-              <PlatformLifecycleBadge state={platform.lifecycleState} />
+              <PlatformLifecycleBadge platform={platform} />
               <Text color="fg.muted" fontSize="sm">{siteName}</Text>
             </HStack>
           }
