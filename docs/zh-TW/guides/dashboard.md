@@ -156,8 +156,8 @@ Integrations 頁面開啟 Create integration，並預先選好 Repository role �
 - 你在任何地方都不能啟動某個 suite 時（例如你不是任何 Pool 的 owner，而它是 module suite 或 **Pool owners** 的
   suite），**Run suite** 與 run 對話框中的 suite 選項仍會顯示，但會停用並以文字說明原因；你的 Pool 角色不夠的目標
   會列出但不能選。
-- 對 script suite，run 對話框會顯示它的作者、revision、script，以及 **Runs as** 你自己帳號的 username、是否使用
-  sudo。suite 在你上次執行之後改過時，會先顯示 **Changed since your last run: rN → rM**，列出改變的設定與 script
+- 對 script suite，run 對話框會顯示它的作者、revision、script，以及 **Runs as** 你自己帳號的 username。使用 sudo 的
+  suite 會寫成條件而不是保證：這次 run 需要你在每台目標上有 Pool 的 Sudo Policy 給的免密碼 sudo，沒有的地方會被拒絕。suite 在你上次執行之後改過時，會先顯示 **Changed since your last run: rN → rM**，列出改變的設定與 script
   的 diff；**Use the new version** 是唯一能繼續的方式。對話框開著時 suite 又改了，也會打開同樣的檢視。
 - run 頁面顯示 **Runs as**（script suite 是你的帳號，module suite 是 root），並對 run 的啟動者、每個目標所屬 Pool 的
   owner 與 admin 顯示 **Cancel run**。Schedule（只有 admin）只提供 module suite。

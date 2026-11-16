@@ -201,7 +201,9 @@ Pulp's API, **Content origin** is the address Servers read it at
   suite or a **Pool owners** suite when you own no Pool); targets your Pool role does
   not reach are listed but cannot be chosen.
 - For a script suite, the run dialog shows its author, revision, script, and
-  **Runs as** with your own account's username, with or without sudo. A suite that changed
+  **Runs as** with your own account's username. For a sudo suite it states a requirement, not
+  a promise: the run needs your passwordless sudo on every target, under the Pool's Sudo Policy,
+  and is refused where you lack it. A suite that changed
   since your last run first shows **Changed since your last run: rN → rM** with the
   changed settings and a script diff; **Use the new version** is the only way on. The
   same review opens when the suite changes while the dialog is open.

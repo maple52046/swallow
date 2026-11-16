@@ -195,6 +195,15 @@ test('A review between revisions with the same script and settings says they cha
   await expect(dialog.getByRole('button', { name: 'Start run' })).toBeEnabled()
 })
 
+test('A sudo suite\'s run dialog states passwordless sudo as a requirement, not a promise', async ({ page }) => {
+  await installApiFixtures(page, { identity: 'owner', ...researchPool })
+  const dialog = await openRunOn(page, 'user-kernel-modules', 'gpu-node-03')
+  await expect(dialog).toContainText(
+    'Your account alice, through sudo: this needs your passwordless sudo on every target, under the Pool’s Sudo Policy',
+  )
+  await expect(dialog).not.toContainText('through your passwordless sudo')
+})
+
 test('A revision that was never kept is reviewed through the whole current script', async ({ page }) => {
   await installApiFixtures(page, { identity: 'member', ...researchPool })
   const dialog = await openRunOn(page, 'user-mounts', 'gpu-node-04')
@@ -217,6 +226,9 @@ test('A start refused because the suite changed while the dialog was open opens 
   const review = dialog.getByRole('region', { name: 'Suite changes' })
   await expect(review.getByRole('heading', { name: 'Changed while you were reviewing it: r3 → r4' })).toBeVisible()
   await expect(review.getByRole('group', { name: 'Script changes' })).toContainText('Added: echo checked by revision 4')
+  // The suite page behind the dialog reads the suite again and shows the new revision.
+  await expect(page.getByText('Script, revision 4')).toBeVisible()
+  await expect(page.getByText('Script, revision 3')).toHaveCount(0)
   await dialog.getByRole('button', { name: 'Use the new version' }).click()
   await dialog.getByRole('button', { name: 'Start run' }).click()
 

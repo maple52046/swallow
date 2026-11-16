@@ -36,6 +36,11 @@ interface StartValidationRunDialogProps {
   onClose: () => void
   suites: readonly ValidationSuite[]
   preset?: StartRunPreset
+  /**
+   * Called with the suite as the API now holds it when a refused start showed that it has a newer
+   * revision, so the page behind the dialog can read it again instead of showing the old one.
+   */
+  onSuiteChanged?: (suite: ValidationSuite) => void
 }
 
 /**
@@ -59,10 +64,10 @@ type ReviewState =
  * changed since the User's own last run of it; if so it shows `SuiteChangeReview` and "Use the new
  * version" is the only way on. The review then shows the script, its author and revision, and that
  * it runs as the User's own account, and the start pins that revision (`suiteRevision`). When the
- * API refuses the start with `409`, the suite is read again: a new revision opens the same review,
- * anything else is shown as the API's message. The dialog is remounted per opening (a new `key`).
+ * API refuses the start with `409`, the suite is read again: a new revision opens the same review
+ * and is handed to `onSuiteChanged`, anything else is shown as the API's message. The dialog is remounted per opening (a new `key`).
  */
-export function StartValidationRunDialog({ open, onClose, suites, preset }: StartValidationRunDialogProps) {
+export function StartValidationRunDialog({ open, onClose, suites, preset, onSuiteChanged }: StartValidationRunDialogProps) {
   const { validation } = useApp()
   const navigate = useNavigate()
   const { currentUser } = useAuth()
@@ -148,6 +153,7 @@ export function StartValidationRunDialog({ open, onClose, suites, preset }: Star
     }
     const change = await suiteChangeSince(validation, latest, pinned)
     setRefreshed(latest)
+    onSuiteChanged?.(latest)
     setAcceptedRevision(null)
     setReview({ status: 'ready', change, reason: 'changed-while-open' })
   }

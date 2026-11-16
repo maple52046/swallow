@@ -75,9 +75,11 @@ export function ValidationSuiteDetailPage() {
   const [retireBusy, setRetireBusy] = useState(false)
   const ticket = useRef(0)
 
-  const loadSuite = useCallback(() => {
+  // Reads the suite; `quiet` keeps the page (and an open dialog) on screen while it reads, for a
+  // refresh after the run dialog learned of a newer revision.
+  const loadSuite = useCallback((quiet = false) => {
     const mine = ++ticket.current
-    setSuiteState({ status: 'loading' })
+    if (!quiet) setSuiteState({ status: 'loading' })
     validation.getSuite(id).then(
       (suite) => {
         if (mine === ticket.current) setSuiteState(suite ? { status: 'ready', suite } : { status: 'missing' })
@@ -268,7 +270,14 @@ export function ValidationSuiteDetailPage() {
         )}
       </SectionSurface>}
 
-      <StartValidationRunDialog key={runDialog ? 'open' : 'closed'} open={runDialog} onClose={() => setRunDialog(false)} suites={[suite]} preset={{ suiteId: suite.id }} />
+      <StartValidationRunDialog
+        key={runDialog ? 'open' : 'closed'}
+        open={runDialog}
+        onClose={() => setRunDialog(false)}
+        suites={[suite]}
+        preset={{ suiteId: suite.id }}
+        onSuiteChanged={() => loadSuite(true)}
+      />
       <ValidationScheduleDialog
         key={scheduleDialog ? 'open' : 'closed'}
         open={scheduleDialog}

@@ -28,9 +28,11 @@ interface UserSuiteSummaryProps {
 export function UserSuiteSummary({ suite, starterUsername, showSha = false }: UserSuiteSummaryProps) {
   const level = suiteStarterLevel(suite)
   const sudo = suite.sudo === true
+  // A sudo suite is worded as a requirement, not a promise: the dashboard does not know the
+  // starter's sudo on each target, and the API refuses the run where it is missing or needs a password.
   const runsAs = starterUsername
-    ? `Your account ${starterUsername}${sudo ? ', through your passwordless sudo' : ''}`
-    : `The account of the User who starts it${sudo ? ', through their passwordless sudo' : ''}`
+    ? `Your account ${starterUsername}${sudo ? ', through sudo: this needs your passwordless sudo on every target, under the Pool’s Sudo Policy' : ''}`
+    : `The account of the User who starts it${sudo ? ', through sudo: this needs their passwordless sudo on every target, under the Pool’s Sudo Policy' : ''}`
   return (
     <Stack gap="4">
       <KeyValueGrid items={[

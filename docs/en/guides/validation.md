@@ -126,7 +126,8 @@ results recorded so far stay.
 ### Running a changed script suite
 
 Before you run a script suite, the Dashboard shows its author, revision, script,
-and that it **runs as your account**, with or without sudo. If the suite changed
+and that it **runs as your account**; for a sudo suite it says the run needs your
+passwordless sudo on every target, under the Pool's Sudo Policy. If the suite changed
 since your own last run of it, the run dialog first shows **Changed since your
 last run: rN → rM**: every changed setting and a line-by-line diff of the
 scripts (or the whole new script, when the earlier revision predates kept

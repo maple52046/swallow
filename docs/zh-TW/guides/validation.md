@@ -96,7 +96,8 @@ owner 或 admin，可以在 run 的頁面或以 `swallow validation runs cancel 
 
 ### 執行改過的 script suite
 
-執行 script suite 之前，Dashboard 會顯示它的作者、revision、script，以及它**以你的帳號執行**、是否使用 sudo。如果
+執行 script suite 之前，Dashboard 會顯示它的作者、revision、script，以及它**以你的帳號執行**；使用 sudo 的 suite 會說明這次 run
+需要你在每台目標上有 Pool 的 Sudo Policy 給的免密碼 sudo。如果
 suite 在你上一次執行之後改過，run 對話框會先顯示 **Changed since your last run: rN → rM**：每個改變的設定，以及兩份
 script 逐行的 diff（較早的 revision 早於開始保留 revision 時，則顯示完整的新 script）。**Use the new version** 是唯一
 能繼續的方式，之後這次 run 固定在那個 revision。對話框開著時作者又存了新的 revision，啟動會以 conflict 拒絕，對話框
