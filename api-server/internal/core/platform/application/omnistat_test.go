@@ -94,6 +94,36 @@ func TestDeploySlurmWithOmnistatRecordsTheWorkflowBeforeLaunch(t *testing.T) {
 	}
 }
 
+// A reconfigure, a rescan, or a scale-in does not run the Omnistat install, so it leaves the
+// Omnistat record as it is instead of marking it installing under a Workflow that would never
+// complete it.
+func TestRealizationsThatInstallNothingKeepTheOmnistatRecord(t *testing.T) {
+	for _, realization := range []platformdomain.PlatformRealization{
+		platformdomain.RealizeReconfigure, platformdomain.RealizeRescan, platformdomain.RealizeScaleIn,
+	} {
+		service, launcher, platforms := newDeployHarness(slurmServers()...)
+		result, err := service.Deploy(context.Background(), omnistatSlurmInput())
+		if err != nil {
+			t.Fatalf("Deploy() error = %v", err)
+		}
+		installed := launcher.launched.OperationID
+		platforms.platforms[result.PlatformID].Omnistat.State = platformdomain.OmnistatReady
+
+		input := omnistatSlurmInput()
+		input.PlatformID, input.realization = result.PlatformID, realization
+		input.changed = []string{"s3"}
+		if realization == platformdomain.RealizeScaleIn {
+			input.removals = []platformdomain.MemberRemoval{{ServerID: "s3"}}
+		}
+		if _, err := service.Deploy(context.Background(), input); err != nil {
+			t.Fatalf("%s: Deploy() error = %v", realization, err)
+		}
+		if record := platforms.platforms[result.PlatformID].Omnistat; record.State != platformdomain.OmnistatReady || record.LastWorkflowID != installed {
+			t.Errorf("%s: omnistat record = %+v, want it ready under %s", realization, record, installed)
+		}
+	}
+}
+
 // The deployment's request for hardware counters is the record's intent from acceptance, with no
 // nodes until the install reports them, and the launch hands it on; omitted, it is false.
 func TestDeploySlurmRecordsTheHardwareCountersRequest(t *testing.T) {

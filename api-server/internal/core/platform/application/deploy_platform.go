@@ -776,9 +776,12 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 			HardwareCounters: platformdomain.HardwareCounters{Requested: jobMonitoring.HardwareCounters},
 			LastWorkflowID:   launch.OperationID, UpdatedAt: time.Now().UTC(),
 		}
-		records = append(records, func(ctx context.Context) error {
-			return s.omnistats.SetOmnistat(ctx, platform.ID, record)
-		})
+		// Only a Workflow that runs the Omnistat install completes the record it fences.
+		if input.realization.InstallsFeatures() {
+			records = append(records, func(ctx context.Context) error {
+				return s.omnistats.SetOmnistat(ctx, platform.ID, record)
+			})
+		}
 		launch.TrustedVars[varSlurmOmnistatEnabled] = true
 		launch.Omnistat = &platformdomain.OmnistatLaunch{
 			ObservabilityServerID: observability,
@@ -795,9 +798,11 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 			ObservabilityServerID: observability, State: platformdomain.DeviceMetricsExporterInstalling,
 			LastWorkflowID: launch.OperationID, UpdatedAt: time.Now().UTC(),
 		}
-		records = append(records, func(ctx context.Context) error {
-			return s.deviceMetricsExporters.SetDeviceMetricsExporter(ctx, platform.ID, record)
-		})
+		if input.realization.InstallsFeatures() {
+			records = append(records, func(ctx context.Context) error {
+				return s.deviceMetricsExporters.SetDeviceMetricsExporter(ctx, platform.ID, record)
+			})
+		}
 		launch.TrustedVars[varSlurmDeviceMetricsExporterEnabled] = true
 		launch.DeviceMetricsExporter = &platformdomain.DeviceMetricsExporterLaunch{
 			ObservabilityServerID: observability,

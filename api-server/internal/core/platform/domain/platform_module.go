@@ -60,10 +60,26 @@ const (
 	// drained, the Platform is reconfigured without them, and they are cleaned and optionally
 	// released (decision 083). Like the hardware counters change it leaves the Platform active.
 	RealizeScaleIn PlatformRealization = "scale-in"
-	// RealizeRescan reruns the deploy of the applied spec to redetect one member's hardware (its GPUs)
-	// and reconfigure the Platform with it; only that member is validated.
+	// RealizeRescan redetects one member's hardware (its GPUs) and reconfigures the Platform with it,
+	// without redeploying the other members; only that member is validated. Like the scale-in it
+	// leaves the Platform active.
 	RealizeRescan PlatformRealization = "rescan"
+	// RealizeReconfigure reconfigures the deployed Platform in place for a change that concerns only
+	// how it schedules (node groups, partitions, expected GPUs): nothing is installed, no member is
+	// redeployed or validated, and the Platform stays active.
+	RealizeReconfigure PlatformRealization = "reconfigure"
 )
+
+// InstallsFeatures reports whether the realization's Workflow installs the Platform's monitoring
+// features, so a deployment records them as installing under it: a scale-in, a rescan, and a
+// reconfigure leave them as they are.
+func (r PlatformRealization) InstallsFeatures() bool {
+	switch r {
+	case RealizeScaleIn, RealizeRescan, RealizeReconfigure:
+		return false
+	}
+	return true
+}
 
 // UnsupportedDestructive reports whether an action swallow cannot carry out yet is destructive:
 // such an action blocks the Change Plan, while an unsupported non-destructive one refuses the write.
