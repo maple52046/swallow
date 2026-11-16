@@ -64,6 +64,12 @@ role and the one partition `main` it always had, and is stored in that form, ren
 `slurm.conf` apart from node Features. Removing a partition that still has jobs is blocked with the count,
 and a count that cannot be read blocks too.
 
+**A scheduling change reconfigures in place.** A change of groups and partitions alone, the reconfigure
+of a scale-in, and a rescan render the controllers' configuration again and apply it with `scontrol
+reconfigure`; they redeploy no member and reinstall no feature. Each compute node's detection records what
+it found on the node, so the others are read from that record; a rescan detects only its node again and
+the gate validates only that node.
+
 **GPU validation relies on the driver and containers.** The hard gate on a GPU node is what the driver
 reports: the KFD device count and an AMD SMI health read. The host HIP probe is advisory. The acceptance gate
 proves the GPUs inside a real container mounting only the devices the job may open: it builds a HIP
@@ -93,6 +99,9 @@ the gate runs after the composed software so the container runtime is there.
   build; a Site without upstream access loses only that one check.
 - **Keep the host HIP probe as a gate**: rejected — it fails on images whose host ROCm does not cover the
   GPU, while the workloads, which bring their own ROCm in containers, would run.
+- **Rerun the convergent deploy for a scheduling change or a rescan**: rejected — the result is the same,
+  but every member's installation, the monitoring features, and the Platform's lifecycle are touched for a
+  change that only the controllers' configuration needs, and other changes are refused meanwhile.
 - **Plan the whole scale-in in Go**: rejected — module-declared templates are the path for Platform
   workflows; Go builds only what a template cannot express.
 
@@ -115,3 +124,4 @@ the gate runs after the composed software so the container runtime is there.
 
 - 2026-11-14: accepted.
 - 2026-11-14: the container GPU check builds its probe in AMD's ROCm image instead of a swallow-built probe image.
+- 2026-11-16: scheduling changes, a scale-in's reconfigure, and a rescan reconfigure in place instead of redeploying.

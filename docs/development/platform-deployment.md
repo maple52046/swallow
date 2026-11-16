@@ -1259,6 +1259,14 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   `swallow_slurm_degraded_feature`（`gpu_degraded`）與 `swallow_slurm_degraded_weight`（100）：`slurm_gpu` 數到的 GPU 少於
   群組預期時，節點加上 `gpu_degraded` 與較高的 `Weight`（排程最後才用），部署不失敗；spec 寫入時也依 GPU Inventory 回
   warning。slurm.conf 或 gres.conf 改變時，slurmctld 在 active 時以 `scontrol reconfigure` 原地套用，不重啟 slurmd。
+  - **只改排程**：只動群組與 partition 的變更（新增、修改、移除 partition，新增或移除 compute 群組，成員在群組間移動＝
+    `change-group-members`，群組的 `expectedGpusPerNode`）是 realization `reconfigure`：launcher（`prepareSlurmReconfigure`）
+    編譯 Slurm 模組的宣告式 template `slurm-reconfigure`（kind `reconfigure-slurm`，Job `Reconfigure Slurm`），只有
+    `reconfigure-slurm` playbook：`slurm_facts` 分類節點、每台 compute 從 `slurm_node_hardware` 上次偵測時記在節點的
+    `/var/lib/swallow/slurm/node-hardware.json` 取得 node line、GPU 與 AMD SMI 型號（沒有這份紀錄的節點改為偵測），以當下的
+    trusted vars 重新推導 GRES、Features、`gpu_degraded` 與 Weight，再在 primary 與 backup controller 渲染設定並
+    `scontrol reconfigure`。不重新部署成員、不重裝功能（Omnistat、Device Metrics Exporter 的紀錄也不動）、不跑 gate，
+    Platform 維持 `active`。只改群組 template 的變更不跑 Workflow。
   - **Scale-out**：每個群組的新成員從群組的 template 裝機（成員層的 template 引用，只保留機器準備的網路設定：
     dashboard 的 Add nodes 與 `swallow platforms nodes add --interface/--ip` 可為新節點寫入介面與 static 位址），
     [os-provisioning.md](os-provisioning.md) §3 的 template 最低硬體在 spec 寫入時檢查新加入的成員。provision_os 的
@@ -1269,7 +1277,7 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
     `drainTimeoutSeconds`（預設 600，上限 86400）、`force` 與是否 release。launcher（`prepareSlurmScaleIn`）編譯 Slurm 模組
     的宣告式 template `slurm-scale-in`（kind `scale-in-slurm`）：`drain-nodes`（`drain-slurm-nodes`，primary controller
     drain 並等待，印出每台的 job 數，逾時以 `[slurm_drain_timeout]` 失敗或在 `force` 時 `scancel`）→ `reconfigure-slurm`
-    （`deploy-slurm`，留下的成員）→ `clean-nodes`（`uninstall-slurm-node`，離開的成員），之後每台要 release 的成員一個
+    （`reconfigure-slurm`，留下的成員，和只改排程的變更一樣原地重新設定）→ `clean-nodes`（`uninstall-slurm-node`，離開的成員），之後每台要 release 的成員一個
     `release-os`，最後 internal 的 `complete-member-removal` 清除成員並釋放 Platform Claim。Platform 維持 `active`。
     drain 只在 primary controller 執行，以 swallow 存的節點名稱（成員在這個 Platform 的 membership 的 node name，否則
     hostname；`ScaleInLaunch.NodeNames`，經 `swallow_slurm_scale_in_nodes[].name`）指名離開的節點，不連到節點本身，所以
@@ -1278,9 +1286,9 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
     完成；沒有 `force` 時以 `[slurm_node_unreachable]` 失敗。
   - **擋下的變更**：controller 或 login 的增減與角色變更、同一次變更加入又移除成員、移除最後一個 compute、移除還有工作
     的 partition（經 slurmrestd 讀數量，讀不到也擋下）。
-  - **重新偵測**：`POST /platforms/{id}/slurm/nodes/{serverId}/rescan` 以 realization `rescan` 對已套用的 spec 重跑
-    `configure-slurm`（`deploy-slurm` 在每台重新偵測 GPU，沒變的節點不改變），gate 只驗該台，讓 GRES 跟實際一致；它是
-    動作，不是 spec 變更。
+  - **重新偵測**：`POST /platforms/{id}/slurm/nodes/{serverId}/rescan` 以 realization `rescan` 跑同一個
+    `reconfigure-slurm` Workflow，只是該台（`swallow_slurm_rescan_ids`）重新偵測（載入 amdgpu、讀 KFD、AMD SMI、更新紀錄）
+    並在之後確認 slurmd 執行，其他節點讀紀錄；接著 gate 只驗該台，讓 GRES 跟實際一致。它是動作，不是 spec 變更。
 - **非目標（後續）**：SlurmDBD/accounting、RSMI GPU accounting、production 等級/外部 HA controller-state
   filesystem（controller state 目前為 lab 等級 managed NFS）、非 NFS 的 workload 儲存型別、多個
   workload filesystem、使用者的家目錄與共享儲存、`pam_slurm_adopt`、`auth/slurm`、部署後單獨
@@ -1295,7 +1303,9 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   Grafana 組入見 decision 063，Site 的 Prometheus 與 Platform Grafana 的閘道見 decision 003；dispatcher、共用節點、DME、OCI、PMIx 見 decision 066。各 ADR 保留完整的
   否決方案。
 
-Slurm playbook：[`deploy-slurm.yml`](../../api-server/modules/platform/slurm/playbooks/deploy-slurm.yml) 與
+Slurm playbook：[`deploy-slurm.yml`](../../api-server/modules/platform/slurm/playbooks/deploy-slurm.yml)、只原地重新設定的
+[`reconfigure-slurm.yml`](../../api-server/modules/platform/slurm/playbooks/reconfigure-slurm.yml)（兩者共用節點分類的
+`slurm_facts` 與偵測、記錄硬體的 `slurm_node_hardware`）與
 Slurm 模組的 `roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_gpu`、
 `slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、
 `slurm_cluster_credential`、`slurm_job_hooks`）與共用的 `gpu_probe`；scale-in：`drain-slurm-nodes.yml`（`roles/slurm_drain`）、

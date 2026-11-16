@@ -245,7 +245,8 @@ swallow 還沒有自動化的破壞性變更（Kubernetes 移除成員、改變 
 Platform 的 controller 在 worker 執行：第一次看到沒有 spec 的 Platform 時，由最近一次部署的紀錄接管（generation 1，
 已 active 的 spec 視為已套用）；讓 present spec 的成員都有 Platform Claim；非破壞性變更以 type 模組指定的 Workflow
 收斂（加入成員是對所有成員重跑可收斂的部署，驗證 gate 只驗新成員；只切換 Omnistat 的 hardware counters 是只跑
-`configure-omnistat` 的 Workflow，Platform 維持 active；只改變 template 引用的變更不跑 Workflow，在接受 realization 的
+`configure-omnistat` 的 Workflow，Platform 維持 active；Slurm 只改群組與 partition 的變更是只原地重新設定排程的
+`reconfigure-slurm` Workflow，不重新部署成員，Platform 同樣維持 active；只改變 template 引用的變更不跑 Workflow，在接受 realization 的
 transaction 內建立 template 後直接記為已套用）；核准的 Change Plan 由它 apply；Workflow 成功後把當時那個 generation
 的 spec 記為已套用。同一個 generation 的 Workflow 失敗後不自動重啟，由 user 重跑或寫入新的 spec；新的 spec
 取代失敗的舊 generation 時，舊 generation 仍停在 `requires_attention` 的 Workflow 會佔著 target，controller 先取消它
