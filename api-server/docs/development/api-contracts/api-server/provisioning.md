@@ -34,10 +34,13 @@ Templates, and submit one OS deployment configuration to one or more eligible Se
 
 ## Authentication and Authorization
 
-Reading OS Images and Deployment Templates (`GET /images`, `GET /image-catalogs`, `GET /templates`,
-`GET /templates/{id}`) is reference; `POST /deployments/preflight`, `POST /deployment-operations`,
-`POST /release-operations`, and `POST /recover-operations` are Pool operate on every target Server;
-every other endpoint is admin ([conventions](conventions.md#authorization)). Shared error envelopes, codes,
+Reading OS Images (`GET /images`, `GET /image-catalogs`) is reference. A Deployment Template belongs
+to the Pool that owns it: reading it (`GET /templates/{id}`) is Pool read, and `GET /templates` lists
+only the templates the caller may read; creating one is Pool operate on the Pool the body names, and
+changing or deleting one, or setting or clearing its user data, is Pool operate on its Pool.
+`POST /deployments/preflight`, `POST /deployment-operations`, `POST /release-operations`, and
+`POST /recover-operations` are Pool operate on every target Server, and a deployment that names a
+template is also Pool read on that template; every other endpoint is admin ([conventions](conventions.md#authorization)). Shared error envelopes, codes,
 timestamps, and authentication behavior follow [conventions.md](conventions.md).
 
 ## Endpoints
@@ -378,6 +381,8 @@ A template response contains:
   "id": "template-id",
   "siteId": "site-id",
   "integrationId": "integration-id",
+  "poolId": "pool-id",
+  "createdBy": "alice",
   "name": "Ubuntu compute",
   "description": "Default disk deployment",
   "imageId": "ubuntu/jammy",
@@ -395,6 +400,15 @@ A template response contains:
 }
 ```
 
+`poolId` is the Pool that owns the template: its members read it and deploy with it, its owners change
+and delete it, and only an admin moves it to another Pool (`PATCH` with `poolId`; a non-admin sending
+`poolId` is `403 forbidden`). It is `null` for a template stored before templates had a Pool, which
+only admins read until one moves it. `createdBy` is the username of whoever created the template (`""`
+when unknown); it is a record only, never decides access, and stays as written when that User leaves
+the Pool. A template a Platform generates for a node group is owned by the Platform's Pool and
+records who carried out the Platform change; when the Platform moves to another Pool, its generated
+templates move with it.
+
 `minimumHardware` is the template's optional hardware floor, `null` when it sets none; within it a
 `null` field sets no floor for that dimension. `gpuModel` matches, case-insensitively, within the
 compute GPU model name of a Server's GPU Inventory, and `gpuCount` counts compute GPUs. The floor
@@ -403,9 +417,9 @@ that adds a Server below it is refused, naming what the Server lacks, and invent
 report a dimension counts as not met ([platforms](platforms.md#node-groups-and-partitions)). An OS
 deployment of single Servers does not read it. `usedBy` lists the Platform node groups whose new members
 install from the template (`group` is `machine preparation` for a Platform's own default); always an
-array.
+array, and lists only the Platforms the caller may read.
 
-`POST /templates` accepts `integrationId`, required `name`, optional
+`POST /templates` accepts `integrationId`, required `poolId`, required `name`, optional
 `description`, required `imageId`, optional `deployTarget` (`"disk"` | `"ram"`,
 default `disk`), optional `network`, optional `minimumHardware`, and optional write-only `userData`. The stored template
 carries the `ephemeral` boolean; `deployTarget` maps onto it (`disk ↔ false`,
@@ -432,9 +446,10 @@ returns `204 No Content`. `DELETE` clears the sealed value and also returns
 `204 No Content`. Callers read template metadata again when they need the
 updated `hasUserData` flag; neither mutation echoes secret content.
 
-Template names are trimmed and case-insensitively unique within one Integration.
+Template names are trimmed and case-insensitively unique within one Integration and Pool.
 `GET /templates` returns a plain, unpaginated array; its filters are conjunctive, and a Site and Integration that do not match yield an empty array. An
-unknown Site, Integration, or template is `404 not_found`; a non-provisioner Integration
+unknown Site, Integration, or template is `404 not_found` (a template the caller may not read
+reads as unknown); a missing or unknown `poolId` is `400 validation_error`; a non-provisioner Integration
 or invalid/missing field is `400 validation_error`; duplicate names, deletion of an
 Integration still referenced by a template, and deletion of a template a Platform node group
 installs from (the message names the Platforms and groups) are `409 conflict`. Create, and an update that
@@ -1075,6 +1090,15 @@ answers `200`, and the same message is recorded as the Integration's last sync e
 unknown Integration is `404 not_found` and a non-provisioner Integration `400 validation_error`.
 
 ## Compatibility Notes
+
+On 2026-11-16 a Deployment Template became owned by a Pool. Breaking: `POST /templates` requires
+`poolId`; reading templates is Pool read instead of reference, so a User lists and reads only its Pools'
+templates; creating and changing them is Pool operate instead of admin; names are unique within an
+Integration and Pool instead of an Integration; and `usedBy` lists only the Platforms the caller may
+read. Additive: the response gains `poolId` and `createdBy`, and `PATCH` accepts `poolId` from an
+admin. A template stored before has `poolId: null` and `createdBy: ""` and is admin-only until an admin
+moves it to a Pool; a template a Platform generated is moved into the Platform's Pool by the Platform
+controller.
 
 On 2026-11-14 a Deployment Template gained `minimumHardware` and `usedBy` (additive), and deleting a
 template a Platform node group installs from became `409 conflict`. The same day a deployment with a

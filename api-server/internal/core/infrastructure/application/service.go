@@ -16,6 +16,7 @@ package application
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -293,14 +294,22 @@ func (s *GroupingService) UpdatePool(ctx context.Context, id string, input Updat
 	return &item, nil
 }
 
-// DeletePool refuses a Pool that is still a Server's placement (ErrGroupInUse), then deletes the
-// Pool with its memberships and Sudo Policy in one transaction, so access never outlives the Pool.
+// DeletePool refuses a Pool that is still a Server's placement (ErrGroupInUse) or still owns
+// Deployment Templates (ErrPoolOwnsTemplates), then deletes the Pool with its memberships and Sudo
+// Policy in one transaction, so access never outlives the Pool.
 func (s *GroupingService) DeletePool(ctx context.Context, id string) error {
 	if _, err := s.pools.FindByID(ctx, id); err != nil {
 		return err
 	}
 	if err := s.refuseInUse(s.references.CountPool(ctx, id)); err != nil {
 		return err
+	}
+	templates, err := s.references.CountPoolTemplates(ctx, id)
+	if err != nil {
+		return err
+	}
+	if templates > 0 {
+		return fmt.Errorf("%w: %d", infradomain.ErrPoolOwnsTemplates, templates)
 	}
 	return s.tx.InTransaction(ctx, func(ctx context.Context) error {
 		if err := s.access.DeletePool(ctx, id); err != nil {

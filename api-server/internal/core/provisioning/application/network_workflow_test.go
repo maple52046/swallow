@@ -149,6 +149,14 @@ func (r *networkWorkflowTemplateRepo) CountByIntegration(context.Context, string
 	return 0, nil
 }
 
+func (r *networkWorkflowTemplateRepo) CountByPool(context.Context, string) (int, error) {
+	return 0, nil
+}
+
+func (r *networkWorkflowTemplateRepo) AssignPool(context.Context, []string, string) (int, error) {
+	return 0, nil
+}
+
 type networkWorkflowProvider struct {
 	mu                sync.Mutex
 	networks          map[string]*provisioningdomain.MachineNetwork

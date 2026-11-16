@@ -3,6 +3,7 @@ package tests
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -32,7 +33,7 @@ func (r *fakeDeploymentTemplateRepo) Create(
 ) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.nameTaken(template.IntegrationID, template.Name, "") {
+	if r.nameTaken(template.IntegrationID, template.PoolID, template.Name, "") {
 		return provisioningdomain.ErrDeploymentTemplateNameTaken
 	}
 	copy := *template
@@ -77,6 +78,9 @@ func (r *fakeDeploymentTemplateRepo) List(
 		if len(allowed) > 0 && !allowed[template.IntegrationID] {
 			continue
 		}
+		if filter.PoolIDs != nil && !slices.Contains(filter.PoolIDs, template.PoolID) {
+			continue
+		}
 		copy := *template
 		copy.HasUserData = r.userData[template.ID] != ""
 		items = append(items, &copy)
@@ -93,7 +97,7 @@ func (r *fakeDeploymentTemplateRepo) Update(
 	if _, ok := r.templates[template.ID]; !ok {
 		return provisioningdomain.ErrDeploymentTemplateNotFound
 	}
-	if r.nameTaken(template.IntegrationID, template.Name, template.ID) {
+	if r.nameTaken(template.IntegrationID, template.PoolID, template.Name, template.ID) {
 		return provisioningdomain.ErrDeploymentTemplateNameTaken
 	}
 	copy := *template
@@ -164,11 +168,36 @@ func (r *fakeDeploymentTemplateRepo) CountByIntegration(_ context.Context, integ
 	return count, nil
 }
 
-func (r *fakeDeploymentTemplateRepo) nameTaken(integrationID, name, exceptID string) bool {
+func (r *fakeDeploymentTemplateRepo) CountByPool(_ context.Context, poolID string) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	count := 0
+	for _, template := range r.templates {
+		if template.PoolID == poolID {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (r *fakeDeploymentTemplateRepo) AssignPool(_ context.Context, ids []string, poolID string) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	changed := 0
+	for _, id := range ids {
+		if template, ok := r.templates[id]; ok && template.PoolID != poolID {
+			template.PoolID = poolID
+			changed++
+		}
+	}
+	return changed, nil
+}
+
+func (r *fakeDeploymentTemplateRepo) nameTaken(integrationID, poolID, name, exceptID string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(name))
 	for _, template := range r.templates {
 		if template.ID != exceptID &&
-			template.IntegrationID == integrationID &&
+			template.IntegrationID == integrationID && template.PoolID == poolID &&
 			strings.ToLower(strings.TrimSpace(template.Name)) == normalized {
 			return true
 		}
@@ -191,7 +220,7 @@ func (t fakePlatformTemplates) Find(ctx context.Context, id string) (*platformdo
 		return nil, err
 	}
 	intent := &platformdomain.DeploymentTemplateIntent{
-		ID: template.ID, IntegrationID: template.IntegrationID, Name: template.Name, Ephemeral: template.Ephemeral,
+		ID: template.ID, IntegrationID: template.IntegrationID, PoolID: template.PoolID, Name: template.Name, Ephemeral: template.Ephemeral,
 		Digest: template.ImageID + "|" + string(template.NetworkMode),
 	}
 	if minimum := template.MinimumHardware; minimum != nil {
@@ -201,26 +230,33 @@ func (t fakePlatformTemplates) Find(ctx context.Context, id string) (*platformdo
 	return intent, nil
 }
 
-func (t fakePlatformTemplates) NameTaken(ctx context.Context, integrationID, name, id string) (bool, error) {
+func (t fakePlatformTemplates) NameTaken(ctx context.Context, integrationID, poolID, name, id string) (bool, error) {
 	templates, err := t.repo.List(ctx, provisioningdomain.DeploymentTemplateFilter{IntegrationID: integrationID})
 	if err != nil {
 		return false, err
 	}
 	for _, template := range templates {
-		if template.ID != id && template.Name == name {
+		if template.ID != id && template.PoolID == poolID && template.Name == name {
 			return true, nil
 		}
 	}
 	return false, nil
 }
 
-func (t fakePlatformTemplates) EnsureGenerated(ctx context.Context, generated []platformdomain.GeneratedTemplate, preparation platformdomain.MachinePreparation) error {
+func (t fakePlatformTemplates) AdoptGenerated(ctx context.Context, ids []string, poolID string) error {
+	_, err := t.repo.AssignPool(ctx, ids, poolID)
+	return err
+}
+
+func (t fakePlatformTemplates) EnsureGenerated(ctx context.Context, generated []platformdomain.GeneratedTemplate, preparation platformdomain.MachinePreparation,
+	owner platformdomain.TemplateOwner,
+) error {
 	for _, g := range generated {
 		if _, err := t.repo.FindByID(ctx, g.ID); err == nil {
 			continue
 		}
 		template := &provisioningdomain.DeploymentTemplate{
-			ID: g.ID, IntegrationID: g.IntegrationID, Name: g.Name, ImageID: preparation.ImageID,
+			ID: g.ID, IntegrationID: g.IntegrationID, PoolID: owner.PoolID, CreatedBy: owner.CreatedBy, Name: g.Name, ImageID: preparation.ImageID,
 			Ephemeral: preparation.Ephemeral != nil && *preparation.Ephemeral, NetworkMode: provisioningdomain.DeploymentNetworkMode(preparation.NetworkMode),
 		}
 		if err := t.repo.Create(ctx, template, ""); err != nil {

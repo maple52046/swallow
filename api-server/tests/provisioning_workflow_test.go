@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	accessdomain "github.com/maple52046/swallow/internal/core/access/domain"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	sitedomain "github.com/maple52046/swallow/internal/core/site/domain"
@@ -20,6 +21,7 @@ func createTemplate(
 	t.Helper()
 	resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/templates", map[string]any{
 		"integrationId": testIntegrationID,
+		"poolId":        templatePoolID,
 		"name":          name,
 		"description":   "Ubuntu compute baseline",
 		"imageId":       "ubuntu/jammy",
@@ -31,6 +33,9 @@ func createTemplate(
 	}
 	return parseBody(t, resp)
 }
+
+// templatePoolID is the Pool the tests' templates belong to.
+const templatePoolID = "pool-a"
 
 func seedReadyServer(t *testing.T, f *platformFixture, id string) {
 	t.Helper()
@@ -106,6 +111,7 @@ func TestDeploymentTemplate_NameIsCaseInsensitivePerIntegration(t *testing.T) {
 
 	resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/templates", map[string]any{
 		"integrationId": testIntegrationID,
+		"poolId":        templatePoolID,
 		"name":          " compute baseline ",
 		"imageId":       "ubuntu/jammy",
 	}, f.adminAuth(t))
@@ -131,11 +137,91 @@ func TestDeploymentTemplate_FiltersAndAuthorization(t *testing.T) {
 		t.Fatalf("unknown site: expected 404, got %d", resp.StatusCode)
 	}
 
-	resp = doRequest(t, f.app, "GET", "/api/v1/provisioning/templates", nil, map[string]string{
-		"Authorization": "Bearer " + userToken(t, f.jwtSvc),
-	})
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("templates are reference data every User may read (decision 082): expected 200, got %d", resp.StatusCode)
+}
+
+// A Deployment Template belongs to its Pool (identity-and-access.md §4): a User outside the Pool
+// neither lists nor reads it; a member lists, reads, and deploys from it but cannot change it; an owner
+// creates and changes the Pool's templates, recorded as their creator, but only an admin moves one to
+// another Pool. usedBy never names a Platform the caller cannot read.
+func TestDeploymentTemplate_BelongsToItsPool(t *testing.T) {
+	f := setupPlatform(t)
+	seedProvisionerIntegration(t, f)
+	created := createTemplate(t, f, "Pool A baseline", "")
+	id := created["id"].(string)
+	if created["poolId"] != templatePoolID || created["createdBy"] != "admin" {
+		t.Fatalf("created template = %v, want pool %s created by admin", created, templatePoolID)
+	}
+	alice := map[string]string{"Authorization": "Bearer " + userToken(t, f.jwtSvc)}
+	list := func() []map[string]any {
+		t.Helper()
+		return parseArrayBody(t, doRequest(t, f.app, "GET", "/api/v1/provisioning/templates", nil, alice))
+	}
+	status := func(method, path string, body any) int {
+		t.Helper()
+		resp := doRequest(t, f.app, method, path, body, alice)
+		_ = rawBody(t, resp)
+		return resp.StatusCode
+	}
+
+	if items := list(); len(items) != 0 {
+		t.Errorf("outside the Pool: listed %v", items)
+	}
+	if code := status("GET", "/api/v1/provisioning/templates/"+id, nil); code != http.StatusNotFound {
+		t.Errorf("outside the Pool: read %d, want 404", code)
+	}
+
+	f.memberships.add(templatePoolID, "user-1", accessdomain.RoleMember)
+	if items := list(); len(items) != 1 || items[0]["id"] != id {
+		t.Errorf("member: listed %v", items)
+	}
+	if code := status("GET", "/api/v1/provisioning/templates/"+id, nil); code != http.StatusOK {
+		t.Errorf("member: read %d, want 200", code)
+	}
+	for _, change := range []struct{ method, path string }{
+		{"PATCH", "/api/v1/provisioning/templates/" + id}, {"DELETE", "/api/v1/provisioning/templates/" + id},
+		{"PUT", "/api/v1/provisioning/templates/" + id + "/user-data"}, {"DELETE", "/api/v1/provisioning/templates/" + id + "/user-data"},
+	} {
+		if code := status(change.method, change.path, map[string]any{"name": "renamed", "userData": "#cloud-config"}); code != http.StatusForbidden {
+			t.Errorf("member: %s %s = %d, want 403", change.method, change.path, code)
+		}
+	}
+	newTemplate := map[string]any{"integrationId": testIntegrationID, "poolId": templatePoolID, "name": "Alice's", "imageId": "ubuntu/jammy"}
+	if code := status("POST", "/api/v1/provisioning/templates", newTemplate); code != http.StatusForbidden {
+		t.Errorf("member: create %d, want 403", code)
+	}
+
+	f.memberships.add(templatePoolID, "user-1", accessdomain.RoleOwner)
+	resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/templates", newTemplate, alice)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("owner: create %d: %s", resp.StatusCode, rawBody(t, resp))
+	}
+	if body := parseBody(t, resp); body["createdBy"] != "alice" || body["poolId"] != templatePoolID {
+		t.Errorf("owner's template = %v, want created by alice in %s", body, templatePoolID)
+	}
+	if code := status("PATCH", "/api/v1/provisioning/templates/"+id, map[string]any{"description": "owned"}); code != http.StatusOK {
+		t.Errorf("owner: change %d, want 200", code)
+	}
+	if code := status("PATCH", "/api/v1/provisioning/templates/"+id, map[string]any{"poolId": "pool-b"}); code != http.StatusForbidden {
+		t.Errorf("owner: move to another Pool %d, want 403", code)
+	}
+	elsewhere := map[string]any{"integrationId": testIntegrationID, "poolId": "pool-b", "name": "Elsewhere", "imageId": "ubuntu/jammy"}
+	if code := status("POST", "/api/v1/provisioning/templates", elsewhere); code != http.StatusForbidden {
+		t.Errorf("owner of pool-a: create in pool-b %d, want 403", code)
+	}
+
+	resp = doRequest(t, f.app, "PATCH", "/api/v1/provisioning/templates/"+id, map[string]any{"poolId": "pool-b"}, f.adminAuth(t))
+	if resp.StatusCode != http.StatusOK || parseBody(t, resp)["poolId"] != "pool-b" {
+		t.Fatalf("admin: move to pool-b failed (%d)", resp.StatusCode)
+	}
+	if code := status("GET", "/api/v1/provisioning/templates/"+id, nil); code != http.StatusNotFound {
+		t.Errorf("after the move: read %d, want 404", code)
+	}
+
+	// A deployment names a template the caller must be able to read.
+	resp = doRequest(t, f.app, "POST", "/api/v1/provisioning/deployment-operations",
+		map[string]any{"serverIds": []string{}, "templateId": id}, alice)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("deploy from a template of another Pool: %d, want 404 (%s)", resp.StatusCode, rawBody(t, resp))
 	}
 }
 
@@ -145,6 +231,7 @@ func TestDeploymentTemplate_ValidatesLiveImageAndBlocksIntegrationDelete(t *test
 
 	resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/templates", map[string]any{
 		"integrationId": testIntegrationID,
+		"poolId":        templatePoolID,
 		"name":          "Missing image",
 		"imageId":       "ubuntu/missing",
 	}, f.adminAuth(t))
@@ -157,6 +244,7 @@ func TestDeploymentTemplate_ValidatesLiveImageAndBlocksIntegrationDelete(t *test
 	}
 	resp = doRequest(t, f.app, "POST", "/api/v1/provisioning/templates", map[string]any{
 		"integrationId": testIntegrationID,
+		"poolId":        templatePoolID,
 		"name":          "Unavailable image",
 		"imageId":       "ubuntu/jammy",
 	}, f.adminAuth(t))
@@ -179,7 +267,8 @@ func TestDeploymentTemplate_MinimumHardwareAndReferences(t *testing.T) {
 	seedProvisionerIntegration(t, f)
 
 	resp := doRequest(t, f.app, "POST", "/api/v1/provisioning/templates", map[string]any{
-		"integrationId": testIntegrationID, "name": "GPU nodes", "imageId": "ubuntu/jammy",
+		"integrationId": testIntegrationID,
+		"poolId":        templatePoolID, "name": "GPU nodes", "imageId": "ubuntu/jammy",
 		"minimumHardware": map[string]any{"cpuCores": 32, "gpuModel": "MI300X", "gpuCount": 8},
 	}, f.adminAuth(t))
 	if resp.StatusCode != http.StatusCreated {
@@ -196,7 +285,8 @@ func TestDeploymentTemplate_MinimumHardwareAndReferences(t *testing.T) {
 	id := item["id"].(string)
 
 	resp = doRequest(t, f.app, "POST", "/api/v1/provisioning/templates", map[string]any{
-		"integrationId": testIntegrationID, "name": "Negative", "imageId": "ubuntu/jammy",
+		"integrationId": testIntegrationID,
+		"poolId":        templatePoolID, "name": "Negative", "imageId": "ubuntu/jammy",
 		"minimumHardware": map[string]any{"cpuCores": -1},
 	}, f.adminAuth(t))
 	if resp.StatusCode != http.StatusBadRequest {

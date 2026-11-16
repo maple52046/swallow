@@ -154,7 +154,7 @@ func TestGeneratedTemplatesNeedApprovalOnAnAppliedPlatform(t *testing.T) {
 	if !applied.NeedsApproval || !applied.Destructive() {
 		t.Errorf("applied Platform = %+v; want it to wait for a Change Plan", applied)
 	}
-	_ = ensureGeneratedTemplates(context.Background(), templates, &spec)
+	_ = templates.EnsureGenerated(context.Background(), spec.MachinePreparation.GeneratedTemplates, spec.MachinePreparation, platformdomain.TemplateOwner{})
 	var again platformdomain.PlatformChanges
 	_ = templateChanges(context.Background(), templates, true, spec, &again)
 	if len(again.Actions) != 0 || again.NeedsApproval {
@@ -314,5 +314,78 @@ func TestMemberTemplateRecordsFollowTheMembers(t *testing.T) {
 	}
 	if got := item.Status.MemberTemplates; len(got) != 1 || got[0].ServerID != "g1" || !got[0].MatchesTemplate {
 		t.Errorf("member templates = %+v, want only member g1, matching its template", got)
+	}
+}
+
+// pooledServer is groupServer placed in pool.
+func pooledServer(id, pool string) *serverdomain.Server {
+	server := groupServer(id, "maas-1", 64)
+	server.Spec.PoolID = pool
+	return server
+}
+
+// A Platform whose members are in one Pool may newly reference only that Pool's templates; references
+// the stored spec already has are kept, a template the spec generates is created in the Platform's
+// Pool, and a Platform without a Pool (members in different Pools) references any template.
+func TestPlatformTemplatesBelongToThePlatformsPool(t *testing.T) {
+	service, _, _ := newDeployHarness(pooledServer("l1", "pool-a"), pooledServer("g1", "pool-a"), pooledServer("g2", "pool-a"))
+	service.templates = &fakeTemplates{templates: map[string]*platformdomain.DeploymentTemplateIntent{
+		"t-a": {ID: "t-a", Name: "a-template", PoolID: "pool-a"},
+		"t-b": {ID: "t-b", Name: "b-template", PoolID: "pool-b"},
+	}}
+	with := func(template string) platformdomain.PlatformSpec {
+		return groupedSpec(
+			platformdomain.NodeGroup{Name: "login", Role: "login", Members: []string{"l1"}},
+			platformdomain.NodeGroup{Name: "gpu", Role: "compute", TemplateID: template, Members: []string{"g1", "g2"}},
+		)
+	}
+	ctx := context.Background()
+	if err := service.checkTemplatePools(ctx, groupedModule{}, nil, with("t-a")); err != nil {
+		t.Errorf("a template of the Platform's Pool: %v", err)
+	}
+	err := service.checkTemplatePools(ctx, groupedModule{}, nil, with("t-b"))
+	if !errors.Is(err, platformdomain.ErrInvalidDeployment) || !strings.Contains(err.Error(), "b-template belongs to another Pool") {
+		t.Errorf("a template of another Pool: error = %v", err)
+	}
+	stored := with("t-b")
+	if err := service.checkTemplatePools(ctx, groupedModule{}, &stored, with("t-b")); err != nil {
+		t.Errorf("a reference the stored spec already has: %v", err)
+	}
+	machine := with("")
+	machine.MachinePreparation.TemplateID = "t-b"
+	if err := service.checkTemplatePools(ctx, groupedModule{}, nil, machine); !errors.Is(err, platformdomain.ErrInvalidDeployment) {
+		t.Errorf("a machine preparation template of another Pool: error = %v", err)
+	}
+
+	mixed, _, _ := newDeployHarness(pooledServer("l1", "pool-a"), pooledServer("g1", "pool-a"), pooledServer("g2", "pool-b"))
+	mixed.templates = service.templates
+	if err := mixed.checkTemplatePools(ctx, groupedModule{}, nil, with("t-b")); err != nil {
+		t.Errorf("a Platform without a Pool: %v", err)
+	}
+}
+
+// A generated template is created owned by the Platform's Pool and recording who carried out the
+// change; the controller's adoption moves the Platform's generated templates into its Pool.
+func TestGeneratedTemplatesAreOwnedByThePlatformsPool(t *testing.T) {
+	service, _, _ := newDeployHarness(pooledServer("l1", "pool-a"), pooledServer("g1", "pool-a"), pooledServer("g2", "pool-a"))
+	templates := &fakeTemplates{}
+	service.templates = templates
+	spec, err := service.assignGeneratedTemplates(context.Background(), groupedModule{}, "lab", groupedSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ensureGeneratedTemplates(context.Background(), &spec, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	if len(templates.owners) != 1 || templates.owners[0] != (platformdomain.TemplateOwner{PoolID: "pool-a", CreatedBy: "alice"}) {
+		t.Errorf("owners = %+v, want pool-a created by alice", templates.owners)
+	}
+	generated := spec.MachinePreparation.GeneratedTemplates[0].ID
+	templates.templates[generated].PoolID = ""
+	if err := service.adoptGeneratedTemplates(context.Background(), &platformdomain.Platform{ID: "p1", Spec: &spec}); err != nil {
+		t.Fatal(err)
+	}
+	if templates.templates[generated].PoolID != "pool-a" {
+		t.Errorf("adopted template Pool = %q, want pool-a", templates.templates[generated].PoolID)
 	}
 }

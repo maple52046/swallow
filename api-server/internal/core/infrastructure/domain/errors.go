@@ -51,6 +51,9 @@ var (
 	// still references it.
 	ErrGroupInUse = errors.New("zone or pool is still the placement of a server")
 
+	// ErrPoolOwnsTemplates means a Pool cannot be deleted because it still owns Deployment Templates.
+	ErrPoolOwnsTemplates = errors.New("pool still owns deployment templates")
+
 	// ErrPlacementConflict means the Server's spec changed while a placement was being written.
 	ErrPlacementConflict = errors.New("server spec changed during the placement")
 

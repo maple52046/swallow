@@ -75,6 +75,8 @@ type GroupingTargets interface {
 type PlacementReferences interface {
 	CountZone(ctx context.Context, zoneID string) (int, error)
 	CountPool(ctx context.Context, poolID string) (int, error)
+	// CountPoolTemplates counts the Deployment Templates a Pool owns, which keep it from being deleted.
+	CountPoolTemplates(ctx context.Context, poolID string) (int, error)
 }
 
 // ServerPlacement is a Server's placement spec: the Zone it must be in ("" for the provisioner's

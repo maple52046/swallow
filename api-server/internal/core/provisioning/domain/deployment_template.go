@@ -12,8 +12,15 @@ import (
 // User data is deliberately absent. Its presence is exposed as a boolean while the
 // plaintext can only be requested explicitly by the deployment use case.
 type DeploymentTemplate struct {
-	ID             string
-	IntegrationID  string
+	ID            string
+	IntegrationID string
+	// PoolID is the Pool that owns the template: its members read and use it, its owners change it
+	// (identity-and-access.md §4). Empty for a template created before templates had a Pool, which only
+	// an admin reads until it is given one.
+	PoolID string
+	// CreatedBy is the username of whoever created the template, kept as a record: it never decides
+	// access, and it stays as written when that User leaves the Pool or is deleted.
+	CreatedBy      string
 	Name           string
 	Description    string
 	ImageID        string
@@ -68,10 +75,12 @@ type DeploymentTemplateReferenceReader interface {
 	TemplateReferences(ctx context.Context) (map[string][]DeploymentTemplateReference, error)
 }
 
-// DeploymentTemplateFilter narrows a template listing. Zero values mean no constraint.
+// DeploymentTemplateFilter narrows a template listing. Zero values mean no constraint, except that a
+// non-nil PoolIDs restricts the listing to those Pools (an empty one lists nothing).
 type DeploymentTemplateFilter struct {
 	IntegrationID  string
 	IntegrationIDs []string
+	PoolIDs        []string
 }
 
 // DeploymentTemplateRepository persists deployment intent and seals its user data.
@@ -88,6 +97,17 @@ type DeploymentTemplateRepository interface {
 	ClearUserData(ctx context.Context, id string) error
 	UserData(ctx context.Context, id string) (string, error)
 	CountByIntegration(ctx context.Context, integrationID string) (int, error)
+	// CountByPool counts the templates a Pool owns, which keep it from being deleted.
+	CountByPool(ctx context.Context, poolID string) (int, error)
+	// AssignPool gives the templates ids that do not already belong to poolID that Pool, and reports
+	// how many changed.
+	AssignPool(ctx context.Context, ids []string, poolID string) (int, error)
+}
+
+// PoolDirectory answers whether a Pool exists, so a template is never given a Pool that does not. It is
+// a port: the infrastructure context owns Pools, and the composition root supplies the adapter.
+type PoolDirectory interface {
+	PoolExists(ctx context.Context, poolID string) (bool, error)
 }
 
 // ProvisionerIntegration is the narrow integration view provisioning needs.
@@ -111,7 +131,7 @@ var (
 	ErrDeploymentTemplateNotFound = errors.New("deployment template not found")
 	// ErrDeploymentTemplateInUse means a Platform node group still installs from the template.
 	ErrDeploymentTemplateInUse = errors.New("deployment template is used by a Platform")
-	// ErrDeploymentTemplateNameTaken preserves case-insensitive uniqueness per integration.
+	// ErrDeploymentTemplateNameTaken preserves case-insensitive uniqueness per Integration and Pool.
 	ErrDeploymentTemplateNameTaken = errors.New("deployment template name already exists")
 	// ErrDeploymentTemplateUserDataMissing means no cloud-init content is stored.
 	ErrDeploymentTemplateUserDataMissing = errors.New("deployment template has no user data")

@@ -309,6 +309,9 @@ func respondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, infradomain.ErrGroupInUse):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
 			"A server is still placed in this zone or pool; move it first."))
+	case errors.Is(err, infradomain.ErrPoolOwnsTemplates):
+		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
+			"The pool still owns Deployment Templates; delete them, or have an admin move them to another pool, first."))
 	case errors.Is(err, infradomain.ErrPlacementConflict):
 		return apierror.Respond(c, apierror.New(apierror.CodeConflict,
 			"The server's spec changed during the request; read it and try again."))

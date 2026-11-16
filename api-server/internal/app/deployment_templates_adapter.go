@@ -35,7 +35,7 @@ func (t platformDeploymentTemplates) Find(ctx context.Context, id string) (*plat
 		return nil, err
 	}
 	intent := &platformdomain.DeploymentTemplateIntent{
-		ID: template.ID, IntegrationID: template.IntegrationID, Name: template.Name,
+		ID: template.ID, IntegrationID: template.IntegrationID, PoolID: template.PoolID, Name: template.Name,
 		Ephemeral: template.Ephemeral, Digest: templateDigest(template),
 	}
 	if minimum := template.MinimumHardware; minimum != nil {
@@ -57,13 +57,13 @@ func templateDigest(template *provisioningdomain.DeploymentTemplate) string {
 }
 
 // NameTaken implements platformdomain.DeploymentTemplates.
-func (t platformDeploymentTemplates) NameTaken(ctx context.Context, integrationID, name, id string) (bool, error) {
+func (t platformDeploymentTemplates) NameTaken(ctx context.Context, integrationID, poolID, name, id string) (bool, error) {
 	templates, err := t.repo.List(ctx, provisioningdomain.DeploymentTemplateFilter{IntegrationID: integrationID})
 	if err != nil {
 		return false, err
 	}
 	for _, template := range templates {
-		if template.ID != id && strings.EqualFold(strings.TrimSpace(template.Name), strings.TrimSpace(name)) {
+		if template.ID != id && template.PoolID == poolID && strings.EqualFold(strings.TrimSpace(template.Name), strings.TrimSpace(name)) {
 			return true, nil
 		}
 	}
@@ -71,8 +71,11 @@ func (t platformDeploymentTemplates) NameTaken(ctx context.Context, integrationI
 }
 
 // EnsureGenerated implements platformdomain.DeploymentTemplates: each generated template that does
-// not exist is created from preparation, its cloud-init sealed by the store as any template's is.
-func (t platformDeploymentTemplates) EnsureGenerated(ctx context.Context, generated []platformdomain.GeneratedTemplate, preparation platformdomain.MachinePreparation) error {
+// not exist is created from preparation, owned by owner's Pool, its cloud-init sealed by the store as
+// any template's is.
+func (t platformDeploymentTemplates) EnsureGenerated(ctx context.Context, generated []platformdomain.GeneratedTemplate, preparation platformdomain.MachinePreparation,
+	owner platformdomain.TemplateOwner,
+) error {
 	for _, g := range generated {
 		if _, err := t.repo.FindByID(ctx, g.ID); err == nil {
 			continue
@@ -88,7 +91,7 @@ func (t platformDeploymentTemplates) EnsureGenerated(ctx context.Context, genera
 		}
 		now := time.Now().UTC()
 		template := &provisioningdomain.DeploymentTemplate{
-			ID: g.ID, IntegrationID: g.IntegrationID, Name: g.Name,
+			ID: g.ID, IntegrationID: g.IntegrationID, PoolID: owner.PoolID, CreatedBy: owner.CreatedBy, Name: g.Name,
 			Description: "Created by its Platform for node group " + g.Group + ", from the Platform's machine preparation.",
 			ImageID:     strings.TrimSpace(preparation.ImageID), Ephemeral: preparation.Ephemeral != nil && *preparation.Ephemeral,
 			NetworkMode: mode, SubnetID: strings.TrimSpace(preparation.SubnetID),
@@ -105,6 +108,12 @@ func (t platformDeploymentTemplates) EnsureGenerated(ctx context.Context, genera
 		}
 	}
 	return nil
+}
+
+// AdoptGenerated implements platformdomain.DeploymentTemplates.
+func (t platformDeploymentTemplates) AdoptGenerated(ctx context.Context, ids []string, poolID string) error {
+	_, err := t.repo.AssignPool(ctx, ids, poolID)
+	return err
 }
 
 // templateReferenceReader is the OS Provisioning context's port to the Platforms that install from

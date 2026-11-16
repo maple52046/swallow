@@ -2,6 +2,7 @@ package provisioning
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -14,8 +15,11 @@ import (
 )
 
 type deploymentTemplateDoc struct {
-	ID             string `bson:"_id"`
-	IntegrationID  string `bson:"integrationId"`
+	ID            string `bson:"_id"`
+	IntegrationID string `bson:"integrationId"`
+	// PoolID is absent for a template created before templates had a Pool.
+	PoolID         string `bson:"poolId,omitempty"`
+	CreatedBy      string `bson:"createdBy,omitempty"`
 	NormalizedName string `bson:"normalizedName"`
 	Name           string `bson:"name"`
 	Description    string `bson:"description,omitempty"`
@@ -74,17 +78,27 @@ func NewMongoDeploymentTemplateRepo(
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// A name was unique within an Integration; it is now unique within an Integration and a Pool, so
+	// the old index goes first. Names unique under it stay unique under the new one.
+	if err := dropIndexIfPresent(ctx, col, "integration_normalized_name"); err != nil {
+		return nil, err
+	}
 	_, err := col.Indexes().CreateMany(ctx, []mongo.IndexModel{
 		{
 			Keys: bson.D{
 				{Key: "integrationId", Value: 1},
+				{Key: "poolId", Value: 1},
 				{Key: "normalizedName", Value: 1},
 			},
-			Options: options.Index().SetUnique(true).SetName("integration_normalized_name"),
+			Options: options.Index().SetUnique(true).SetName("integration_pool_normalized_name"),
 		},
 		{
 			Keys:    bson.D{{Key: "integrationId", Value: 1}, {Key: "name", Value: 1}},
 			Options: options.Index().SetName("integration_name"),
+		},
+		{
+			Keys:    bson.D{{Key: "poolId", Value: 1}},
+			Options: options.Index().SetName("pool"),
 		},
 	})
 	if err != nil {
@@ -115,6 +129,8 @@ func newDeploymentTemplateDoc(
 	doc := deploymentTemplateDoc{
 		ID:             template.ID,
 		IntegrationID:  template.IntegrationID,
+		PoolID:         template.PoolID,
+		CreatedBy:      template.CreatedBy,
 		NormalizedName: normalizeTemplateName(template.Name),
 		Name:           template.Name,
 		Description:    template.Description,
@@ -166,6 +182,9 @@ func (r *MongoDeploymentTemplateRepo) List(
 	if len(filter.IntegrationIDs) > 0 {
 		query["integrationId"] = bson.M{"$in": filter.IntegrationIDs}
 	}
+	if filter.PoolIDs != nil {
+		query["poolId"] = bson.M{"$in": filter.PoolIDs}
+	}
 	cursor, err := r.col.Find(ctx, query, options.Find().SetSort(bson.D{
 		{Key: "integrationId", Value: 1},
 		{Key: "normalizedName", Value: 1},
@@ -202,10 +221,19 @@ func (r *MongoDeploymentTemplateRepo) Update(
 		"defaultGateway": template.DefaultGateway,
 		"updatedAt":      template.UpdatedAt,
 	}}
+	unset := bson.M{}
 	if minimum := toMinimumHardwareDoc(template.MinimumHardware); minimum != nil {
 		update["$set"].(bson.M)["minimumHardware"] = minimum
 	} else {
-		update["$unset"] = bson.M{"minimumHardware": ""}
+		unset["minimumHardware"] = ""
+	}
+	if template.PoolID != "" {
+		update["$set"].(bson.M)["poolId"] = template.PoolID
+	} else {
+		unset["poolId"] = ""
+	}
+	if len(unset) > 0 {
+		update["$unset"] = unset
 	}
 	result, err := r.col.UpdateOne(ctx, bson.M{"_id": template.ID}, update)
 	if err = mapTemplateWriteError(err); err != nil {
@@ -286,6 +314,36 @@ func (r *MongoDeploymentTemplateRepo) CountByIntegration(ctx context.Context, in
 	return int(count), err
 }
 
+// CountByPool counts the templates a Pool owns, which keep it from being deleted.
+func (r *MongoDeploymentTemplateRepo) CountByPool(ctx context.Context, poolID string) (int, error) {
+	count, err := r.col.CountDocuments(ctx, bson.M{"poolId": poolID})
+	return int(count), err
+}
+
+// AssignPool gives the templates ids that belong to another Pool, or to none, poolID.
+func (r *MongoDeploymentTemplateRepo) AssignPool(ctx context.Context, ids []string, poolID string) (int, error) {
+	if len(ids) == 0 || poolID == "" {
+		return 0, nil
+	}
+	result, err := r.col.UpdateMany(ctx, bson.M{"_id": bson.M{"$in": ids}, "poolId": bson.M{"$ne": poolID}},
+		bson.M{"$set": bson.M{"poolId": poolID, "updatedAt": time.Now().UTC()}})
+	if err = mapTemplateWriteError(err); err != nil {
+		return 0, err
+	}
+	return int(result.ModifiedCount), nil
+}
+
+// dropIndexIfPresent removes an index of an earlier model; a database that never had it (or has no
+// collection yet) is not an error.
+func dropIndexIfPresent(ctx context.Context, col *mongo.Collection, name string) error {
+	_, err := col.Indexes().DropOne(ctx, name)
+	var cmdErr mongo.CommandError
+	if err == nil || errors.As(err, &cmdErr) && (cmdErr.Code == 26 || cmdErr.Code == 27) {
+		return nil
+	}
+	return err
+}
+
 func normalizeTemplateName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
 }
@@ -309,6 +367,8 @@ func toDeploymentTemplate(doc *deploymentTemplateDoc) *provisioningdomain.Deploy
 	return &provisioningdomain.DeploymentTemplate{
 		ID:              doc.ID,
 		IntegrationID:   doc.IntegrationID,
+		PoolID:          doc.PoolID,
+		CreatedBy:       doc.CreatedBy,
 		Name:            doc.Name,
 		Description:     doc.Description,
 		ImageID:         doc.ImageID,

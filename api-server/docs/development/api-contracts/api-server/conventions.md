@@ -78,8 +78,8 @@ Each endpoint contract states which of these classes its routes belong to:
 | Admin | User Role `admin`. |
 
 - A Server belongs to the Pool its placement names; a Platform to the Pool every one of its nodes is
-  in; a Workflow to its targets (every target must qualify). A resource in no Pool belongs to admins
-  only.
+  in; a Deployment Template to the Pool that owns it; a Workflow to its targets (every target must
+  qualify). A resource in no Pool belongs to admins only.
 - A **list** returns only what the caller may read; `total` counts only those.
 - Reading a resource the caller may not read yields `404 not_found`, the same as a resource that
   does not exist, so a caller cannot probe other Pools. A caller that may read a resource but not

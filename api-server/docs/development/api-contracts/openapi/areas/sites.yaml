@@ -1021,8 +1021,8 @@ paths:
       operationId: deletePool
       summary: Delete a Pool with its memberships and Sudo Policy.
       description: >-
-        Requires role `admin`. Refused while a Server's placement spec names the Pool. No
-        provisioner is called.
+        Requires role `admin`. Refused while a Server's placement spec names the Pool or the Pool owns
+        a Deployment Template. No provisioner is called.
       responses:
         '204':
           description: The Pool was deleted.
@@ -1031,7 +1031,7 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '409':
-          description: '`conflict`: a Server is still placed in it.'
+          description: '`conflict`: a Server is still placed in it, or it owns a Deployment Template.'
           content:
             application/json:
               schema:

@@ -201,6 +201,39 @@ func (g *Guard) PlatformMembersInBody(extract func(body []byte) []string) fiber.
 	})
 }
 
+// InPool admits a caller with access to the Pool of the resource the request names. resolve returns
+// that Pool ("" for none, which only an admin reaches) and whether the resource exists; one that does
+// not exist is not visible when required is true, and passes for the handler to answer otherwise.
+func (g *Guard) InPool(access accessdomain.Access, required bool, resolve func(c *fiber.Ctx) (poolID string, found bool, err error)) fiber.Handler {
+	return g.check(func(c *fiber.Ctx, v *Visibility) error {
+		poolID, found, err := resolve(c)
+		if err != nil {
+			return err
+		}
+		if !found {
+			if required {
+				return accessdomain.ErrNotVisible
+			}
+			return nil
+		}
+		return g.authorizer.RequirePool(v.scope, access, poolID)
+	})
+}
+
+// PoolInBody admits a caller with access to the Pool extract finds in the request body, for a request
+// that creates something in it. Every User may see the Pool directory, so a caller without that access
+// is forbidden rather than told the Pool does not exist; a body without a Pool passes for the handler
+// to refuse.
+func (g *Guard) PoolInBody(access accessdomain.Access, extract func(body []byte) string) fiber.Handler {
+	return g.check(func(c *fiber.Ctx, v *Visibility) error {
+		poolID := extract(c.Body())
+		if poolID == "" || v.scope.Allows(access, poolID) {
+			return nil
+		}
+		return accessdomain.ErrForbidden
+	})
+}
+
 // Custom admits a caller that check approves; check returns nil, an Authorizer error, or a store
 // failure. Routes whose resource is named in a query or a body of their own use it.
 func (g *Guard) Custom(check func(c *fiber.Ctx, v *Visibility) error) fiber.Handler {

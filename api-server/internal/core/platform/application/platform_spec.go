@@ -117,6 +117,9 @@ func (s *PlatformSpecService) Create(ctx context.Context, input CreatePlatformSp
 	if spec, err = s.deploy.assignGeneratedTemplates(ctx, module, input.Name, spec); err != nil {
 		return nil, err
 	}
+	if err := s.deploy.checkTemplatePools(ctx, module, nil, spec); err != nil {
+		return nil, err
+	}
 	deploy, err := s.deploy.inputFromSpec(module, input.SiteID, input.Name, spec)
 	if err != nil {
 		return nil, err
@@ -191,6 +194,9 @@ func (s *PlatformSpecService) UpdateSpec(ctx context.Context, platformID string,
 		spec.MachinePreparation.UserData = stored.UserData
 	}
 	if spec, err = s.deploy.assignGeneratedTemplates(ctx, module, platform.Name, spec); err != nil {
+		return nil, err
+	}
+	if err := s.deploy.checkTemplatePools(ctx, module, platform.Spec, spec); err != nil {
 		return nil, err
 	}
 	changes, err := module.Changes(platform.Status.Applied, spec)
@@ -683,7 +689,7 @@ func (p *PlatformPlanner) PrepareApply(ctx context.Context, plan *convergence.Ch
 		}
 		// Only the node groups' first templates wait on the plan: approving it creates them.
 		spec := platform.Spec.Clone()
-		return &platformApply{templates: &spec}, nil
+		return &platformApply{templates: &spec, templatesBy: requestedBy}, nil
 	case platformdomain.RealizeGPUOperator:
 		input, err := gpuOperatorInput(p.deploy, p.modules[platform.Type], platform, requestedBy)
 		if err != nil {
@@ -711,7 +717,7 @@ func (p *PlatformPlanner) PersistApply(ctx context.Context, prepared convergence
 		}
 		return result.OperationID, nil
 	case apply.templates != nil:
-		return "", ensureGeneratedTemplates(ctx, p.deploy.templates, apply.templates)
+		return "", p.deploy.ensureGeneratedTemplates(ctx, apply.templates, apply.templatesBy)
 	case apply.gpuOperator != nil && p.gpuOperators != nil:
 		result, err := p.gpuOperators.Configure(ctx, *apply.gpuOperator)
 		if err != nil {
@@ -755,8 +761,10 @@ type platformApply struct {
 	deploy      *PreparedDeploy
 	uninstall   *UninstallPlatformInput
 	gpuOperator *ConfigureGPUOperatorInput
-	// templates is a spec whose only approved change is creating its node groups' templates.
-	templates *platformdomain.PlatformSpec
+	// templates is a spec whose only approved change is creating its node groups' templates, and
+	// templatesBy the User who approved it, recorded as their creator.
+	templates   *platformdomain.PlatformSpec
+	templatesBy string
 }
 
 // WorkflowID is the deploy Workflow's preassigned id; the other Workflows get theirs when written.

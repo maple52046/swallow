@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	accessdelivery "github.com/maple52046/swallow/internal/core/access/delivery"
 	"github.com/maple52046/swallow/internal/core/provisioning/application"
 	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	"github.com/maple52046/swallow/internal/shared/apierror"
@@ -14,6 +15,7 @@ import (
 
 type createDeploymentTemplateRequest struct {
 	IntegrationID string                            `json:"integrationId"`
+	PoolID        string                            `json:"poolId"`
 	Name          string                            `json:"name"`
 	Description   string                            `json:"description"`
 	ImageID       string                            `json:"imageId"`
@@ -25,6 +27,8 @@ type createDeploymentTemplateRequest struct {
 }
 
 type updateDeploymentTemplateRequest struct {
+	// PoolID moves the template to another Pool; only an admin may.
+	PoolID       *string                           `json:"poolId"`
 	Name         *string                           `json:"name"`
 	Description  *string                           `json:"description"`
 	ImageID      *string                           `json:"imageId"`
@@ -148,8 +152,14 @@ func (h *ProvisioningHandler) CreateTemplate(c *fiber.Ctx) error {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, `deployTarget must be "disk" or "ram".`))
 	}
 	ephemeral := resolved != nil && *resolved
+	visibility, ok := accessdelivery.VisibilityFrom(c)
+	if !ok {
+		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
+	}
 	item, err := h.templates.Create(c.Context(), application.CreateDeploymentTemplateInput{
 		IntegrationID:   req.IntegrationID,
+		PoolID:          req.PoolID,
+		CreatedBy:       visibility.Scope().Username,
 		Name:            req.Name,
 		Description:     req.Description,
 		ImageID:         req.ImageID,
@@ -161,14 +171,29 @@ func (h *ProvisioningHandler) CreateTemplate(c *fiber.Ctx) error {
 	if err != nil {
 		return RespondError(c, err)
 	}
-	return c.Status(fiber.StatusCreated).JSON(item)
+	return h.respondTemplate(c, fiber.StatusCreated, item)
 }
 
-// ListTemplates returns deployment templates within optional site and integration scope.
+// ListTemplates returns the deployment templates of the caller's Pools (every template for an
+// admin) within optional site and integration scope.
 func (h *ProvisioningHandler) ListTemplates(c *fiber.Ctx) error {
-	items, err := h.templates.List(c.Context(), c.Query("siteId"), c.Query("integrationId"))
+	visibility, ok := accessdelivery.VisibilityFrom(c)
+	if !ok {
+		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
+	}
+	var pools []string
+	if !visibility.Admin() {
+		pools = visibility.ReadablePools()
+	}
+	items, err := h.templates.List(c.Context(), c.Query("siteId"), c.Query("integrationId"), pools)
 	if err != nil {
 		return RespondError(c, err)
+	}
+	readable := platformReadability(c, visibility)
+	for i := range items {
+		if items[i].UsedBy, err = readable(items[i].UsedBy); err != nil {
+			return RespondError(c, err)
+		}
 	}
 	return c.JSON(items)
 }
@@ -179,7 +204,48 @@ func (h *ProvisioningHandler) GetTemplate(c *fiber.Ctx) error {
 	if err != nil {
 		return RespondError(c, err)
 	}
-	return c.JSON(item)
+	return h.respondTemplate(c, fiber.StatusOK, item)
+}
+
+// respondTemplate answers a template with only the Platforms the caller can read in its usedBy, so
+// a template never reveals a Platform of a Pool the caller is not in.
+func (h *ProvisioningHandler) respondTemplate(c *fiber.Ctx, status int, item *application.DeploymentTemplateItem) error {
+	visibility, ok := accessdelivery.VisibilityFrom(c)
+	if !ok {
+		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
+	}
+	used, err := platformReadability(c, visibility)(item.UsedBy)
+	if err != nil {
+		return RespondError(c, err)
+	}
+	item.UsedBy = used
+	return c.Status(status).JSON(item)
+}
+
+// platformReadability returns a filter keeping the template uses whose Platform the caller can read,
+// asking once per Platform within the request.
+func platformReadability(c *fiber.Ctx, visibility *accessdelivery.Visibility) func([]application.DeploymentTemplateUseItem) ([]application.DeploymentTemplateUseItem, error) {
+	known := map[string]bool{}
+	return func(uses []application.DeploymentTemplateUseItem) ([]application.DeploymentTemplateUseItem, error) {
+		if visibility.Admin() {
+			return uses, nil
+		}
+		kept := make([]application.DeploymentTemplateUseItem, 0, len(uses))
+		for _, use := range uses {
+			readable, seen := known[use.PlatformID]
+			if !seen {
+				var err error
+				if readable, err = visibility.CanReadPlatform(c.UserContext(), use.PlatformID); err != nil {
+					return nil, err
+				}
+				known[use.PlatformID] = readable
+			}
+			if readable {
+				kept = append(kept, use)
+			}
+		}
+		return kept, nil
+	}
 }
 
 // UpdateTemplate changes non-secret template intent.
@@ -193,15 +259,22 @@ func (h *ProvisioningHandler) UpdateTemplate(c *fiber.Ctx) error {
 	if !valid {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, `deployTarget must be "disk" or "ram".`))
 	}
+	visibility, ok := accessdelivery.VisibilityFrom(c)
+	if !ok {
+		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
+	}
+	if req.PoolID != nil && !visibility.Admin() {
+		return apierror.Respond(c, apierror.New(apierror.CodeForbidden, "Only an admin moves a template to another Pool."))
+	}
 	item, err := h.templates.Update(c.Context(), c.Params("id"), application.UpdateDeploymentTemplateInput{
 		Name: req.Name, Description: req.Description, ImageID: req.ImageID,
 		Ephemeral: ephemeral, Network: deploymentTemplateNetworkInput(req.Network),
-		MinimumHardware: req.MinimumHardware.input(),
+		MinimumHardware: req.MinimumHardware.input(), PoolID: req.PoolID,
 	})
 	if err != nil {
 		return RespondError(c, err)
 	}
-	return c.JSON(item)
+	return h.respondTemplate(c, fiber.StatusOK, item)
 }
 
 // DeleteTemplate removes reusable intent and its encrypted cloud-init.

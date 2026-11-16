@@ -448,7 +448,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a Pool with its memberships and Sudo Policy.
-         * @description Requires role `admin`. Refused while a Server's placement spec names the Pool. No provisioner is called.
+         * @description Requires role `admin`. Refused while a Server's placement spec names the Pool or the Pool owns a Deployment Template. No provisioner is called.
          */
         delete: operations["deletePool"];
         options?: never;
@@ -2286,13 +2286,13 @@ export interface paths {
         };
         /**
          * List Deployment Templates, optionally narrowed to a Site and an Integration.
-         * @description Reference: any authenticated User. Filters are conjunctive; a Site and Integration that do not match yield an empty list. Returns a plain array; user data is never returned.
+         * @description Pool-scoped read: the templates of the caller's Pools (every template for an admin). Filters are conjunctive; a Site and Integration that do not match yield an empty list. Returns a plain array; user data is never returned.
          */
         get: operations["listDeploymentTemplates"];
         put?: never;
         /**
          * Create a Deployment Template after validating its image and network against the live provisioner.
-         * @description Requires role `admin`. The response never echoes `userData`.
+         * @description Requires an owner of the Pool named by `poolId` (or role `admin`); the template is owned by that Pool and records the caller as `createdBy`. The response never echoes `userData`.
          */
         post: operations["createDeploymentTemplate"];
         delete?: never;
@@ -2313,21 +2313,21 @@ export interface paths {
         };
         /**
          * Read one Deployment Template's metadata, without its user data.
-         * @description Reference: any authenticated User.
+         * @description Pool-scoped read: any role in the template's Pool (or role `admin`); `404` otherwise.
          */
         get: operations["getDeploymentTemplate"];
         put?: never;
         post?: never;
         /**
          * Delete a Deployment Template and its sealed user data.
-         * @description Requires role `admin`.
+         * @description Requires an owner of the template's Pool (or role `admin`).
          */
         delete: operations["deleteDeploymentTemplate"];
         options?: never;
         head?: never;
         /**
          * Change any subset of a Deployment Template's non-secret intent.
-         * @description Requires role `admin`. Cannot change `integrationId` and never accepts `userData`. A changed image or network is validated against the live provisioner before it is stored.
+         * @description Requires an owner of the template's Pool (or role `admin`); only an admin sends `poolId`, which moves the template to another Pool. Cannot change `integrationId` and never accepts `userData`. A changed image or network is validated against the live provisioner before it is stored.
          */
         patch: operations["updateDeploymentTemplate"];
         trace?: never;
@@ -2345,13 +2345,13 @@ export interface paths {
         get?: never;
         /**
          * Replace a Deployment Template's write-only cloud-init user data.
-         * @description Requires role `admin`. The value is sealed at rest and never readable through the API; read the template again for the updated `hasUserData`.
+         * @description Requires an owner of the template's Pool (or role `admin`). The value is sealed at rest and never readable through the API; read the template again for the updated `hasUserData`.
          */
         put: operations["replaceDeploymentTemplateUserData"];
         post?: never;
         /**
          * Clear a Deployment Template's sealed user data.
-         * @description Requires role `admin`.
+         * @description Requires an owner of the template's Pool (or role `admin`).
          */
         delete: operations["clearDeploymentTemplateUserData"];
         options?: never;
@@ -4924,6 +4924,8 @@ export interface components {
         /** @description swallow-owned, Integration-scoped deployment intent. User data is write-only and never returned. */
         DeploymentTemplate: {
             createdAt: components["schemas"]["Timestamp"];
+            /** @description The username of whoever created the template ("" when unknown), a record only: it never decides access and stays as written when that User leaves the Pool. */
+            createdBy: string;
             description: string;
             /** @description The Deploy Target at the wire boundary (`false` is `disk`, `true` is `ram`). */
             ephemeral: boolean;
@@ -4933,13 +4935,15 @@ export interface components {
             integrationId: string;
             /** @description The optional hardware a Server needs to be installed from the template; null sets none. */
             minimumHardware: components["schemas"]["DeploymentTemplateMinimumHardware"] | null;
-            /** @description Trimmed and unique within the Integration, case-insensitively. */
+            /** @description Trimmed and unique within the Integration and the Pool, case-insensitively. */
             name: string;
             network: components["schemas"]["DeploymentTemplateNetwork"];
+            /** @description The Pool that owns the template: its members read and use it, its owners change it. Null for a template created before templates had a Pool, which only an admin reads until one moves it to a Pool. */
+            poolId: string | null;
             /** @description The Site of the template's Integration. */
             siteId: string;
             updatedAt: components["schemas"]["Timestamp"];
-            /** @description The Platform node groups that install their new members from the template. */
+            /** @description The Platform node groups that install their new members from the template, limited to the Platforms the caller can read. */
             usedBy: components["schemas"]["DeploymentTemplateUse"][];
         };
         DeploymentTemplateCreateRequest: {
@@ -4955,6 +4959,8 @@ export interface components {
             minimumHardware?: components["schemas"]["DeploymentTemplateMinimumHardwareIntent"] | null;
             name: string;
             network?: components["schemas"]["DeploymentTemplateNetworkIntent"];
+            /** @description The Pool that owns the template; the caller must own it unless it is an admin. */
+            poolId: string;
             /** @description Optional cloud-init user data, sealed at rest and never returned. */
             userData?: string;
         };
@@ -5011,6 +5017,8 @@ export interface components {
             minimumHardware?: components["schemas"]["DeploymentTemplateMinimumHardwareIntent"] | null;
             name?: string;
             network?: components["schemas"]["DeploymentTemplateNetworkIntent"];
+            /** @description Moves the template to this Pool; only an admin may send it. */
+            poolId?: string;
         };
         DeploymentTemplateUse: {
             /** @description The node group, or `machine preparation` for a Platform's own default. */
@@ -9482,7 +9490,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `conflict`: a Server is still placed in it. */
+            /** @description `conflict`: a Server is still placed in it, or it owns a Deployment Template. */
             409: {
                 headers: {
                     [name: string]: unknown;

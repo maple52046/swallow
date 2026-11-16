@@ -746,13 +746,16 @@ A Slurm Platform's members are organized in node groups, and its compute groups 
   its `templateId`, otherwise the machine preparation's template, otherwise one the Platform generates
   from its machine preparation (`provision_os` only) named `<platform>-<group>` in the members'
   provisioner Integration and listed in `machinePreparation.generatedTemplates`. A generated template is
-  created when the change is carried out; on a Platform that is already applied, a spec write that needs
+  created when the change is carried out, owned by the Platform's Pool and recording who carried the change
+  out, and moves to another Pool with its Platform; on a Platform that is already applied, a spec write that needs
   one is destructive (its Change Plan lists `create-template`). A member keeps only its own network
   assignment from the machine preparation: a node added to a `provision_os` Platform may name, in
   `machinePreparation.network.assignments`, the `interfaceId` (and `subnetId`) it deploys on and, when
   its template's network mode is `static`, its `ipAddress`; everything else comes from the template. Members of one group in different provisioner Integrations,
   a `templateId` that does not exist, and a member added below its template's `minimumHardware` are
-  `validation_error`s naming the Server and what it lacks. A group whose members' GPU models differ is a
+  `validation_error`s naming the Server and what it lacks. On a Platform in a Pool, a spec write that newly
+  names a template (a group's `templateId` or the machine preparation's) of another Pool is a
+  `validation_error` too; a template the stored spec already names is kept. A group whose members' GPU models differ is a
   warning unless its template names a GPU model.
 - A change of groups and partitions alone (a partition added, changed, or removed, a compute group added
   or removed, a member moved between groups, which plans `change-group-members`, or a group's
@@ -1688,6 +1691,9 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 
 ## Compatibility Notes
 
+- Since 2026-11-16 a spec write of a Platform in a Pool that newly names a Deployment Template of
+  another Pool is `400 validation_error`, and the Platform's generated templates are owned by its Pool
+  ([Deployment Templates](provisioning.md#deployment-templates)).
 - Since 2026-11-16 a change of a Slurm Platform's node groups and partitions alone, and a rescan, run a
   `reconfigure-slurm` Workflow that reconfigures the cluster in place instead of a `configure-slurm`
   Workflow that redeployed every member; the Platform stays `active` meanwhile. Moving a member between

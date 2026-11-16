@@ -14,15 +14,19 @@ import (
 
 // DeploymentTemplateItem is safe template metadata returned by the API.
 type DeploymentTemplateItem struct {
-	ID            string                        `json:"id"`
-	SiteID        string                        `json:"siteId"`
-	IntegrationID string                        `json:"integrationId"`
-	Name          string                        `json:"name"`
-	Description   string                        `json:"description"`
-	ImageID       string                        `json:"imageId"`
-	Ephemeral     bool                          `json:"ephemeral"`
-	Network       DeploymentNetworkSettingsItem `json:"network"`
-	HasUserData   bool                          `json:"hasUserData"`
+	ID            string `json:"id"`
+	SiteID        string `json:"siteId"`
+	IntegrationID string `json:"integrationId"`
+	// PoolID is the Pool that owns the template; null for a template that has none (admins only).
+	PoolID *string `json:"poolId"`
+	// CreatedBy is who created the template, a record that never decides access; "" when unknown.
+	CreatedBy   string                        `json:"createdBy"`
+	Name        string                        `json:"name"`
+	Description string                        `json:"description"`
+	ImageID     string                        `json:"imageId"`
+	Ephemeral   bool                          `json:"ephemeral"`
+	Network     DeploymentNetworkSettingsItem `json:"network"`
+	HasUserData bool                          `json:"hasUserData"`
 	// MinimumHardware is the template's optional hardware floor; null sets none.
 	MinimumHardware *MinimumHardwareItem `json:"minimumHardware"`
 	// UsedBy lists the Platform node groups that install from the template.
@@ -128,12 +132,16 @@ type DeploymentNetworkSettingsInput struct {
 // CreateDeploymentTemplateInput carries template intent and optional write-only user data.
 type CreateDeploymentTemplateInput struct {
 	IntegrationID string
-	Name          string
-	Description   string
-	ImageID       string
-	Ephemeral     bool
-	UserData      string
-	Network       *DeploymentNetworkSettingsInput
+	// PoolID is the Pool that owns the template; the caller must operate it (the route checks).
+	PoolID string
+	// CreatedBy is the creating User's username, recorded with the template.
+	CreatedBy   string
+	Name        string
+	Description string
+	ImageID     string
+	Ephemeral   bool
+	UserData    string
+	Network     *DeploymentNetworkSettingsInput
 	// MinimumHardware is the optional hardware floor; nil sets none.
 	MinimumHardware *MinimumHardwareInput
 }
@@ -147,6 +155,8 @@ type UpdateDeploymentTemplateInput struct {
 	Network     *DeploymentNetworkSettingsInput
 	// MinimumHardware, when set, replaces the floor (an object of nulls clears it); nil keeps it.
 	MinimumHardware *MinimumHardwareInput
+	// PoolID, when set, moves the template to that Pool; only an admin may (the route checks).
+	PoolID *string
 }
 
 // DeploymentTemplateService owns template validation and lifecycle.
@@ -155,6 +165,7 @@ type DeploymentTemplateService struct {
 	integrations provisioningdomain.ProvisionerIntegrationReader
 	providers    provisioningdomain.ProviderFactory
 	references   provisioningdomain.DeploymentTemplateReferenceReader
+	pools        provisioningdomain.PoolDirectory
 }
 
 // NewDeploymentTemplateService creates the template application service. references names the
@@ -165,10 +176,30 @@ func NewDeploymentTemplateService(
 	integrations provisioningdomain.ProvisionerIntegrationReader,
 	providers provisioningdomain.ProviderFactory,
 	references provisioningdomain.DeploymentTemplateReferenceReader,
+	pools provisioningdomain.PoolDirectory,
 ) *DeploymentTemplateService {
 	return &DeploymentTemplateService{
-		templates: templates, integrations: integrations, providers: providers, references: references,
+		templates: templates, integrations: integrations, providers: providers, references: references, pools: pools,
 	}
+}
+
+// requirePool refuses an empty or unknown Pool: every template is owned by one.
+func (s *DeploymentTemplateService) requirePool(ctx context.Context, poolID string) (string, error) {
+	poolID = strings.TrimSpace(poolID)
+	if poolID == "" {
+		return "", fmt.Errorf("%w: poolId is required: a template is owned by a Pool", provisioningdomain.ErrInvalidDeploymentTemplate)
+	}
+	if s.pools == nil {
+		return poolID, nil
+	}
+	exists, err := s.pools.PoolExists(ctx, poolID)
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		return "", fmt.Errorf("%w: Pool %s does not exist", provisioningdomain.ErrInvalidDeploymentTemplate, poolID)
+	}
+	return poolID, nil
 }
 
 // uses reads which Platform node groups install from each template.
@@ -192,6 +223,10 @@ func (s *DeploymentTemplateService) Create(
 	if imageID == "" {
 		return nil, fmt.Errorf("%w: imageId is required", provisioningdomain.ErrInvalidDeploymentTemplate)
 	}
+	poolID, err := s.requirePool(ctx, input.PoolID)
+	if err != nil {
+		return nil, err
+	}
 	integration, err := s.integrations.Find(ctx, input.IntegrationID)
 	if err != nil {
 		return nil, err
@@ -212,6 +247,8 @@ func (s *DeploymentTemplateService) Create(
 	template := &provisioningdomain.DeploymentTemplate{
 		ID:              uuid.NewString(),
 		IntegrationID:   integration.ID,
+		PoolID:          poolID,
+		CreatedBy:       strings.TrimSpace(input.CreatedBy),
 		Name:            name,
 		Description:     strings.TrimSpace(input.Description),
 		ImageID:         imageID,
@@ -230,12 +267,17 @@ func (s *DeploymentTemplateService) Create(
 	return deploymentTemplateItem(template, integration.SiteID, nil), nil
 }
 
-// List applies site and integration filters conjunctively.
+// List applies site and integration filters conjunctively. A non-nil pools lists only the templates
+// of those Pools (a caller who is not an admin reads its own Pools only).
 func (s *DeploymentTemplateService) List(
 	ctx context.Context,
 	siteID, integrationID string,
+	pools []string,
 ) ([]DeploymentTemplateItem, error) {
-	filter := provisioningdomain.DeploymentTemplateFilter{}
+	filter := provisioningdomain.DeploymentTemplateFilter{PoolIDs: pools}
+	if pools != nil && len(pools) == 0 {
+		return []DeploymentTemplateItem{}, nil
+	}
 	siteByIntegration := map[string]string{}
 
 	if siteID != "" {
@@ -367,6 +409,13 @@ func (s *DeploymentTemplateService) Update(
 		}
 		template.MinimumHardware = minimum
 	}
+	if input.PoolID != nil {
+		poolID, err := s.requirePool(ctx, *input.PoolID)
+		if err != nil {
+			return nil, err
+		}
+		template.PoolID = poolID
+	}
 	template.UpdatedAt = time.Now().UTC()
 	if err := s.templates.Update(ctx, template); err != nil {
 		return nil, err
@@ -421,7 +470,13 @@ func deploymentTemplateItem(
 	for _, use := range uses {
 		usedBy = append(usedBy, DeploymentTemplateUseItem{PlatformID: use.PlatformID, PlatformName: use.PlatformName, Group: use.Group})
 	}
+	var poolID *string
+	if template.PoolID != "" {
+		poolID = &template.PoolID
+	}
 	return &DeploymentTemplateItem{
+		PoolID:          poolID,
+		CreatedBy:       template.CreatedBy,
 		MinimumHardware: minimumHardwareItem(template.MinimumHardware),
 		UsedBy:          usedBy,
 		ID:              template.ID,

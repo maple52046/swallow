@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -271,6 +272,7 @@ func (s *DeployService) assignGeneratedTemplates(ctx context.Context, module pla
 		return spec, nil
 	}
 	assigned := map[string]string{}
+	pool, poolRead := "", false
 	for _, group := range grouped.NodeGroups(spec) {
 		if group.TemplateID != "" {
 			continue
@@ -296,9 +298,17 @@ func (s *DeployService) assignGeneratedTemplates(ctx context.Context, module pla
 		if integrationID == "" {
 			continue
 		}
+		if !poolRead {
+			// The generated template belongs to the Platform's Pool, where its name must be free.
+			var err error
+			if pool, err = s.specPool(ctx, spec); err != nil {
+				return spec, err
+			}
+			poolRead = true
+		}
 		id := uuid.NewString()
 		name := platformName + "-" + group.Name
-		taken, err := s.templates.NameTaken(ctx, integrationID, name, id)
+		taken, err := s.templates.NameTaken(ctx, integrationID, pool, name, id)
 		if err != nil {
 			return spec, err
 		}
@@ -341,13 +351,108 @@ func templateChanges(ctx context.Context, templates platformdomain.DeploymentTem
 	return nil
 }
 
-// ensureGeneratedTemplates creates the templates spec generates that do not exist yet; it runs in
-// the transaction that accepts the realization.
-func ensureGeneratedTemplates(ctx context.Context, templates platformdomain.DeploymentTemplates, spec *platformdomain.PlatformSpec) error {
+// ensureGeneratedTemplates creates the templates spec generates that do not exist yet, owned by the
+// Platform's Pool and recording createdBy, the User who carried out the change; it runs in the
+// transaction that accepts the realization.
+func (s *DeployService) ensureGeneratedTemplates(ctx context.Context, spec *platformdomain.PlatformSpec, createdBy string) error {
 	if spec == nil || len(spec.MachinePreparation.GeneratedTemplates) == 0 {
 		return nil
 	}
-	return templates.EnsureGenerated(ctx, spec.MachinePreparation.GeneratedTemplates, spec.MachinePreparation)
+	pool, err := s.specPool(ctx, *spec)
+	if err != nil {
+		return err
+	}
+	return s.templates.EnsureGenerated(ctx, spec.MachinePreparation.GeneratedTemplates, spec.MachinePreparation,
+		platformdomain.TemplateOwner{PoolID: pool, CreatedBy: createdBy})
+}
+
+// specPool is the Pool every member of spec is placed in, "" when they are in different Pools or in
+// none (identity-and-access.md §5, from the members alone).
+func (s *DeployService) specPool(ctx context.Context, spec platformdomain.PlatformSpec) (string, error) {
+	ids := spec.MemberIDs()
+	pools := make(map[string]string, len(ids))
+	for _, id := range ids {
+		server, err := s.servers.FindByID(ctx, id)
+		if errors.Is(err, serverdomain.ErrServerNotFound) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		pools[id] = server.Spec.PoolID
+	}
+	return platformdomain.PoolOfMembers(ids, pools), nil
+}
+
+// checkTemplatePools refuses a spec that newly references a Deployment Template of another Pool than
+// the Platform's, as a node group's, a member's, or the machine preparation's template: the members of
+// the Platform's Pool must be able to read what its members are installed from. References previous
+// already has are kept, and so is any reference of a Platform without a Pool (only an admin manages
+// it). A template the spec generates belongs to the Platform's Pool when it is created.
+func (s *DeployService) checkTemplatePools(ctx context.Context, module platformdomain.PlatformModule, previous *platformdomain.PlatformSpec, spec platformdomain.PlatformSpec) error {
+	pool, err := s.specPool(ctx, spec)
+	if err != nil || pool == "" {
+		return err
+	}
+	known := map[string]bool{}
+	if previous != nil {
+		for _, id := range referencedTemplates(module, *previous) {
+			known[id] = true
+		}
+	}
+	for _, id := range referencedTemplates(module, spec) {
+		if _, generated := spec.MachinePreparation.Generated(id); known[id] || generated {
+			continue
+		}
+		intent, err := s.templates.Find(ctx, id)
+		if err != nil {
+			return err
+		}
+		if intent != nil && intent.PoolID != pool {
+			return fmt.Errorf("%w: Deployment Template %s belongs to another Pool than the Platform's; use one of the Platform's Pool",
+				platformdomain.ErrInvalidDeployment, intent.Name)
+		}
+	}
+	return nil
+}
+
+// referencedTemplates lists the templates spec installs from: its machine preparation's, its members',
+// and its node groups', each once.
+func referencedTemplates(module platformdomain.PlatformModule, spec platformdomain.PlatformSpec) []string {
+	var ids []string
+	add := func(id string) {
+		if id != "" && !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	add(spec.MachinePreparation.TemplateID)
+	for _, assignment := range spec.MachinePreparation.Assignments {
+		add(assignment.TemplateID)
+	}
+	if grouped, ok := module.(platformdomain.NodeGroupModule); ok {
+		for _, group := range grouped.NodeGroups(spec) {
+			add(group.TemplateID)
+		}
+	}
+	return ids
+}
+
+// adoptGeneratedTemplates keeps the templates platform generated in its Pool: those created before
+// templates had a Pool, and all of them after the Platform moved to another Pool. A Platform without a
+// Pool leaves them where they are.
+func (s *DeployService) adoptGeneratedTemplates(ctx context.Context, platform *platformdomain.Platform) error {
+	if platform.Spec == nil || len(platform.Spec.MachinePreparation.GeneratedTemplates) == 0 {
+		return nil
+	}
+	pool, err := s.specPool(ctx, *platform.Spec)
+	if err != nil || pool == "" {
+		return err
+	}
+	ids := make([]string, 0, len(platform.Spec.MachinePreparation.GeneratedTemplates))
+	for _, generated := range platform.Spec.MachinePreparation.GeneratedTemplates {
+		ids = append(ids, generated.ID)
+	}
+	return s.templates.AdoptGenerated(ctx, ids, pool)
 }
 
 // addedMembers lists the members desired has that applied does not, in desired order; with no

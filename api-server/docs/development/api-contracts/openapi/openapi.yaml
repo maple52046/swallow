@@ -818,7 +818,7 @@ paths:
         - sites
   /api/v1/infrastructure/pools/{id}:
     delete:
-      description: Requires role `admin`. Refused while a Server's placement spec names the Pool. No provisioner is called.
+      description: Requires role `admin`. Refused while a Server's placement spec names the Pool or the Pool owns a Deployment Template. No provisioner is called.
       operationId: deletePool
       responses:
         "204":
@@ -838,7 +838,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`conflict`: a Server is still placed in it.'
+          description: '`conflict`: a Server is still placed in it, or it owns a Deployment Template.'
         default:
           $ref: '#/components/responses/Error'
       summary: Delete a Pool with its memberships and Sudo Policy.
@@ -4915,7 +4915,7 @@ paths:
         - provisioning
   /api/v1/provisioning/templates:
     get:
-      description: 'Reference: any authenticated User. Filters are conjunctive; a Site and Integration that do not match yield an empty list. Returns a plain array; user data is never returned.'
+      description: 'Pool-scoped read: the templates of the caller''s Pools (every template for an admin). Filters are conjunctive; a Site and Integration that do not match yield an empty list. Returns a plain array; user data is never returned.'
       operationId: listDeploymentTemplates
       parameters:
         - description: Only templates of this Site's provisioner Integrations.
@@ -4961,7 +4961,7 @@ paths:
       tags:
         - provisioning
     post:
-      description: Requires role `admin`. The response never echoes `userData`.
+      description: Requires an owner of the Pool named by `poolId` (or role `admin`); the template is owned by that Pool and records the caller as `createdBy`. The response never echoes `userData`.
       operationId: createDeploymentTemplate
       requestBody:
         content:
@@ -5011,7 +5011,7 @@ paths:
         - provisioning
   /api/v1/provisioning/templates/{id}:
     delete:
-      description: Requires role `admin`.
+      description: Requires an owner of the template's Pool (or role `admin`).
       operationId: deleteDeploymentTemplate
       responses:
         "204":
@@ -5038,7 +5038,7 @@ paths:
       tags:
         - provisioning
     get:
-      description: 'Reference: any authenticated User.'
+      description: 'Pool-scoped read: any role in the template''s Pool (or role `admin`); `404` otherwise.'
       operationId: getDeploymentTemplate
       responses:
         "200":
@@ -5070,7 +5070,7 @@ paths:
         schema:
           type: string
     patch:
-      description: Requires role `admin`. Cannot change `integrationId` and never accepts `userData`. A changed image or network is validated against the live provisioner before it is stored.
+      description: Requires an owner of the template's Pool (or role `admin`); only an admin sends `poolId`, which moves the template to another Pool. Cannot change `integrationId` and never accepts `userData`. A changed image or network is validated against the live provisioner before it is stored.
       operationId: updateDeploymentTemplate
       requestBody:
         content:
@@ -5120,7 +5120,7 @@ paths:
         - provisioning
   /api/v1/provisioning/templates/{id}/user-data:
     delete:
-      description: Requires role `admin`.
+      description: Requires an owner of the template's Pool (or role `admin`).
       operationId: clearDeploymentTemplateUserData
       responses:
         "204":
@@ -5148,7 +5148,7 @@ paths:
         schema:
           type: string
     put:
-      description: Requires role `admin`. The value is sealed at rest and never readable through the API; read the template again for the updated `hasUserData`.
+      description: Requires an owner of the template's Pool (or role `admin`). The value is sealed at rest and never readable through the API; read the template again for the updated `hasUserData`.
       operationId: replaceDeploymentTemplateUserData
       requestBody:
         content:
@@ -10641,6 +10641,9 @@ components:
       properties:
         createdAt:
           $ref: '#/components/schemas/Timestamp'
+        createdBy:
+          description: 'The username of whoever created the template ("" when unknown), a record only: it never decides access and stays as written when that User leaves the Pool.'
+          type: string
         description:
           type: string
         ephemeral:
@@ -10660,17 +10663,21 @@ components:
           description: The optional hardware a Server needs to be installed from the template; null sets none.
           nullable: true
         name:
-          description: Trimmed and unique within the Integration, case-insensitively.
+          description: Trimmed and unique within the Integration and the Pool, case-insensitively.
           type: string
         network:
           $ref: '#/components/schemas/DeploymentTemplateNetwork'
+        poolId:
+          description: 'The Pool that owns the template: its members read and use it, its owners change it. Null for a template created before templates had a Pool, which only an admin reads until one moves it to a Pool.'
+          nullable: true
+          type: string
         siteId:
           description: The Site of the template's Integration.
           type: string
         updatedAt:
           $ref: '#/components/schemas/Timestamp'
         usedBy:
-          description: The Platform node groups that install their new members from the template.
+          description: The Platform node groups that install their new members from the template, limited to the Platforms the caller can read.
           items:
             $ref: '#/components/schemas/DeploymentTemplateUse'
           type: array
@@ -10678,6 +10685,8 @@ components:
         - id
         - siteId
         - integrationId
+        - poolId
+        - createdBy
         - name
         - description
         - imageId
@@ -10712,12 +10721,16 @@ components:
           type: string
         network:
           $ref: '#/components/schemas/DeploymentTemplateNetworkIntent'
+        poolId:
+          description: The Pool that owns the template; the caller must own it unless it is an admin.
+          type: string
         userData:
           description: Optional cloud-init user data, sealed at rest and never returned.
           type: string
           writeOnly: true
       required:
         - integrationId
+        - poolId
         - name
         - imageId
       type: object
@@ -10835,6 +10848,9 @@ components:
           type: string
         network:
           $ref: '#/components/schemas/DeploymentTemplateNetworkIntent'
+        poolId:
+          description: Moves the template to this Pool; only an admin may send it.
+          type: string
       type: object
     DeploymentTemplateUse:
       properties:

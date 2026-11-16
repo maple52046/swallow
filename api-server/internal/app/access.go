@@ -24,6 +24,7 @@ import (
 	"github.com/maple52046/swallow/internal/core/convergence"
 	infradomain "github.com/maple52046/swallow/internal/core/infrastructure/domain"
 	platformapp "github.com/maple52046/swallow/internal/core/platform/application"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
 	sshkeydomain "github.com/maple52046/swallow/internal/core/sshkey/domain"
 	"github.com/maple52046/swallow/internal/core/store"
@@ -431,4 +432,48 @@ func (a validationRunAccess) check(access accessdomain.Access) func(c *fiber.Ctx
 		}
 		return nil
 	}
+}
+
+// templatePool resolves the Pool of the Deployment Template named by the route parameter id, for
+// Guard.InPool.
+func templatePool(templates provisioningdomain.DeploymentTemplateRepository) func(c *fiber.Ctx) (string, bool, error) {
+	return func(c *fiber.Ctx) (string, bool, error) {
+		return templatePoolOf(c, templates, c.Params("id"))
+	}
+}
+
+// deploymentTemplatePool resolves the Pool of the Deployment Template a deployment request names in
+// "templateId", for Guard.InPool: a Pool's templates install only what its members may use. A request
+// without one, or naming one that does not exist, has no template to check.
+func deploymentTemplatePool(templates provisioningdomain.DeploymentTemplateRepository) func(c *fiber.Ctx) (string, bool, error) {
+	return func(c *fiber.Ctx) (string, bool, error) {
+		var request struct {
+			TemplateID string `json:"templateId"`
+		}
+		_ = json.Unmarshal(c.Body(), &request) // An unreadable body names no template; the handler answers 400.
+		if request.TemplateID == "" {
+			return "", false, nil
+		}
+		return templatePoolOf(c, templates, request.TemplateID)
+	}
+}
+
+func templatePoolOf(c *fiber.Ctx, templates provisioningdomain.DeploymentTemplateRepository, id string) (string, bool, error) {
+	template, err := templates.FindByID(c.UserContext(), id)
+	if errors.Is(err, provisioningdomain.ErrDeploymentTemplateNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return template.PoolID, true, nil
+}
+
+// poolIDField reads a request body's "poolId", for Guard.PoolInBody.
+func poolIDField(body []byte) string {
+	var request struct {
+		PoolID string `json:"poolId"`
+	}
+	_ = json.Unmarshal(body, &request)
+	return request.PoolID
 }

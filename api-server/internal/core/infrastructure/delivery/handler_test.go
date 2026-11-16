@@ -203,6 +203,9 @@ type noReferences struct{}
 
 func (noReferences) CountZone(context.Context, string) (int, error) { return 0, nil }
 func (noReferences) CountPool(context.Context, string) (int, error) { return 0, nil }
+func (noReferences) CountPoolTemplates(context.Context, string) (int, error) {
+	return 0, nil
+}
 
 // noProviders fails every lookup, so a test fails if a Pool route reaches a provisioner.
 type noProviders struct{}

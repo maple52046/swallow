@@ -47,7 +47,7 @@ func newServiceFixture(t *testing.T) *serviceFixture {
 		zones: newFakeZoneRepo(), pools: newFakePoolRepo(),
 		placements:      &fakePlacements{current: &infradomain.ServerPlacement{ServerID: "srv-1", SiteID: "site-a", Generation: 1}},
 		provider:        newFakeGroupingProvider(),
-		references:      fakeReferences{zones: map[string]int{}, pools: map[string]int{}},
+		references:      fakeReferences{zones: map[string]int{}, pools: map[string]int{}, templates: map[string]int{}},
 		platformServers: fakePlatformServers{}, cleaned: &fakePoolAccess{}, tx: &storetest.Transactor{},
 	}
 	factory := &fakeFactory{providers: map[string]provisioningdomain.OSProvisioningProvider{"maas-a": f.provider}}
@@ -342,7 +342,7 @@ func deref(id *string) string {
 }
 
 // Deleting a Pool also deletes its memberships and Sudo Policy, refuses while a Server is placed in
-// it, and never calls a provisioner.
+// it or it owns a Deployment Template, and never calls a provisioner.
 func TestDeletePool_RemovesItsAccess(t *testing.T) {
 	f := newServiceFixture(t)
 	f.pools.byID["p-a"] = &infradomain.Pool{ID: "p-a", Name: "a"}
@@ -352,6 +352,12 @@ func TestDeletePool_RemovesItsAccess(t *testing.T) {
 		t.Fatalf("delete of a placed Pool: err = %v, want ErrGroupInUse", err)
 	}
 	delete(f.references.pools, "p-a")
+
+	f.references.templates["p-a"] = 2
+	if err := f.service.DeletePool(context.Background(), "p-a"); !errors.Is(err, infradomain.ErrPoolOwnsTemplates) {
+		t.Fatalf("delete of a Pool that owns templates: err = %v, want ErrPoolOwnsTemplates", err)
+	}
+	delete(f.references.templates, "p-a")
 
 	if err := f.service.DeletePool(context.Background(), "p-a"); err != nil {
 		t.Fatalf("DeletePool: %v", err)

@@ -89,10 +89,12 @@ type TemplateMinimum struct {
 type DeploymentTemplateIntent struct {
 	ID            string
 	IntegrationID string
-	Name          string
-	Ephemeral     bool
-	Minimum       *TemplateMinimum
-	Digest        string
+	// PoolID is the Pool that owns the template, "" for none.
+	PoolID    string
+	Name      string
+	Ephemeral bool
+	Minimum   *TemplateMinimum
+	Digest    string
 }
 
 // DeploymentTemplates is the Platform context's port to the OS Provisioning context's Deployment
@@ -100,12 +102,23 @@ type DeploymentTemplateIntent struct {
 type DeploymentTemplates interface {
 	// Find returns the template, or nil without an error when it does not exist.
 	Find(ctx context.Context, id string) (*DeploymentTemplateIntent, error)
-	// NameTaken reports whether integrationID already has a template with name other than id.
-	NameTaken(ctx context.Context, integrationID, name, id string) (bool, error)
+	// NameTaken reports whether integrationID already has a template with name other than id in
+	// poolID ("" for the templates without a Pool): names are unique within an Integration and a Pool.
+	NameTaken(ctx context.Context, integrationID, poolID, name, id string) (bool, error)
 	// EnsureGenerated creates each generated template that does not exist yet from preparation's
-	// image, deploy mode, network intent, and user data. It writes only the store, so it runs inside
-	// the transaction that accepts the realization.
-	EnsureGenerated(ctx context.Context, generated []GeneratedTemplate, preparation MachinePreparation) error
+	// image, deploy mode, network intent, and user data, owned by owner's Pool and recording owner's
+	// creator. It writes only the store, so it runs inside the transaction that accepts the realization.
+	EnsureGenerated(ctx context.Context, generated []GeneratedTemplate, preparation MachinePreparation, owner TemplateOwner) error
+	// AdoptGenerated gives the templates ids that belong to another Pool, or to none, poolID: a
+	// Platform's generated templates belong to the Platform's Pool, and follow it to another one.
+	AdoptGenerated(ctx context.Context, ids []string, poolID string) error
+}
+
+// TemplateOwner is who a template a Platform generates belongs to: the Platform's Pool ("" when the
+// Platform has none, so only an admin reads it) and the User who carried out the change, as a record.
+type TemplateOwner struct {
+	PoolID    string
+	CreatedBy string
 }
 
 // MemberRemoval is how one member a spec drops leaves the Platform (the scale-in of a member,

@@ -332,8 +332,12 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 	integrationReader := provisioningapp.NewIntegrationReader(integrationRepo, siteRepo)
 	// The Platforms that install from templates are read once the Platform store exists below.
 	templateReferences := &lateTemplateReferences{}
+	poolRepo, err := infrastructurestore.NewMongoPoolRepo(db)
+	if err != nil {
+		return nil, fmt.Errorf("pool repo init: %w", err)
+	}
 	templateService := provisioningapp.NewDeploymentTemplateService(
-		templateRepo, integrationReader, providerFactory, templateReferences)
+		templateRepo, integrationReader, providerFactory, templateReferences, templatePools{pools: poolRepo})
 	networkService := provisioningapp.NewNetworkConfigurationService(serverRepo, providerFactory)
 	taskService := provisioningapp.NewProvisioningTaskService(taskRepo, serverRepo, releaseCleanupRetrier{
 		orchestrations: orchestrationRepo,
@@ -386,10 +390,6 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 	if err != nil {
 		return nil, fmt.Errorf("zone repo init: %w", err)
 	}
-	poolRepo, err := infrastructurestore.NewMongoPoolRepo(db)
-	if err != nil {
-		return nil, fmt.Errorf("pool repo init: %w", err)
-	}
 	platformRepo, err := platformstore.NewMongoPlatformRepo(db, sealer)
 	if err != nil {
 		return nil, fmt.Errorf("platform repo init: %w", err)
@@ -424,7 +424,7 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 			poolRepo,
 			NewSiteReader(siteRepo),
 			serverPlacements{servers: serverRepo, specs: serverRepo},
-			placementReferences{specs: serverRepo},
+			placementReferences{specs: serverRepo, templates: templateRepo},
 			providerFactory,
 			platformPools,
 			access.memberships,
@@ -749,6 +749,7 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 		apiKeys:         apiKeyHandler,
 		changePlans:     convergencedelivery.NewChangePlanHandler(changePlans, changePlanAccess{}),
 		access:          access,
+		templates:       templateRepo,
 		moduleList:      moduledelivery.NewModuleHandler(modules.registry),
 		localRepository: localRepositoryHandler,
 		validation:      validationdelivery.NewHandler(validationService),
@@ -770,6 +771,8 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 
 type routeDeps struct {
 	jwtSvc *jwt.Service
+	// templates resolves a Deployment Template's Pool for the template routes' authorization.
+	templates provisioningdomain.DeploymentTemplateRepository
 	// authenticator verifies Session access tokens and API Keys for every authenticated route;
 	// jwtSvc remains only for the machine-token routes' admin fallback.
 	authenticator *middleware.Authenticator
@@ -1091,16 +1094,21 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	provisioning.Post("/tags", route(deps.provisioning.EditServerTags, g.ServersInBody(accessdomain.Operate, serverIDsField))...)
 	provisioning.Delete("/tags/:name", adminRoute(deps.provisioning.DeleteServerTag)...)
 	provisioning.Patch("/tags/:name", adminRoute(deps.provisioning.RenameServerTag)...)
+	// A Deployment Template belongs to its Pool: members read and use it, owners create and change it
+	// (identity-and-access.md §4); the list is filtered by the handler.
+	templateRead := g.InPool(accessdomain.Read, true, templatePool(deps.templates))
+	templateOperate := g.InPool(accessdomain.Operate, true, templatePool(deps.templates))
 	provisioning.Get("/templates", route(deps.provisioning.ListTemplates)...)
-	provisioning.Post("/templates", adminRoute(deps.provisioning.CreateTemplate)...)
-	provisioning.Get("/templates/:id", route(deps.provisioning.GetTemplate)...)
-	provisioning.Patch("/templates/:id", adminRoute(deps.provisioning.UpdateTemplate)...)
-	provisioning.Delete("/templates/:id", adminRoute(deps.provisioning.DeleteTemplate)...)
-	provisioning.Put("/templates/:id/user-data", adminRoute(deps.provisioning.ReplaceTemplateUserData)...)
-	provisioning.Delete("/templates/:id/user-data", adminRoute(deps.provisioning.ClearTemplateUserData)...)
+	provisioning.Post("/templates", route(deps.provisioning.CreateTemplate, g.PoolInBody(accessdomain.Operate, poolIDField))...)
+	provisioning.Get("/templates/:id", route(deps.provisioning.GetTemplate, templateRead)...)
+	provisioning.Patch("/templates/:id", route(deps.provisioning.UpdateTemplate, templateOperate)...)
+	provisioning.Delete("/templates/:id", route(deps.provisioning.DeleteTemplate, templateOperate)...)
+	provisioning.Put("/templates/:id/user-data", route(deps.provisioning.ReplaceTemplateUserData, templateOperate)...)
+	provisioning.Delete("/templates/:id/user-data", route(deps.provisioning.ClearTemplateUserData, templateOperate)...)
 	bodyServers := g.ServersInBody(accessdomain.Operate, serverIDsField)
+	deployTemplate := g.InPool(accessdomain.Read, false, deploymentTemplatePool(deps.templates))
 	provisioning.Post("/deployments/preflight", route(deps.provisioning.PreflightDeployServers, bodyServers)...)
-	provisioning.Post("/deployment-operations", route(deps.provisioning.CreateDeploymentOperation, bodyServers)...)
+	provisioning.Post("/deployment-operations", route(deps.provisioning.CreateDeploymentOperation, bodyServers, deployTemplate)...)
 	provisioning.Post("/release-operations", route(deps.provisioning.CreateReleaseOperation, bodyServers)...)
 	// Prove a custom OS Image works for a deploy target by deploying it on a chosen ready Server,
 	// recording the swallow-owned verification, and auto-releasing the Server (docs/decisions/035).

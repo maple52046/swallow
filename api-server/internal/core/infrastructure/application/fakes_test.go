@@ -234,10 +234,13 @@ func (p *fakePlacements) Write(ctx context.Context, serverID string, expected in
 	return placement.Generation, nil
 }
 
-type fakeReferences struct{ zones, pools map[string]int }
+type fakeReferences struct{ zones, pools, templates map[string]int }
 
 func (r fakeReferences) CountZone(_ context.Context, id string) (int, error) { return r.zones[id], nil }
 func (r fakeReferences) CountPool(_ context.Context, id string) (int, error) { return r.pools[id], nil }
+func (r fakeReferences) CountPoolTemplates(_ context.Context, id string) (int, error) {
+	return r.templates[id], nil
+}
 
 type fakeTargets struct{ bySite map[string][]string }
 

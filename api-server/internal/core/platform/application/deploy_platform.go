@@ -347,6 +347,8 @@ type PreparedDeploy struct {
 	// for none. memberRecords are the members it installs from a template.
 	spec          *platformdomain.PlatformSpec
 	memberRecords []platformdomain.MemberTemplateRecord
+	// requestedBy is who asked for the deployment, recorded as the creator of its generated templates.
+	requestedBy string
 }
 
 // Warnings are what validating the deployment found worth telling the user without refusing it.
@@ -400,7 +402,7 @@ func (s *DeployService) Persist(ctx context.Context, prepared *PreparedDeploy) (
 	records := prepared.records
 	if spec := prepared.spec; spec != nil {
 		records = append(slices.Clone(records), func(ctx context.Context) error {
-			return ensureGeneratedTemplates(ctx, s.templates, spec)
+			return s.ensureGeneratedTemplates(ctx, spec, prepared.requestedBy)
 		})
 	}
 	if members := prepared.memberRecords; len(members) > 0 {
@@ -443,6 +445,7 @@ func (s *DeployService) prepare(
 	deploy := &PreparedDeploy{
 		platform: launch.Platform, existing: input.PlatformID != "",
 		targets: targets, targetIDs: launch.TargetServerIDs, records: records, spec: input.spec,
+		requestedBy: input.RequestedBy,
 	}
 	if input.preflight {
 		return deploy, nil

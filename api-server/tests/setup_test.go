@@ -30,6 +30,7 @@ import (
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	provisioningapp "github.com/maple52046/swallow/internal/core/provisioning/application"
 	provisioningdelivery "github.com/maple52046/swallow/internal/core/provisioning/delivery"
+	provisioningdomain "github.com/maple52046/swallow/internal/core/provisioning/domain"
 	serverapp "github.com/maple52046/swallow/internal/core/server/application"
 	serverdelivery "github.com/maple52046/swallow/internal/core/server/delivery"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
@@ -183,6 +184,7 @@ func setupPlatform(t *testing.T) *platformFixture {
 			provisioningapp.NewIntegrationReader(integrations, sites),
 			factory,
 			templateRefs,
+			nil,
 		),
 		nil,
 		nil,
@@ -376,15 +378,47 @@ func setupPlatform(t *testing.T) *platformFixture {
 	provisioningGroup.Post("/tags", route(provisioningHandler.EditServerTags, bodyServers)...)
 	provisioningGroup.Delete("/tags/:name", adminRoute(provisioningHandler.DeleteServerTag)...)
 	provisioningGroup.Patch("/tags/:name", adminRoute(provisioningHandler.RenameServerTag)...)
+	// As in internal/app/api.go: a Deployment Template belongs to its Pool (identity-and-access.md §4).
+	templatePool := func(id string) (string, bool, error) {
+		template, err := templates.FindByID(context.Background(), id)
+		if errors.Is(err, provisioningdomain.ErrDeploymentTemplateNotFound) {
+			return "", false, nil
+		}
+		if err != nil {
+			return "", false, err
+		}
+		return template.PoolID, true, nil
+	}
+	templateByParam := func(c *fiber.Ctx) (string, bool, error) { return templatePool(c.Params("id")) }
+	templateInBody := func(c *fiber.Ctx) (string, bool, error) {
+		var request struct {
+			TemplateID string `json:"templateId"`
+		}
+		_ = json.Unmarshal(c.Body(), &request)
+		if request.TemplateID == "" {
+			return "", false, nil
+		}
+		return templatePool(request.TemplateID)
+	}
+	poolInBody := func(body []byte) string {
+		var request struct {
+			PoolID string `json:"poolId"`
+		}
+		_ = json.Unmarshal(body, &request)
+		return request.PoolID
+	}
+	templateRead := g.InPool(accessdomain.Read, true, templateByParam)
+	templateOperate := g.InPool(accessdomain.Operate, true, templateByParam)
 	provisioningGroup.Get("/templates", route(provisioningHandler.ListTemplates)...)
-	provisioningGroup.Post("/templates", adminRoute(provisioningHandler.CreateTemplate)...)
-	provisioningGroup.Get("/templates/:id", route(provisioningHandler.GetTemplate)...)
-	provisioningGroup.Patch("/templates/:id", adminRoute(provisioningHandler.UpdateTemplate)...)
-	provisioningGroup.Delete("/templates/:id", adminRoute(provisioningHandler.DeleteTemplate)...)
-	provisioningGroup.Put("/templates/:id/user-data", adminRoute(provisioningHandler.ReplaceTemplateUserData)...)
-	provisioningGroup.Delete("/templates/:id/user-data", adminRoute(provisioningHandler.ClearTemplateUserData)...)
+	provisioningGroup.Post("/templates", route(provisioningHandler.CreateTemplate, g.PoolInBody(accessdomain.Operate, poolInBody))...)
+	provisioningGroup.Get("/templates/:id", route(provisioningHandler.GetTemplate, templateRead)...)
+	provisioningGroup.Patch("/templates/:id", route(provisioningHandler.UpdateTemplate, templateOperate)...)
+	provisioningGroup.Delete("/templates/:id", route(provisioningHandler.DeleteTemplate, templateOperate)...)
+	provisioningGroup.Put("/templates/:id/user-data", route(provisioningHandler.ReplaceTemplateUserData, templateOperate)...)
+	provisioningGroup.Delete("/templates/:id/user-data", route(provisioningHandler.ClearTemplateUserData, templateOperate)...)
 	provisioningGroup.Post("/deployments/preflight", route(provisioningHandler.PreflightDeployServers, bodyServers)...)
-	provisioningGroup.Post("/deployment-operations", route(provisioningHandler.CreateDeploymentOperation, bodyServers)...)
+	provisioningGroup.Post("/deployment-operations", route(provisioningHandler.CreateDeploymentOperation, bodyServers,
+		g.InPool(accessdomain.Read, false, templateInBody))...)
 	provisioningGroup.Post("/release-operations", route(provisioningHandler.CreateReleaseOperation, bodyServers)...)
 	provisioningGroup.Post("/reconcile", adminRoute(provisioningHandler.ReconcileAll)...)
 	provisioningGroup.Post("/integrations/:id/reconcile", adminRoute(provisioningHandler.Reconcile)...)

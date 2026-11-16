@@ -218,7 +218,9 @@ Pool keeps its members, its Sudo Policy, and its POSIX group names.
 
 `DELETE /api/v1/infrastructure/pools/{id}` returns `204` and deletes the Pool's memberships and Sudo
 Policy with it ([pool-access.md](pool-access.md)). It is refused with `409 conflict` while a Server's
-placement spec names the Pool.
+placement spec names the Pool, or while the Pool owns a Deployment Template
+([provisioning.md](provisioning.md#deployment-templates)): those are deleted, or an admin moves them
+to another Pool, first.
 
 ## Server placement
 
@@ -273,7 +275,7 @@ Beyond the shared codes in [conventions.md](conventions.md):
 | --- | ---: | --- |
 | `validation_error` | 400 | The body is not valid JSON; a missing/blank `name`, a Zone without `siteId`, or a `name` over 100 characters; a placement field that is not a string or `null`, a placement naming neither a Zone nor a Pool, or a Zone in another Site; a provisioner refused a Zone delete. |
 | `not_found` | 404 | The Zone, Pool, Site, or Server does not exist. |
-| `conflict` | 409 | A Zone with this `name` already exists in the Site, or a Pool with this `name` in the installation; a Server is still placed in the Zone/Pool being deleted; a placement raced another spec change or targeted a Server not adopted yet; a placement would change the Pool of a Platform-claimed Server. |
+| `conflict` | 409 | A Zone with this `name` already exists in the Site, or a Pool with this `name` in the installation; a Server is still placed in the Zone/Pool being deleted, or the Pool being deleted owns a Deployment Template; a placement raced another spec change or targeted a Server not adopted yet; a placement would change the Pool of a Platform-claimed Server. |
 | `provider_unavailable` | 503 | A Zone delete could not reach a provisioner, or it has no credential. |
 
 ## Compatibility Notes
@@ -308,6 +310,8 @@ Sudo Policy, and the placements that named it.
 Since 2026-11-14 a placement that changes the Pool of a Platform-claimed Server is `409` even when it
 takes the Server out of every Pool; the Platform is moved as a whole instead
 ([platforms.md](platforms.md#move-a-platform-to-another-pool)).
+
+Since 2026-11-16 a Pool delete is also `409` while the Pool owns a Deployment Template.
 
 ## Implementation Notes
 

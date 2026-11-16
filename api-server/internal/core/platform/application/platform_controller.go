@@ -201,6 +201,12 @@ func (c *PlatformController) Reconcile(ctx context.Context, request convergence.
 		// The upgraded write changes the Platform, which wakes it again with the new form.
 		return err
 	}
+	if c.planner != nil && c.planner.deploy != nil {
+		// The templates the Platform generated belong to its Pool; a failure only waits for the next pass.
+		if err := c.planner.deploy.adoptGeneratedTemplates(ctx, platform); err != nil {
+			slog.Warn("platform controller: adopt generated templates into the Platform's Pool", "platformId", platform.ID, "error", err)
+		}
+	}
 	spec := *platform.Spec
 	status := platform.Status
 	if status.Realizing == nil && status.Applied == nil && spec.Desired == platformdomain.PlatformPresent && snapshot.Deployment != nil {

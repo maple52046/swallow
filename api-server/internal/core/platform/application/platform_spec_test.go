@@ -409,7 +409,7 @@ func TestTemplatesWaitingOnAPlanKeepTheSpecUnapplied(t *testing.T) {
 		t.Errorf("before the templates exist: observed %d, applied templates %v, realized %q; want generation %d unapplied, plan required",
 			platform.Status.ObservedGeneration, platform.Status.Applied.MachinePreparation.GeneratedTemplates, realized.Reason, generation)
 	}
-	if err := ensureGeneratedTemplates(context.Background(), templates, &changed); err != nil {
+	if err := templates.EnsureGenerated(context.Background(), changed.MachinePreparation.GeneratedTemplates, changed.MachinePreparation, platformdomain.TemplateOwner{}); err != nil {
 		t.Fatal(err)
 	}
 	h.reconcile(t, platform.ID)

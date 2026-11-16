@@ -127,7 +127,8 @@ func (p serverPlacements) Write(ctx context.Context, serverID string, expectedGe
 
 // placementReferences implements infradomain.PlacementReferences over the Server specs.
 type placementReferences struct {
-	specs serverdomain.ServerConvergenceStore
+	specs     serverdomain.ServerConvergenceStore
+	templates provisioningdomain.DeploymentTemplateRepository
 }
 
 var _ infradomain.PlacementReferences = placementReferences{}
@@ -138,6 +139,26 @@ func (r placementReferences) CountZone(ctx context.Context, zoneID string) (int,
 
 func (r placementReferences) CountPool(ctx context.Context, poolID string) (int, error) {
 	return r.specs.CountSpecPlacement(ctx, "", poolID)
+}
+
+func (r placementReferences) CountPoolTemplates(ctx context.Context, poolID string) (int, error) {
+	if r.templates == nil {
+		return 0, nil
+	}
+	return r.templates.CountByPool(ctx, poolID)
+}
+
+// templatePools implements provisioningdomain.PoolDirectory over the Pool repository.
+type templatePools struct {
+	pools infradomain.PoolRepository
+}
+
+func (p templatePools) PoolExists(ctx context.Context, poolID string) (bool, error) {
+	_, err := p.pools.FindByID(ctx, poolID)
+	if errors.Is(err, infradomain.ErrPoolNotFound) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // serverGroupCatalog implements provisioningapp.ServerGroupCatalog over the Zone repository: a
