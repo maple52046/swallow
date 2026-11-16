@@ -4,7 +4,8 @@
 # most the suite's timeout, through that User's passwordless sudo when the suite asks for it.
 #
 # The automation user logs in as usual. Root creates a private 0700 directory, writes the script
-# into it while root still owns it, hands it to the requester's uid, and removes it at the end. Only
+# into it while root still owns it, and hands it to the requester's uid; the shell that waits for the
+# script removes it when the script ends, even after a cancel, and the play's `always` again. Only
 # the sudo check and the script run as the requester (become_user), pipelined so that no file is
 # transferred to them (the hosts have no ACL support, and Ansible cannot hand a temporary file to
 # another unprivileged user without it); ansible_remote_tmp keeps the module's own temporary files
@@ -38,6 +39,23 @@
     script_validation_max_evidence: 8000
     script_validation_become_root: true
     script_validation_sudo_command: sudo
+    # Runs the script and then removes its private directory ($1), keeping the script's exit code.
+    # The removal belongs to the process that waits for the script, not to the play's `always`, so it
+    # also happens when the run is canceled: stopping the play ends this host's Ansible session, but
+    # the script runs on to its timeout (validation.md §4.4) and this shell with it, ignoring the
+    # hangup a closing session may send. It runs as whoever runs the script (root through sudo), so
+    # it can remove what the script left there; making the tree writable first lets the requester
+    # remove subdirectories the script made read-only.
+    script_validation_wrapper: |-
+      trap '' HUP
+      dir=$1
+      shift
+      "$@"
+      rc=$?
+      cd /
+      chmod -R u+rwx -- "$dir" 2>/dev/null
+      rm -rf -- "$dir"
+      exit "$rc"
     # Ansible's message when become fails reads like the requester's password problem; the cause is
     # the automation user's own sudo rules.
     script_validation_become_failed: >-
@@ -126,11 +144,13 @@
             mode: "0700"
           become: "{{ script_validation_become_root | bool }}"
 
-        # The requester, pipelined; the timeout sits inside any sudo, so it can stop root's children.
+        # The requester, pipelined; the timeout sits inside any sudo, so it can stop root's children,
+        # and the wrapper outside the timeout, so it removes the directory once the script has ended.
         - name: Run the script as the requester
           ansible.builtin.command:
             argv: >-
               {{ ([script_validation_sudo_command, '-n', '--'] if script_validation_sudo | bool else [])
+                 + ['/bin/sh', '-c', script_validation_wrapper, 'swallow-validation', script_validation_dir.path]
                  + ['timeout', '--kill-after=10', script_validation_timeout | string]
                  + ([] if script_validation_shebang | bool else ['/bin/sh'])
                  + [script_validation_dir.path ~ '/script'] }}
@@ -155,7 +175,8 @@
           ansible.builtin.set_fact:
             script_validation_problem: "[validation_script_unplaced] {{ ansible_failed_result.msg | default('') }}"
       always:
-        # Root.
+        # Root. The wrapper has normally removed the directory already; this covers a run that failed
+        # before the script started.
         - name: Remove the script
           ansible.builtin.file:
             path: "{{ script_validation_dir.path }}"

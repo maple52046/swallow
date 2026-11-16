@@ -75,8 +75,8 @@ Platform、Accelerator、Software 模組宣告自己領域的 suite；不屬於�
   `false`），store 不改寫。
 - 目標只能是 `servers`；它只有一個 check，`script`：exit code 0 是 `passed`，其他是 `failed`，逾時（超過
   `timeoutSeconds`，以 `timeout` 停止）或帳號、sudo、放置的前置條件不成立（§4.3 的代碼）是 `error`。swallow 不比對輸出：
-  stdout 與 stderr 的最後 8 KiB 是 evidence（遮蔽後），exit code 是 measurement。script 寫在只有發起者能讀的暫存目錄，執行完
-  就刪除；沒有 `#!` 的 script 以 `/bin/sh` 執行。能讀取 run 的人（目標 Pool 的 owner 與 member）都能讀它的 evidence。
+  stdout 與 stderr 的最後 8 KiB 是 evidence（遮蔽後），exit code 是 measurement。script 寫在只有發起者能讀的暫存目錄，script
+  結束時就刪除，run 被取消時也一樣（§3.1）；沒有 `#!` 的 script 以 `/bin/sh` 執行。能讀取 run 的人（目標 Pool 的 owner 與 member）都能讀它的 evidence。
 - 刪除是 retire：從目錄消失，但過去的 run 與 revision 仍可讀；被 Validation Schedule 引用時拒絕（409）。
 - script 是資料，不是 host automation 內容：由 Validation Module `script` 唯一的 playbook `run-validation-script` 執行，
   allowlist 的規則（[core-and-extensions.md](core-and-extensions.md) §5.2）不變。script 不支援 secret，畫面提醒不要
@@ -151,8 +151,14 @@ module suite 不變：automation user 以 Deployment Key 登入，需要時 beco
 | `getent passwd <username>`，比對 uid 與 `uidNumber`；`stat` 發起者的 home | automation user，不 become | 不存在是 `validation_account_missing`；uid 不同（同名的本機帳號，本機檔案在 nsswitch 中優先）是 `validation_account_mismatch` |
 | `sudo -n -- /bin/true`（只在 `sudo: true`） | 發起者 | 失敗是 `validation_sudo_unavailable`（附 sudo 的訊息） |
 | 建立 0700 的私有目錄、寫入 script（擁有者是發起者的 uid、0700），最後才把目錄交給發起者 | root | 寫入時目錄仍屬於 root；放不上是 `validation_script_unplaced` |
-| `[sudo -n --] timeout --kill-after=10 <timeoutSeconds> [/bin/sh] <script>`，`chdir` 是私有目錄 | 發起者 | `timeout` 在 `sudo` 之內，可以停止 root 的子行程 |
-| 刪除私有目錄（`always`） | root | |
+| `[sudo -n --] /bin/sh -c <wrapper> <私有目錄> timeout --kill-after=10 <timeoutSeconds> [/bin/sh] <script>`，`chdir` 是私有目錄 | 發起者（`sudo: true` 時是 root） | `timeout` 在 `sudo` 之內，可以停止 root 的子行程；外層的 wrapper 等 script 結束後刪除私有目錄，保留 script 的 exit code |
+| 刪除私有目錄（`always`） | root | wrapper 通常已經刪除；這一步處理 script 沒有開始的情況 |
+
+- 私有目錄在 script 結束時由等待它的 wrapper 刪除，不靠 play 的 `always`：run 被取消時 play 停止，主機上的 Ansible
+  session 結束，`always` 不會執行，但 script 照 §4.4 跑到自己的 timeout，wrapper 也一起留下（它忽略 session 關閉時可能
+  收到的 SIGHUP），script 一結束就刪除目錄。wrapper 以執行 script 的身分刪除：`sudo: true` 時是 root，所以 script 留下
+  的 root 檔案也一併刪除；不是 sudo 時先把整個目錄樹加上擁有者的寫入權限，script 設成唯讀的子目錄也刪得掉。主機重開機或
+  wrapper 被強制結束時，目錄留在暫存目錄裡，由系統的暫存清理處理。
 
 - 切換成發起者的 task 以 `become: true`、`become_user: <username>` 執行，task var 開啟 `ansible_pipelining`（module 經
   stdin 傳送，不需要 ACL；主機沒有 `acl` 套件），設定 `ansible_remote_tmp`（script 用私有目錄；sudo 檢查在私有目錄之前，
@@ -162,7 +168,7 @@ module suite 不變：automation user 以 Deployment Key 登入，需要時 beco
   訊息讀起來像是發起者的密碼問題）。automation user 的 sudo 只允許 root 的 Site 一律如此，沒有替代路徑。
 - `HOME`：發起者的 home 存在、是目錄、而且擁有者是發起者的 uid 時用它；否則用私有目錄（同名但已刪除的 User 留下的 home
   屬於舊的 uid，uid 不會重用）。playbook 不建立 home，也不改變主機的其他東西。`sudo: true` 時 script 看到的是 root 的 `HOME`。
-- 每個值都是 argv 的一個元素，不經過 shell。`become` 寫在每個 task，`validation_report` 不繼承它。
+- 每個值都是 argv 的一個元素：wrapper 是固定的 shell 文字，私有目錄與指令以位置參數傳入，不被 shell 解析。`become` 寫在每個 task，`validation_report` 不繼承它。
 
 ## 4. 執行與結果
 
@@ -225,7 +231,8 @@ run 保留 90 天（`validationRunRetention`，以 store 的 TTL 刪除）；它
   check 仍會跑到自己的 timeout（user script 是 suite 的 `timeoutSeconds`），所以兩者可能短暫重疊。
 - **取消**：`POST /api/v1/validation/runs/{id}/cancel` 對 report run 的 Workflow 寫入取消；gate run 不能單獨取消（409），
   要取消的是它所在的部署。能取消的是 run 的發起者（以 user id 比對，仍要能讀取 run）、能操作每個目標的 Pool owner 與
-  admin（[identity-and-access.md](identity-and-access.md) §4.2）。
+  admin（[identity-and-access.md](identity-and-access.md) §4.2）。和取代一樣，已在主機上執行的 user script 仍以發起者
+  的身分跑到 suite 的 `timeoutSeconds`；它結束時私有目錄與 script 一起刪除（§3.1），主機上不留下任何東西。
 
 ## 5. Gate mode：組入部署
 

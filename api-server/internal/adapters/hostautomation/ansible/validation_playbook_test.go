@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // validationPlaybooks are the playbooks that run Validation Suites (docs/development/validation.md
@@ -304,6 +305,87 @@ func TestUserScriptRunsAsTheRequester(t *testing.T) {
 			t.Errorf("%s: the script's directory stayed on the host: %v", tc.name, left)
 		}
 	}
+}
+
+// A canceled run stops the play while the script runs: the script runs on (validation.md §4.4), and
+// its private directory goes away when it ends although the play's `always` never runs. The test
+// starts the play in its own process group, waits for the script to start, then hangs up the group
+// (what a closing session sends) and kills ansible-playbook, the way a Workflow cancel stops it. The
+// script makes a read-only subdirectory, which the requester's cleanup must still remove; a sudo
+// suite's root-owned files need a real host and are verified in the lab.
+func TestUserScriptDirectoryGoesAwayAfterACancel(t *testing.T) {
+	raw, err := os.ReadFile(shippedFile(t, "run-validation-script.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := exec.LookPath("getent"); err != nil {
+		t.Skip("getent is not available")
+	}
+	me, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid, err := strconv.Atoi(me.Uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sudo := range []bool{false, true} {
+		run := newPlayRun(t, "validation_report", string(raw))
+		run.keepBecome = true
+		fake := filepath.Join(run.dir, "fake-sudo")
+		if err := os.WriteFile(fake, []byte(fakeSudo), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		scratch := filepath.Join(run.dir, "host-tmp")
+		if err := os.MkdirAll(scratch, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		run.env = append(run.env, "TMPDIR="+scratch, "ANSIBLE_BECOME_ALLOW_SAME_USER=1")
+		started, finished := filepath.Join(run.dir, "started"), filepath.Join(run.dir, "finished")
+		script := "#!/bin/sh\nmkdir -p kept/inner && touch kept/inner/file && chmod 0500 kept/inner kept\n" +
+			"touch " + started + "\nsleep 3\ntouch " + finished + "\n"
+		cmd, out := run.command(map[string]any{
+			"swallow_result_path": filepath.Join(run.dir, "result.json"), "swallow_validation_script": script,
+			"swallow_validation_timeout_seconds": 60, "swallow_validation_sudo": sudo,
+			"swallow_validation_requester":  map[string]any{"userId": "u-1", "username": me.Username, "uidNumber": uid},
+			"script_validation_become_root": false, "script_validation_sudo_command": fake, "ansible_become_exe": fake,
+		})
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		if !waitFor(60*time.Second, func() bool { _, err := os.Stat(started); return err == nil }) {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			_ = cmd.Wait()
+			t.Fatalf("sudo=%v: the script never started:\n%s", sudo, out.String())
+		}
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGHUP)
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		// The hangup also stops Ansible's own module process here, which then leaves its payload
+		// directory behind; only the private directory is the playbook's.
+		private := filepath.Join(scratch, "*.swallow-validation")
+		gone := waitFor(30*time.Second, func() bool {
+			_, err := os.Stat(finished)
+			left, _ := filepath.Glob(private)
+			return err == nil && len(left) == 0
+		})
+		if !gone {
+			left, _ := filepath.Glob(private)
+			_, ranOn := os.Stat(finished)
+			t.Errorf("sudo=%v: after the cancel the script finished (%v) and left %v on the host", sudo, ranOn == nil, left)
+		}
+	}
+}
+
+// waitFor polls done every 100 ms until it holds or limit passes, and reports whether it held.
+func waitFor(limit time.Duration, done func() bool) bool {
+	for deadline := time.Now().Add(limit); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		if done() {
+			return true
+		}
+	}
+	return done()
 }
 
 // The script's HOME is the requester's home when it is a directory the requester owns, and the

@@ -419,6 +419,10 @@ role 的行為要實際執行才看得出來時（改寫主機設定、冪等、
   pipelining 也要傳檔，一定失敗，檔案由 root 寫好再交給發起者。還要設 `ansible_remote_tmp`（已存在、不在發起者 home 的
   目錄），否則 module 會在可寫的 home 留下 `~/.ansible/tmp`；並帶 `ignore_errors: true`，因為 automation user 不能切換成
   發起者時的錯誤不受 `failed_when: false` 影響。以 `cmd is defined` 判斷指令有沒有執行。
+- 主機上留下的東西不能只靠 `always` 清掉：Workflow 被取消時 play 停止，`always` 不會執行，已經開始的指令卻可能繼續
+  （[validation.md](validation.md) §4.4）。由等待那個指令的行程在它結束時清理，例如 `run-validation-script` 以一個
+  忽略 SIGHUP 的 `sh -c` wrapper 執行 script，script 結束後刪除私有目錄（[validation.md](validation.md) §3.1）；
+  `always` 留給正常路徑與指令沒有開始的情況。
 - check 沒有通過是 verdict，不是失敗：命令都 `failed_when: false`，再依結果判定。playbook 本身失敗（主機連不上、工具壞掉）
   才是 Task 失敗，它的 check 由 swallow 補上 `error`。前置條件不成立而判定為 `error` 的結果，summary 以 `[code]` 開頭
   （[validation.md](validation.md) §4.3）。

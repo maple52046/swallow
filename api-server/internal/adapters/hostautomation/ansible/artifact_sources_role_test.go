@@ -96,6 +96,22 @@ var recapCounts = regexp.MustCompile(`localhost\s+:\s+ok=\d+\s+changed=(\d+)\s+u
 // failed task counts.
 func (r *roleRun) run(vars map[string]any) (output string, changed, failed int) {
 	r.t.Helper()
+	cmd, out := r.command(vars)
+	_ = cmd.Run() // a failed play is reported by the recap, which the caller checks
+	match := recapCounts.FindStringSubmatch(out.String())
+	if match == nil {
+		r.t.Fatalf("ansible-playbook printed no play recap:\n%s", out.String())
+	}
+	changed, _ = strconv.Atoi(match[1]) // recapCounts matches digits only
+	failed, _ = strconv.Atoi(match[2])
+	return out.String(), changed, failed
+}
+
+// command prepares, without starting it, the ansible-playbook process that runs the play with vars
+// as extra vars, and the buffer that collects its output; run starts and waits for it, and a test
+// that must stop the play midway starts it itself.
+func (r *roleRun) command(vars map[string]any) (*exec.Cmd, *bytes.Buffer) {
+	r.t.Helper()
 	if !r.keepBecome {
 		vars["ansible_become"] = false
 	}
@@ -117,16 +133,9 @@ func (r *roleRun) run(vars map[string]any) (output string, changed, failed int) 
 	}
 	cmd := exec.Command(r.playbook, append(args, "play.yml")...)
 	cmd.Dir, cmd.Env = r.dir, r.env
-	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
-	_ = cmd.Run() // a failed play is reported by the recap, which the caller checks
-	match := recapCounts.FindStringSubmatch(out.String())
-	if match == nil {
-		r.t.Fatalf("ansible-playbook printed no play recap:\n%s", out.String())
-	}
-	changed, _ = strconv.Atoi(match[1]) // recapCounts matches digits only
-	failed, _ = strconv.Atoi(match[2])
-	return out.String(), changed, failed
+	out := &bytes.Buffer{}
+	cmd.Stdout, cmd.Stderr = out, out
+	return cmd, out
 }
 
 // writeScratch writes content at rel under root, creating its directories.
