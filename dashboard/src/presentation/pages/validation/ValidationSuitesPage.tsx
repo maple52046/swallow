@@ -14,7 +14,7 @@ import {
 import { Blocks, FileCode2, FilePlus2, FlaskConical, Server } from 'lucide-react'
 import { Link as RouterLink } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
-import { isAdmin } from '@/domain/user/access'
+import { isSuiteAuthor } from '@/domain/validation/access'
 import type { ValidationSuite } from '@/domain/validation/types'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
@@ -24,11 +24,13 @@ import { useToast } from '@/presentation/components/toast/toastContext'
 import {
   IMPACT_COPY,
   offeredSuites,
+  suiteAuthorName,
   validationSuiteGroup,
   type ValidationSuiteGroup,
 } from '@/presentation/components/validation/validationPresentation'
 import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { useHideOtherUsersSuites } from '@/presentation/hooks/useHideOtherUsersSuites'
 import { useShowExperimentalSuites } from '@/presentation/hooks/useShowExperimentalSuites'
 import { UserSuiteDialog } from './UserSuiteDialog'
 import { ValidationHeader } from './ValidationHeader'
@@ -59,7 +61,7 @@ const GROUPS: Array<{
   {
     key: 'custom',
     title: 'Custom script suites',
-    description: 'Site-independent scripts authored by administrators for organization-specific checks.',
+    description: 'Scripts Users write and share; each runs as the account of the User who starts it.',
     icon: FileCode2,
   },
 ]
@@ -72,6 +74,11 @@ function suiteTarget(suite: ValidationSuite): string {
 /**
  * Capability catalog for Validation Suites. Grouping uses target and source domain facts rather
  * than module IDs, so new module suites enter the correct section without presentation branches.
+ *
+ * Every User sees every suite and may write a script suite ("New script suite"; the API makes them
+ * its author). Two browser-kept switches narrow only what this page and the run dialog offer: Show
+ * experimental suites, and Hide other users' suites, which never hides a module suite or the
+ * User's own. When a switch hides everything, the empty state says so rather than "no suites".
  */
 export function ValidationSuitesPage() {
   const { validation } = useApp()
@@ -79,6 +86,7 @@ export function ValidationSuitesPage() {
   const { scopedHref } = useSiteScope()
   const { showToast } = useToast()
   const [showExperimental, setShowExperimental] = useShowExperimentalSuites()
+  const [hideOthers, setHideOthers] = useHideOtherUsersSuites()
   const [state, setState] = useState<PageState>({ status: 'loading' })
   const [nonce, setNonce] = useState(0)
   const [editor, setEditor] = useState<{ key: number } | null>(null)
@@ -106,16 +114,24 @@ export function ValidationSuitesPage() {
   }, [load, nonce])
 
   const catalog = state.status === 'ready' ? state.suites : []
-  const { offered: suites } = offeredSuites(catalog, showExperimental)
+  const { offered: suites, hiddenOtherUsers } = offeredSuites(catalog, {
+    showExperimental,
+    hideOthersThan: hideOthers ? currentUser?.id : undefined,
+  })
   const experimentalCount = catalog.filter((suite) => suite.experimental && !suite.retired).length
+  const emptyMessage = hiddenOtherUsers > 0
+    ? 'Other users’ suites are hidden. Turn off Hide other users’ suites, or write a script suite.'
+    : experimentalCount > 0 && !showExperimental
+      ? 'Only experimental suites are hidden. Turn on Show experimental suites or write a script suite.'
+      : 'This release declares no suite. Write a script suite for organization-specific Server checks.'
 
   return (
     <div className="console-page">
       <ValidationHeader
         subtitle="Choose an assurance capability, understand what it checks, and run it against the right targets."
         actions={
-          // Writing a script suite is an admin route (validation.md): a script runs on its targets.
-          isAdmin(currentUser) ? (
+          // Any signed-in User writes a script suite and becomes its author (validation.md, Suites).
+          currentUser ? (
             <Button colorPalette="brand" onClick={() => setEditor({ key: Date.now() })}>
               <FilePlus2 size={16} aria-hidden /> New script suite
             </Button>
@@ -129,15 +145,24 @@ export function ValidationSuitesPage() {
               Assurance capabilities
             </Text>
             <Heading as="h2" size="lg">Validation suites</Heading>
-            <Text color="fg.muted">Module capabilities and administrator-authored scripts available in this release.</Text>
+            <Text color="fg.muted">Module capabilities of this release and the script suites Users share.</Text>
           </Stack>
-          <Switch.Root checked={showExperimental} onCheckedChange={(details) => setShowExperimental(details.checked === true)}>
-            <Switch.HiddenInput />
-            <Switch.Control><Switch.Thumb /></Switch.Control>
-            <Switch.Label>
-              Show experimental suites{state.status === 'ready' && experimentalCount > 0 ? ` (${experimentalCount})` : ''}
-            </Switch.Label>
-          </Switch.Root>
+          <Stack gap="2" align={{ base: 'flex-start', md: 'flex-end' }}>
+            <Switch.Root checked={showExperimental} onCheckedChange={(details) => setShowExperimental(details.checked === true)}>
+              <Switch.HiddenInput />
+              <Switch.Control><Switch.Thumb /></Switch.Control>
+              <Switch.Label>
+                Show experimental suites{state.status === 'ready' && experimentalCount > 0 ? ` (${experimentalCount})` : ''}
+              </Switch.Label>
+            </Switch.Root>
+            <Switch.Root checked={hideOthers} onCheckedChange={(details) => setHideOthers(details.checked === true)}>
+              <Switch.HiddenInput />
+              <Switch.Control><Switch.Thumb /></Switch.Control>
+              <Switch.Label>
+                Hide other users’ suites{state.status === 'ready' && hideOthers && hiddenOtherUsers > 0 ? ` (${hiddenOtherUsers} hidden)` : ''}
+              </Switch.Label>
+            </Switch.Root>
+          </Stack>
         </HStack>
 
         {state.status === 'loading' && <LoadingState rows={6} />}
@@ -147,9 +172,7 @@ export function ValidationSuitesPage() {
         {state.status === 'ready' && suites.length === 0 && (
           <EmptyState
             title="No Validation Suites"
-            message={experimentalCount > 0 && !showExperimental
-              ? 'Only experimental suites are hidden. Turn on Show experimental suites or write a script suite.'
-              : 'This release declares no suite. Write a script suite for organization-specific Server checks.'}
+            message={emptyMessage}
           />
         )}
         {state.status === 'ready' && suites.length > 0 && (
@@ -202,6 +225,11 @@ export function ValidationSuitesPage() {
                             <Stack gap="1">
                               <Heading as="h4" size="md">{suite.name}</Heading>
                               <Text color="fg.muted" fontSize="sm">{suite.description || 'No description provided.'}</Text>
+                              {suite.source === 'user' && (
+                                <Text fontSize="xs" color="fg.muted">
+                                  Created by {suiteAuthorName(suite)}{isSuiteAuthor(currentUser, suite) ? ' (you)' : ''}
+                                </Text>
+                              )}
                             </Stack>
                             <HStack gap="2" wrap="wrap">
                               <Badge variant="subtle">{suiteTarget(suite)}</Badge>

@@ -4,8 +4,8 @@ import { X } from 'lucide-react'
 import { useApp } from '@/di/AppProvider'
 import type { Platform } from '@/domain/platform/types'
 import { serverDisplayName, type Server } from '@/domain/server/types'
-import { canOperatePlatform, canOperatePool } from '@/domain/user/access'
-import type { ValidationSuite } from '@/domain/validation/types'
+import { canStartOnPool, suiteStarterLevel } from '@/domain/validation/access'
+import type { ValidationStarterLevel, ValidationSuite } from '@/domain/validation/types'
 import { failureOf, failureText } from '@/presentation/components/failure'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
 import { DebouncedSearchInput } from '@/presentation/components/ui/debounced-search-input'
@@ -17,8 +17,14 @@ import { useServerNames } from '@/presentation/hooks/useServerNames'
 /** How many matching deployed Servers the picker lists at once; a search narrows the rest. */
 const SERVER_RESULTS = 50
 
-/** Why a listed target cannot be chosen: running validation is Pool operate (validation.md). */
-const POOL_OWNERS_ONLY = 'Pool owners only'
+/**
+ * Why a listed target cannot be chosen for the suite: a module suite or an `owner` user suite needs
+ * the target's Pool owner, a `member` user suite any member of it (validation.md, Start).
+ */
+const NOT_STARTABLE: Readonly<Record<ValidationStarterLevel, string>> = {
+  owner: 'Pool owners only',
+  member: 'Pool members only',
+}
 
 interface ValidationTargetFieldsProps {
   suite: ValidationSuite
@@ -37,8 +43,10 @@ interface ValidationTargetFieldsProps {
  * Schedule dialogs compose it, so both choose targets the same way.
  *
  * The lists are hints, not the rule: the API checks the targets again when the run or schedule is
- * written (deployed, one Site, not locked or busy, and the caller owns their Pool) and its refusal is
- * what the dialog shows. A target in a Pool the user does not own is listed but cannot be chosen.
+ * written (deployed, one Site, not locked or busy, the caller's Pool Role meets the suite's starter
+ * level, and for a user suite the caller's Host Access and sudo) and its refusal is what the dialog
+ * shows. A target whose Pool Role is too low for the suite is listed, named as such, but cannot be
+ * chosen; Host Access and sudo are not known here and are left to the API.
  */
 export function ValidationTargetFields(props: ValidationTargetFieldsProps) {
   return props.suite.target === 'platform' ? <PlatformTargetField {...props} /> : <ServerTargetField {...props} />
@@ -55,7 +63,7 @@ type ServerResults =
  * a read that a newer search replaced; chosen Servers stay chosen while the search changes and are
  * listed above it by name, each with a Remove button. A failed read is shown in place of the list.
  */
-function ServerTargetField({ serverIds, onServerIdsChange, idPrefix, disabled = false }: ValidationTargetFieldsProps) {
+function ServerTargetField({ suite, serverIds, onServerIdsChange, idPrefix, disabled = false }: ValidationTargetFieldsProps) {
   const { servers } = useApp()
   const { siteId, sites } = useSiteScope()
   const { currentUser } = useAuth()
@@ -126,7 +134,7 @@ function ServerTargetField({ serverIds, onServerIdsChange, idPrefix, disabled = 
           {results.status === 'ready' && (
             <Stack gap="1">
               {listed.map((server) => {
-                const operable = canOperatePool(currentUser, server.spec.poolId)
+                const operable = canStartOnPool(currentUser, suite, server.spec.poolId)
                 return (
                   <Checkbox
                     key={server.id}
@@ -136,7 +144,7 @@ function ServerTargetField({ serverIds, onServerIdsChange, idPrefix, disabled = 
                   >
                     {serverDisplayName(server)}
                     {!siteId && server.status.source.siteId ? ` · ${siteName.get(server.status.source.siteId) ?? server.status.source.siteId}` : ''}
-                    {!operable ? ` · ${POOL_OWNERS_ONLY}` : ''}
+                    {!operable ? ` · ${NOT_STARTABLE[suiteStarterLevel(suite)]}` : ''}
                   </Checkbox>
                 )
               })}
@@ -182,11 +190,11 @@ function PlatformTargetField({ suite, platformId, onPlatformIdChange, idPrefix, 
   const options = (list ?? [])
     .filter((platform) => platform.type === suite.platformType)
     .map((platform) => {
-      const operable = canOperatePlatform(currentUser, platform)
+      const operable = canStartOnPool(currentUser, suite, platform.status.poolId)
       return {
         value: platform.id,
         label: !operable
-          ? `${platform.name} (${POOL_OWNERS_ONLY})`
+          ? `${platform.name} (${NOT_STARTABLE[suiteStarterLevel(suite)]})`
           : platform.lifecycleState === 'active' ? platform.name : `${platform.name} (${platform.lifecycleState.replaceAll('_', ' ')})`,
         disabled: !operable || platform.lifecycleState !== 'active',
       }

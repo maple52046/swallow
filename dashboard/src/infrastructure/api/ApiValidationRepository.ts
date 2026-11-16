@@ -1,13 +1,15 @@
 import type { Paginated } from '@/application/ports/ServerRepository'
 import type { ValidationRepository, ValidationRunFilter } from '@/application/ports/ValidationRepository'
-import type {
-  UserSuiteInput,
-  ValidationRun,
-  ValidationRunInput,
-  ValidationRunSummary,
-  ValidationSchedule,
-  ValidationScheduleInput,
-  ValidationSuite,
+import {
+  ValidationConflictError,
+  type UserSuiteInput,
+  type ValidationRun,
+  type ValidationRunInput,
+  type ValidationRunSummary,
+  type ValidationSchedule,
+  type ValidationScheduleInput,
+  type ValidationSuite,
+  type ValidationSuiteRevision,
 } from '@/domain/validation/types'
 import { ApiRequestError, apiRequest } from './client'
 import type { JsonRequestBody, JsonResponse } from './contractTypes'
@@ -24,12 +26,26 @@ async function orNull<T>(read: Promise<T>): Promise<T | null> {
 }
 
 /**
+ * Raises a `409` of a write as `ValidationConflictError`, keeping the API's message and request id,
+ * so a screen can tell "re-read and decide" from any other refusal without reading status codes.
+ */
+async function conflictAware<T>(write: Promise<T>): Promise<T> {
+  try {
+    return await write
+  } catch (error) {
+    if (error instanceof ApiRequestError && error.status === 409) throw new ValidationConflictError(error.message, error.requestId)
+    throw error
+  }
+}
+
+/**
  * Maps the Active validation contract (`/api/v1/validation/*`, `validation.md`) onto the
  * ValidationRepository port. The contract's JSON already has the domain's shape, which the
  * generated response types prove where each body is returned, and request bodies are typed by the
  * contract's request schemas. Run list filters are query parameters; ids are path-encoded. A user
- * suite's script crosses this boundary as written: the contract stores and returns it, and it must
- * hold no secret.
+ * suite's script crosses this boundary as written: the contract stores and returns it to every
+ * User, and it must hold no secret. A `409` from a suite replace or a run start becomes
+ * `ValidationConflictError`; every other failure stays the client's `ApiRequestError`.
  */
 export class ApiValidationRepository implements ValidationRepository {
   async listSuites(includeRetired = false): Promise<ValidationSuite[]> {
@@ -43,16 +59,22 @@ export class ApiValidationRepository implements ValidationRepository {
     return orNull(apiRequest<JsonResponse<operations['getValidationSuite'], 200>>(`/api/v1/validation/suites/${encodeURIComponent(id)}`))
   }
 
+  getSuiteRevision(suiteId: string, revision: number): Promise<ValidationSuiteRevision | null> {
+    return orNull(apiRequest<JsonResponse<operations['getValidationSuiteRevision'], 200>>(
+      `/api/v1/validation/suites/${encodeURIComponent(suiteId)}/revisions/${encodeURIComponent(String(revision))}`,
+    ))
+  }
+
   createSuite(input: UserSuiteInput): Promise<ValidationSuite> {
     return apiRequest<JsonResponse<operations['createValidationSuite'], 201>>('/api/v1/validation/suites', {
-      method: 'POST', body: JSON.stringify(userSuiteBody(input)),
+      method: 'POST', body: JSON.stringify(userSuiteBody({ ...input, revision: undefined })),
     })
   }
 
   replaceSuite(id: string, input: UserSuiteInput): Promise<ValidationSuite> {
-    return apiRequest<JsonResponse<operations['replaceValidationSuite'], 200>>(`/api/v1/validation/suites/${encodeURIComponent(id)}`, {
+    return conflictAware(apiRequest<JsonResponse<operations['replaceValidationSuite'], 200>>(`/api/v1/validation/suites/${encodeURIComponent(id)}`, {
       method: 'PUT', body: JSON.stringify(userSuiteBody(input)),
-    })
+    }))
   }
 
   async retireSuite(id: string): Promise<void> {
@@ -61,7 +83,7 @@ export class ApiValidationRepository implements ValidationRepository {
 
   listRuns(filter: ValidationRunFilter = {}): Promise<Paginated<ValidationRunSummary>> {
     const params = new URLSearchParams()
-    for (const key of ['siteId', 'suiteId', 'serverId', 'platformId', 'scheduleId', 'status', 'verdict', 'trigger'] as const) {
+    for (const key of ['siteId', 'suiteId', 'serverId', 'platformId', 'scheduleId', 'status', 'verdict', 'trigger', 'requestedBy'] as const) {
       const value = filter[key]
       if (value) params.set(key, value)
     }
@@ -79,11 +101,11 @@ export class ApiValidationRepository implements ValidationRepository {
   startRun(input: ValidationRunInput): Promise<ValidationRun> {
     const body: JsonRequestBody<operations['startValidationRun']> = {
       suiteId: input.suiteId, serverIds: input.serverIds, platformId: input.platformId,
-      parameters: input.parameters, confirm: input.confirm ?? false,
+      parameters: input.parameters, confirm: input.confirm ?? false, suiteRevision: input.suiteRevision,
     }
-    return apiRequest<JsonResponse<operations['startValidationRun'], 202>>('/api/v1/validation/runs', {
+    return conflictAware(apiRequest<JsonResponse<operations['startValidationRun'], 202>>('/api/v1/validation/runs', {
       method: 'POST', body: JSON.stringify(body),
-    })
+    }))
   }
 
   cancelRun(id: string): Promise<ValidationRun> {
@@ -115,11 +137,15 @@ export class ApiValidationRepository implements ValidationRepository {
   }
 }
 
-/** The contract's user suite body; an omitted field takes the API's default. */
+/**
+ * The contract's user suite body; an omitted field takes the API's default. `revision` is the
+ * replace precondition and is left out of a create, where the API ignores it anyway.
+ */
 function userSuiteBody(input: UserSuiteInput): Partial<JsonRequestBody<operations['createValidationSuite']>> {
   return {
     name: input.name, description: input.description, script: input.script,
-    runAs: input.runAs, timeoutSeconds: input.timeoutSeconds, impact: input.impact,
+    sudo: input.sudo, starterLevel: input.starterLevel, timeoutSeconds: input.timeoutSeconds, impact: input.impact,
+    revision: input.revision,
   }
 }
 

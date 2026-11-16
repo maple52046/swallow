@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Badge, Box, Button, Code, Heading, HStack, Link as ChakraLink, Stack, Table, Text } from '@chakra-ui/react'
-import { CalendarPlus, Play, ScrollText } from 'lucide-react'
+import { CalendarPlus, Play } from 'lucide-react'
 import { Link as RouterLink, useParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { Paginated } from '@/application/ports/ServerRepository'
-import { isAdmin, ownsAnyPool } from '@/domain/user/access'
+import { isAdmin } from '@/domain/user/access'
+import { canEditSuite, canRetireSuite, isSuiteAuthor, suiteStartBlocker } from '@/domain/validation/access'
 import type { ValidationRunSummary, ValidationSchedule, ValidationSuite } from '@/domain/validation/types'
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
 import { KeyValueGrid, SectionSurface, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
@@ -17,7 +18,14 @@ import { PageHeader } from '@/presentation/components/PageHeader'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { StartValidationRunDialog } from '@/presentation/components/validation/StartValidationRunDialog'
 import { ValidationRunList } from '@/presentation/components/validation/ValidationRunList'
-import { IMPACT_COPY, scheduleTriggerLabel, suiteSourceLabel } from '@/presentation/components/validation/validationPresentation'
+import { UserSuiteSummary } from '@/presentation/components/validation/UserSuiteSummary'
+import {
+  IMPACT_COPY,
+  scheduleTriggerLabel,
+  START_BLOCKER_TEXT,
+  suiteAuthorName,
+  suiteSourceLabel,
+} from '@/presentation/components/validation/validationPresentation'
 import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { formatDateTime } from '@/shared/utils/time'
@@ -42,8 +50,13 @@ type SecondaryState =
 
 /**
  * Suite identity, checks, parameters, script metadata, recent Runs, and referencing Schedules.
- * Schedules and the user-suite writes (create schedule, edit, retire) are admin routes
- * (validation.md), so another user sees the suite and its runs and may run it.
+ *
+ * Who is offered what follows the validation contract: every User reads the suite and its runs;
+ * Run suite is offered to all and disabled, with its reason in words, when Pool Roles already rule
+ * it out (`suiteStartBlocker`); Edit only to a user suite's author (by user id, so not to an admin
+ * who is not the author); Retire to its author or an admin. Schedules are admin routes and start
+ * module suites only, so Create schedule is an admin's, on a module suite. The API judges each
+ * request again.
  */
 export function ValidationSuiteDetailPage() {
   const { id = '' } = useParams()
@@ -135,6 +148,8 @@ export function ValidationSuiteDetailPage() {
 
   const parameters = suite.parameters ? Object.entries(suite.parameters.properties) : []
   const schedules = secondary.status === 'ready' ? secondary.schedules ?? [] : []
+  const startBlocker = suiteStartBlocker(currentUser, suite)
+  const author = isSuiteAuthor(currentUser, suite)
   return (
     <div className="console-page">
       <PageHeader
@@ -146,26 +161,33 @@ export function ValidationSuiteDetailPage() {
             {suite.experimental && <Badge colorPalette="orange" variant="subtle">Experimental</Badge>}
             {suite.retired && <Badge colorPalette="gray">Retired</Badge>}
             <Badge variant="outline">{IMPACT_COPY[suite.impact].label}</Badge>
+            {suite.source === 'user' && (
+              <Text fontSize="sm" color="fg.muted">Created by {suiteAuthorName(suite)}{author ? ' (you)' : ''}</Text>
+            )}
           </HStack>
         }
         stackActionsOnMobile
         actions={!suite.retired ? (
           <>
-            {ownsAnyPool(currentUser) && (
-              <Button colorPalette="brand" onClick={() => setRunDialog(true)}><Play size={16} /> Run suite</Button>
+            <Button
+              colorPalette="brand"
+              onClick={() => setRunDialog(true)}
+              disabled={startBlocker !== null}
+              aria-describedby={startBlocker ? 'suite-start-blocker' : undefined}
+            >
+              <Play size={16} aria-hidden /> Run suite
+            </Button>
+            {admin && suite.source === 'module' && suite.impact !== 'disruptive' && (
+              <Button variant="outline" onClick={() => setScheduleDialog(true)}><CalendarPlus size={16} aria-hidden /> Create schedule</Button>
             )}
-            {admin && suite.impact !== 'disruptive' && (
-              <Button variant="outline" onClick={() => setScheduleDialog(true)}><CalendarPlus size={16} /> Create schedule</Button>
-            )}
-            {admin && suite.source === 'user' && (
-              <>
-                <Button variant="outline" onClick={() => setEditDialog(true)}>Edit</Button>
-                <Button variant="outline" colorPalette="red" onClick={() => setRetiring(true)}>Retire</Button>
-              </>
-            )}
+            {canEditSuite(currentUser, suite) && <Button variant="outline" onClick={() => setEditDialog(true)}>Edit</Button>}
+            {canRetireSuite(currentUser, suite) && <Button variant="outline" colorPalette="red" onClick={() => setRetiring(true)}>Retire</Button>}
           </>
         ) : undefined}
       />
+      {startBlocker && !suite.retired && (
+        <Text id="suite-start-blocker" color="fg.muted" fontSize="sm">{START_BLOCKER_TEXT[startBlocker]}</Text>
+      )}
 
       <SectionSurface title="Capability" description="The target, impact, and maximum report-run budget.">
         <KeyValueGrid items={[
@@ -209,17 +231,8 @@ export function ValidationSuiteDetailPage() {
       </SectionSurface>
 
       {suite.source === 'user' && (
-        <SectionSurface title="Script" description="Scripts are stored as written. Do not put credentials or other secrets in this content.">
-          <KeyValueGrid items={[
-            { label: 'Revision', value: suite.revision ?? '—' },
-            { label: 'Run as', value: suite.runAs ?? '—' },
-            { label: 'Timeout', value: suite.timeoutSeconds ? `${suite.timeoutSeconds} seconds` : '—' },
-            { label: 'SHA-256', value: <Code fontSize="xs" wordBreak="break-all">{suite.scriptSha256 ?? '—'}</Code> },
-          ]} />
-          <Box as="details" mt="4">
-            <Box as="summary" cursor="pointer" fontWeight="semibold"><HStack as="span" gap="2"><ScrollText size={16} /> View script</HStack></Box>
-            <Box as="pre" className="sw-mono" mt="3" p="4" bg="bg.muted" rounded="md" overflowX="auto" whiteSpace="pre-wrap" wordBreak="break-word">{suite.script}</Box>
-          </Box>
+        <SectionSurface title="Script" description="Stored and shown to every User as written; it must hold no credentials or other secrets.">
+          <UserSuiteSummary suite={suite} showSha />
         </SectionSurface>
       )}
 
@@ -276,9 +289,13 @@ export function ValidationSuiteDetailPage() {
           showToast({ tone: 'success', title: `Revision ${saved.revision ?? ''} saved`, description: saved.name })
           setNonce((value) => value + 1)
         }}
+        onReload={() => setNonce((value) => value + 1)}
       />
       <ConfirmDialog open={retiring} title="Retire suite" confirmLabel="Retire suite" busy={retireBusy} onConfirm={() => void retire()} onCancel={() => setRetiring(false)}>
-        <Text>{suite.name} leaves the catalog and cannot start new runs. Past runs remain readable.</Text>
+        <Text>
+          {suite.name} leaves the catalog for every User and cannot start new runs; this cannot be undone. Past runs and its
+          revisions remain readable.{!author ? ` You are retiring a suite written by ${suiteAuthorName(suite)}.` : ''}
+        </Text>
       </ConfirmDialog>
     </div>
   )

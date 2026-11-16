@@ -96,7 +96,7 @@ test('Run a suite uses Suite & targets then Configuration & review', async ({ pa
   await dialog.getByLabel('Fewest CPUs').fill('64')
   await dialog.getByRole('button', { name: 'Start run' }).click()
 
-  await expect(page).toHaveURL(/\/validation\/runs\/run-4\?site=site-a$/)
+  await expect(page).toHaveURL(/\/validation\/runs\/run-6\?site=site-a$/)
   expect(started).toEqual([{ suiteId: 'host-baseline', serverIds: ['srv-3'], parameters: { minCpus: 64 }, confirm: false }])
 })
 
@@ -112,7 +112,7 @@ test('Disruptive Suite detail requires confirmation in the review step', async (
   await expect(dialog.getByRole('button', { name: 'Start run' })).toBeEnabled()
 })
 
-test('Schedules use friendly presets and generation-safe inline enablement', async ({ page }) => {
+test('Schedules use friendly presets, start module suites only, and generation-safe inline enablement', async ({ page }) => {
   const created: unknown[] = []
   const replaced: unknown[] = []
   page.on('request', (request) => {
@@ -129,11 +129,18 @@ test('Schedules use friendly presets and generation-safe inline enablement', asy
   await expect.poll(() => replaced.length).toBe(1)
   expect(replaced[0]).toMatchObject({ enabled: false, generation: 1, name: 'Nightly baseline' })
 
+  // A schedule written before user suites were refused says why it starts nothing.
+  const legacy = table.getByRole('row', { name: /Hourly mounts/ })
+  await expect(legacy).toContainText('Script suite not schedulable')
+  await expect(legacy).toContainText('a scheduled run has none')
+
   await page.getByRole('button', { name: 'Create schedule' }).click()
   const editor = page.getByRole('dialog', { name: 'Create schedule' })
   await editor.getByLabel('Name').fill('Weekly mounts')
   await editor.getByRole('combobox', { name: 'Suite' }).click()
-  await page.getByRole('option', { name: 'Data mounts' }).click()
+  await expect(page.getByRole('option', { name: 'Data mounts' })).toHaveCount(0)
+  await expect(page.getByRole('option', { name: 'Failover drill' })).toHaveCount(0)
+  await page.getByRole('option', { name: 'Host baseline' }).click()
   await editor.getByRole('checkbox', { name: 'gpu-node-02' }).locator('..').click()
   await editor.getByRole('combobox', { name: 'When' }).click()
   await page.getByRole('option', { name: 'Weekly' }).click()
@@ -144,7 +151,8 @@ test('Schedules use friendly presets and generation-safe inline enablement', asy
   await expect(table.getByRole('row', { name: /Weekly mounts/ })).toContainText('Applying')
   expect(created).toEqual([{
     name: 'Weekly mounts',
-    suiteId: 'user-mounts',
+    suiteId: 'host-baseline',
+    parameters: {},
     serverIds: ['srv-2'],
     enabled: true,
     trigger: { kind: 'cron', cron: '0 3 * * 1', timezone: 'Asia/Taipei' },

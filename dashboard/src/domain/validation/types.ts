@@ -18,11 +18,15 @@ export type ValidationTargetKind = 'servers' | 'platform'
  */
 export type ValidationImpact = 'observe' | 'workload' | 'disruptive'
 
-/** Where a suite comes from: a module of the build (read-only) or an admin's script. */
+/** Where a suite comes from: a module of the build (read-only) or a script a User wrote. */
 export type ValidationSuiteSource = 'module' | 'user'
 
-/** The account a user suite's script runs as. */
-export type ValidationRunAs = 'automation-user' | 'root'
+/**
+ * The least Pool Role a User needs on every target to start a user suite (glossary Pool Role):
+ * `owner` (Pool operate) or `member` (Pool read). Admins pass both. A module suite has none and
+ * behaves as `owner`.
+ */
+export type ValidationStarterLevel = 'owner' | 'member'
 
 /** One check of a suite (glossary Validation Check). `gating` matters only when a deployment composes the suite. */
 export interface ValidationCheck {
@@ -41,8 +45,9 @@ export interface ValidationSuiteModule {
 
 /**
  * A Validation Suite of the catalog. A module suite has `module`, maybe a `parameters` schema and a
- * `platformType`, and null user fields; a user suite has `script`, `runAs`, `timeoutSeconds`,
- * `revision`, and `scriptSha256`, and its one check is `script` (its exit code is the verdict).
+ * `platformType`, and null user fields; it runs as root. A user suite has `script`, `sudo`,
+ * `starterLevel`, `timeoutSeconds`, `revision`, and `scriptSha256`, and its one check is `script`
+ * (its exit code is the verdict); it runs on each target as the account of the User who starts it.
  */
 export interface ValidationSuite {
   id: string
@@ -59,29 +64,82 @@ export interface ValidationSuite {
   /** How long one report run may take before it is canceled. */
   budgetSeconds: number
   script: string | null
-  runAs: ValidationRunAs | null
+  /** Whether the starter runs the script through their own passwordless `sudo -n`; null for a module suite. */
+  sudo: boolean | null
+  /** Who may start the user suite; null for a module suite, which only Pool owners start. */
+  starterLevel: ValidationStarterLevel | null
   timeoutSeconds: number | null
+  /** Increments when anything but the name and description changes; null for a module suite. */
   revision: number | null
   scriptSha256: string | null
   /**
    * A module suite offered as a preview whose checks may still change. It runs like any other; the
-   * dashboard offers it only when the admin shows experimental suites. Always false for a user suite.
+   * dashboard offers it only when the User shows experimental suites. Always false for a user suite.
    */
   experimental: boolean
   retired: boolean
   createdAt: string | null
   updatedAt: string | null
+  /** The author's username when the suite was created, for display only; it never authorizes. */
   createdBy: string | null
+  /**
+   * The author's user id, which decides who may replace (the author) and retire (the author or an
+   * admin) the suite. Null for a module suite, and for a user suite whose author could not be
+   * identified, which reads as a deleted author: nobody may replace it.
+   */
+  createdById: string | null
 }
 
-/** A user suite as an admin writes it; omitted fields take the API's defaults. */
+/**
+ * A user suite as its author writes it; omitted fields take the API's defaults (`sudo` false,
+ * `starterLevel` owner, 600 seconds, `workload`). `revision` is the revision the editor read: a
+ * replace applies only at it, so a stale editor never overwrites a newer revision.
+ */
 export interface UserSuiteInput {
   name: string
   description?: string
   script: string
-  runAs?: ValidationRunAs
+  sudo?: boolean
+  starterLevel?: ValidationStarterLevel
   timeoutSeconds?: number
   impact?: ValidationImpact
+  revision?: number
+}
+
+/**
+ * One immutable, kept revision of a user suite (contract Revisions): what a run of that revision
+ * executes. The review before a changed suite runs compares two of them.
+ */
+export interface ValidationSuiteRevision {
+  suiteId: string
+  revision: number
+  script: string
+  scriptSha256: string
+  sudo: boolean
+  starterLevel: ValidationStarterLevel
+  timeoutSeconds: number
+  impact: ValidationImpact
+  /** When this revision was saved. */
+  createdAt: string
+}
+
+/**
+ * The write was refused because what it relied on changed (`409 conflict`): a suite replaced at a
+ * revision that is no longer current, or a run the API could not accept as asked (a stale
+ * `suiteRevision`, or a target that is busy or cannot run it). The adapter raises it so a screen can
+ * re-read and decide, rather than inspect transport codes or parse the message.
+ *
+ * `requestId` matches the application `RequestFailure` port structurally (the domain cannot import
+ * it), so the screen can still show it.
+ */
+export class ValidationConflictError extends Error {
+  readonly requestId?: string
+
+  constructor(message: string, requestId?: string) {
+    super(message)
+    this.name = 'ValidationConflictError'
+    this.requestId = requestId
+  }
 }
 
 /** A run's lifecycle: accepted, executing, ended with a verdict, or canceled without one. */
@@ -158,6 +216,16 @@ export interface ValidationResult {
   taskId: string | null
 }
 
+/**
+ * The Linux account a user suite run uses on every target: the starter's Directory account, through
+ * its own `sudo -n` when `sudo` is true.
+ */
+export interface ValidationRunAccount {
+  username: string
+  uidNumber: number
+  sudo: boolean
+}
+
 /** A run as the list returns it: everything but the results. */
 export interface ValidationRunSummary {
   id: string
@@ -175,7 +243,15 @@ export interface ValidationRunSummary {
   /** Null until the run completes, and for a canceled run. */
   verdict: ValidationRunVerdict | null
   counts: ValidationRunCounts
+  /** Who asked: the starter's username, a gate run's deployment requester, or `validation-schedule`. */
   requestedBy: string
+  /**
+   * The starter's user id for a `manual` run, which lets the starter cancel it; null for other
+   * triggers and for runs accepted before it was recorded.
+   */
+  requestedById: string | null
+  /** The account a user suite run uses on its targets; null for a module suite run, which runs as root. */
+  runAs: ValidationRunAccount | null
   requestedAt: string
   startedAt: string | null
   finishedAt: string | null
@@ -194,6 +270,11 @@ export interface ValidationRunInput {
   parameters?: Record<string, unknown>
   /** Acknowledges a `disruptive` suite's impact; the API refuses such a run without it. */
   confirm?: boolean
+  /**
+   * The user suite revision the starter reviewed; the API refuses the run (`409`) when the suite is
+   * no longer at it. Never set for a module suite (`400`).
+   */
+  suiteRevision?: number
 }
 
 /** When a schedule starts runs: on a cron expression, or after each deployment of its target. */

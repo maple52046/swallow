@@ -399,9 +399,16 @@ export interface PowerConfigurationFixture {
 export interface FixtureOptions {
   /**
    * Who the page is signed in as (auth-me.md): the installation admin (the default), alice, the
-   * owner of pool-research, or bob, its member. Only the account and Pool access routes enforce it.
+   * owner of pool-research, or bob, its member. The account, Pool access, and validation routes
+   * enforce it.
    */
   identity?: FixtureIdentity
+  /**
+   * The id of a user Validation Suite that another author saves a new revision of just before the
+   * page's next write to it (a run start pinned to a revision, or a replace), so that write is
+   * refused with `409` as a concurrent save would make it.
+   */
+  validationConcurrentSave?: string
   /** Whether GET /api/v1/modules fails, so a generated settings form cannot load. */
   modulesUnavailable?: boolean
   /**
@@ -2656,8 +2663,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       }
     }
   }
-  // Per-page Validation Suites, Runs, and Schedules (validation.md).
-  const validationApi = createValidationFixtures()
+  // Per-page Validation Suites, Runs, and Schedules (validation.md), written as the signed-in identity.
+  const validationApi = createValidationFixtures(options.identity, options.validationConcurrentSave)
   // Per-page Users, Pool memberships, Sudo Policy, and the signed-in identity (users.md, pool-access.md).
   const accessApi = createAccessFixtures(options.identity)
   await page.route('**/api/v1/**', async (route) => {

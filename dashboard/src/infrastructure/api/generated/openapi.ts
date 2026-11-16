@@ -3929,7 +3929,7 @@ export interface paths {
         put?: never;
         /**
          * Start a Validation Run of a suite against deployed Servers or a Platform.
-         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Accepts the run and its `run-validation` Workflow in one transaction and returns 202 with the `pending` run; progress is read on the run (and its Workflow).
+         * @description Pool read on every target, then by suite: Pool operate on every target for a module suite or a user suite with `starterLevel: owner`, Pool read for `starterLevel: member`. A user suite runs as the caller's own account, so the caller's Host Access (and, for a `sudo` suite, passwordless sudo) on every target is checked too. Accepts the run and its `run-validation` Workflow in one transaction and returns 202 with the `pending` run; progress is read on the run (and its Workflow).
          */
         post: operations["startValidationRun"];
         delete?: never;
@@ -3973,7 +3973,7 @@ export interface paths {
         put?: never;
         /**
          * Cancel a report-mode Validation Run.
-         * @description Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Writes the cancel of the run's Workflow and returns 202 with the run; it ends `canceled` once the Workflow's cancel path finished.
+         * @description Pool read on the run's targets, then the run's starter (`requestedById` is the caller), an owner of every target's Pool, or an admin. Writes the cancel of the run's Workflow and returns 202 with the run; it ends `canceled` once the Workflow's cancel path finished.
          */
         post: operations["cancelValidationRun"];
         delete?: never;
@@ -4051,7 +4051,7 @@ export interface paths {
         put?: never;
         /**
          * Create a user-defined Validation Suite (a script judged by its exit code).
-         * @description Requires the `admin` role. The suite starts at revision 1.
+         * @description Author: any authenticated User, who becomes the suite's author. The suite starts at revision 1, which is kept. `revision` in the body is ignored.
          */
         post: operations["createValidationSuite"];
         delete?: never;
@@ -4077,15 +4077,40 @@ export interface paths {
         get: operations["getValidationSuite"];
         /**
          * Replace a user-defined Validation Suite, creating its next revision.
-         * @description Requires the `admin` role. A change to the script, `runAs`, `timeoutSeconds`, or `impact` increments `revision`; runs already accepted keep the revision they ran.
+         * @description Author: only the suite's author, matched by user id; an admin who is not the author may not. A change to any field but `name` and `description` increments `revision` and keeps the new revision; runs already accepted keep the revision they ran. The write applies only at the revision it read, so of two concurrent replaces one is `409`; with `revision` in the body it applies only when that is the current revision.
          */
         put: operations["replaceValidationSuite"];
         post?: never;
         /**
          * Retire a user-defined Validation Suite.
-         * @description Requires the `admin` role. The suite leaves the catalog; its runs stay readable. Retiring a retired suite succeeds.
+         * @description Author or admin: the suite's author, or an admin. The suite leaves the catalog; its runs and revisions stay readable. Retiring a retired suite succeeds.
          */
         delete: operations["deleteValidationSuite"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/validation/suites/{suiteId}/revisions/{revision}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A module suite's kebab-case id, or a user suite's UUID. */
+                suiteId: components["parameters"]["ValidationSuiteId"];
+                /** @description The revision number, from 1. */
+                revision: number;
+            };
+            cookie?: never;
+        };
+        /**
+         * Read one kept revision of a user-defined Validation Suite.
+         * @description Reference: any authenticated User; a retired suite's revisions stay readable. A suite created before revisions were kept has only the revision it had at that upgrade and later ones.
+         */
+        get: operations["getValidationSuiteRevision"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -7797,8 +7822,13 @@ export interface components {
                 [key: string]: unknown;
             };
             requestedAt: components["schemas"]["Timestamp"];
+            /** @description Who asked: the starter's username for a `manual` run, the deployment's requester for a gate run, `validation-schedule` for a scheduled run. */
             requestedBy: string;
+            /** @description The starter's user id for a `manual` run; null for other triggers and for runs accepted before it was recorded. */
+            requestedById: string | null;
             results: components["schemas"]["ValidationResult"][];
+            /** @description The account a user suite run uses on its targets; null for a module suite run. */
+            runAs: components["schemas"]["ValidationRunAs"] | null;
             siteId: string;
             startedAt: components["schemas"]["Timestamp"] | null;
             status: components["schemas"]["ValidationRunStatus"];
@@ -7808,6 +7838,13 @@ export interface components {
             trigger: components["schemas"]["ValidationRunTrigger"];
             verdict: components["schemas"]["ValidationRunVerdict"] | null;
             workflowId: string;
+        };
+        /** @description The account a user suite run uses on its targets. */
+        ValidationRunAs: {
+            /** @description Whether the script runs through the account's `sudo -n`. */
+            sudo: boolean;
+            uidNumber: number;
+            username: string;
         };
         ValidationRunCounts: {
             error: number;
@@ -7837,6 +7874,8 @@ export interface components {
             /** @description The target Servers of a `servers` suite. */
             serverIds?: string[];
             suiteId: string;
+            /** @description The user suite revision the caller reviewed; the run is refused (409) when the suite is no longer at it. Without it the current revision runs. Not accepted for a module suite. */
+            suiteRevision?: number;
         };
         /** @enum {string} */
         ValidationRunStatus: "pending" | "running" | "completed" | "canceled";
@@ -7863,7 +7902,12 @@ export interface components {
                 [key: string]: unknown;
             };
             requestedAt: components["schemas"]["Timestamp"];
+            /** @description Who asked: the starter's username for a `manual` run, the deployment's requester for a gate run, `validation-schedule` for a scheduled run. */
             requestedBy: string;
+            /** @description The starter's user id for a `manual` run; null for other triggers and for runs accepted before it was recorded. */
+            requestedById: string | null;
+            /** @description The account a user suite run uses on its targets; null for a module suite run. */
+            runAs: components["schemas"]["ValidationRunAs"] | null;
             siteId: string;
             startedAt: components["schemas"]["Timestamp"] | null;
             status: components["schemas"]["ValidationRunStatus"];
@@ -7959,7 +8003,10 @@ export interface components {
             budgetSeconds: number;
             checks: components["schemas"]["ValidationCheck"][];
             createdAt: components["schemas"]["Timestamp"] | null;
+            /** @description The author's username as it was at creation, for display. */
             createdBy: string | null;
+            /** @description The author's user id, which decides who may replace and retire the suite; null for a module suite and for a user suite whose author could not be identified. */
+            createdById: string | null;
             description: string;
             /** @description A module suite offered as a preview whose checks may still change; it runs like any other. Always false for a user suite. */
             experimental: boolean;
@@ -7974,12 +8021,17 @@ export interface components {
             platformType: string | null;
             retired: boolean;
             revision: number | null;
-            /** @enum {string|null} */
-            runAs: "automation-user" | "root" | null;
             script: string | null;
             scriptSha256: string | null;
             /** @enum {string} */
             source: "module" | "user";
+            /**
+             * @description The least Pool Role a User needs on every target to start the suite. A module suite's is null and behaves as `owner`.
+             * @enum {string|null}
+             */
+            starterLevel: "owner" | "member" | null;
+            /** @description Whether the starter runs the script through `sudo -n`, so only on targets where the starter has passwordless sudo. */
+            sudo: boolean | null;
             target: components["schemas"]["ValidationTargetKind"];
             timeoutSeconds: number | null;
             updatedAt: components["schemas"]["Timestamp"] | null;
@@ -7993,6 +8045,20 @@ export interface components {
             kind: "accelerator" | "platform" | "software" | "validation";
             version: string;
         };
+        /** @description One kept revision of a user suite, immutable. */
+        ValidationSuiteRevision: {
+            createdAt: components["schemas"]["Timestamp"];
+            /** @enum {string} */
+            impact: "observe" | "workload" | "disruptive";
+            revision: number;
+            script: string;
+            scriptSha256: string;
+            /** @enum {string} */
+            starterLevel: "owner" | "member";
+            sudo: boolean;
+            suiteId: string;
+            timeoutSeconds: number;
+        };
         /** @enum {string} */
         ValidationTargetKind: "servers" | "platform";
         /** @enum {string} */
@@ -8005,13 +8071,20 @@ export interface components {
              */
             impact: "observe" | "workload" | "disruptive";
             name: string;
-            /**
-             * @default automation-user
-             * @enum {string}
-             */
-            runAs: "automation-user" | "root";
+            /** @description On a replace, the revision the write expects (optional); ignored on create. */
+            revision?: number;
             /** @description At most 64 KiB; run with its own interpreter line, or under /bin/sh without one. */
             script: string;
+            /**
+             * @default owner
+             * @enum {string}
+             */
+            starterLevel: "owner" | "member";
+            /**
+             * @description Run the script through the starter's passwordless sudo (`sudo -n`).
+             * @default false
+             */
+            sudo: boolean;
             /** @default 600 */
             timeoutSeconds: number;
         };
@@ -8418,7 +8491,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description `validation_error`: the body is not valid JSON; the name or `suiteId` is empty; the targets do not fit the suite's target kind; the parameters do not match the suite's schema; the trigger kind is unknown, a `cron` trigger has an invalid expression or time zone, or an `after-deployment` trigger has a `cron`; or the Servers belong to more than one Site. */
+        /** @description `validation_error`: the body is not valid JSON; the name or `suiteId` is empty; the suite is a user suite (it runs as the User who starts it, and a scheduled run has none); the targets do not fit the suite's target kind; the parameters do not match the suite's schema; the trigger kind is unknown, a `cron` trigger has an invalid expression or time zone, or an `after-deployment` trigger has a `cron`; or the Servers belong to more than one Site. */
         ValidationScheduleRejected: {
             headers: {
                 [name: string]: unknown;
@@ -17506,6 +17579,8 @@ export interface operations {
                 status?: components["schemas"]["ValidationRunStatus"];
                 verdict?: components["schemas"]["ValidationRunVerdict"];
                 trigger?: components["schemas"]["ValidationTriggerKind"];
+                /** @description `me` keeps only the runs the caller started (`requestedById` is the caller's id); it is the only value. */
+                requestedBy?: "me";
                 /** @description Only `pending` and `running` runs. Only the literal `true` constrains. */
                 active?: boolean;
                 page?: components["parameters"]["Page"];
@@ -17526,7 +17601,7 @@ export interface operations {
                     "application/json": components["schemas"]["ValidationRunPage"];
                 };
             };
-            /** @description `validation_error`: a `status`, `verdict`, or `trigger` value is not one of its values. */
+            /** @description `validation_error`: a `status`, `verdict`, `trigger`, or `requestedBy` value is not one of its values. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -17562,7 +17637,7 @@ export interface operations {
                     "application/json": components["schemas"]["ValidationRun"];
                 };
             };
-            /** @description `validation_error`: the body is not valid JSON; `suiteId` is empty; a `servers` suite has no `serverIds`, a Server is listed twice, or `platformId` is set; a `platform` suite has no `platformId` or has `serverIds`; the parameters do not match the suite's schema; the Servers belong to more than one Site; or a `disruptive` suite is started without `confirm: true`. */
+            /** @description `validation_error`: the body is not valid JSON; `suiteId` is empty; a `servers` suite has no `serverIds`, a Server is listed twice, or `platformId` is set; a `platform` suite has no `platformId` or has `serverIds`; the parameters do not match the suite's schema; the Servers belong to more than one Site; a `disruptive` suite is started without `confirm: true`; or `suiteRevision` is given for a module suite. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -17572,8 +17647,16 @@ export interface operations {
                 };
             };
             401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            /** @description `not_found`: the suite (or a retired user suite), a target Server, or the Platform does not exist. */
+            /** @description `forbidden`: the caller is below the suite's starter level on a target, has no Host Access to a target (user suite), or has no sudo on a target for a `sudo` user suite. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `not_found`: the suite (or a retired user suite), a target Server, or the Platform does not exist, or the caller may not read a target. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -17582,7 +17665,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `conflict`: a target Server is not `deployed`, is locked, or (for a `workload` or `disruptive` Servers suite) is claimed by a Platform; the Platform is not `active`, is not of the suite's Platform type, or has no access Server; or a target already has active durable work (another run's included). */
+            /** @description `conflict`: `suiteRevision` is not the user suite's current revision; a target Server is not `deployed`, is locked, or (for a `workload` or `disruptive` Servers suite) is claimed by a Platform; the Platform is not `active`, is not of the suite's Platform type, or has no access Server; for a user suite, no Directory is configured, the caller has no `uidNumber`, a target has no installed directory client, or the caller's sudo on a target needs a password (`sudo` suite); or a target already has active durable work (another run's included). */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -17658,8 +17741,16 @@ export interface operations {
                 };
             };
             401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            /** @description `not_found`: no run has this id. */
+            /** @description `forbidden`: the caller may read the run but neither started it nor operates its targets. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `not_found`: no run has this id, or the caller may not read it. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -17905,7 +17996,7 @@ export interface operations {
                     "application/json": components["schemas"]["ValidationSuite"];
                 };
             };
-            /** @description `validation_error`: the body is not valid JSON, the name or script is empty, the script is larger than 64 KiB, or `runAs`, `timeoutSeconds`, or `impact` is not accepted. */
+            /** @description `validation_error`: the body is not valid JSON, the name or script is empty, the script is larger than 64 KiB, or `starterLevel`, `timeoutSeconds`, `impact`, or `revision` is not accepted. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -17989,7 +18080,15 @@ export interface operations {
                 };
             };
             401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
+            /** @description `forbidden`: the caller is not the suite's author. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description `not_found`: no suite has this id. */
             404: {
                 headers: {
@@ -17999,7 +18098,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `conflict`: the suite is a module suite, which cannot be changed, or it is retired. */
+            /** @description `conflict`: the suite is a module suite, which cannot be changed, or it is retired; or it is no longer at the revision this write read (another replace won, or `revision` is stale). */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -18031,7 +18130,15 @@ export interface operations {
                 content?: never;
             };
             401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
+            /** @description `forbidden`: the caller is neither the suite's author nor an admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description `not_found`: no suite has this id. */
             404: {
                 headers: {
@@ -18043,6 +18150,43 @@ export interface operations {
             };
             /** @description `conflict`: the suite is a module suite, or a Validation Schedule names it. */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getValidationSuiteRevision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A module suite's kebab-case id, or a user suite's UUID. */
+                suiteId: components["parameters"]["ValidationSuiteId"];
+                /** @description The revision number, from 1. */
+                revision: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The revision. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationSuiteRevision"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description `not_found`: no suite has this id, the suite is a module suite, or it has no kept revision with this number. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

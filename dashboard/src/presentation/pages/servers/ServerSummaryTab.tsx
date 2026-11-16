@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Button } from '@chakra-ui/react'
 import { useApp } from '@/di/AppProvider'
 import type { BootMediaLiveState, Server, ServerBootMedia, ServerPowerConfiguration } from '@/domain/server/types'
-import { canOperatePool, isAdmin } from '@/domain/user/access'
+import { canOperatePool, isAdmin, poolRoleOf } from '@/domain/user/access'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
 import { Alert } from '@/presentation/components/ui/alert'
@@ -299,7 +299,8 @@ export function ServerSummaryTab() {
         />
       </div>
       {/* Renders nothing while the Validation area is hidden (an experimental feature). */}
-      <RecentValidationRuns serverId={server.id} canRun={canOperate} />
+      {/* A member of the Server's Pool may start member-level user suites on it, so readers are offered the dialog too. */}
+      <RecentValidationRuns serverId={server.id} canRun={canOperate || poolRoleOf(currentUser, server.spec.poolId) !== null} />
       {tagEditorOpen && (
         <ServerTagEditor
           servers={[server]}

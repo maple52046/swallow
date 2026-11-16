@@ -1,6 +1,8 @@
+import type { SuiteStartBlocker } from '@/domain/validation/access'
 import type {
   ValidationCheck,
   ValidationImpact,
+  ValidationStarterLevel,
   ValidationResult,
   ValidationResultTarget,
   ValidationRun,
@@ -32,7 +34,7 @@ export const RUN_STATUS_LABEL: Readonly<Record<ValidationRunStatus, string>> = {
   pending: 'Pending', running: 'Running', completed: 'Completed', canceled: 'Canceled',
 }
 
-/** What each impact means for the targets, written for the admin choosing whether to run it. */
+/** What each impact means for the targets, written for the User choosing whether to run it. */
 export const IMPACT_COPY: Readonly<Record<ValidationImpact, { label: string; description: string }>> = {
   observe: { label: 'Observe', description: 'Only reads the targets, or probes them too lightly for running workloads to notice.' },
   workload: {
@@ -42,22 +44,86 @@ export const IMPACT_COPY: Readonly<Record<ValidationImpact, { label: string; des
   disruptive: { label: 'Disruptive', description: 'May interrupt service on the targets; each run must be confirmed and no schedule can start it.' },
 }
 
+/** Which suites a list or picker offers; see {@link offeredSuites}. */
+export interface SuiteOfferOptions {
+  /** Whether experimental module suites are offered (`useShowExperimentalSuites`). */
+  showExperimental: boolean
+  /**
+   * The signed-in User's id when other Users' suites are hidden (`useHideOtherUsersSuites`), or
+   * undefined to offer every author's. A user suite without an author (`createdById` null) is
+   * another User's.
+   */
+  hideOthersThan?: string
+  /** The suite the picker opened with, always kept so the form never loses its value. */
+  keepId?: string
+  /** Narrows the catalog further, for example to the suites a schedule may start. */
+  eligible?: (suite: ValidationSuite) => boolean
+}
+
 /**
- * The suites a picker offers, and how many experimental ones it leaves out: retired suites never,
- * experimental suites only when the admin shows them (`useShowExperimentalSuites`). `keepId`, the
- * suite the picker opened with (a schedule being edited, a suite chosen in the catalog), is always
- * kept so the form never loses its value. `eligible` narrows the catalog further (for example, a
- * schedule cannot start a `disruptive` suite).
+ * The suites a picker or the catalog offers, and how many each preference leaves out: retired suites
+ * never; experimental suites only when the User shows them; user suites of other authors not when
+ * the User hides them (module suites are never hidden by that). `keepId` survives both preferences.
+ * The counts let the screen say that something is hidden rather than look empty.
  */
 export function offeredSuites(
   suites: readonly ValidationSuite[],
-  showExperimental: boolean,
-  keepId?: string,
-  eligible: (suite: ValidationSuite) => boolean = () => true,
-): { offered: ValidationSuite[]; hiddenExperimental: number } {
+  { showExperimental, hideOthersThan, keepId, eligible = () => true }: SuiteOfferOptions,
+): { offered: ValidationSuite[]; hiddenExperimental: number; hiddenOtherUsers: number } {
   const candidates = suites.filter((suite) => !suite.retired && eligible(suite))
-  const offered = candidates.filter((suite) => showExperimental || !suite.experimental || suite.id === keepId)
-  return { offered, hiddenExperimental: candidates.length - offered.length }
+  const isOthers = (suite: ValidationSuite) =>
+    hideOthersThan !== undefined && suite.source === 'user' && suite.createdById !== hideOthersThan && suite.id !== keepId
+  const shownByAuthor = candidates.filter((suite) => !isOthers(suite))
+  const offered = shownByAuthor.filter((suite) => showExperimental || !suite.experimental || suite.id === keepId)
+  return {
+    offered,
+    hiddenExperimental: shownByAuthor.length - offered.length,
+    hiddenOtherUsers: candidates.length - shownByAuthor.length,
+  }
+}
+
+/** What each starter level means, for the editor's choice and the suite's details. */
+export const STARTER_LEVEL_COPY: Readonly<Record<ValidationStarterLevel, { label: string; description: string }>> = {
+  owner: {
+    label: 'Pool owners',
+    description: 'Only an owner of every target’s Pool (or an admin) can start it.',
+  },
+  member: {
+    label: 'Pool members too',
+    description: 'Any member of every target’s Pool can start it, on the Servers they may log in to.',
+  },
+}
+
+/** What `sudo` means on the targets, for the editor's switch and the suite's details. */
+export const SUDO_COPY: Readonly<Record<'on' | 'off', string>> = {
+  on: 'Runs through the starter’s own sudo -n, so only on targets where the Sudo Policy gives them passwordless sudo.',
+  off: 'Runs with the starter’s own rights. The script may still call sudo -n where the Sudo Policy allows it.',
+}
+
+/**
+ * Who wrote a user suite, for "Created by …" on its card and page. A suite whose author could not be
+ * identified (`createdById` null) is shown as a deleted author, still naming the username it was
+ * created by; nobody may edit such a suite.
+ */
+export function suiteAuthorName(suite: Pick<ValidationSuite, 'createdBy' | 'createdById'>): string {
+  if (suite.createdById === null) return suite.createdBy ? `${suite.createdBy} (author deleted)` : 'a deleted User'
+  return suite.createdBy ?? 'an unknown User'
+}
+
+/**
+ * Why the run button is disabled for a suite, said in words (never colour alone). Mirrors
+ * `SuiteStartBlocker`; the API decides again when the run is started.
+ */
+export const START_BLOCKER_TEXT: Readonly<Record<SuiteStartBlocker, string>> = {
+  retired: 'A retired suite cannot be run.',
+  'no-pool': 'You are in no Pool, so there is no target you can run it on.',
+  'owners-only': 'Only a Pool owner can start this suite, and you own no Pool.',
+}
+
+/** The account a run uses on its targets, in one phrase: root for a module suite run. */
+export function runAccountLabel(run: Pick<ValidationRunSummary, 'runAs'>): string {
+  if (!run.runAs) return 'root'
+  return `${run.runAs.username} (uid ${run.runAs.uidNumber})${run.runAs.sudo ? ', through sudo' : ''}`
 }
 
 /**
@@ -81,7 +147,7 @@ export function runTriggerLabel(run: Pick<ValidationRunSummary, 'trigger' | 'req
   }
 }
 
-/** A suite's origin: the module that declares it, or an admin's script at a revision. */
+/** A suite's origin: the module that declares it, or a User's script at a revision. */
 export function suiteSourceLabel(suite: Pick<ValidationSuite, 'source' | 'module' | 'revision'>): string {
   if (suite.source === 'module') return suite.module ? `${suite.module.id} (${suite.module.kind} module) ${suite.module.version}` : 'Module'
   return suite.revision ? `Script, revision ${suite.revision}` : 'Script'

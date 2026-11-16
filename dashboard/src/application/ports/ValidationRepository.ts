@@ -9,6 +9,7 @@ import type {
   ValidationSchedule,
   ValidationScheduleInput,
   ValidationSuite,
+  ValidationSuiteRevision,
   ValidationTriggerKind,
 } from '@/domain/validation/types'
 
@@ -25,19 +26,28 @@ export interface ValidationRunFilter {
   trigger?: ValidationTriggerKind
   /** Only runs that have not ended. */
   active?: boolean
+  /**
+   * `me` keeps only the runs the signed-in User started; with `suiteId`, the first item is their
+   * latest run of that suite, whose `suite.revision` is the revision they last ran.
+   */
+  requestedBy?: 'me'
   page?: number
   pageSize?: number
 }
 
 /**
- * Validation Suites, Runs, and Schedules (contract `validation.md`, decision 081). Every route
- * requires `admin`, so a non-admin gets the API's error; implementations reject with a
- * `RequestFailure` the presentation reads with `failureOf`, never with a raw transport error.
+ * Validation Suites, Runs, and Schedules (contract `validation.md`, decision 081). Every User reads
+ * suites and the runs of targets they may read, and writes their own user suites; schedules are
+ * admin routes. Implementations reject with a `RequestFailure` the presentation reads with
+ * `failureOf`, never with a raw transport error.
  *
- * - Module suites are read-only: replacing or retiring one is refused (`409`); a user suite is
- *   retired rather than deleted, and a retired suite stays readable by id for its past runs.
- * - `startRun` answers with the accepted run (`pending`); its targets are checked against the
- *   suite and must not be busy, locked, or undeployed, or the API refuses it (`409`).
+ * - Module suites are read-only (`409`). A user suite is replaced by its author only and retired by
+ *   its author or an admin (`403` otherwise); a retired suite stays readable by id for its past runs.
+ * - `replaceSuite` with `input.revision` applies only at that revision: a stale one, or a replace
+ *   that raced another, rejects with `ValidationConflictError` and writes nothing.
+ * - `startRun` answers with the accepted run (`pending`). Any `409` (a stale `suiteRevision`, or a
+ *   target that is busy, locked, undeployed, or has no account for the starter) rejects with
+ *   `ValidationConflictError`, so the caller re-reads the suite to tell which.
  * - `cancelRun` writes the cancel of a report run's Workflow and answers with the run as it was;
  *   the run turns `canceled` once the Workflow ends. A gate run is canceled with its deployment.
  * - Schedule writes carry `generation`; a stale one is refused (`409`) so an edit never overwrites
@@ -47,6 +57,12 @@ export interface ValidationRepository {
   listSuites(includeRetired?: boolean): Promise<ValidationSuite[]>
   /** Null when no suite has this id. */
   getSuite(id: string): Promise<ValidationSuite | null>
+  /**
+   * One kept revision of a user suite. Null for a revision that was never kept (one from before
+   * revisions were kept), an unknown one, and any revision of a module suite.
+   */
+  getSuiteRevision(suiteId: string, revision: number): Promise<ValidationSuiteRevision | null>
+  /** The caller becomes the author (`createdById`). */
   createSuite(input: UserSuiteInput): Promise<ValidationSuite>
   replaceSuite(id: string, input: UserSuiteInput): Promise<ValidationSuite>
   retireSuite(id: string): Promise<void>

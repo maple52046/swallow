@@ -21,18 +21,23 @@ type RecentValidationRunsProps = (
   | { serverId: string; platformId?: never }
   | { platformId: string; serverId?: never }
 ) & {
-  /** Whether the user may run a suite on this Server or Platform (Pool operate). */
+  /**
+   * Whether the user may start some suite here: Pool operate on a Platform (whose suites are module
+   * suites), Pool read on a Server (a member may start member-level user suites). The dialog then
+   * withholds, with a reason, each suite the user's Pool Role does not reach.
+   */
   canRun: boolean
 }
 
 /**
  * The Validation section of a Server's or a Platform's page: its newest Validation Runs (runs
  * whose targets or members include the Server, or the Platform's runs), each linking to its
- * detail, with All runs opening the Runs list filtered to it and, for a user who may operate it, Run
- * a suite opening the run dialog with it as the target. The catalog is read when the dialog opens.
+ * detail, with All runs opening the Runs list filtered to it and, for a user who may start a suite
+ * there (`canRun`), Run a suite opening the run dialog with it as the target. The catalog is read
+ * when the dialog opens.
  *
  * The list follows unfinished runs in place (`useValidationRuns`); a failed read is shown with a
- * retry, and a non-admin sees the API's refusal there.
+ * retry.
  */
 export function RecentValidationRuns({ serverId, platformId, canRun }: RecentValidationRunsProps) {
   const { validation } = useApp()

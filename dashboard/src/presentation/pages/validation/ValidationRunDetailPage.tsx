@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Alert, Box, Button, Heading, HStack, Stack, Text, VisuallyHidden } from '@chakra-ui/react'
 import { Link as RouterLink, useParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
+import { canCancelRun } from '@/domain/validation/access'
 import { isValidationRunActive, type ValidationResultTarget, type ValidationRun } from '@/domain/validation/types'
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
 import { KeyValueGrid, SectionSurface } from '@/presentation/components/ConsolePrimitives'
@@ -17,12 +18,14 @@ import {
   orderedIssues,
   RUN_STATUS_LABEL,
   runDuration,
+  runAccountLabel,
   runOutcome,
   runSuiteLabel,
   runTriggerLabel,
   VERDICT_BADGE,
   VERDICT_LABEL,
 } from '@/presentation/components/validation/validationPresentation'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
 import { usePlatformNamesById } from '@/presentation/hooks/usePlatformNames'
 import { useServerNames } from '@/presentation/hooks/useServerNames'
@@ -39,10 +42,16 @@ type PageState =
   | { status: 'missing' }
   | { status: 'ready'; run: ValidationRun; refreshError?: string }
 
-/** Issue-first Validation Run workspace with the complete matrix retained for audit. */
+/**
+ * Issue-first Validation Run workspace with the complete matrix retained for audit. Whoever may
+ * read the run reads its evidence. It names the account the run used on its targets (`runAs`: the
+ * starter's for a user suite, root for a module suite), and offers Cancel run on an unfinished
+ * report run to its starter, an owner of every target's Pool, or an admin (`canCancelRun`).
+ */
 export function ValidationRunDetailPage() {
   const { id = '' } = useParams()
   const { validation } = useApp()
+  const { currentUser } = useAuth()
   const { scopedHref } = useSiteScope()
   const { showToast } = useToast()
   const [nonce, setNonce] = useState(0)
@@ -75,7 +84,8 @@ export function ValidationRunDetailPage() {
 
   const run = state.status === 'ready' ? state.run : null
   useSettlingRefresh(run !== null && isValidationRunActive(run.status), refresh)
-  // Cancelling a run is Pool operate on its targets (validation.md).
+  // A run is canceled by its starter, an owner of every target's Pool, or an admin (validation.md,
+  // Cancel); this resolves the owner part from the targets' Pools.
   const operable = useTargetsOperable(run?.target.serverIds ?? NO_IDS, run?.target.platformId ? [run.target.platformId] : NO_IDS)
   const serverNames = useServerNames(run ? [...run.target.serverIds, ...run.results.filter((result) => result.target.kind === 'server').map((result) => result.target.id)] : [])
   const platformNames = usePlatformNamesById(run?.target.platformId ? [run.target.platformId] : [])
@@ -109,7 +119,7 @@ export function ValidationRunDetailPage() {
   }
 
   const outcome = runOutcome(run)
-  const cancellable = operable && run.mode === 'report' && isValidationRunActive(run.status)
+  const cancellable = canCancelRun(currentUser, run, operable) && run.mode === 'report' && isValidationRunActive(run.status)
   const target = run.target.platformId
     ? targetName({ kind: 'platform', id: run.target.platformId })
     : run.target.serverIds.map((serverId) => targetName({ kind: 'server', id: serverId })).join(', ')
@@ -146,6 +156,7 @@ export function ValidationRunDetailPage() {
           { label: 'Trigger', value: runTriggerLabel(run) },
           { label: 'Mode', value: run.mode === 'gate' ? 'Deployment gate' : 'Report' },
           { label: 'Suite revision', value: runSuiteLabel(run.suite) },
+          { label: 'Runs as', value: runAccountLabel(run) },
           { label: 'Requested', value: formatDateTime(run.requestedAt) },
           { label: 'Duration', value: runDuration(run.startedAt, run.finishedAt) },
         ]} />

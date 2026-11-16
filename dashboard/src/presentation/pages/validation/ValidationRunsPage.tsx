@@ -4,7 +4,7 @@ import { CircleX, Play, RefreshCw, ShieldAlert } from 'lucide-react'
 import { Link as RouterLink, useSearchParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { ValidationRunFilter } from '@/application/ports/ValidationRepository'
-import { ownsAnyPool } from '@/domain/user/access'
+import { inAnyPool } from '@/domain/user/access'
 import type {
   ValidationRunStatus,
   ValidationRunVerdict,
@@ -47,7 +47,8 @@ function oneOf<T extends string>(value: string | null, allowed: readonly T[]): T
  */
 export function ValidationRunsPage() {
   const { validation } = useApp()
-  // Starting a run is Pool operate on its targets, so a user who owns no Pool has nothing to run.
+  // A member may start a member-level user suite on its Pool's Servers, so anyone in a Pool is
+  // offered Run a suite; the dialog withholds, with a reason, what their Pool Roles rule out.
   const { currentUser } = useAuth()
   const { showToast } = useToast()
   const { siteId, scopedHref } = useSiteScope()
@@ -159,7 +160,7 @@ export function ValidationRunsPage() {
             <Button variant="outline" onClick={reload} disabled={state.status === 'loading'}>
               <RefreshCw size={16} aria-hidden /> Refresh
             </Button>
-            {ownsAnyPool(currentUser) && (
+            {inAnyPool(currentUser) && (
               <Button colorPalette="brand" onClick={() => void openDialog()} loading={opening}>
                 <Play size={16} aria-hidden /> Run a suite
               </Button>

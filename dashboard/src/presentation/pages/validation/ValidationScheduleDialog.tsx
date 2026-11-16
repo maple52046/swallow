@@ -41,7 +41,8 @@ const WEEKDAYS = [
 /**
  * Creates or replaces a Validation Schedule with friendly deployment, daily, and weekly presets.
  * An existing cron expression that does not match a preset stays byte-for-byte in Custom until the
- * admin edits it. Replacements carry the generation the dialog read.
+ * admin edits it. Replacements carry the generation the dialog read. The suite picker offers module
+ * suites that are not disruptive, the only ones the API schedules.
  */
 export function ValidationScheduleDialog({
   open,
@@ -55,9 +56,14 @@ export function ValidationScheduleDialog({
   const [showExperimental] = useShowExperimentalSuites()
   const spec = schedule?.spec
   const initialPreset = schedulePreset(spec?.trigger ?? { kind: 'cron', cron: '0 2 * * *', timezone: 'UTC' })
-  const { offered: choices, hiddenExperimental } = offeredSuites(
-    suites, showExperimental, spec?.suiteId ?? presetSuiteId, (suite) => suite.impact !== 'disruptive',
-  )
+  // A schedule starts module suites only: a user suite runs as the User who starts it, and a
+  // scheduled run has none (validation.md, Schedules). A schedule written before that rule keeps its
+  // user suite out of the picker, so saving it asks for a module suite.
+  const { offered: choices, hiddenExperimental } = offeredSuites(suites, {
+    showExperimental,
+    keepId: spec?.suiteId ?? presetSuiteId,
+    eligible: (suite) => suite.source === 'module' && suite.impact !== 'disruptive',
+  })
   const [name, setName] = useState(spec?.name ?? '')
   const [suiteId, setSuiteId] = useState(spec?.suiteId ?? presetSuiteId ?? '')
   const [serverIds, setServerIds] = useState<string[]>(spec?.serverIds ?? [])
@@ -156,7 +162,10 @@ export function ValidationScheduleDialog({
             options={choices.map((item) => ({ value: item.id, label: item.name }))}
             disabled={busy || Boolean(presetSuiteId)}
           />
-          <Field.HelperText>Disruptive suites are not schedulable because each run requires confirmation.</Field.HelperText>
+          <Field.HelperText>
+            Only module suites can be scheduled: a script suite runs as the User who starts it, and a scheduled run has none.
+            Disruptive suites are not schedulable because each run requires confirmation.
+          </Field.HelperText>
           {hiddenExperimental > 0 && <HiddenExperimentalSuites count={hiddenExperimental} />}
         </Field.Root>
         {suite && (

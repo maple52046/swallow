@@ -282,7 +282,8 @@ test('A user who is not an admin is not offered admin-only settings', async ({ p
   await page.goto('/validation/suites?site=site-a')
   await expect(page.getByRole('heading', { name: 'Server validation' })).toBeVisible()
   await expect(page.getByRole('tab', { name: 'Schedules' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'New script suite' })).toHaveCount(0)
+  // Any User writes a script suite; schedules stay an admin's.
+  await expect(page.getByRole('button', { name: 'New script suite' })).toBeVisible()
   await page.goto('/validation/suites/failover-drill?site=site-a')
   await expect(page.getByRole('heading', { name: 'Schedules' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Create schedule' })).toHaveCount(0)
@@ -345,9 +346,10 @@ test('A member reads its Pool\'s Platforms, plans, Workflows, runs, and software
   await expect(page.getByRole('table', { name: 'Workflow steps' })).toBeVisible()
   await expect(page.getByRole('table', { name: 'Workflow steps' }).getByRole('button', { name: /^Retry/ })).toHaveCount(0)
 
+  // A member may start member-level script suites, so the Runs page offers the run dialog.
   await page.goto('/validation/runs?site=site-a')
   await expect(page.getByRole('heading', { name: 'Validation', level: 1 })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Run a suite' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Run a suite' })).toBeVisible()
 
   await page.goto('/software/docker-ce?site=site-a')
   await expect(page.getByRole('heading', { name: 'Docker CE', level: 1 })).toBeVisible()

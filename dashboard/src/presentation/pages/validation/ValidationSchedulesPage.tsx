@@ -28,11 +28,23 @@ type PageState =
 
 type OpenEditor = { key: number; schedule?: ValidationSchedule } | null
 
+/**
+ * What a schedule's `realized` condition means, in words. A reason the dashboard knows gets a label
+ * (and for `user_suite_unsupported` an explanation of what to do, since the API's message cannot
+ * say which suite to pick); any other reason is shown as the API names it, with its message.
+ */
 function scheduleState(schedule: ValidationSchedule): { status: string; label: string; detail?: string } {
   const realized = schedule.status.conditions.find((condition) => condition.type === 'realized')
   if (!realized || schedule.status.observedGeneration < schedule.generation) return { status: 'pending', label: 'Applying' }
   if (realized.status === 'true') return { status: 'active', label: 'Active' }
   if (realized.reason === 'disabled') return { status: 'canceled', label: 'Disabled' }
+  if (realized.reason === 'user_suite_unsupported') {
+    return {
+      status: 'warning',
+      label: 'Script suite not schedulable',
+      detail: 'A script suite runs as the User who starts it, and a scheduled run has none, so this schedule starts no run. Edit it to use a module suite, or delete it.',
+    }
+  }
   const labels: Record<string, string> = { suite_missing: 'Suite retired', target_missing: 'Target gone' }
   return { status: 'warning', label: labels[realized.reason] ?? realized.reason, detail: realized.message }
 }
@@ -133,12 +145,14 @@ export function ValidationSchedulesPage() {
       {schedule.status.lastSkipReason && <Text fontSize="xs" color="fg.muted">Latest occurrence skipped: {schedule.status.lastSkipReason}</Text>}
     </Stack>
   )
-  const badge = (schedule: ValidationSchedule) => {
+  // The table cell shows the condition's detail under its badge; a card's status slot is too narrow
+  // for it beside the title, so cards show the badge alone and the detail as a Controller field.
+  const badge = (schedule: ValidationSchedule, withDetail = true) => {
     const current = scheduleState(schedule)
     return (
       <Stack gap="0.5" align="flex-start">
         <StatusBadge status={current.status} label={current.label} />
-        {current.detail && <Text fontSize="xs" color="fg.muted">{current.detail}</Text>}
+        {withDetail && current.detail && <Text fontSize="xs" color="fg.muted">{current.detail}</Text>}
       </Stack>
     )
   }
@@ -220,7 +234,8 @@ export function ValidationSchedulesPage() {
             mobile={
               <div className="sw-resource-card-list" aria-label="Validation Schedules">
                 {schedules.map((schedule) => (
-                  <ResourceCard key={schedule.id} title={schedule.spec.name} description={suiteName(schedule.spec.suiteId)} status={badge(schedule)} actions={actions(schedule)}>
+                  <ResourceCard key={schedule.id} title={schedule.spec.name} description={suiteName(schedule.spec.suiteId)} status={badge(schedule, false)} actions={actions(schedule)}>
+                    {scheduleState(schedule).detail && <ResourceCardField label="Controller">{scheduleState(schedule).detail}</ResourceCardField>}
                     {!siteId && <ResourceCardField label="Site">{siteName.get(schedule.siteId) ?? schedule.siteId}</ResourceCardField>}
                     <ResourceCardField label="Target">{targetLabel(schedule)}</ResourceCardField>
                     <ResourceCardField label="Cadence">{scheduleTriggerLabel(schedule.spec.trigger)}</ResourceCardField>

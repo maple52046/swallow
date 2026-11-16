@@ -1,7 +1,7 @@
 import { Text } from '@chakra-ui/react'
 
 /**
- * The note a suite picker shows when it leaves experimental suites out, so an admin who expects one
+ * The note a suite picker shows when it leaves experimental suites out, so a User who expects one
  * knows where it went and how to offer it: the switch on the Suites page. It is helper text of the
  * picker's field, so screen readers read it with the Suite label. `count` is how many were hidden.
  */

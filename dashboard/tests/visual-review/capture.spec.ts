@@ -394,6 +394,23 @@ test.describe('dashboard visual review', () => {
         await page.getByRole('checkbox', { name: /Show experimental suites/ }).locator('..').click()
         await expect(page.locator(':text-is("Experimental"):visible').first()).toBeVisible()
         await capture(page, testInfo, `${visualCase.name}-experimental`)
+        // The script suite editor, with its sudo switch and the who-can-start choice.
+        await page.getByRole('button', { name: 'New script suite' }).click()
+        await expect(page.getByRole('dialog', { name: 'New script suite' }).getByText('Who can start').first()).toBeVisible()
+        await capture(page, testInfo, `${visualCase.name}-editor`, false)
+      }
+      // A script suite changed since the signed-in User's last run: the review with its diff, then
+      // the run review that names the account the script runs as.
+      if (visualCase.name === 'validation-suite-detail') {
+        await page.getByRole('button', { name: 'Run suite' }).click()
+        const dialog = page.getByRole('dialog', { name: 'Run a suite' })
+        await dialog.getByRole('checkbox', { name: 'gpu-node-03', exact: true }).locator('..').click()
+        await dialog.getByRole('button', { name: 'Continue' }).click()
+        await expect(dialog.getByRole('group', { name: 'Script changes' })).toBeVisible()
+        await capture(page, testInfo, `${visualCase.name}-change-review`, false)
+        await dialog.getByRole('button', { name: 'Use the new version' }).click()
+        await expect(dialog.getByText('Script suite', { exact: true })).toBeVisible()
+        await capture(page, testInfo, `${visualCase.name}-run-review`, false)
       }
       if (visualCase.name === 'validation-schedules') {
         await page.getByRole('button', { name: 'Create schedule' }).click()

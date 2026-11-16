@@ -191,7 +191,10 @@ Overview 的 Alerts 卡片與告警 attention item）。
   `tests/e2e/experimental-features.spec.ts` 與 `tests/production/` 補驗證。功能完成後移除 gate 與清單項目。
 - 實驗性 Validation Suite 不是實驗功能：它是 API 的 `experimental` 欄位，release build 也有。Validation 區以自己的偏好
   （`useShowExperimentalSuites`，localStorage `swallow.validation.showExperimentalSuites`，預設關閉）決定是否列出與提供
-  這些 suite，不經過 `ExperimentalFeatureSettings`。
+  這些 suite，不經過 `ExperimentalFeatureSettings`。同樣地，「Hide other users' suites」（`useHideOtherUsersSuites`，
+  localStorage `swallow.validation.hideOtherUsersSuites`，預設關閉）只決定 Suites 頁與 Run 對話框是否列出其他 User 寫的
+  user suite，從不隱藏 module suite 或自己的 suite；值只有 `true`／`false`，不含 user id、username 或 suite id，所以不洩漏
+  誰登入過或 catalog 內容。兩者共用 `useStoredFlag`。
 
 ## Shared UI and DRY
 

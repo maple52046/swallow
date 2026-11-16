@@ -21,7 +21,8 @@ interface ValidationRunListProps {
 /**
  * Responsive Validation Run inventory shared by the assurance list and resource detail pages.
  * Every navigation affordance is a real link; failed and error outcomes receive review wording
- * without merging their distinct domain verdicts.
+ * without merging their distinct domain verdicts. A user suite run names the account it ran as
+ * (`runAs`), and whether through sudo.
  */
 export function ValidationRunList({ runs, label, hideTarget = false, showSite = false }: ValidationRunListProps) {
   const { scopedHref, sites } = useSiteScope()
@@ -45,6 +46,7 @@ export function ValidationRunList({ runs, label, hideTarget = false, showSite = 
       <Text className="sw-mono" fontSize="xs" color="fg.muted">{run.id}</Text>
       <Text fontSize="xs" color="fg.muted">
         {run.suite.source === 'user' ? `Script revision ${run.suite.revision ?? '—'}` : run.suite.version ? `Module ${run.suite.version}` : 'Module suite'}
+        {run.runAs ? ` · as ${run.runAs.username}${run.runAs.sudo ? ' with sudo' : ''}` : ''}
       </Text>
     </Stack>
   )

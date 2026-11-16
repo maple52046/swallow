@@ -31,6 +31,15 @@ export function canOperatePlatform(user: User | null, platform: { status: { pool
   return canOperatePool(user, platform.status.poolId)
 }
 
+/**
+ * Whether the user belongs to at least one Pool in any role (or is an admin): without one they read
+ * no Server, so entry points that act on Servers a member may use (starting a member-level
+ * Validation Suite) are not offered.
+ */
+export function inAnyPool(user: User | null): boolean {
+  return isAdmin(user) || (user?.memberships.length ?? 0) > 0
+}
+
 /** Whether the user owns at least one Pool, which decides whether deploy and install entry points are offered. */
 export function ownsAnyPool(user: User | null): boolean {
   return isAdmin(user) || (user?.memberships.some((membership) => membership.role === 'owner') ?? false)
