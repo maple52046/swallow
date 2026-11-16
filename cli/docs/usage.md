@@ -530,10 +530,10 @@ swallow provisioning images metadata set --integration int1 --image ubuntu/jammy
 swallow provisioning images metadata clear --integration int1 --image ubuntu/jammy --architecture amd64
 
 # Deployment templates
-swallow provisioning templates list --site-id site1
+swallow provisioning templates list --site-id site1             # only your Pools' templates; every one for an admin
 swallow provisioning templates get tmpl1
-swallow provisioning templates create -f template.yaml
-swallow provisioning templates update tmpl1 -f patch.yaml
+swallow provisioning templates create -f template.yaml          # needs poolId: a Pool you own (any Pool for an admin)
+swallow provisioning templates update tmpl1 -f patch.yaml       # an owner of the template's Pool; poolId (move) is admin-only
 swallow provisioning templates delete tmpl1                    # refused while a platform node group uses it
 swallow provisioning templates minimum-hardware set tmpl1 --cpu-cores 32 --gpu-model MI300X --gpu-count 8
 swallow provisioning templates minimum-hardware clear tmpl1
@@ -605,6 +605,19 @@ userData:
   mode: inherit          # inherit | replace | omit
 network:
   mode: automatic        # automatic | dhcp | static
+```
+
+`template.yaml` (the template is owned by `poolId`: its members deploy with it, its owners change it;
+`createdBy` is recorded from your account):
+
+```yaml
+integrationId: int1
+poolId: pool1
+name: gpu-compute
+imageId: ubuntu/noble
+deployTarget: disk
+network:
+  mode: automatic
 ```
 
 `verify.yaml`:

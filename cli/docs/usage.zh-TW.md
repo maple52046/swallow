@@ -506,10 +506,10 @@ swallow provisioning images metadata set --integration int1 --image ubuntu/jammy
 swallow provisioning images metadata clear --integration int1 --image ubuntu/jammy --architecture amd64
 
 # Deployment templates
-swallow provisioning templates list --site-id site1
+swallow provisioning templates list --site-id site1             # 只列出你的 Pool 的範本；admin 看得到全部
 swallow provisioning templates get tmpl1
-swallow provisioning templates create -f template.yaml
-swallow provisioning templates update tmpl1 -f patch.yaml
+swallow provisioning templates create -f template.yaml          # 需要 poolId：你是 owner 的 Pool（admin 可用任何 Pool）
+swallow provisioning templates update tmpl1 -f patch.yaml       # 範本所屬 Pool 的 owner；poolId（搬移）只限 admin
 swallow provisioning templates delete tmpl1                    # 還有平台的節點群組在用時會被拒絕
 swallow provisioning templates user-data set tmpl1 --from ./cloud-init.yaml   # raw file -> { userData }
 swallow provisioning templates user-data set tmpl1 -f userdata.json           # JSON body { userData }
@@ -578,6 +578,18 @@ userData:
   mode: inherit          # inherit | replace | omit
 network:
   mode: automatic        # automatic | dhcp | static
+```
+
+`template.yaml`（範本屬於 `poolId`：Pool 的 member 能用它部署，owner 能修改；`createdBy` 依你的帳號記錄）：
+
+```yaml
+integrationId: int1
+poolId: pool1
+name: gpu-compute
+imageId: ubuntu/noble
+deployTarget: disk
+network:
+  mode: automatic
 ```
 
 `verify.yaml`：
