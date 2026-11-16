@@ -70,6 +70,13 @@ reconfigure`; they redeploy no member and reinstall no feature. Each compute nod
 it found on the node, so the others are read from that record; a rescan detects only its node again and
 the gate validates only that node.
 
+**Adding compute nodes installs only them.** A scale-out provisions and installs only the new members,
+reads the others' hardware records, applies the controllers' configuration in place, exports the shared
+workload filesystem to the new members, installs the Platform's features on them alone, and validates
+them; it does not reinstall the Platform's Grafana, so its monitoring token stays valid, and a fault on
+a member already in the Platform does not fail the members being added. Like a scale-in it keeps the
+Platform active. An uninstall therefore targets the Platform's members rather than its latest deploy's.
+
 **GPU validation relies on the driver and containers.** The hard gate on a GPU node is what the driver
 reports: the KFD device count and an AMD SMI health read. The host HIP probe is advisory. The acceptance gate
 proves the GPUs inside a real container mounting only the devices the job may open: it builds a HIP
@@ -125,3 +132,4 @@ the gate runs after the composed software so the container runtime is there.
 - 2026-11-14: accepted.
 - 2026-11-14: the container GPU check builds its probe in AMD's ROCm image instead of a swallow-built probe image.
 - 2026-11-16: scheduling changes, a scale-in's reconfigure, and a rescan reconfigure in place instead of redeploying.
+- 2026-11-16: a scale-out installs and validates only the members it adds instead of redeploying every member.

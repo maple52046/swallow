@@ -189,8 +189,10 @@ Prometheus 沒有多租戶的概念，因此引入 [prom-label-proxy](https://gi
 
 - **prom-label-proxy 本身不驗證身分**，所以由 api-server 當閘道：Platform Grafana 的 datasource 指向 api-server 的閘道，
   帶 Platform 專屬的 token；閘道驗證 token 之後，以該 Platform 的 `platform_id` 轉給 prom-label-proxy。
-- **token**：swallow 為每個 Platform 產生，只保存 hash；部署 Grafana 時以 secret 交給它的 datasource。每次受理的部署都
-  會輪替 token，Grafana 隨之重新載入（Kubernetes 的 Pod 會重啟）；Platform 刪除後 token 失效。
+- **token**：swallow 為每個 Platform 產生，只保存 hash；部署 Grafana 時以 secret 交給它的 datasource。每次受理、會安裝
+  Grafana 的部署都會輪替 token，Grafana 隨之重新載入（Kubernetes 的 Pod 會重啟）；Slurm 的部署在 Platform Grafana 已以
+  相同設定安裝、且 Monitoring Link 還在時不重裝它，token 也不輪替（重裝前舊 token 已失效，dashboard 會讀不到資料）；
+  Slurm 的 scale-out 一律不重裝。Platform 刪除後 token 失效。
 - **閘道只放行讀取**：查詢類的 API 與 `/federate`。`/federate` 預留給日後 Platform 自帶 Prometheus 的情境（§10）。
 - **swallow 自己的查詢不經過 prom-label-proxy**，直接讀 Site 的 Prometheus，看得到全部的資料。
 

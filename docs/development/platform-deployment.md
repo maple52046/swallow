@@ -446,8 +446,10 @@ Platform 的移除分成兩個指令（decision 010）。欄位、eligibility �
 platforms 契約的 [Delete A Platform](../../api-server/docs/development/api-contracts/api-server/platforms.md#delete-a-platform)
 與 [List, Get, Update, And Delete Only The Record](../../api-server/docs/development/api-contracts/api-server/platforms.md#list-get-update-and-delete-only-the-record)。
 
-- **Uninstall** 只適用 swallow 部署的 Platform（`registered` 拒絕）。target set 一律是最新 deploy Workflow 的完整
-  `targetServerIds` snapshot，不看 membership（membership 可能過期、未比對，或在失敗部署後正好消失）；任一 target 缺少、
+- **Uninstall** 只適用 swallow 部署的 Platform（`registered` 拒絕）。target set 是 Platform 已套用 spec 的成員，加上正在
+  realize 的 spec 新增的成員（scale-out 與 scale-in 不經 deploy Workflow 改變成員）；沒有已套用 spec 的 Platform 才用最新
+  deploy Workflow 的完整 `targetServerIds` snapshot。都不看 observed membership（它可能過期、未比對，或在失敗部署後正好
+  消失）；任一 target 缺少、
   absent、locked 或 busy 時，核准的 Change Plan 不會開始 uninstall，由 controller 以 `realized` Condition 回報並重試
   （busy 可用 `cancelActiveWorkflows`，§4.8）。保留主機時跑
   `uninstall-<type>` playbook，移除 swallow 安裝的 runtime 狀態、保留 OS；也可 release 主機（§2.4）。失敗或取消的
@@ -1267,7 +1269,16 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
     trusted vars 重新推導 GRES、Features、`gpu_degraded` 與 Weight，再在 primary 與 backup controller 渲染設定並
     `scontrol reconfigure`。不重新部署成員、不重裝功能（Omnistat、Device Metrics Exporter 的紀錄也不動）、不跑 gate，
     Platform 維持 `active`。只改群組 template 的變更不跑 Workflow。
-  - **Scale-out**：每個群組的新成員從群組的 template 裝機（成員層的 template 引用，只保留機器準備的網路設定：
+  - **Scale-out**：新增 compute 成員（可同時有上面的群組與 partition 變更）是 realization `scale-out`：launcher
+    （`prepareSlurmScaleOut`）在 ensure-os Job（只為需要 OS 的新成員裝機、NTP、Node Exporter，其他成員只做 SSH 檢查）
+    之後編譯 Slurm 模組的宣告式 template `slurm-scale-out`（kind `scale-out-slurm`，Job `Join New Nodes`），只有
+    `scale-out-slurm` playbook（`swallow_slurm_scale_out_ids` 是新成員）：新成員跑和 deploy 相同的檢查、MUNGE、硬體偵測與
+    compute 設定；其他 compute 只讀硬體紀錄；controller 渲染設定並 `scontrol reconfigure`；workload NFS server 把新成員
+    加進 export；`slurm_verify` 只等新成員可排程。之後 container runtime、Omnistat 或 Device Metrics Exporter 只裝在新
+    成員（Omnistat 加上回報結果的 primary controller；hardware counter 結果依節點合併，其他節點的保留；DME 的 GPU
+    identity 保留到新節點回報；沒有新 GPU 節點時 DME 不裝、紀錄不動），不重裝 Platform Grafana，gate 只驗新成員。
+    Platform 維持 `active`。同時開啟功能或改其他設定的變更仍是 `configure-slurm` 的完整部署。
+    每個群組的新成員從群組的 template 裝機（成員層的 template 引用，只保留機器準備的網路設定：
     dashboard 的 Add nodes 與 `swallow platforms nodes add --interface/--ip` 可為新節點寫入介面與 static 位址），
     [os-provisioning.md](os-provisioning.md) §3 的 template 最低硬體在 spec 寫入時檢查新加入的成員。provision_os 的
     Platform 每個沒有 template 的群組得到一份 template：機器準備指定的 template，否則 Platform 由機器準備產生
@@ -1304,7 +1315,8 @@ Slurm 是第二個走完整條路的 platform（[decision 019](../decisions/019-
   否決方案。
 
 Slurm playbook：[`deploy-slurm.yml`](../../api-server/modules/platform/slurm/playbooks/deploy-slurm.yml)、只原地重新設定的
-[`reconfigure-slurm.yml`](../../api-server/modules/platform/slurm/playbooks/reconfigure-slurm.yml)（兩者共用節點分類的
+[`reconfigure-slurm.yml`](../../api-server/modules/platform/slurm/playbooks/reconfigure-slurm.yml)、只安裝新成員的
+[`scale-out-slurm.yml`](../../api-server/modules/platform/slurm/playbooks/scale-out-slurm.yml)（三者共用節點分類的
 `slurm_facts` 與偵測、記錄硬體的 `slurm_node_hardware`）與
 Slurm 模組的 `roles/slurm_*`（`slurm_preflight`、`slurm_packages_verify`、`slurm_munge`、`slurm_gpu`、
 `slurm_config`、`slurm_controller`、`slurm_compute`、`slurm_slurmrestd`、`slurm_verify`、
