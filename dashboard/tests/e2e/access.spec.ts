@@ -181,7 +181,7 @@ test('A member sees only its own areas, reads its Pool, and cannot act on Server
 
   // The Overview needs the admin role, so a member lands on the Servers.
   await expect(page).toHaveURL(/\/servers\?site=site-a/)
-  await expect(primaryNavigation(page).getByRole('link')).toHaveText(['Servers', 'Platforms', 'Software', 'Activity', 'Validation', 'OS Images', 'Pools'])
+  await expect(primaryNavigation(page).getByRole('link')).toHaveText(['Servers', 'Platforms', 'Software', 'Activity', 'Validation', 'OS Images', 'Deployment Templates', 'Pools'])
   const actions = page.getByRole('button', { name: /^Actions for gpu-node-01/ }).first()
   await expect(actions).toBeDisabled()
   await expect(actions).toHaveAttribute('title', /Only an owner of the Server’s Pool or an admin/)
@@ -505,4 +505,46 @@ test('A user changes its own password and learns when the current one is wrong',
   await expect(page.getByText('Password changed')).toBeVisible()
   expect(sent).toEqual({ currentPassword: 'old-password', newPassword: 'a-new-password' })
   await expect(page.locator('#password-new')).toHaveValue('')
+})
+
+test('A Pool member reads its Pool\'s templates and only an owner changes them', async ({ page }) => {
+  await installApiFixtures(page, { identity: 'member' })
+  await page.goto('/provisioning/templates?site=site-a')
+  const table = page.getByRole('table', { name: 'Deployment templates' })
+  const row = table.getByRole('row', { name: /GPU compute baseline/ })
+  await expect(row).toContainText('research')
+  await expect(row).toContainText('Created by alice')
+  // The template without a Pool is an admin's, so the member never sees it.
+  await expect(table.getByText('CPU login')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Create template' })).toHaveCount(0)
+  await expect(row.getByRole('button', { name: 'Edit' })).toHaveCount(0)
+  await expect(row.getByRole('button', { name: 'Delete' })).toHaveCount(0)
+})
+
+test('A Pool owner creates a template in its Pool and cannot move it', async ({ page }) => {
+  let created: Record<string, unknown> | undefined
+  await installApiFixtures(page, {
+    identity: 'owner',
+    onTemplateRequest: (method, body) => {
+      if (method === 'POST') created = body
+    },
+  })
+  await page.goto('/provisioning/templates?site=site-a')
+  await page.getByRole('button', { name: 'Create template' }).click()
+  await page.getByRole('combobox', { name: 'Provisioner integration', exact: true }).click()
+  await page.getByRole('option', { name: 'MAAS Taipei', exact: true }).click()
+  // alice owns one Pool, so the template is created there without a choice.
+  await expect(page.getByRole('combobox', { name: 'Pool', exact: true })).toContainText('research')
+  await page.getByLabel('Name').fill('Team baseline')
+  const image = page.getByRole('radio', { name: 'Ubuntu 24.04 LTS', exact: false })
+  await image.locator('..').click()
+  await expect(image).toBeChecked()
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  const row = page.getByRole('row', { name: /Team baseline/ })
+  await expect(row).toContainText('Created by alice')
+  expect(created?.poolId).toBe('pool-research')
+
+  await row.getByRole('button', { name: 'Edit' }).click()
+  await expect(page.getByRole('combobox', { name: 'Pool', exact: true })).toBeDisabled()
+  await expect(page.getByText('Only an admin moves a template to another Pool.')).toBeVisible()
 })

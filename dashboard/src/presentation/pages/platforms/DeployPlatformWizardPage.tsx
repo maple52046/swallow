@@ -33,7 +33,7 @@ import { gpuInventoryProfile } from '@/presentation/components/serverGpuPresenta
 import { Wizard, type WizardStepDef } from '@/presentation/components/Wizard'
 import { Alert } from '@/presentation/components/ui/alert'
 import { Checkbox } from '@/presentation/components/ui/checkbox'
-import { DEPLOYMENT_NETWORK_MODE_LABELS, deployTargetForEphemeral } from '@/domain/provisioning/types'
+import { DEPLOYMENT_NETWORK_MODE_LABELS, deployTargetForEphemeral, platformPoolOf, templatesForPlatformPool } from '@/domain/provisioning/types'
 import { AddressingModeField } from '@/presentation/pages/provisioning/AddressingModeField'
 import { NetworkAssignmentsEditor } from '@/presentation/pages/provisioning/NetworkAssignmentsEditor'
 import { DeployTargetField } from '@/presentation/pages/provisioning/DeployTargetField'
@@ -807,7 +807,7 @@ function DeployPlatformWizardPage({ platformType, module }: DeployPlatformWizard
               onChange: selectTemplate,
               options: [
                 { value: '', label: 'Custom configuration' },
-                ...templates
+                ...templatesForPlatformPool(templates, platformPoolOf(selectedServers))
                   .filter((template) => template.integrationId === integrationId)
                   .map((template) => ({ value: template.id, label: template.name })),
               ],

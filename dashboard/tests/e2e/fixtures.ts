@@ -351,13 +351,13 @@ const osImages = [
 ]
 const baseDeploymentTemplates = [
   {
-    id: 'template-a', siteId: 'site-a', integrationId: 'maas-a', name: 'GPU compute baseline', description: 'Ubuntu baseline for accelerator nodes', imageId: 'ubuntu/jammy', ephemeral: false, network: { mode: 'dhcp', subnetId: 'subnet-a', defaultGateway: false }, hasUserData: true,
+    id: 'template-a', siteId: 'site-a', integrationId: 'maas-a', poolId: 'pool-research' as string | null, createdBy: 'alice', name: 'GPU compute baseline', description: 'Ubuntu baseline for accelerator nodes', imageId: 'ubuntu/jammy', ephemeral: false, network: { mode: 'dhcp', subnetId: 'subnet-a', defaultGateway: false }, hasUserData: true,
     minimumHardware: { cpuCores: 32, memoryMiB: null, storageGB: null, gpuModel: 'MI300X', gpuCount: 8 } as Record<string, unknown> | null,
     usedBy: [{ platformId: 'platform-slurm-ha', platformName: 'lab-slurm-ha', group: 'compute' }] as Array<Record<string, string>>,
     createdAt: now, updatedAt: now,
   },
   {
-    id: 'template-b', siteId: 'site-a', integrationId: 'maas-a', name: 'CPU login', description: '', imageId: 'ubuntu/noble', ephemeral: true, network: { mode: 'automatic', defaultGateway: false }, hasUserData: false,
+    id: 'template-b', siteId: 'site-a', integrationId: 'maas-a', poolId: null as string | null, createdBy: '', name: 'CPU login', description: '', imageId: 'ubuntu/noble', ephemeral: true, network: { mode: 'automatic', defaultGateway: false }, hasUserData: false,
     minimumHardware: null as Record<string, unknown> | null, usedBy: [] as Array<Record<string, string>>, createdAt: now, updatedAt: now,
   },
 ]
@@ -3407,10 +3407,14 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
       }
       return json(route, bootISOView(iso))
     }
+    // Templates are Pool read (provisioning.md): a non-admin lists only pool-research's, the Pool
+    // the owner and member identities belong to; a template without a Pool is an admin's.
     if (path === '/api/v1/provisioning/templates' && request.method() === 'GET') {
       const siteId = url.searchParams.get('siteId')
       const integrationId = url.searchParams.get('integrationId')
+      const admin = (options.identity ?? 'admin') === 'admin'
       return json(route, deploymentTemplates.filter((item) => (
+        (admin || item.poolId === 'pool-research') &&
         (!siteId || item.siteId === siteId) &&
         (!integrationId || item.integrationId === integrationId)
       )))
@@ -3421,6 +3425,8 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
         id: `template-${deploymentTemplates.length + 1}`,
         siteId: 'site-a',
         integrationId: String(body.integrationId),
+        poolId: String(body.poolId) as string | null,
+        createdBy: { admin: 'admin', owner: 'alice', member: 'bob' }[options.identity ?? 'admin'],
         name: String(body.name),
         description: String(body.description ?? ''),
         imageId: String(body.imageId),

@@ -1,6 +1,6 @@
 import { Badge, Field, Input, Stack, Table, Text } from '@chakra-ui/react'
 import type { SlurmNodeGroupSpec, SlurmPartitionSpec } from '@/domain/platform/types'
-import type { DeploymentTemplate } from '@/domain/provisioning/types'
+import { platformPoolOf, templatesForPlatformPool, type DeploymentTemplate } from '@/domain/provisioning/types'
 import { serverDisplayName, type Server } from '@/domain/server/types'
 import { StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
 import { Alert } from '@/presentation/components/ui/alert'
@@ -18,7 +18,7 @@ interface SlurmTopologyStepProps {
   edits: SlurmTopologyEdits
   onEditsChange: (edits: SlurmTopologyEdits) => void
   servers: Server[]
-  /** The Site's Deployment Templates; a group offers those of its members' provisioner Integration. */
+  /** The Site's Deployment Templates; a group offers those of its members' provisioner Integration and of the Platform's Pool. */
   templates: DeploymentTemplate[]
 }
 
@@ -35,6 +35,11 @@ interface SlurmTopologyStepProps {
 export function SlurmTopologyStep({ suggestion, effective, edits, onEditsChange, servers, templates }: SlurmTopologyStepProps) {
   const serverOf = (id: string) => servers.find((server) => server.id === id)
   const integrationOf = (group: SlurmNodeGroupSpec) => serverOf(group.members[0] ?? '')?.status.provisioning?.integrationId ?? ''
+  // A Platform in a Pool may name only that Pool's templates; the API refuses the others.
+  const poolTemplates = templatesForPlatformPool(
+    templates,
+    platformPoolOf(suggestion.groups.flatMap((group) => group.members).flatMap((id) => serverOf(id) ?? [])),
+  )
   const setGroup = (key: string, change: Partial<SlurmTopologyEdits['groups'][string]>) =>
     onEditsChange({ ...edits, groups: { ...edits.groups, [key]: { ...edits.groups[key], ...change } } })
   const setPartition = (key: string, change: Partial<SlurmTopologyEdits['partitions'][string]>) =>
@@ -66,7 +71,7 @@ export function SlurmTopologyStep({ suggestion, effective, edits, onEditsChange,
     const integration = integrationOf(group)
     const options = [
       { value: '', label: 'Generate from the OS settings' },
-      ...templates.filter((template) => !integration || template.integrationId === integration).map((template) => ({ value: template.id, label: template.name })),
+      ...poolTemplates.filter((template) => !integration || template.integrationId === integration).map((template) => ({ value: template.id, label: template.name })),
     ]
     return (
       <Select

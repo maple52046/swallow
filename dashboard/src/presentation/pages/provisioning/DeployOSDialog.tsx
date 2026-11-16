@@ -24,7 +24,8 @@ import type {
 import { DEPLOY_TARGET_LABELS, DEPLOYMENT_NETWORK_MODE_LABELS } from '@/domain/provisioning/types'
 import { serverDisplayName, type Server } from '@/domain/server/types'
 import type { Integration, OSImage } from '@/domain/site/types'
-import { canOperatePool, isAdmin } from '@/domain/user/access'
+import { canOperatePool, isAdmin, poolRoleOf } from '@/domain/user/access'
+import type { Pool } from '@/domain/infrastructure/types'
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
 import { FailureMessage } from '@/presentation/components/FailureMessage'
 import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
@@ -231,7 +232,7 @@ function resolveProvisioner(
  * component memory; successful launches remain on the source page.
  */
 export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogProps) {
-  const { provisioning, sites: siteRepository } = useApp()
+  const { provisioning, sites: siteRepository, infrastructure } = useApp()
   const { currentUser } = useAuth()
   // Only an admin may read Integrations (sites-integrations.md); a Pool owner deploys without them.
   const admin = isAdmin(currentUser)
@@ -271,6 +272,8 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
   const [inspectionState, setInspectionState] = useState<InspectionState>({ status: 'idle' })
   const [saveTemplate, setSaveTemplate] = useState(false)
   const [templateName, setTemplateName] = useState('')
+  const [templatePools, setTemplatePools] = useState<Pool[]>([])
+  const [chosenTemplatePool, setChosenTemplatePool] = useState('')
   const [dirty, setDirty] = useState(false)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -351,6 +354,35 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
     () => servers.filter((server) => selected.has(server.id)),
     [selected, servers],
   )
+  // A saved template is owned by one Pool the caller may create templates in (any Pool for an admin,
+  // an owned one otherwise). It defaults to the Pool every target is in, which a non-admin owns
+  // because it may deploy them, then to the caller's only Pool; otherwise the caller chooses.
+  const ownedTemplatePools = useMemo(
+    () => templatePools.filter((pool) => admin || poolRoleOf(currentUser, pool.id) === 'owner'),
+    [admin, currentUser, templatePools],
+  )
+  const templatePool = useMemo(() => {
+    if (chosenTemplatePool) return chosenTemplatePool
+    const targets = new Set(selectedServers.map((server) => server.spec.poolId))
+    const [shared] = [...targets]
+    if (targets.size === 1 && shared && ownedTemplatePools.some((pool) => pool.id === shared)) return shared
+    return ownedTemplatePools.length === 1 ? ownedTemplatePools[0].id : ''
+  }, [chosenTemplatePool, ownedTemplatePools, selectedServers])
+  // The Pool directory is read only once the user asks to save a template; a failed read leaves no
+  // Pool to choose, so the review step stays blocked rather than saving a template without one.
+  useEffect(() => {
+    if (!saveTemplate || templatePools.length > 0) return
+    let cancelled = false
+    infrastructure
+      .listPools()
+      .then((pools) => {
+        if (!cancelled) setTemplatePools(pools)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [infrastructure, saveTemplate, templatePools.length])
   // Deploying is Pool operate on every target, so a user who is not an admin chooses only among the
   // Servers of the Pools it owns.
   const availableServers = useMemo(
@@ -468,7 +500,8 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
     targetSelectionValid &&
     configurationValid &&
     (!saveTemplate || Boolean(templateName.trim())) &&
-    (!saveTemplate || reusableNetworkValid)
+    (!saveTemplate || reusableNetworkValid) &&
+    (!saveTemplate || Boolean(templatePool))
 
   const inspectTargets = useCallback(async () => {
     if (!targetSelectionValid) return false
@@ -579,6 +612,7 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
       if (saveTemplate) {
         await provisioning.createTemplate({
           integrationId: integration.id,
+          poolId: templatePool,
           name: templateName.trim(),
           imageId: effectiveImageId,
           deployTarget: effectiveDeployTarget,
@@ -1046,6 +1080,24 @@ export function DeployOSDialog({ context, onClose, onLaunched }: DeployOSDialogP
               <Alert status="warning" title="Static templates require one shared subnet">
                 Choose the same subnet for every target before saving this configuration.
               </Alert>
+            )}
+            {saveTemplate && (
+              <Field.Root required>
+                <Field.Label>
+                  Template Pool <Field.RequiredIndicator />
+                </Field.Label>
+                <Select
+                  value={templatePool}
+                  aria-label="Template Pool"
+                  placeholder="Select a Pool"
+                  onChange={(value) => {
+                    markDirty()
+                    setChosenTemplatePool(value)
+                  }}
+                  options={ownedTemplatePools.map((pool) => ({ value: pool.id, label: pool.name }))}
+                />
+                <Field.HelperText>Members of this Pool can deploy with the template; its owners can change it.</Field.HelperText>
+              </Field.Root>
             )}
           </Card.Body>
         </Card.Root>

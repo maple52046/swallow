@@ -151,14 +151,7 @@ export const router = createBrowserRouter([
       { path: 'operations/:id', element: <LegacyWorkflowRedirect /> },
       { path: 'provisioning', element: <ProvisioningRedirect /> },
       { path: 'provisioning/deploy', element: <LegacyDeployOSRedirect /> },
-      {
-        path: 'provisioning/templates',
-        element: (
-          <AdminRoute>
-            <DeploymentTemplatesPage />
-          </AdminRoute>
-        ),
-      },
+      { path: 'provisioning/templates', element: <DeploymentTemplatesPage /> },
       { path: 'provisioning/images', element: <OSImagesPage /> },
       { path: 'provisioning/boot-isos', element: <LegacyBootISOsRedirect /> },
       { path: 'infrastructure', element: <AdminRoute><InfrastructureRedirect /></AdminRoute> },

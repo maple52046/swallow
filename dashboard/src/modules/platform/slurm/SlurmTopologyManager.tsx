@@ -3,7 +3,7 @@ import { Badge, Button, HStack, Stack, Table, Text } from '@chakra-ui/react'
 import { Plus, RefreshCw } from 'lucide-react'
 import { useApp } from '@/di/AppProvider'
 import type { Platform } from '@/domain/platform/types'
-import type { DeploymentNetworkMode, DeploymentTemplate } from '@/domain/provisioning/types'
+import { templatesForPlatformPool, type DeploymentNetworkMode, type DeploymentTemplate } from '@/domain/provisioning/types'
 import { serverDisplayName, type Server } from '@/domain/server/types'
 import { ConfirmDialog } from '@/presentation/components/ConfirmDialog'
 import { SectionHeader, StickyTableFrame } from '@/presentation/components/ConsolePrimitives'
@@ -389,7 +389,7 @@ export function SlurmTopologyManager({ platform, members, canOperate, onChanged,
           error={write.error}
           onClose={closeDialog}
           group={dialogGroup}
-          templates={templates}
+          templates={templatesForPlatformPool(templates, platform.status.poolId, [dialogGroup?.templateId])}
           partitions={topology.partitions}
           existingNames={topology.groups.map((group) => group.name)}
           onSubmit={(value) => void write.submit(

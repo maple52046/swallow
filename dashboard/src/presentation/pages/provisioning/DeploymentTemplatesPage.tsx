@@ -4,7 +4,9 @@ import { Plus } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { useApp } from '@/di/AppProvider'
 import type { DeploymentNetworkMode, DeploymentTemplate } from '@/domain/provisioning/types'
-import type { Integration, OSImage } from '@/domain/site/types'
+import type { Pool } from '@/domain/infrastructure/types'
+import type { OSImage } from '@/domain/site/types'
+import { canOperatePool, isAdmin, ownsAnyPool, poolRoleOf } from '@/domain/user/access'
 import { EmptyState } from '@/presentation/components/EmptyState'
 import { ErrorState } from '@/presentation/components/ErrorState'
 import { failureOf, failureText, type DisplayedFailure } from '@/presentation/components/failure'
@@ -22,6 +24,7 @@ import { OSImagePicker } from './OSImagePicker'
 import { SearchInput } from '@/presentation/components/ui/search-input'
 import { useToast } from '@/presentation/components/toast/toastContext'
 import { useSiteScope } from '@/presentation/contexts/SiteScopeContext'
+import { useAuth } from '@/presentation/contexts/AuthContext'
 import { formatDateTime } from '@/shared/utils/time'
 import { defaultDeployTargetForImage } from './osDeploymentFlow'
 import {
@@ -34,14 +37,24 @@ import {
   type MinimumHardwareDraft,
 } from './minimumHardwareForm'
 
+/** A provisioner Integration a template can name: its id and display name. */
+interface ProvisionerChoice {
+  id: string
+  name: string
+}
+
 type TemplatesState =
   | { status: 'loading' }
   | ({ status: 'error' } & DisplayedFailure)
-  | { status: 'ready'; templates: DeploymentTemplate[]; integrations: Integration[] }
+  | { status: 'ready'; templates: DeploymentTemplate[]; integrations: ProvisionerChoice[]; pools: Pool[] }
 
 interface TemplateDraft {
   id?: string
   integrationId: string
+  /** The owning Pool, required on create; on an edit, a change moves the template, which only an admin may do, and a template without one may stay so. */
+  poolId: string
+  /** The Pool the edited template had when the editor opened, so Save sends `poolId` only when it changed. */
+  originalPoolId: string
   name: string
   description: string
   imageId: string
@@ -54,6 +67,8 @@ interface TemplateDraft {
 
 const EMPTY_DRAFT: TemplateDraft = {
   integrationId: '',
+  poolId: '',
+  originalPoolId: '',
   name: '',
   description: '',
   imageId: '',
@@ -87,12 +102,18 @@ function templateNetworkLabel(template: DeploymentTemplate, separator: string): 
 
 /**
  * CRUD workspace for swallow-owned deployment intent and write-only cloud-init: the Deployment
- * Templates page (`/provisioning/templates`, its own sidebar entry beside OS Images). Template writes and the provisioner Integrations it
- * names are admin routes, so the page is an admin's; OS Images links here to create a template for
- * one of its images (`?create=1&integrationId=…&imageId=…`).
+ * Templates page (`/provisioning/templates`, its own sidebar entry beside OS Images). Every user
+ * reaches it: the API lists only the templates of the caller's Pools (all of them for an admin), so
+ * a member sees what it may deploy with. Create is offered to whoever owns a Pool, and edit,
+ * cloud-init, and delete only on the templates of a Pool the caller owns; these checks only avoid
+ * offering what the API would refuse, which still judges every request. Only an admin moves a
+ * template to another Pool. The provisioner Integrations come from the image catalogs, which every
+ * user may read, because listing Integrations is an admin route. OS Images links here to create a
+ * template for one of its images (`?create=1&integrationId=…&imageId=…`).
  */
 export function DeploymentTemplatesPage() {
-  const { provisioning, sites: siteRepository } = useApp()
+  const { provisioning, infrastructure } = useApp()
+  const { currentUser } = useAuth()
   const { siteId, sites } = useSiteScope()
   const { showToast } = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -111,15 +132,24 @@ export function DeploymentTemplatesPage() {
   const load = useCallback(async () => {
     setState({ status: 'loading' })
     try {
-      const [templates, integrations] = await Promise.all([
+      const [templates, catalogs, pools] = await Promise.all([
         provisioning.listTemplates({ siteId }),
-        siteRepository.listIntegrations({ siteId, kind: 'provisioner' }),
+        provisioning.listOSImageCatalogs(siteId),
+        infrastructure.listPools(),
       ])
-      setState({ status: 'ready', templates, integrations })
+      const integrations = catalogs.map((catalog) => ({ id: catalog.integrationId, name: catalog.integrationName }))
+      setState({ status: 'ready', templates, integrations, pools })
     } catch (error) {
       setState({ status: 'error', ...failureOf(error, 'Could not load deployment templates.') })
     }
-  }, [provisioning, siteId, siteRepository])
+  }, [infrastructure, provisioning, siteId])
+
+  const admin = isAdmin(currentUser)
+  // The Pools a new template may be created in: every Pool for an admin, otherwise the caller's owned ones.
+  const ownedPools = useMemo(
+    () => (state.status === 'ready' ? state.pools.filter((pool) => admin || poolRoleOf(currentUser, pool.id) === 'owner') : []),
+    [admin, currentUser, state],
+  )
 
   useEffect(() => {
     void load()
@@ -130,6 +160,12 @@ export function DeploymentTemplatesPage() {
     setDraft({ ...EMPTY_DRAFT, integrationId, imageId })
     setFormOpen(true)
   }, [])
+
+  // A user who owns exactly one Pool creates there without choosing; the choice is offered otherwise.
+  useEffect(() => {
+    if (!formOpen || draft.id || draft.poolId || ownedPools.length !== 1) return
+    setDraft((current) => ({ ...current, poolId: ownedPools[0].id }))
+  }, [draft.id, draft.poolId, formOpen, ownedPools])
 
   useEffect(() => {
     if (searchParams.get('create') !== '1') return
@@ -195,7 +231,7 @@ export function DeploymentTemplatesPage() {
   const minimumError = 'error' in parsedMinimum ? parsedMinimum.error : ''
 
   const submit = async () => {
-    if (saving || !draft.name.trim() || !draft.integrationId || !draft.imageId || (Boolean(imageError) && !draft.id) || !('minimum' in parsedMinimum)) return
+    if (saving || !draft.name.trim() || !draft.integrationId || (!draft.id && !draft.poolId) || !draft.imageId || (Boolean(imageError) && !draft.id) || !('minimum' in parsedMinimum)) return
     const minimum = parsedMinimum.minimum
     setSaving(true)
     try {
@@ -208,11 +244,13 @@ export function DeploymentTemplatesPage() {
           deployTarget: deployTargetForEphemeral(draft.ephemeral),
           network: { mode: draft.networkMode, subnetId: draft.subnetId.trim() || undefined, defaultGateway: draft.defaultGateway },
           minimumHardware: minimum,
+          ...(admin && draft.poolId !== draft.originalPoolId ? { poolId: draft.poolId } : {}),
         })
         showToast({ tone: 'success', title: 'Deployment template updated' })
       } else {
         await provisioning.createTemplate({
           integrationId: draft.integrationId,
+          poolId: draft.poolId,
           name: draft.name.trim(),
           description: draft.description.trim(),
           imageId: draft.imageId,
@@ -276,6 +314,8 @@ export function DeploymentTemplatesPage() {
     setDraft({
       id: template.id,
       integrationId: template.integrationId,
+      poolId: template.poolId ?? '',
+      originalPoolId: template.poolId ?? '',
       name: template.name,
       description: template.description,
       imageId: template.imageId,
@@ -289,6 +329,15 @@ export function DeploymentTemplatesPage() {
   }
   const integrationName = (id: string) => (state.status === 'ready' ? state.integrations.find((item) => item.id === id)?.name ?? id : id)
   const siteName = (id: string) => sites.find((item) => item.id === id)?.name ?? id
+  // A template without a Pool predates Pool ownership; only admins see it, and it reads as such.
+  const poolName = (id: string | null) => (id ? (state.status === 'ready' ? state.pools.find((pool) => pool.id === id)?.name ?? id : id) : 'No Pool')
+  const canChange = (template: DeploymentTemplate) => canOperatePool(currentUser, template.poolId)
+  // The Pool select offers where the draft may go: on create, the caller's owned Pools; on an edit,
+  // every Pool for an admin and only the current one otherwise (the select is then read-only).
+  const poolOptions = (draft.id && !admin
+    ? state.status === 'ready' ? state.pools.filter((pool) => pool.id === draft.poolId) : []
+    : draft.id ? (state.status === 'ready' ? state.pools : []) : ownedPools
+  ).map((pool) => ({ value: pool.id, label: pool.name }))
 
   return (
     <div className="console-page">
@@ -297,10 +346,12 @@ export function DeploymentTemplatesPage() {
         subtitle="Reusable deployment settings for an OS image: Disk or RAM, network, and optional cloud-init."
         stackActionsOnMobile
         actions={
-          <Button colorPalette="brand" onClick={() => openCreate()}>
-            <Plus size={16} />
-            Create template
-          </Button>
+          ownsAnyPool(currentUser) ? (
+            <Button colorPalette="brand" onClick={() => openCreate()}>
+              <Plus size={16} />
+              Create template
+            </Button>
+          ) : undefined
         }
       />
 
@@ -329,6 +380,24 @@ export function DeploymentTemplatesPage() {
                   }}
                   options={state.status === 'ready' ? state.integrations.map((integration) => ({ value: integration.id, label: integration.name })) : []}
                 />
+              </Field.Root>
+              <Field.Root required>
+                <Field.Label>
+                  Pool <Field.RequiredIndicator />
+                </Field.Label>
+                <Select
+                  value={draft.poolId}
+                  disabled={Boolean(draft.id) && !admin}
+                  aria-label="Pool"
+                  placeholder="Select a Pool"
+                  onChange={(value) => setDraft((current) => ({ ...current, poolId: value }))}
+                  options={poolOptions}
+                />
+                <Field.HelperText>
+                  {draft.id && !admin
+                    ? 'Only an admin moves a template to another Pool.'
+                    : 'Members of this Pool can deploy with the template; its owners can change it.'}
+                </Field.HelperText>
               </Field.Root>
               <Field.Root required>
                 <Field.Label>
@@ -417,7 +486,7 @@ export function DeploymentTemplatesPage() {
               <Button
                 colorPalette="brand"
                 loading={saving}
-                disabled={saving || !draft.name.trim() || !draft.integrationId || !draft.imageId || (draft.networkMode === 'static' && !draft.subnetId.trim()) || (Boolean(imageError) && !draft.id) || Boolean(minimumError)}
+                disabled={saving || !draft.name.trim() || !draft.integrationId || (!draft.id && !draft.poolId) || !draft.imageId || (draft.networkMode === 'static' && !draft.subnetId.trim()) || (Boolean(imageError) && !draft.id) || Boolean(minimumError)}
                 onClick={() => void submit()}
               >
                 Save
@@ -475,6 +544,7 @@ export function DeploymentTemplatesPage() {
                 <Table.ColumnHeader>Name</Table.ColumnHeader>
                 <Table.ColumnHeader>Site</Table.ColumnHeader>
                 <Table.ColumnHeader>Integration</Table.ColumnHeader>
+                <Table.ColumnHeader>Pool</Table.ColumnHeader>
                 <Table.ColumnHeader>Image ID</Table.ColumnHeader>
                 <Table.ColumnHeader>Ephemeral</Table.ColumnHeader>
                 <Table.ColumnHeader>Network</Table.ColumnHeader>
@@ -496,6 +566,12 @@ export function DeploymentTemplatesPage() {
                   </Table.Cell>
                   <Table.Cell>{siteName(template.siteId)}</Table.Cell>
                   <Table.Cell>{integrationName(template.integrationId)}</Table.Cell>
+                  <Table.Cell>
+                    {poolName(template.poolId)}
+                    <Text as="small" display="block" color="fg.muted">
+                      {template.createdBy ? `Created by ${template.createdBy}` : '-'}
+                    </Text>
+                  </Table.Cell>
                   <Table.Cell className="sw-mono">{template.imageId}</Table.Cell>
                   <Table.Cell>{template.ephemeral ? 'Yes' : 'No'}</Table.Cell>
                   <Table.Cell>{templateNetworkLabel(template, ' - ')}</Table.Cell>
@@ -504,39 +580,41 @@ export function DeploymentTemplatesPage() {
                   <Table.Cell>{formatTemplateUses(template.usedBy)}</Table.Cell>
                   <Table.Cell>{formatDateTime(template.updatedAt)}</Table.Cell>
                   <Table.Cell textAlign="end">
-                    <span className="sw-row-actions">
-                      <Button
-                        variant="plain"
-                        size="sm"
-                        px="1"
-                        h="auto"
-                        colorPalette="brand"
-                        onClick={() => openEdit(template)}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        variant="plain"
-                        size="sm"
-                        px="1"
-                        h="auto"
-                        colorPalette="brand"
-                        onClick={() => {
-                          setSecretTemplate(template)
-                          setSecretValue('')
-                        }}
-                      >
-                        {template.hasUserData ? 'Replace cloud-init' : 'Add cloud-init'}
-                      </Button>
-                      {template.hasUserData && (
-                        <Button variant="plain" size="sm" px="1" h="auto" colorPalette="brand" onClick={() => void clearSecret(template)}>
-                          Remove cloud-init
+                    {canChange(template) && (
+                      <span className="sw-row-actions">
+                        <Button
+                          variant="plain"
+                          size="sm"
+                          px="1"
+                          h="auto"
+                          colorPalette="brand"
+                          onClick={() => openEdit(template)}
+                        >
+                          Edit
                         </Button>
-                      )}
-                      <Button variant="plain" size="sm" px="1" h="auto" colorPalette="red" onClick={() => void removeTemplate(template)}>
-                        Delete
-                      </Button>
-                    </span>
+                        <Button
+                          variant="plain"
+                          size="sm"
+                          px="1"
+                          h="auto"
+                          colorPalette="brand"
+                          onClick={() => {
+                            setSecretTemplate(template)
+                            setSecretValue('')
+                          }}
+                        >
+                          {template.hasUserData ? 'Replace cloud-init' : 'Add cloud-init'}
+                        </Button>
+                        {template.hasUserData && (
+                          <Button variant="plain" size="sm" px="1" h="auto" colorPalette="brand" onClick={() => void clearSecret(template)}>
+                            Remove cloud-init
+                          </Button>
+                        )}
+                        <Button variant="plain" size="sm" px="1" h="auto" colorPalette="red" onClick={() => void removeTemplate(template)}>
+                          Delete
+                        </Button>
+                      </span>
+                    )}
                   </Table.Cell>
                 </Table.Row>
               ))}
@@ -552,19 +630,23 @@ export function DeploymentTemplatesPage() {
                   title={template.name}
                   description={template.description || template.imageId}
                   actions={
-                    <>
-                      <Button size="sm" variant="outline" onClick={() => openEdit(template)}>Edit template</Button>
-                      <Button size="sm" variant="plain" onClick={() => { setSecretTemplate(template); setSecretValue('') }}>
-                        {template.hasUserData ? 'Replace cloud-init' : 'Add cloud-init'}
-                      </Button>
-                      {template.hasUserData && <Button size="sm" variant="plain" onClick={() => void clearSecret(template)}>Remove cloud-init</Button>}
-                      <Button size="sm" variant="plain" colorPalette="red" onClick={() => void removeTemplate(template)}>Delete template</Button>
-                    </>
+                    canChange(template) ? (
+                      <>
+                        <Button size="sm" variant="outline" onClick={() => openEdit(template)}>Edit template</Button>
+                        <Button size="sm" variant="plain" onClick={() => { setSecretTemplate(template); setSecretValue('') }}>
+                          {template.hasUserData ? 'Replace cloud-init' : 'Add cloud-init'}
+                        </Button>
+                        {template.hasUserData && <Button size="sm" variant="plain" onClick={() => void clearSecret(template)}>Remove cloud-init</Button>}
+                        <Button size="sm" variant="plain" colorPalette="red" onClick={() => void removeTemplate(template)}>Delete template</Button>
+                      </>
+                    ) : undefined
                   }
                   details={<ResourceCardField label="Updated">{formatDateTime(template.updatedAt)}</ResourceCardField>}
                 >
                   <ResourceCardField label="Site">{siteName(template.siteId)}</ResourceCardField>
                   <ResourceCardField label="Integration">{integrationName(template.integrationId)}</ResourceCardField>
+                  <ResourceCardField label="Pool">{poolName(template.poolId)}</ResourceCardField>
+                  <ResourceCardField label="Created by">{template.createdBy || '-'}</ResourceCardField>
                   <ResourceCardField label="Image ID"><span className="sw-mono">{template.imageId}</span></ResourceCardField>
                   <ResourceCardField label="Ephemeral">{template.ephemeral ? 'Yes' : 'No'}</ResourceCardField>
                   <ResourceCardField label="Network">{templateNetworkLabel(template, ' · ')}</ResourceCardField>

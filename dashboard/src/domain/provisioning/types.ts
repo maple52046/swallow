@@ -73,11 +73,19 @@ export interface DeploymentTemplateUse {
   group: string;
 }
 
-/** Reusable, integration-owned deployment intent. Cloud-init is never readable. */
+/**
+ * Reusable deployment intent of one Integration, owned by one Pool. Cloud-init is never readable.
+ * The API returns only the templates the caller may read, so a template in the list is always one
+ * the caller may deploy with; whether it may change it follows from `poolId` and the caller's role.
+ */
 export interface DeploymentTemplate {
   id: string;
   siteId: string;
   integrationId: string;
+  /** The owning Pool: its members read and use it, its owners change it. Null on a template from before Pools owned templates, which only admins see. */
+  poolId: string | null;
+  /** The creator's username ("" when unknown); a record only, it never decides access. */
+  createdBy: string;
   name: string;
   description: string;
   imageId: string;
@@ -92,9 +100,35 @@ export interface DeploymentTemplate {
   updatedAt: string;
 }
 
+/**
+ * The Pool a Platform over `members` belongs to: the one every member is in, or `null` when they are
+ * in different Pools or any is in none (identity-and-access.md §4). An empty member list is in none.
+ */
+export function platformPoolOf(members: ReadonlyArray<{ spec: { poolId: string | null } }>): string | null {
+  const pools = new Set(members.map((server) => server.spec.poolId));
+  const [pool] = [...pools];
+  return pools.size === 1 && pool ? pool : null;
+}
+
+/**
+ * The templates a Platform in `poolId` may name (platforms.md, Node groups and partitions): those its
+ * Pool owns, or every template the caller reads when the Platform is in no Pool. `keep` holds ids the
+ * Platform already names, which stay offered because the API keeps a reference it already has.
+ */
+export function templatesForPlatformPool(
+  templates: DeploymentTemplate[],
+  poolId: string | null,
+  keep: ReadonlyArray<string | undefined> = [],
+): DeploymentTemplate[] {
+  if (!poolId) return templates;
+  return templates.filter((template) => template.poolId === poolId || keep.includes(template.id));
+}
+
 /** Create input is the only template mutation that may carry initial write-only user data. */
 export interface CreateDeploymentTemplateInput {
   integrationId: string;
+  /** The owning Pool; a non-admin must own it. */
+  poolId: string;
   name: string;
   description?: string;
   imageId: string;
@@ -107,6 +141,8 @@ export interface CreateDeploymentTemplateInput {
 
 /** Templates never move integration and cloud-init has dedicated write-only methods. */
 export interface UpdateDeploymentTemplateInput {
+  /** Moves the template to another Pool; the API accepts it from an admin only. */
+  poolId?: string;
   name?: string;
   description?: string;
   imageId?: string;
