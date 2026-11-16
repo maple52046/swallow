@@ -98,6 +98,7 @@ Co-authored-by: <agent name> <agent email>
 - **agent co-author trailer (required)**: append exactly one trailer for the agent creating the commit, using the matching stable identity:
   - Cursor: `Co-authored-by: Cursor <cursoragent@cursor.com>`
   - Codex: `Co-authored-by: Codex <noreply@openai.com>`
+  - Claude Code: `Co-authored-by: Claude <noreply@anthropic.com>`
 - Keep the current agent's trailer as the final footer. Preserve trailers for other co-authors, but if the current agent's exact trailer is already present, keep only one occurrence.
 - Do not use the human author's Git identity for the agent trailer. Do not claim in the message that tests were run or add other markers that were not requested; the required agent trailer is the sole automatic exception.
 

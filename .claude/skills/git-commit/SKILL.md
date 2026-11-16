@@ -1,0 +1,24 @@
+---
+name: git-commit
+description: >-
+  Analyse the swallow repository's changes, write a Conventional Commits message
+  with the invoking agent's Co-authored-by trailer, and run git commit (optionally
+  git add and git push). Use when the user runs /git-commit or asks to commit
+  staged changes with a generated message.
+argument-hint: "[--auto-add] [--all] [--push] [--date <when>]"
+---
+
+# git-commit
+
+This is a thin Claude Code wrapper. The canonical instructions live in
+[`skills/git-commit/SKILL.md`](../../../skills/git-commit/SKILL.md)
+(relative to the repository root). Read that file and follow it.
+
+Invocation:
+
+```
+/git-commit [--auto-add] [--all] [--push] [--date <when>]
+```
+
+This is a single git repository (a monorepo): there is no submodule target to
+select. Every git command runs at the repository root.

@@ -62,12 +62,20 @@ duplicating it:
 - **Codex**: `.agents/skills/<name>/SKILL.md` carries Codex frontmatter and
   points back to `skills/<name>/SKILL.md`; Codex invokes it as `$<name>`.
   Codex-only settings (for example `agents/openai.yaml`) live beside the wrapper.
+- **Claude Code**: `.claude/skills/<name>/SKILL.md` carries Claude Code frontmatter
+  and points back to `skills/<name>/SKILL.md`; Claude Code invokes it as
+  `/<name>`. A skill that is explicit-only in Cursor or Codex sets
+  `disable-model-invocation: true` here.
 - **Other IDEs / agents**: register the skill wherever the tool scans and
   reference `skills/<name>/SKILL.md` rather than copying it.
 
 One exception: `.agents/skills/migrate-cursor-to-codex/SKILL.md` is a Codex tool
 that copies this repository's Cursor setup for Codex. It has no canonical copy
-here and no Cursor wrapper, and it is not listed in the Skill Index.
+here and no Cursor wrapper, and it is not listed in the Skill Index; its Claude
+Code wrapper points to the Codex file.
+
+`scripts/check-docs.py` fails when a skill in `skills/`, `.cursor/skills/`, or
+`.agents/skills/` has no Claude Code wrapper.
 
 Keep operational steps only in the canonical `SKILL.md`; wrappers just point
 here so there is a single source of truth.

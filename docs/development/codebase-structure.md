@@ -55,9 +55,16 @@ coding style。
 ├── deploy/         # dev/testing/production、release 與 third-party installation assets
 ├── docs/           # swallow 共通約束文件（shared model）
 ├── skills/         # 任務導向操作指南
-├── AGENTS.md       # AI agent 入口導引
-└── .cursor/        # Cursor rules / hooks / skills
+├── AGENTS.md       # AI agent 入口導引（唯一來源）
+├── CLAUDE.md       # Claude Code 入口，只 import AGENTS.md
+├── .cursor/        # Cursor rules / hooks / skills
+├── .agents/        # Codex skills
+└── .claude/        # Claude Code settings / hooks / skills
 ```
+
+`.cursor/`、`.agents/` 與 `.claude/` 是各 agent 工具的 adapter：skill 只放指向 `skills/<name>/SKILL.md`
+的 wrapper，`CLAUDE.md`（root 與每個帶 `AGENTS.md` 的 component）只 import 同目錄的 `AGENTS.md`；
+規則本文只寫在 `AGENTS.md`。Claude Code 的 plan 位置 hook 轉接 `.cursor/hooks/` 的同一支腳本。
 
 ## Component 與目錄對應關係
 
@@ -157,7 +164,7 @@ Go 程式碼在 `api-server/modules/`；搬移前的路徑與現在的對照見�
 - component 邊界是**邏輯邊界**：即使同在一個 repo，也不得跨 component 直接耦合對方的內部
   實作；跨 component 只透過 provider-owned API contract 與 `docs/` 的共通定義互動。
 - 業務原始碼一律位於某個 component 目錄之內；repository root 只放跨 component 的 `docs/`、
-  `deploy/`、`skills/` 與 `.cursor/` harness。
+  `deploy/`、`skills/`、`CLAUDE.md` 與 `.cursor/`、`.agents/`、`.claude/` agent harness。
 - `docs/` 的 development/decisions/plans 與公開語系樹責任不同；不得把 user guide 當成
   implementation contract，也不得讓 agent-oriented 文件反向依賴公開文件。
 

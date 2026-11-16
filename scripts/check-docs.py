@@ -464,6 +464,30 @@ def check_documentation_screenshots(errors: list[str]) -> None:
                 errors.append(f"{document}: must reference documentation asset {asset}")
 
 
+def check_agent_adapters(files: list[Path], errors: list[str]) -> None:
+    """Report agent instructions and skills that Claude Code would not load.
+
+    AGENTS.md is the single source of instructions; once a CLAUDE.md exists at the
+    root, Claude Code reads a directory's AGENTS.md only through its own CLAUDE.md
+    import. Every skill a Cursor or Codex wrapper exposes needs a Claude Code wrapper.
+    """
+    for agents in (path for path in files if path.name == "AGENTS.md"):
+        claude = ROOT / agents.with_name("CLAUDE.md")
+        if not claude.is_file():
+            errors.append(f"{agents}: missing Claude Code entry {agents.with_name('CLAUDE.md')}")
+        elif "@AGENTS.md" not in claude.read_text(encoding="utf-8").splitlines():
+            errors.append(f"{agents.with_name('CLAUDE.md')}: must import @AGENTS.md on its own line")
+    skill_roots = (Path("skills"), Path(".cursor/skills"), Path(".agents/skills"))
+    names = {
+        skill.parent.name
+        for skill_root in skill_roots
+        for skill in (ROOT / skill_root).glob("*/SKILL.md")
+    }
+    for name in sorted(names):
+        if not (ROOT / ".claude/skills" / name / "SKILL.md").is_file():
+            errors.append(f"skill {name}: missing Claude Code wrapper .claude/skills/{name}/SKILL.md")
+
+
 def main() -> int:
     errors: list[str] = []
     files = markdown_files()
@@ -474,6 +498,7 @@ def main() -> int:
     check_language_mirror(errors)
     check_required_counterparts(errors)
     check_documentation_screenshots(errors)
+    check_agent_adapters(files, errors)
     if errors:
         print("Documentation validation failed:", file=sys.stderr)
         for error in errors:

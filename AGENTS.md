@@ -182,10 +182,14 @@ historical rationale.
 
 Not every change needs a plan. When you do write an implementation plan, in a
 tool's plan mode or as a planning step, also save it in this repository, so it is
-not kept only in the tool's own directory (for example `~/.cursor/plans/`):
+not kept only in the tool's own directory (for example `~/.cursor/plans/` or
+`~/.claude/plans/`), and save it before implementing it:
 
 - Location: the root `docs/plans/manuscripts/`, even when the plan concerns one
   component. Never use a component-local plan tree or drop the `plans/` segment.
+  A pre-write hook in Cursor (`.cursor/hooks.json`) and in Claude Code
+  (`.claude/settings.json`) denies a plan manuscript written anywhere else; re-issue
+  the write at the path it names.
 - Name: `YYYYMMDD-<short-topic>.md`, in Markdown.
 - One plan per topic: list the file names in `docs/plans/manuscripts/` (listing
   names is not reading plans) to find a plan on the same topic, and update that
@@ -219,5 +223,8 @@ Task-specific operating guides live under `skills/`. When the task acts on real
 machines or drives the running development stack (automated tests against its
 MongoDB do not count), writes a commit, or consolidates plans, read
 `skills/README.md` and follow its lookup workflow before acting.
+Cursor, Codex, and Claude Code expose these skills through thin wrappers under
+`.cursor/skills/`, `.agents/skills/`, and `.claude/skills/`; a wrapper only points
+to its canonical `SKILL.md`, which is the one to follow.
 Skills never replace this file or the documents it requires; satisfy those
 reading requirements first, then consult the relevant skill.
