@@ -13,8 +13,8 @@ import (
 	validationdomain "github.com/maple52046/swallow/internal/core/validation/domain"
 )
 
-// Runs is an in-memory RunRepository. List applies the status, activity, and Server filters and
-// returns runs newest first; it is safe for concurrent use.
+// Runs is an in-memory RunRepository. List applies every filter but the readable-targets
+// restriction and returns runs newest first; it is safe for concurrent use.
 type Runs struct {
 	mu   sync.Mutex
 	runs map[string]validationdomain.Run
@@ -74,6 +74,9 @@ func (m *Runs) List(_ context.Context, filter validationdomain.RunFilter) ([]val
 		if filter.ScheduleID != "" && run.Trigger.ScheduleID != filter.ScheduleID {
 			continue
 		}
+		if filter.RequestedByID != "" && run.RequestedByID != filter.RequestedByID {
+			continue
+		}
 		if filter.Status != "" && run.Status != filter.Status {
 			continue
 		}
@@ -98,31 +101,68 @@ func (m *Runs) List(_ context.Context, filter validationdomain.RunFilter) ([]val
 	return runs[start:end], total, nil
 }
 
-// Suites is an in-memory SuiteRepository.
+// Suites is an in-memory SuiteRepository with the durable store's conditional replace and kept
+// revisions; it is safe for concurrent use. BeforeReplace, when set, runs at the start of every
+// Replace without the lock held, so a test can land a competing write between a use case's read and
+// its write.
 type Suites struct {
-	suites map[string]validationdomain.Suite
+	mu            sync.Mutex
+	suites        map[string]validationdomain.Suite
+	revisions     map[string]validationdomain.SuiteRevision
+	BeforeReplace func()
 }
 
 // NewSuites returns an empty suite store.
-func NewSuites() *Suites { return &Suites{suites: map[string]validationdomain.Suite{}} }
+func NewSuites() *Suites {
+	return &Suites{suites: map[string]validationdomain.Suite{}, revisions: map[string]validationdomain.SuiteRevision{}}
+}
 
 // Create implements validationdomain.SuiteRepository.
 func (m *Suites) Create(_ context.Context, suite validationdomain.Suite) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.suites[suite.ID] = suite
 	return nil
 }
 
 // Replace implements validationdomain.SuiteRepository.
-func (m *Suites) Replace(_ context.Context, suite validationdomain.Suite) error {
-	if _, ok := m.suites[suite.ID]; !ok {
+func (m *Suites) Replace(_ context.Context, suite validationdomain.Suite, expectedRevision int) error {
+	if hook := m.BeforeReplace; hook != nil {
+		m.BeforeReplace = nil
+		hook()
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	current, ok := m.suites[suite.ID]
+	switch {
+	case !ok:
 		return validationdomain.ErrSuiteNotFound
+	case current.Retired:
+		return validationdomain.ErrSuiteImmutable
+	case current.Revision != expectedRevision:
+		return validationdomain.ErrRevisionConflict
 	}
 	m.suites[suite.ID] = suite
 	return nil
 }
 
+// Retire implements validationdomain.SuiteRepository.
+func (m *Suites) Retire(_ context.Context, id string, now time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	suite, ok := m.suites[id]
+	if !ok {
+		return validationdomain.ErrSuiteNotFound
+	}
+	suite.Retired, suite.UpdatedAt = true, now
+	m.suites[id] = suite
+	return nil
+}
+
 // Get implements validationdomain.SuiteRepository.
 func (m *Suites) Get(_ context.Context, id string) (validationdomain.Suite, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	suite, ok := m.suites[id]
 	if !ok {
 		return validationdomain.Suite{}, validationdomain.ErrSuiteNotFound
@@ -132,6 +172,8 @@ func (m *Suites) Get(_ context.Context, id string) (validationdomain.Suite, erro
 
 // List implements validationdomain.SuiteRepository.
 func (m *Suites) List(_ context.Context, includeRetired bool) ([]validationdomain.Suite, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var suites []validationdomain.Suite
 	for _, suite := range m.suites {
 		if includeRetired || !suite.Retired {
@@ -139,6 +181,29 @@ func (m *Suites) List(_ context.Context, includeRetired bool) ([]validationdomai
 		}
 	}
 	return suites, nil
+}
+
+// AddRevision implements validationdomain.SuiteRepository.
+func (m *Suites) AddRevision(_ context.Context, revision validationdomain.SuiteRevision) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := fmt.Sprintf("%s/%d", revision.SuiteID, revision.Revision)
+	if _, ok := m.revisions[key]; ok {
+		return validationdomain.ErrRevisionConflict
+	}
+	m.revisions[key] = revision
+	return nil
+}
+
+// Revision implements validationdomain.SuiteRepository.
+func (m *Suites) Revision(_ context.Context, suiteID string, revision int) (validationdomain.SuiteRevision, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	kept, ok := m.revisions[fmt.Sprintf("%s/%d", suiteID, revision)]
+	if !ok {
+		return validationdomain.SuiteRevision{}, validationdomain.ErrRevisionNotFound
+	}
+	return kept, nil
 }
 
 // Schedules is an in-memory ScheduleRepository.

@@ -3,8 +3,13 @@ package ansible
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
+	"os/user"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -172,32 +177,113 @@ func TestHostBaselineJudgesAgainstTheInspection(t *testing.T) {
 	}
 }
 
-// A user suite's script check follows the script's exit code, a script past its timeout is an error,
-// and the script does not stay on the host.
-func TestUserScriptVerdictFollowsTheExitCode(t *testing.T) {
+// fakeSudo stands in for sudo on localhost, both as the become executable (Ansible calls it with
+// "-u <user>") and as the sudo the requester runs ("-n --"): it drops sudo's options and runs the
+// command as the calling user. FAKE_BECOME_DENY refuses a become and FAKE_SUDO_DENY the requester's
+// sudo, the way sudo -n refuses without a password.
+const fakeSudo = `#!/bin/sh
+become=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -u|-p) become=1; shift 2 ;;
+    --) shift; break ;;
+    -*) shift ;;
+    *) break ;;
+  esac
+done
+deny="$FAKE_SUDO_DENY"
+if [ -n "$become" ]; then
+  deny="$FAKE_BECOME_DENY"
+fi
+if [ -n "$deny" ]; then
+  echo "sudo: a password is required" >&2
+  exit 1
+fi
+exec "$@"
+`
+
+// A user suite's script runs as the requester's account and its check follows the script's exit
+// code; a script past its timeout is an error; a host where the account cannot run it is an error
+// whose summary starts with its code; and the script does not stay on the host.
+//
+// The test runs without root: it is its own requester, root's become is off
+// (script_validation_become_root), and a stand-in for sudo takes the place of both become and the
+// requester's sudo. What only real hosts show (switching to another account without ACL support,
+// the Directory's sudo rules, a home owned by another uid, a module's temporary files in a writable
+// home) is verified in the lab (validation.md §3.1).
+func TestUserScriptRunsAsTheRequester(t *testing.T) {
 	raw, err := os.ReadFile(shippedFile(t, "run-validation-script.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := exec.LookPath("getent"); err != nil {
+		t.Skip("getent is not available")
+	}
+	me, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid, err := strconv.Atoi(me.Uid)
+	if err != nil {
+		t.Fatal(err)
+	}
 	run := newPlayRun(t, "validation_report", string(raw))
+	run.keepBecome = true
+	sudo := filepath.Join(run.dir, "fake-sudo")
+	if err := os.WriteFile(sudo, []byte(fakeSudo), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	scratch := filepath.Join(run.dir, "host-tmp")
 	if err := os.MkdirAll(scratch, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	run.env = append(run.env, "TMPDIR="+scratch)
+	// The test is its own requester; Ansible skips a become to the login user unless told otherwise,
+	// and every case must go through the stand-in become.
+	baseEnv := append(run.env, "TMPDIR="+scratch, "ANSIBLE_BECOME_ALLOW_SAME_USER=1")
 	resultPath := filepath.Join(run.dir, "result.json")
 	for _, tc := range []struct {
-		name, script, verdict, evidence string
-		timeout                         int
+		name, script, verdict, summary, evidence string
+		timeout                                  int
+		username                                 string
+		uidNumber                                int
+		sudo                                     bool
+		env                                      string
 	}{
-		{name: "exit 0", script: "#!/bin/sh\necho mounted\n", verdict: "passed", evidence: "mounted", timeout: 30},
-		{name: "exit 3", script: "#!/bin/sh\necho missing >&2\nexit 3\n", verdict: "failed", evidence: "missing", timeout: 30},
-		{name: "no interpreter line", script: "test -d /\n", verdict: "passed", timeout: 30},
-		{name: "past its timeout", script: "#!/bin/sh\nsleep 30\n", verdict: "error", timeout: 1},
+		{name: "exit 0", script: "#!/bin/sh\necho mounted\n", verdict: "passed", summary: "the script exited 0 as " + me.Username, evidence: "mounted"},
+		{name: "exit 3", script: "#!/bin/sh\necho missing >&2\nexit 3\n", verdict: "failed", summary: "the script exited 3", evidence: "missing"},
+		{name: "no interpreter line", script: "test -d /\n", verdict: "passed"},
+		{name: "past its timeout", script: "#!/bin/sh\nsleep 30\n", verdict: "error", summary: "past its timeout of 1 s", timeout: 1},
+		{name: "through sudo", script: "#!/bin/sh\necho elevated\n", verdict: "passed", summary: "via sudo", evidence: "elevated", sudo: true},
+		{name: "sudo refused", script: "#!/bin/sh\necho ran\n", verdict: "error", sudo: true, env: "FAKE_SUDO_DENY=1",
+			summary: "[validation_sudo_unavailable] " + me.Username + " has no passwordless sudo here: sudo: a password is required"},
+		{name: "no account", script: "#!/bin/sh\necho ran\n", verdict: "error", username: "swallow-no-such-user",
+			summary: "[validation_account_missing] swallow-no-such-user has no account on this host"},
+		{name: "another uid", script: "#!/bin/sh\necho ran\n", verdict: "error", uidNumber: uid + 7919,
+			summary: "[validation_account_mismatch] " + me.Username + " is uid " + me.Uid + " here"},
+		{name: "become refused", script: "#!/bin/sh\necho ran\n", verdict: "error", env: "FAKE_BECOME_DENY=1",
+			summary: "[validation_become_failed] the automation user cannot run commands as " + me.Username},
+		{name: "become refused with sudo", script: "#!/bin/sh\necho ran\n", verdict: "error", sudo: true, env: "FAKE_BECOME_DENY=1",
+			summary: "[validation_become_failed] the automation user cannot run commands as " + me.Username},
 	} {
+		username, uidNumber, timeout := me.Username, uid, 30
+		if tc.username != "" {
+			username = tc.username
+		}
+		if tc.uidNumber != 0 {
+			uidNumber = tc.uidNumber
+		}
+		if tc.timeout != 0 {
+			timeout = tc.timeout
+		}
+		run.env = baseEnv
+		if tc.env != "" {
+			run.env = append(slices.Clone(baseEnv), tc.env)
+		}
 		output, _, failed := run.run(map[string]any{
-			"swallow_result_path": resultPath, "swallow_validation_script": tc.script,
-			"swallow_validation_run_as": "automation-user", "swallow_validation_timeout_seconds": tc.timeout,
+			"swallow_result_path": resultPath, "swallow_validation_script": tc.script, "swallow_validation_timeout_seconds": timeout,
+			"swallow_validation_requester": map[string]any{"userId": "u-1", "username": username, "uidNumber": uidNumber},
+			"swallow_validation_sudo":      tc.sudo, "script_validation_become_root": false,
+			"script_validation_sudo_command": sudo, "ansible_become_exe": sudo,
 		})
 		if failed != 0 {
 			t.Errorf("%s: the play failed:\n%s", tc.name, output)
@@ -208,12 +294,83 @@ func TestUserScriptVerdictFollowsTheExitCode(t *testing.T) {
 			t.Errorf("%s: results = %v, want one script result %s", tc.name, results, tc.verdict)
 			continue
 		}
+		if summary, _ := results[0]["summary"].(string); !strings.Contains(summary, tc.summary) {
+			t.Errorf("%s: summary %q, want it to hold %q", tc.name, summary, tc.summary)
+		}
 		if evidence, _ := results[0]["evidence"].(string); !strings.Contains(evidence, tc.evidence) {
 			t.Errorf("%s: evidence %q does not hold the script's output %q", tc.name, evidence, tc.evidence)
 		}
 		if left, _ := os.ReadDir(scratch); len(left) != 0 {
 			t.Errorf("%s: the script's directory stayed on the host: %v", tc.name, left)
 		}
+	}
+}
+
+// The script's HOME is the requester's home when it is a directory the requester owns, and the
+// private directory otherwise; the playbook never creates one.
+func TestUserScriptHomeIsTheRequestersOwn(t *testing.T) {
+	raw, err := os.ReadFile(shippedFile(t, "run-validation-script.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := exec.LookPath("getent"); err != nil {
+		t.Skip("getent is not available")
+	}
+	me, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid, err := strconv.Atoi(me.Uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, err := exec.Command("getent", "passwd", me.Username).Output()
+	if err != nil {
+		t.Skipf("getent passwd %s: %v", me.Username, err)
+	}
+	fields := strings.Split(strings.TrimSpace(string(entry)), ":")
+	if len(fields) < 6 {
+		t.Fatalf("getent passwd %s = %q", me.Username, entry)
+	}
+	home := fields[5]
+	ownHome := false
+	if info, err := os.Stat(home); err == nil && info.IsDir() {
+		if stat, ok := info.Sys().(*syscall.Stat_t); ok && int(stat.Uid) == uid {
+			ownHome = true
+		}
+	}
+	run := newPlayRun(t, "validation_report", string(raw))
+	run.keepBecome = true
+	sudo := filepath.Join(run.dir, "fake-sudo")
+	if err := os.WriteFile(sudo, []byte(fakeSudo), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scratch := filepath.Join(run.dir, "host-tmp")
+	if err := os.MkdirAll(scratch, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run.env = append(run.env, "TMPDIR="+scratch, "ANSIBLE_BECOME_ALLOW_SAME_USER=1")
+	resultPath := filepath.Join(run.dir, "result.json")
+	output, _, failed := run.run(map[string]any{
+		"swallow_result_path": resultPath, "swallow_validation_script": "#!/bin/sh\necho \"HOME=$HOME\"\n",
+		"swallow_validation_timeout_seconds": 30, "swallow_validation_sudo": false,
+		"swallow_validation_requester":  map[string]any{"userId": "u-1", "username": me.Username, "uidNumber": uid},
+		"script_validation_become_root": false, "script_validation_sudo_command": sudo, "ansible_become_exe": sudo,
+	})
+	if failed != 0 {
+		t.Fatalf("the play failed:\n%s", output)
+	}
+	results := validationResults(t, resultPath)
+	if len(results) != 1 {
+		t.Fatalf("results = %v, want one", results)
+	}
+	evidence, _ := results[0]["evidence"].(string)
+	got := strings.TrimPrefix(strings.TrimSpace(evidence), "HOME=")
+	switch {
+	case ownHome && got != home:
+		t.Errorf("HOME = %q, want the requester's own home %q", got, home)
+	case !ownHome && (!strings.HasPrefix(got, scratch) || !strings.HasSuffix(got, ".swallow-validation")):
+		t.Errorf("HOME = %q, want the private directory under %s (the requester owns no home at %s)", got, scratch, home)
 	}
 }
 

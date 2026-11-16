@@ -34,7 +34,7 @@ tags:
     name: software
   - description: Liveness, readiness, and process metrics of the API process.
     name: system
-  - description: 'Validate deployed Servers and Platforms with Validation Suites: list the catalog, manage user-defined suites, start, list, read, and cancel Validation Runs, and manage Validation Schedules.'
+  - description: 'Validate deployed Servers and Platforms with Validation Suites: list the catalog and its revisions, write user-defined suites (run as the User who starts them), start, list, read, and cancel Validation Runs, and manage Validation Schedules.'
     name: validation
   - description: Durable Workflows (a DAG of Tasks run by Runners), their timeline and per-Task diagnostics.
     name: workflows
@@ -8316,6 +8316,14 @@ paths:
           required: false
           schema:
             $ref: '#/components/schemas/ValidationTriggerKind'
+        - description: '`me` keeps only the runs the caller started (`requestedById` is the caller''s id); it is the only value.'
+          in: query
+          name: requestedBy
+          required: false
+          schema:
+            enum:
+              - me
+            type: string
         - description: Only `pending` and `running` runs. Only the literal `true` constrains.
           in: query
           name: active
@@ -8337,7 +8345,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`validation_error`: a `status`, `verdict`, or `trigger` value is not one of its values.'
+          description: '`validation_error`: a `status`, `verdict`, `trigger`, or `requestedBy` value is not one of its values.'
         "401":
           $ref: '#/components/responses/Error'
         "403":
@@ -8348,7 +8356,7 @@ paths:
       tags:
         - validation
     post:
-      description: 'Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Accepts the run and its `run-validation` Workflow in one transaction and returns 202 with the `pending` run; progress is read on the run (and its Workflow).'
+      description: 'Pool read on every target, then by suite: Pool operate on every target for a module suite or a user suite with `starterLevel: owner`, Pool read for `starterLevel: member`. A user suite runs as the caller''s own account, so the caller''s Host Access (and, for a `sudo` suite, passwordless sudo) on every target is checked too. Accepts the run and its `run-validation` Workflow in one transaction and returns 202 with the `pending` run; progress is read on the run (and its Workflow).'
       operationId: startValidationRun
       requestBody:
         content:
@@ -8368,23 +8376,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`validation_error`: the body is not valid JSON; `suiteId` is empty; a `servers` suite has no `serverIds`, a Server is listed twice, or `platformId` is set; a `platform` suite has no `platformId` or has `serverIds`; the parameters do not match the suite''s schema; the Servers belong to more than one Site; or a `disruptive` suite is started without `confirm: true`.'
+          description: '`validation_error`: the body is not valid JSON; `suiteId` is empty; a `servers` suite has no `serverIds`, a Server is listed twice, or `platformId` is set; a `platform` suite has no `platformId` or has `serverIds`; the parameters do not match the suite''s schema; the Servers belong to more than one Site; a `disruptive` suite is started without `confirm: true`; or `suiteRevision` is given for a module suite.'
         "401":
           $ref: '#/components/responses/Error'
         "403":
-          $ref: '#/components/responses/Error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`forbidden`: the caller is below the suite''s starter level on a target, has no Host Access to a target (user suite), or has no sudo on a target for a `sudo` user suite.'
         "404":
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`not_found`: the suite (or a retired user suite), a target Server, or the Platform does not exist.'
+          description: '`not_found`: the suite (or a retired user suite), a target Server, or the Platform does not exist, or the caller may not read a target.'
         "409":
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`conflict`: a target Server is not `deployed`, is locked, or (for a `workload` or `disruptive` Servers suite) is claimed by a Platform; the Platform is not `active`, is not of the suite''s Platform type, or has no access Server; or a target already has active durable work (another run''s included).'
+          description: '`conflict`: `suiteRevision` is not the user suite''s current revision; a target Server is not `deployed`, is locked, or (for a `workload` or `disruptive` Servers suite) is claimed by a Platform; the Platform is not `active`, is not of the suite''s Platform type, or has no access Server; for a user suite, no Directory is configured, the caller has no `uidNumber`, a target has no installed directory client, or the caller''s sudo on a target needs a password (`sudo` suite); or a target already has active durable work (another run''s included).'
         "503":
           content:
             application/json:
@@ -8428,7 +8440,7 @@ paths:
     parameters:
       - $ref: '#/components/parameters/ValidationRunId'
     post:
-      description: 'Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Writes the cancel of the run''s Workflow and returns 202 with the run; it ends `canceled` once the Workflow''s cancel path finished.'
+      description: Pool read on the run's targets, then the run's starter (`requestedById` is the caller), an owner of every target's Pool, or an admin. Writes the cancel of the run's Workflow and returns 202 with the run; it ends `canceled` once the Workflow's cancel path finished.
       operationId: cancelValidationRun
       responses:
         "202":
@@ -8440,13 +8452,17 @@ paths:
         "401":
           $ref: '#/components/responses/Error'
         "403":
-          $ref: '#/components/responses/Error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`forbidden`: the caller may read the run but neither started it nor operates its targets.'
         "404":
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`not_found`: no run has this id.'
+          description: '`not_found`: no run has this id, or the caller may not read it.'
         "409":
           content:
             application/json:
@@ -8635,7 +8651,7 @@ paths:
       tags:
         - validation
     post:
-      description: Requires the `admin` role. The suite starts at revision 1.
+      description: 'Author: any authenticated User, who becomes the suite''s author. The suite starts at revision 1, which is kept. `revision` in the body is ignored.'
       operationId: createValidationSuite
       requestBody:
         content:
@@ -8655,7 +8671,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`validation_error`: the body is not valid JSON, the name or script is empty, the script is larger than 64 KiB, or `runAs`, `timeoutSeconds`, or `impact` is not accepted.'
+          description: '`validation_error`: the body is not valid JSON, the name or script is empty, the script is larger than 64 KiB, or `starterLevel`, `timeoutSeconds`, `impact`, or `revision` is not accepted.'
         "401":
           $ref: '#/components/responses/Error'
         "403":
@@ -8667,7 +8683,7 @@ paths:
         - validation
   /api/v1/validation/suites/{suiteId}:
     delete:
-      description: Requires the `admin` role. The suite leaves the catalog; its runs stay readable. Retiring a retired suite succeeds.
+      description: 'Author or admin: the suite''s author, or an admin. The suite leaves the catalog; its runs and revisions stay readable. Retiring a retired suite succeeds.'
       operationId: deleteValidationSuite
       responses:
         "204":
@@ -8675,7 +8691,11 @@ paths:
         "401":
           $ref: '#/components/responses/Error'
         "403":
-          $ref: '#/components/responses/Error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`forbidden`: the caller is neither the suite''s author nor an admin.'
         "404":
           content:
             application/json:
@@ -8721,7 +8741,7 @@ paths:
     parameters:
       - $ref: '#/components/parameters/ValidationSuiteId'
     put:
-      description: Requires the `admin` role. A change to the script, `runAs`, `timeoutSeconds`, or `impact` increments `revision`; runs already accepted keep the revision they ran.
+      description: 'Author: only the suite''s author, matched by user id; an admin who is not the author may not. A change to any field but `name` and `description` increments `revision` and keeps the new revision; runs already accepted keep the revision they ran. The write applies only at the revision it read, so of two concurrent replaces one is `409`; with `revision` in the body it applies only when that is the current revision.'
       operationId: replaceValidationSuite
       requestBody:
         content:
@@ -8745,7 +8765,11 @@ paths:
         "401":
           $ref: '#/components/responses/Error'
         "403":
-          $ref: '#/components/responses/Error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`forbidden`: the caller is not the suite''s author.'
         "404":
           content:
             application/json:
@@ -8757,12 +8781,47 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-          description: '`conflict`: the suite is a module suite, which cannot be changed, or it is retired.'
+          description: '`conflict`: the suite is a module suite, which cannot be changed, or it is retired; or it is no longer at the revision this write read (another replace won, or `revision` is stale).'
         default:
           $ref: '#/components/responses/Error'
       summary: Replace a user-defined Validation Suite, creating its next revision.
       tags:
         - validation
+  /api/v1/validation/suites/{suiteId}/revisions/{revision}:
+    get:
+      description: 'Reference: any authenticated User; a retired suite''s revisions stay readable. A suite created before revisions were kept has only the revision it had at that upgrade and later ones.'
+      operationId: getValidationSuiteRevision
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationSuiteRevision'
+          description: The revision.
+        "401":
+          $ref: '#/components/responses/Error'
+        "403":
+          $ref: '#/components/responses/Error'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: '`not_found`: no suite has this id, the suite is a module suite, or it has no kept revision with this number.'
+        default:
+          $ref: '#/components/responses/Error'
+      summary: Read one kept revision of a user-defined Validation Suite.
+      tags:
+        - validation
+    parameters:
+      - $ref: '#/components/parameters/ValidationSuiteId'
+      - description: The revision number, from 1.
+        in: path
+        name: revision
+        required: true
+        schema:
+          minimum: 1
+          type: integer
   /api/v1/workflows:
     get:
       description: 'Pool read: any authenticated User; the result holds only what the caller may read. Workflows sorted by `requestedAt` descending, paged. Every filter is optional and exact-match.'
@@ -9554,7 +9613,7 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
-      description: '`validation_error`: the body is not valid JSON; the name or `suiteId` is empty; the targets do not fit the suite''s target kind; the parameters do not match the suite''s schema; the trigger kind is unknown, a `cron` trigger has an invalid expression or time zone, or an `after-deployment` trigger has a `cron`; or the Servers belong to more than one Site.'
+      description: '`validation_error`: the body is not valid JSON; the name or `suiteId` is empty; the suite is a user suite (it runs as the User who starts it, and a scheduled run has none); the targets do not fit the suite''s target kind; the parameters do not match the suite''s schema; the trigger kind is unknown, a `cron` trigger has an invalid expression or time zone, or an `after-deployment` trigger has a `cron`; or the Servers belong to more than one Site.'
     WorkflowControlConflict:
       content:
         application/json:
@@ -17067,11 +17126,21 @@ components:
         requestedAt:
           $ref: '#/components/schemas/Timestamp'
         requestedBy:
+          description: 'Who asked: the starter''s username for a `manual` run, the deployment''s requester for a gate run, `validation-schedule` for a scheduled run.'
+          type: string
+        requestedById:
+          description: The starter's user id for a `manual` run; null for other triggers and for runs accepted before it was recorded.
+          nullable: true
           type: string
         results:
           items:
             $ref: '#/components/schemas/ValidationResult'
           type: array
+        runAs:
+          allOf:
+            - $ref: '#/components/schemas/ValidationRunAs'
+          description: The account a user suite run uses on its targets; null for a module suite run.
+          nullable: true
         siteId:
           type: string
         startedAt:
@@ -17111,9 +17180,26 @@ components:
         - counts
         - results
         - requestedBy
+        - requestedById
+        - runAs
         - requestedAt
         - startedAt
         - finishedAt
+      type: object
+    ValidationRunAs:
+      description: The account a user suite run uses on its targets.
+      properties:
+        sudo:
+          description: Whether the script runs through the account's `sudo -n`.
+          type: boolean
+        uidNumber:
+          type: integer
+        username:
+          type: string
+      required:
+        - username
+        - uidNumber
+        - sudo
       type: object
     ValidationRunCounts:
       properties:
@@ -17171,6 +17257,10 @@ components:
           type: array
         suiteId:
           type: string
+        suiteRevision:
+          description: The user suite revision the caller reviewed; the run is refused (409) when the suite is no longer at it. Without it the current revision runs. Not accepted for a module suite.
+          minimum: 1
+          type: integer
       required:
         - suiteId
       type: object
@@ -17237,7 +17327,17 @@ components:
         requestedAt:
           $ref: '#/components/schemas/Timestamp'
         requestedBy:
+          description: 'Who asked: the starter''s username for a `manual` run, the deployment''s requester for a gate run, `validation-schedule` for a scheduled run.'
           type: string
+        requestedById:
+          description: The starter's user id for a `manual` run; null for other triggers and for runs accepted before it was recorded.
+          nullable: true
+          type: string
+        runAs:
+          allOf:
+            - $ref: '#/components/schemas/ValidationRunAs'
+          description: The account a user suite run uses on its targets; null for a module suite run.
+          nullable: true
         siteId:
           type: string
         startedAt:
@@ -17277,6 +17377,8 @@ components:
         - verdict
         - counts
         - requestedBy
+        - requestedById
+        - runAs
         - requestedAt
         - startedAt
         - finishedAt
@@ -17494,6 +17596,11 @@ components:
             - $ref: '#/components/schemas/Timestamp'
           nullable: true
         createdBy:
+          description: The author's username as it was at creation, for display.
+          nullable: true
+          type: string
+        createdById:
+          description: The author's user id, which decides who may replace and retire the suite; null for a module suite and for a user suite whose author could not be identified.
           nullable: true
           type: string
         description:
@@ -17529,13 +17636,6 @@ components:
         revision:
           nullable: true
           type: integer
-        runAs:
-          enum:
-            - automation-user
-            - root
-            - null
-          nullable: true
-          type: string
         script:
           nullable: true
           type: string
@@ -17547,6 +17647,18 @@ components:
             - module
             - user
           type: string
+        starterLevel:
+          description: The least Pool Role a User needs on every target to start the suite. A module suite's is null and behaves as `owner`.
+          enum:
+            - owner
+            - member
+            - null
+          nullable: true
+          type: string
+        sudo:
+          description: Whether the starter runs the script through `sudo -n`, so only on targets where the starter has passwordless sudo.
+          nullable: true
+          type: boolean
         target:
           $ref: '#/components/schemas/ValidationTargetKind'
         timeoutSeconds:
@@ -17569,7 +17681,8 @@ components:
         - parameters
         - budgetSeconds
         - script
-        - runAs
+        - sudo
+        - starterLevel
         - timeoutSeconds
         - revision
         - scriptSha256
@@ -17578,6 +17691,7 @@ components:
         - createdAt
         - updatedAt
         - createdBy
+        - createdById
       type: object
     ValidationSuiteList:
       properties:
@@ -17606,6 +17720,45 @@ components:
         - id
         - version
       type: object
+    ValidationSuiteRevision:
+      description: One kept revision of a user suite, immutable.
+      properties:
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        impact:
+          enum:
+            - observe
+            - workload
+            - disruptive
+          type: string
+        revision:
+          type: integer
+        script:
+          type: string
+        scriptSha256:
+          type: string
+        starterLevel:
+          enum:
+            - owner
+            - member
+          type: string
+        sudo:
+          type: boolean
+        suiteId:
+          type: string
+        timeoutSeconds:
+          type: integer
+      required:
+        - suiteId
+        - revision
+        - script
+        - scriptSha256
+        - sudo
+        - starterLevel
+        - timeoutSeconds
+        - impact
+        - createdAt
+      type: object
     ValidationTargetKind:
       enum:
         - servers
@@ -17631,15 +17784,23 @@ components:
           type: string
         name:
           type: string
-        runAs:
-          default: automation-user
-          enum:
-            - automation-user
-            - root
-          type: string
+        revision:
+          description: On a replace, the revision the write expects (optional); ignored on create.
+          minimum: 1
+          type: integer
         script:
           description: At most 64 KiB; run with its own interpreter line, or under /bin/sh without one.
           type: string
+        starterLevel:
+          default: owner
+          enum:
+            - owner
+            - member
+          type: string
+        sudo:
+          default: false
+          description: Run the script through the starter's passwordless sudo (`sudo -n`).
+          type: boolean
         timeoutSeconds:
           default: 600
           maximum: 3600

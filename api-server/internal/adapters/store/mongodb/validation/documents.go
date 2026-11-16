@@ -5,6 +5,7 @@
 package validation
 
 import (
+	"fmt"
 	"reflect"
 	"time"
 
@@ -23,13 +24,18 @@ var registry = func() *bsoncodec.Registry {
 	return r
 }()
 
+// suiteDoc is a stored user suite. Suites written before user suites ran as their starter have no
+// sudo or starterLevel and carry the retired field runAs instead; toSuite maps it at read time
+// (legacyRunAsSudo), and the next write replaces the document without it.
 type suiteDoc struct {
 	ID             string    `bson:"_id"`
 	Name           string    `bson:"name"`
 	Description    string    `bson:"description,omitempty"`
 	Script         string    `bson:"script"`
 	ScriptSHA256   string    `bson:"scriptSha256"`
-	RunAs          string    `bson:"runAs"`
+	Sudo           *bool     `bson:"sudo,omitempty"`
+	StarterLevel   string    `bson:"starterLevel,omitempty"`
+	LegacyRunAs    string    `bson:"runAs,omitempty"`
 	TimeoutSeconds int       `bson:"timeoutSeconds"`
 	Impact         string    `bson:"impact"`
 	Revision       int       `bson:"revision"`
@@ -37,33 +43,88 @@ type suiteDoc struct {
 	CreatedAt      time.Time `bson:"createdAt"`
 	UpdatedAt      time.Time `bson:"updatedAt"`
 	CreatedBy      string    `bson:"createdBy,omitempty"`
+	CreatedByID    string    `bson:"createdById,omitempty"`
 }
 
+// legacyRunAsRoot is the stored runAs that ran a script as root; it reads as sudo, every other value
+// (the automation user) as no sudo.
+const legacyRunAsRoot = "root"
+
+func legacyRunAsSudo(runAs string) bool { return runAs == legacyRunAsRoot }
+
 func toSuiteDoc(suite validationdomain.Suite) suiteDoc {
+	sudo := suite.Sudo
 	return suiteDoc{
 		ID: suite.ID, Name: suite.Name, Description: suite.Description, Script: suite.Script, ScriptSHA256: suite.ScriptSHA256,
-		RunAs: string(suite.RunAs), TimeoutSeconds: suite.TimeoutSeconds, Impact: string(suite.Impact),
+		Sudo: &sudo, StarterLevel: string(suite.StarterLevel), TimeoutSeconds: suite.TimeoutSeconds, Impact: string(suite.Impact),
 		Revision: suite.Revision, Retired: suite.Retired, CreatedAt: suite.CreatedAt, UpdatedAt: suite.UpdatedAt,
-		CreatedBy: suite.CreatedBy,
+		CreatedBy: suite.CreatedBy, CreatedByID: suite.CreatedByID,
 	}
+}
+
+// sudo is the suite's sudo: the stored value, or the legacy runAs mapped for a suite written before.
+func (doc suiteDoc) sudo() bool {
+	if doc.Sudo != nil {
+		return *doc.Sudo
+	}
+	return legacyRunAsSudo(doc.LegacyRunAs)
 }
 
 // toSuite rebuilds a user suite; the domain's NewUserSuite derives the fields it does not store
-// (target, the script check, the budget), so one rule produces both.
+// (target, the script check, the budget) and the defaults of fields an older document lacks (a
+// missing starterLevel is owner), so one rule produces both.
 func toSuite(doc suiteDoc) validationdomain.Suite {
+	author := validationdomain.Author{UserID: doc.CreatedByID, Username: doc.CreatedBy}
 	suite, err := validationdomain.NewUserSuite(doc.ID, validationdomain.UserSuiteInput{
-		Name: doc.Name, Description: doc.Description, Script: doc.Script, RunAs: validationdomain.RunAs(doc.RunAs),
-		TimeoutSeconds: doc.TimeoutSeconds, Impact: validationdomain.Impact(doc.Impact),
-	}, doc.CreatedBy, doc.CreatedAt)
+		Name: doc.Name, Description: doc.Description, Script: doc.Script, Sudo: doc.sudo(),
+		StarterLevel: validationdomain.StarterLevel(doc.StarterLevel), TimeoutSeconds: doc.TimeoutSeconds,
+		Impact: validationdomain.Impact(doc.Impact),
+	}, author, doc.CreatedAt)
 	if err != nil {
 		// A stored suite always passed the same rule; keep what is stored readable regardless.
 		suite = validationdomain.Suite{ID: doc.ID, Source: validationdomain.SourceUser, Name: doc.Name, Script: doc.Script,
-			RunAs: validationdomain.RunAs(doc.RunAs), TimeoutSeconds: doc.TimeoutSeconds, Impact: validationdomain.Impact(doc.Impact),
-			Target: validationdomain.TargetServers}
+			Sudo: doc.sudo(), StarterLevel: validationdomain.StarterLevel(doc.StarterLevel), TimeoutSeconds: doc.TimeoutSeconds,
+			Impact: validationdomain.Impact(doc.Impact), Target: validationdomain.TargetServers}
 	}
 	suite.ScriptSHA256, suite.Revision, suite.Retired = doc.ScriptSHA256, doc.Revision, doc.Retired
-	suite.CreatedAt, suite.UpdatedAt, suite.CreatedBy = doc.CreatedAt, doc.UpdatedAt, doc.CreatedBy
+	suite.CreatedAt, suite.UpdatedAt, suite.CreatedBy, suite.CreatedByID = doc.CreatedAt, doc.UpdatedAt, doc.CreatedBy, doc.CreatedByID
 	return suite
+}
+
+// suiteRevisionDoc is one kept revision (collection validation_suite_revisions). Its _id is
+// revisionDocID, so a second document for the same revision is a duplicate key.
+type suiteRevisionDoc struct {
+	ID             string    `bson:"_id"`
+	SuiteID        string    `bson:"suiteId"`
+	Revision       int       `bson:"revision"`
+	Script         string    `bson:"script"`
+	ScriptSHA256   string    `bson:"scriptSha256"`
+	Sudo           bool      `bson:"sudo"`
+	StarterLevel   string    `bson:"starterLevel"`
+	TimeoutSeconds int       `bson:"timeoutSeconds"`
+	Impact         string    `bson:"impact"`
+	CreatedAt      time.Time `bson:"createdAt"`
+}
+
+// revisionDocID is the _id of a suite's revision: unique per (suite, revision) without an index.
+func revisionDocID(suiteID string, revision int) string {
+	return fmt.Sprintf("%s/%d", suiteID, revision)
+}
+
+func toSuiteRevisionDoc(revision validationdomain.SuiteRevision) suiteRevisionDoc {
+	return suiteRevisionDoc{
+		ID: revisionDocID(revision.SuiteID, revision.Revision), SuiteID: revision.SuiteID, Revision: revision.Revision,
+		Script: revision.Script, ScriptSHA256: revision.ScriptSHA256, Sudo: revision.Sudo, StarterLevel: string(revision.StarterLevel),
+		TimeoutSeconds: revision.TimeoutSeconds, Impact: string(revision.Impact), CreatedAt: revision.CreatedAt,
+	}
+}
+
+func toSuiteRevision(doc suiteRevisionDoc) validationdomain.SuiteRevision {
+	return validationdomain.SuiteRevision{
+		SuiteID: doc.SuiteID, Revision: doc.Revision, Script: doc.Script, ScriptSHA256: doc.ScriptSHA256, Sudo: doc.Sudo,
+		StarterLevel: validationdomain.StarterLevel(doc.StarterLevel), TimeoutSeconds: doc.TimeoutSeconds,
+		Impact: validationdomain.Impact(doc.Impact), CreatedAt: doc.CreatedAt,
+	}
 }
 
 type runSuiteDoc struct {
@@ -117,24 +178,33 @@ type resultDoc struct {
 }
 
 type runDoc struct {
-	ID           string         `bson:"_id"`
-	SiteID       string         `bson:"siteId"`
-	Suite        runSuiteDoc    `bson:"suite"`
-	Checks       []checkDoc     `bson:"checks"`
-	Target       targetDoc      `bson:"target"`
-	Parameters   map[string]any `bson:"parameters,omitempty"`
-	Mode         string         `bson:"mode"`
-	Trigger      triggerDoc     `bson:"trigger"`
-	WorkflowID   string         `bson:"workflowId"`
-	Status       string         `bson:"status"`
-	StatusReason string         `bson:"statusReason,omitempty"`
-	Verdict      string         `bson:"verdict,omitempty"`
-	Results      []resultDoc    `bson:"results"`
-	RequestedBy  string         `bson:"requestedBy,omitempty"`
-	RequestedAt  time.Time      `bson:"requestedAt"`
-	StartedAt    *time.Time     `bson:"startedAt,omitempty"`
-	FinishedAt   *time.Time     `bson:"finishedAt,omitempty"`
-	ExpiresAt    time.Time      `bson:"expiresAt"`
+	ID            string         `bson:"_id"`
+	SiteID        string         `bson:"siteId"`
+	Suite         runSuiteDoc    `bson:"suite"`
+	Checks        []checkDoc     `bson:"checks"`
+	Target        targetDoc      `bson:"target"`
+	Parameters    map[string]any `bson:"parameters,omitempty"`
+	Mode          string         `bson:"mode"`
+	Trigger       triggerDoc     `bson:"trigger"`
+	WorkflowID    string         `bson:"workflowId"`
+	Status        string         `bson:"status"`
+	StatusReason  string         `bson:"statusReason,omitempty"`
+	Verdict       string         `bson:"verdict,omitempty"`
+	Results       []resultDoc    `bson:"results"`
+	RequestedBy   string         `bson:"requestedBy,omitempty"`
+	RequestedByID string         `bson:"requestedById,omitempty"`
+	RunAs         *runAsDoc      `bson:"runAs,omitempty"`
+	RequestedAt   time.Time      `bson:"requestedAt"`
+	StartedAt     *time.Time     `bson:"startedAt,omitempty"`
+	FinishedAt    *time.Time     `bson:"finishedAt,omitempty"`
+	ExpiresAt     time.Time      `bson:"expiresAt"`
+}
+
+// runAsDoc is the account a user suite run uses on its targets.
+type runAsDoc struct {
+	Username  string `bson:"username"`
+	UIDNumber int    `bson:"uidNumber"`
+	Sudo      bool   `bson:"sudo"`
 }
 
 func toRunDoc(run validationdomain.Run) runDoc {
@@ -147,8 +217,11 @@ func toRunDoc(run validationdomain.Run) runDoc {
 		Parameters: run.Parameters, Mode: string(run.Mode),
 		Trigger:    triggerDoc{Kind: string(run.Trigger.Kind), ScheduleID: run.Trigger.ScheduleID, WorkflowID: run.Trigger.WorkflowID},
 		WorkflowID: run.WorkflowID, Status: string(run.Status), StatusReason: run.StatusReason, Verdict: string(run.Verdict),
-		Results: []resultDoc{}, RequestedBy: run.RequestedBy, RequestedAt: run.RequestedAt,
+		Results: []resultDoc{}, RequestedBy: run.RequestedBy, RequestedByID: run.RequestedByID, RequestedAt: run.RequestedAt,
 		StartedAt: run.StartedAt, FinishedAt: run.FinishedAt, ExpiresAt: run.ExpiresAt,
+	}
+	if run.RunAs != nil {
+		doc.RunAs = &runAsDoc{Username: run.RunAs.Username, UIDNumber: run.RunAs.UIDNumber, Sudo: run.RunAs.Sudo}
 	}
 	for _, check := range run.Checks {
 		doc.Checks = append(doc.Checks, checkDoc{ID: check.ID, Title: check.Title, Description: check.Description, Gating: check.Gating})
@@ -177,8 +250,11 @@ func toRun(doc runDoc) validationdomain.Run {
 		Trigger: validationdomain.Trigger{Kind: validationdomain.TriggerKind(doc.Trigger.Kind), ScheduleID: doc.Trigger.ScheduleID,
 			WorkflowID: doc.Trigger.WorkflowID},
 		WorkflowID: doc.WorkflowID, Status: validationdomain.Status(doc.Status), StatusReason: doc.StatusReason,
-		Verdict: validationdomain.Verdict(doc.Verdict), RequestedBy: doc.RequestedBy, RequestedAt: doc.RequestedAt,
-		StartedAt: doc.StartedAt, FinishedAt: doc.FinishedAt, ExpiresAt: doc.ExpiresAt,
+		Verdict: validationdomain.Verdict(doc.Verdict), RequestedBy: doc.RequestedBy, RequestedByID: doc.RequestedByID,
+		RequestedAt: doc.RequestedAt, StartedAt: doc.StartedAt, FinishedAt: doc.FinishedAt, ExpiresAt: doc.ExpiresAt,
+	}
+	if doc.RunAs != nil {
+		run.RunAs = &validationdomain.RunAccount{Username: doc.RunAs.Username, UIDNumber: doc.RunAs.UIDNumber, Sudo: doc.RunAs.Sudo}
 	}
 	for _, check := range doc.Checks {
 		run.Checks = append(run.Checks, validationdomain.Check{ID: check.ID, Title: check.Title, Description: check.Description, Gating: check.Gating})

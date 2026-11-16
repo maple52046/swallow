@@ -602,7 +602,8 @@ func assembleAPI(ctx context.Context, cfg config.APIConfig, modules composedModu
 	validationService, err := newValidationService(validationDeps{
 		db: db, transactor: transactor, modules: modules, operations: operationService, orchestrations: orchestrationService,
 		servers: serverRepo, platforms: platformRepo, lifecycle: lifecycleReader, retention: cfg.ValidationRunRetention,
-		ntpServer: cfg.NTPServer,
+		ntpServer: cfg.NTPServer, directoryConfigured: cfg.Directory.Configured(), access: accessRepos,
+		assignments: softwareAssignmentRepo,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("validation service: %w", err)
@@ -1229,17 +1230,21 @@ func registerRoutes(app *fiber.App, deps routeDeps) {
 	monitoring.Get("/metrics/names", route(deps.monitoring.MetricNames)...)
 
 	// Validation (contract validation.md, decision 081): suites, runs executed as Workflows, and
-	// schedules.
+	// schedules. Any User writes user suites; who may replace or retire one (its author, or an admin
+	// for a retire) depends on the suite, so the use case decides it. Starting and canceling a run
+	// need Pool read on its targets here; the use case adds the suite's starter level and the
+	// starter's account (start) and the run's starter or Pool operate (cancel).
 	validation := v1.Group("/validation")
 	validation.Get("/suites", route(deps.validation.ListSuites)...)
-	validation.Post("/suites", adminRoute(deps.validation.CreateSuite)...)
+	validation.Post("/suites", route(deps.validation.CreateSuite)...)
 	validation.Get("/suites/:suiteId", route(deps.validation.GetSuite)...)
-	validation.Put("/suites/:suiteId", adminRoute(deps.validation.ReplaceSuite)...)
-	validation.Delete("/suites/:suiteId", adminRoute(deps.validation.DeleteSuite)...)
+	validation.Put("/suites/:suiteId", route(deps.validation.ReplaceSuite)...)
+	validation.Delete("/suites/:suiteId", route(deps.validation.DeleteSuite)...)
+	validation.Get("/suites/:suiteId/revisions/:revision", route(deps.validation.GetSuiteRevision)...)
 	validation.Get("/runs", route(deps.validation.ListRuns)...)
 	validation.Post("/runs", route(deps.validation.StartRun, g.Custom(validationStartCheck))...)
 	validation.Get("/runs/:runId", route(deps.validation.GetRun, g.Custom(deps.validationRuns.check(accessdomain.Read)))...)
-	validation.Post("/runs/:runId/cancel", route(deps.validation.CancelRun, g.Custom(deps.validationRuns.check(accessdomain.Operate)))...)
+	validation.Post("/runs/:runId/cancel", route(deps.validation.CancelRun, g.Custom(deps.validationRuns.check(accessdomain.Read)))...)
 	validation.Get("/schedules", adminRoute(deps.validation.ListSchedules)...)
 	validation.Post("/schedules", adminRoute(deps.validation.CreateSchedule)...)
 	validation.Get("/schedules/:scheduleId", adminRoute(deps.validation.GetSchedule)...)

@@ -98,7 +98,11 @@ import (
 // `default` is merged into one, every other Pool is deleted with its memberships, Sudo Policy, and
 // the placements that named it, and Pools lose their Site, generation, and status. It needs backup
 // confirmation when it would delete a Pool.
-const CurrentSchemaVersion = 16
+//
+// v17 lets every User write and share user Validation Suites: each user suite gets its author's user
+// id, matched by its recorded username (none when no User has that name, which reads as a deleted
+// author), and its current revision becomes its first kept revision.
+const CurrentSchemaVersion = 17
 
 // OldestUpgradableSchemaVersion is the oldest schema Migrate upgrades from; an older database
 // has no supported upgrade path. A release's manifest lists every schema from this one up to
@@ -279,6 +283,11 @@ func Migrate(ctx context.Context, db *mongo.Database, backupConfirmed ...bool) e
 				return fmt.Errorf("migrate schema v15 to v16: %w", err)
 			}
 			state.Version = 16
+		case 16:
+			if err := migrateV16ToV17(ctx, db); err != nil {
+				return fmt.Errorf("migrate schema v16 to v17: %w", err)
+			}
+			state.Version = 17
 		default:
 			return fmt.Errorf("database schema version %d has no supported upgrade path", state.Version)
 		}

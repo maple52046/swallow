@@ -69,7 +69,8 @@ func (s *Service) DeleteSchedule(ctx context.Context, id string) error {
 }
 
 // checkScheduleSpec normalizes the spec and checks it against the suite and the targets: the suite
-// exists and is not retired, the parameters match it, and the targets fit its kind and exist (a
+// exists, is a module suite (a user suite runs as the User who starts it, and a scheduled run has
+// none), and is not retired, the parameters match it, and the targets fit its kind and exist (a
 // target that is not runnable right now is accepted: each occurrence checks again).
 func (s *Service) checkScheduleSpec(ctx context.Context, spec validationdomain.ScheduleSpec) (validationdomain.ScheduleSpec, string, error) {
 	spec, err := spec.Normalize()
@@ -82,6 +83,10 @@ func (s *Service) checkScheduleSpec(ctx context.Context, spec validationdomain.S
 	}
 	if suite.Retired {
 		return validationdomain.ScheduleSpec{}, "", fmt.Errorf("%w: suite %s is retired", validationdomain.ErrSuiteNotFound, suite.ID)
+	}
+	if suite.Source == validationdomain.SourceUser {
+		return validationdomain.ScheduleSpec{}, "", fmt.Errorf("%w: a schedule cannot run user suite %s: it runs as the User who starts it, and a scheduled run has none",
+			validationdomain.ErrInvalidRequest, suite.ID)
 	}
 	if err := suite.ValidateParameters(spec.Parameters); err != nil {
 		return validationdomain.ScheduleSpec{}, "", err

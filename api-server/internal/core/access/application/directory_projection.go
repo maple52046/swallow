@@ -82,7 +82,8 @@ type ProjectionInput struct {
 //     those whose Platform limit allows member sudo). Admins appear only in their own rule, and a
 //     Server belongs to one Pool, so each User falls in one rule per host.
 //
-// It is a pure function of its input; the result is normalized.
+// A non-admin's login and sudo on each Server come from HostAccessFor, which run acceptance reads
+// too. It is a pure function of its input; the result is normalized.
 func Project(in ProjectionInput) accessdomain.DirectoryContent {
 	primary := in.Groups[groupKeyUsers]
 	usersByID := make(map[string]*authdomain.User, len(in.Users))
@@ -125,7 +126,11 @@ func Project(in ProjectionInput) accessdomain.DirectoryContent {
 		owner        bool
 		passwordless bool
 	}
+	// Each User's access to each Server of its Pools comes from HostAccessFor, the rule run acceptance
+	// also reads; the sudo rules group the Users by Pool, role, and passwordless, each rule naming the
+	// hosts where its Users have sudo.
 	sudoUsers := map[sudoKey][]string{}
+	sudoHosts := map[sudoKey][]string{}
 	for _, membership := range in.Memberships {
 		user, ok := usersByID[membership.UserID]
 		if !ok {
@@ -140,14 +145,18 @@ func Project(in ProjectionInput) accessdomain.DirectoryContent {
 			continue
 		}
 		for _, server := range serversByPool[membership.PoolID] {
-			if owner || limit(server.ID).MemberLogin {
+			access := HostAccessFor(HostAccessInput{
+				Membership: membership, Policy: in.Policies[membership.PoolID], Limit: limit(server.ID),
+				Settings: in.Settings, Server: server,
+			})
+			if access.Login {
 				hosts[user.ID] = append(hosts[user.ID], server.Names...)
 			}
-		}
-		effective := accessdomain.ResolveSudo(*membership, in.Policies[membership.PoolID])
-		if effective.Sudo {
-			key := sudoKey{poolID: membership.PoolID, owner: owner, passwordless: effective.Passwordless}
-			sudoUsers[key] = append(sudoUsers[key], user.Username)
+			if access.Sudo {
+				key := sudoKey{poolID: membership.PoolID, owner: owner, passwordless: access.Passwordless}
+				sudoUsers[key] = append(sudoUsers[key], user.Username)
+				sudoHosts[key] = append(append(sudoHosts[key], server.Names...), server.Addresses...)
+			}
 		}
 	}
 
@@ -181,21 +190,10 @@ func Project(in ProjectionInput) accessdomain.DirectoryContent {
 			accessdomain.DirectoryGroup{Name: group.Name, GIDNumber: group.GIDNumber, Members: poolEveryone[pool.ID]},
 			accessdomain.DirectoryGroup{Name: owners.Name, GIDNumber: owners.GIDNumber, Members: poolOwners[pool.ID]},
 		)
-		var ownerHosts, memberHosts []string
-		for _, server := range serversByPool[pool.ID] {
-			names := append(append([]string(nil), server.Names...), server.Addresses...)
-			ownerHosts = append(ownerHosts, names...)
-			if limit(server.ID).MemberSudo {
-				memberHosts = append(memberHosts, names...)
-			}
-		}
 		for _, owner := range []bool{true, false} {
 			for _, passwordless := range []bool{false, true} {
-				users := sudoUsers[sudoKey{poolID: pool.ID, owner: owner, passwordless: passwordless}]
-				ruleHosts := memberHosts
-				if owner {
-					ruleHosts = ownerHosts
-				}
+				key := sudoKey{poolID: pool.ID, owner: owner, passwordless: passwordless}
+				users, ruleHosts := sudoUsers[key], sudoHosts[key]
 				if len(users) == 0 || len(ruleHosts) == 0 {
 					continue
 				}

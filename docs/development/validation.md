@@ -103,7 +103,7 @@ user 的（`source: user`）。同一個 id 只會是其中一種：模組 suite
    - `platform` suite：Platform 存在、type 是 suite 的 `platformType`、lifecycle 是 `active`，且模組由 spec 決定的 access
      Server（`PlatformModule.AccessServers`：Slurm 是 login node，沒有時是 controller；Kubernetes 是 control-plane
      member）存在（409）。
-4. 防護：
+4. 防護（lock 與 automation 兩項在規劃 Workflow 時檢查，所以在步驟 5 之後）：
    - 目標 Server 沒有被 lock（409，與其他 Ansible Task 相同的 live 檢查）。
    - impact 是 `workload` 或 `disruptive` 的 `servers` suite，不接受被 Platform Claim 的 Server（409，提示改用該
      Platform 的 suite），因為它會和 Platform 的 workload 搶資源。

@@ -386,19 +386,21 @@ func metricScopeCheck(c *fiber.Ctx, v *accessdelivery.Visibility) error {
 	return nil
 }
 
-// validationStartCheck admits starting a Validation Run the caller may operate: every target
-// Server, or the target Platform (validation.md, Authorization).
+// validationStartCheck admits starting a Validation Run on targets the caller may read: every target
+// Server, or the target Platform (contract validation.md, Authentication and Authorization). An
+// unreadable target is 404, as for any read. Whether reading is enough depends on the suite (its
+// starter level), so Service.Start checks the rest.
 func validationStartCheck(c *fiber.Ctx, v *accessdelivery.Visibility) error {
 	var request struct {
 		ServerIDs  []string `json:"serverIds"`
 		PlatformID string   `json:"platformId"`
 	}
 	_ = json.Unmarshal(c.Body(), &request) // An unreadable body names no target; the handler answers 400.
-	if err := v.RequireServers(c.UserContext(), accessdomain.Operate, request.ServerIDs); err != nil {
+	if err := v.RequireServers(c.UserContext(), accessdomain.Read, request.ServerIDs); err != nil {
 		return err
 	}
 	if request.PlatformID != "" {
-		return v.RequirePlatform(c.UserContext(), accessdomain.Operate, request.PlatformID)
+		return v.RequirePlatform(c.UserContext(), accessdomain.Read, request.PlatformID)
 	}
 	return nil
 }

@@ -82,6 +82,26 @@ func (v *Visibility) CanReadPlatform(ctx context.Context, platformID string) (bo
 	return allowed(v.authorizer.RequirePlatform(ctx, v.scope, accessdomain.Read, platformID))
 }
 
+// CanOperateTargets reports whether the caller may operate every Server in serverIDs and, when
+// platformID is set, that Platform, for use cases whose finer rule depends on what a route guard
+// cannot see (the starter level of a Validation Suite, the starter of a run). An admin needs no
+// lookup.
+func (v *Visibility) CanOperateTargets(ctx context.Context, serverIDs []string, platformID string) (bool, error) {
+	if v.scope.Admin {
+		return true, nil
+	}
+	if len(serverIDs) > 0 {
+		ok, err := allowed(v.authorizer.RequireServers(ctx, v.scope, accessdomain.Operate, serverIDs))
+		if err != nil || !ok {
+			return false, err
+		}
+	}
+	if platformID != "" {
+		return allowed(v.authorizer.RequirePlatform(ctx, v.scope, accessdomain.Operate, platformID))
+	}
+	return len(serverIDs) > 0, nil
+}
+
 // RequireServers checks access to every Server in ids, returning the Authorizer's error.
 func (v *Visibility) RequireServers(ctx context.Context, access accessdomain.Access, ids []string) error {
 	return v.authorizer.RequireServers(ctx, v.scope, access, ids)

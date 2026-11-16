@@ -29,6 +29,9 @@ const (
 	ReasonScheduleDisabled = "disabled"
 	ReasonSuiteMissing     = "suite_missing"
 	ReasonTargetMissing    = "target_missing"
+	// ReasonUserSuiteUnsupported marks a schedule written before schedules refused user suites: a
+	// user suite runs as the User who starts it, and a scheduled run has none.
+	ReasonUserSuiteUnsupported = "user_suite_unsupported"
 )
 
 // Deployments reads the latest deployment of a schedule's target as a key that changes with each one:
@@ -168,7 +171,8 @@ func (c *ScheduleController) next(ctx context.Context, schedule validationdomain
 	return c.occur(ctx, schedule, status, now)
 }
 
-// missing reports why the schedule cannot start runs: its suite was retired or its target is gone.
+// missing reports why the schedule cannot start runs: its suite was retired, is a user suite, or its
+// target is gone.
 func (c *ScheduleController) missing(ctx context.Context, spec validationdomain.ScheduleSpec) (string, string, error) {
 	suite, err := c.service.catalog.Get(ctx, spec.SuiteID)
 	if errors.Is(err, validationdomain.ErrSuiteNotFound) || err == nil && suite.Retired {
@@ -176,6 +180,9 @@ func (c *ScheduleController) missing(ctx context.Context, spec validationdomain.
 	}
 	if err != nil {
 		return "", "", err
+	}
+	if suite.Source == validationdomain.SourceUser {
+		return ReasonUserSuiteUnsupported, fmt.Sprintf("Suite %s is a user suite, which runs as the User who starts it; a schedule cannot run it.", spec.SuiteID), nil
 	}
 	if spec.PlatformID != "" {
 		if _, err := c.service.targets.Platform(ctx, spec.PlatformID); errors.Is(err, validationdomain.ErrTargetNotFound) {

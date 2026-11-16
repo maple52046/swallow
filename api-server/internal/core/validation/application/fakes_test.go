@@ -59,6 +59,51 @@ func (f *fakeCanceler) CancelWorkflow(_ context.Context, workflowID, _ string) e
 	return nil
 }
 
+// fakeOperator is a TargetAuthorizer for a caller who operates exactly the listed Servers and
+// Platforms.
+type fakeOperator struct {
+	operates map[string]bool
+}
+
+func (f fakeOperator) OperatesTargets(_ context.Context, serverIDs []string, platformID string) (bool, error) {
+	for _, id := range serverIDs {
+		if !f.operates[id] {
+			return false, nil
+		}
+	}
+	if platformID != "" && !f.operates[platformID] {
+		return false, nil
+	}
+	return len(serverIDs) > 0 || platformID != "", nil
+}
+
+// operator returns an Actor that operates ids.
+func operator(userID, username string, ids ...string) Actor {
+	operates := map[string]bool{}
+	for _, id := range ids {
+		operates[id] = true
+	}
+	return Actor{UserID: userID, Username: username, Targets: fakeOperator{operates: operates}}
+}
+
+// fakeStarters serves fixed accounts by user id; an unknown User is ErrRunForbidden.
+type fakeStarters struct {
+	accounts map[string]StarterAccount
+}
+
+func (f fakeStarters) StarterAccount(_ context.Context, userID string, serverIDs []string) (StarterAccount, error) {
+	account, ok := f.accounts[userID]
+	if !ok {
+		return StarterAccount{}, validationdomain.ErrRunForbidden
+	}
+	hosts := map[string]StarterHost{}
+	for _, id := range serverIDs {
+		hosts[id] = account.Hosts[id]
+	}
+	account.Hosts = hosts
+	return account, nil
+}
+
 func moduleSuite(id string, target validationdomain.TargetKind, impact validationdomain.Impact) validationdomain.Suite {
 	suite := validationdomain.Suite{
 		ID: id, Source: validationdomain.SourceModule, Name: id, Target: target, Impact: impact, BudgetSeconds: 600,

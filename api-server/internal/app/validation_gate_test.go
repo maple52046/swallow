@@ -22,6 +22,9 @@ type gateTestLauncher struct{ validationapp.RunLauncher }
 
 type gateTestCanceler struct{ validationapp.WorkflowCanceler }
 
+// gateTestStarters is never asked: a gate composes only module suites.
+type gateTestStarters struct{ validationapp.StarterAccess }
+
 // testValidationGate is a gate over the build's suites with an in-memory run store.
 func testValidationGate(t *testing.T) (*validationGate, *validationtest.Runs) {
 	t.Helper()
@@ -37,7 +40,7 @@ func testValidationGate(t *testing.T) (*validationGate, *validationtest.Runs) {
 	}
 	service, err := validationapp.NewService(validationapp.ServiceDeps{
 		Transactor: &storetest.Transactor{}, Catalog: catalog, Users: users, Runs: runs, Schedules: validationtest.NewSchedules(),
-		Targets: gateTestTargets{}, Launcher: gateTestLauncher{}, Canceler: gateTestCanceler{},
+		Targets: gateTestTargets{}, Starters: gateTestStarters{}, Launcher: gateTestLauncher{}, Canceler: gateTestCanceler{},
 	})
 	if err != nil {
 		t.Fatal(err)

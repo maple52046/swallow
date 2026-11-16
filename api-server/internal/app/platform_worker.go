@@ -85,7 +85,8 @@ func workerPlatformOperations(
 	validation, err := newValidationService(validationDeps{
 		db: db, transactor: transactor, modules: modules, operations: operations, orchestrations: orchestrations,
 		servers: deps.servers, platforms: deps.platforms, lifecycle: lifecycle, retention: cfg.ValidationRunRetention,
-		ntpServer: cfg.NTPServer,
+		ntpServer: cfg.NTPServer, directoryConfigured: cfg.Directory.Configured(), access: accessRepos,
+		assignments: deps.software,
 	})
 	if err != nil {
 		return platformOperations{}, fmt.Errorf("validation service: %w", err)

@@ -24,10 +24,15 @@ func testValidationLauncher(t *testing.T) validationLauncher {
 }
 
 // testLaunchRequest is a report run of suite: on Servers s1 and s2, or on a Platform of the suite's
-// type entered through login with compute member c1.
+// type entered through login with compute member c1. A user suite's run records its script and runs
+// as alice, as Service.Start records them.
 func testLaunchRequest(suite validationdomain.Suite) validationapp.LaunchRequest {
 	run := validationdomain.Run{ID: "run-1", SiteID: "site-1", Checks: suite.Checks, Mode: validationdomain.ModeReport,
 		RequestedBy: "admin", Target: validationdomain.Target{Kind: suite.Target, ServerIDs: []string{"s1", "s2"}}}
+	if suite.Source == validationdomain.SourceUser {
+		run.Suite = validationdomain.RunSuite{ID: suite.ID, Source: suite.Source, Revision: suite.Revision, ScriptSHA256: suite.ScriptSHA256, Script: suite.Script}
+		run.RequestedByID, run.RunAs = "user-alice", &validationdomain.RunAccount{Username: "alice", UIDNumber: 10005}
+	}
 	request := validationapp.LaunchRequest{Run: run, Suite: suite}
 	if suite.Target == validationdomain.TargetPlatform {
 		request.Run.Target = validationdomain.Target{Kind: suite.Target, PlatformID: "p-1", ServerIDs: []string{"login"},
@@ -62,6 +67,33 @@ func TestModuleSuitesCarryTheirExperimentalFlag(t *testing.T) {
 	}
 }
 
+// A user suite's playbook gets the script the run recorded and the account the run uses, never an
+// account the suite names; a module suite's gets neither.
+func TestUserSuiteVarsCarryTheRunsAccount(t *testing.T) {
+	user, err := validationdomain.NewUserSuite("u-1", validationdomain.UserSuiteInput{Name: "id", Script: "#!/bin/sh\nid\n", Sudo: true},
+		validationdomain.Author{UserID: "user-bob", Username: "bob"}, time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := validationdomain.Run{ID: "r-1", Mode: validationdomain.ModeReport, RequestedByID: "user-alice",
+		Suite:  validationdomain.RunSuite{ID: user.ID, Source: validationdomain.SourceUser, Revision: 1, Script: user.Script},
+		RunAs:  &validationdomain.RunAccount{Username: "alice", UIDNumber: 10005, Sudo: true},
+		Target: validationdomain.Target{Kind: validationdomain.TargetServers, ServerIDs: []string{"s-1"}}}
+	vars := validationVars(run, user, nil)
+	requester, _ := vars["swallow_validation_requester"].(map[string]any)
+	if requester["userId"] != "user-alice" || requester["username"] != "alice" || requester["uidNumber"] != 10005 ||
+		vars["swallow_validation_sudo"] != true || vars["swallow_validation_script"] != user.Script || vars["swallow_validation_timeout_seconds"] != 600 {
+		t.Errorf("user suite vars = %v", vars)
+	}
+	module := validationdomain.Suite{ID: "host-baseline", Source: validationdomain.SourceModule}
+	vars = validationVars(validationdomain.Run{ID: "r-2", Mode: validationdomain.ModeReport}, module, nil)
+	for _, key := range []string{"swallow_validation_requester", "swallow_validation_sudo", "swallow_validation_script"} {
+		if _, ok := vars[key]; ok {
+			t.Errorf("module suite vars carry %s", key)
+		}
+	}
+}
+
 // Every suite the build declares, and a user suite, plans a report run the plan catalog accepts: SSH
 // readiness first, the suite's check Tasks each recording results and projecting the run, and the
 // final complete-validation Task after all of them; unattended, within the suite's budget, and
@@ -73,7 +105,7 @@ func TestEverySuitePlansAnAcceptableReportRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	user, err := validationdomain.NewUserSuite("u-1", validationdomain.UserSuiteInput{Name: "mounts", Script: "#!/bin/sh\nexit 0\n"},
-		"admin", time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC))
+		validationdomain.Author{UserID: "user-alice", Username: "alice"}, time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -26,7 +26,8 @@ const (
 	// SourceModule is a suite an Extension Module declares (swallow-defined); it cannot be changed
 	// through the API.
 	SourceModule Source = "module"
-	// SourceUser is a script an admin wrote, judged by its exit code.
+	// SourceUser is a script a User wrote (its author), judged by its exit code and run on each target
+	// as the account of the User who starts the run.
 	SourceUser Source = "user"
 )
 
@@ -69,16 +70,21 @@ func (i Impact) Preemptible() bool {
 	return i != ImpactDisruptive
 }
 
-// RunAs is the account a user suite's script runs as.
-type RunAs string
+// StarterLevel is the least Pool Role a User needs on every target of a run to start a suite
+// (glossary Validation Suite). Its values are the Pool Role values; an admin satisfies both.
+type StarterLevel string
 
-// The accounts.
+// The starter levels.
 const (
-	// RunAsAutomationUser runs the script as the account automation logs in as.
-	RunAsAutomationUser RunAs = "automation-user"
-	// RunAsRoot runs it through become.
-	RunAsRoot RunAs = "root"
+	// StarterOwner requires Pool operate on every target: the Pool's owners and admins. It is a user
+	// suite's default and what every module suite requires.
+	StarterOwner StarterLevel = "owner"
+	// StarterMember requires Pool read on every target: the Pool's owners, its members, and admins.
+	StarterMember StarterLevel = "member"
 )
+
+// Valid reports whether l is a starter level.
+func (l StarterLevel) Valid() bool { return l == StarterOwner || l == StarterMember }
 
 // Check is one Validation Check of a suite.
 type Check struct {
@@ -124,15 +130,83 @@ type Suite struct {
 	Experimental bool
 
 	// The user-suite fields.
-	Script         string
-	RunAs          RunAs
+	Script string
+	// Sudo runs the script through the starter's passwordless sudo (`sudo -n`) instead of with the
+	// starter's own rights.
+	Sudo bool
+	// StarterLevel is who may start the suite; a module suite leaves it empty and requires
+	// StarterOwner (RequiredLevel).
+	StarterLevel   StarterLevel
 	TimeoutSeconds int
 	Revision       int
 	ScriptSHA256   string
 	Retired        bool
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
-	CreatedBy      string
+	// CreatedBy is the author's username as it was at creation, kept for display after the User is
+	// deleted or the name is reused; it never decides access.
+	CreatedBy string
+	// CreatedByID is the author's user id, which decides who may replace and retire the suite (user ids
+	// are never reused, unlike usernames). Empty for a suite whose author could not be identified when
+	// the field was introduced: such a suite has no author who may replace it.
+	CreatedByID string
+}
+
+// Author is the User who writes a user suite: its id decides access, its username is kept for
+// display.
+type Author struct {
+	UserID   string
+	Username string
+}
+
+// RequiredLevel is the starter level a run of the suite requires: a user suite's own, and
+// StarterOwner for a module suite.
+func (s Suite) RequiredLevel() StarterLevel {
+	if s.Source == SourceUser && s.StarterLevel.Valid() {
+		return s.StarterLevel
+	}
+	return StarterOwner
+}
+
+// AuthoredBy reports whether userID is the suite's author. A suite without a recorded author has none,
+// so no User is its author.
+func (s Suite) AuthoredBy(userID string) bool {
+	return s.Source == SourceUser && s.CreatedByID != "" && s.CreatedByID == userID
+}
+
+// CheckRetire refuses a retire the actor may not make: a module suite cannot be retired
+// (ErrSuiteImmutable), and a user suite is retired only by its author or an admin (ErrNotSuiteAuthor).
+func (s Suite) CheckRetire(actorID string, admin bool) error {
+	if s.Source != SourceUser {
+		return fmt.Errorf("%w: module suite %s", ErrSuiteImmutable, s.ID)
+	}
+	if !admin && !s.AuthoredBy(actorID) {
+		return fmt.Errorf("%w: only the author of suite %s or an admin may retire it", ErrNotSuiteAuthor, s.ID)
+	}
+	return nil
+}
+
+// SuiteRevision is one immutable revision of a user suite: what a run of that revision executes.
+// It is written once, in the transaction that creates the revision, and never changed.
+type SuiteRevision struct {
+	SuiteID        string
+	Revision       int
+	Script         string
+	ScriptSHA256   string
+	Sudo           bool
+	StarterLevel   StarterLevel
+	TimeoutSeconds int
+	Impact         Impact
+	// CreatedAt is when the revision was saved.
+	CreatedAt time.Time
+}
+
+// CurrentRevision returns the record of the suite's current revision, saved at savedAt.
+func (s Suite) CurrentRevision(savedAt time.Time) SuiteRevision {
+	return SuiteRevision{
+		SuiteID: s.ID, Revision: s.Revision, Script: s.Script, ScriptSHA256: s.ScriptSHA256, Sudo: s.Sudo,
+		StarterLevel: s.StarterLevel, TimeoutSeconds: s.TimeoutSeconds, Impact: s.Impact, CreatedAt: savedAt,
+	}
 }
 
 // Check returns the suite's check id, or false.
@@ -175,38 +249,48 @@ const (
 // ScriptCheckID is the one check of a user suite.
 const ScriptCheckID = "script"
 
-// UserSuiteInput is what an admin writes for a user suite.
+// UserSuiteInput is what a User writes for a user suite.
 type UserSuiteInput struct {
-	Name           string
-	Description    string
-	Script         string
-	RunAs          RunAs
+	Name         string
+	Description  string
+	Script       string
+	Sudo         bool
+	StarterLevel StarterLevel
+	// TimeoutSeconds zero takes the default.
 	TimeoutSeconds int
 	Impact         Impact
 }
 
-// NewUserSuite builds revision 1 of a user suite, applying the defaults (runAs automation-user, a
-// 600-second timeout, impact workload). A malformed input is ErrInvalidRequest.
-func NewUserSuite(id string, input UserSuiteInput, createdBy string, now time.Time) (Suite, error) {
-	suite := Suite{ID: id, Source: SourceUser, Revision: 1, CreatedAt: now, UpdatedAt: now, CreatedBy: createdBy}
+// NewUserSuite builds revision 1 of a user suite written by author, applying the defaults (no sudo,
+// starter level owner, a 600-second timeout, impact workload). A malformed input is
+// ErrInvalidRequest.
+func NewUserSuite(id string, input UserSuiteInput, author Author, now time.Time) (Suite, error) {
+	suite := Suite{ID: id, Source: SourceUser, Revision: 1, CreatedAt: now, UpdatedAt: now,
+		CreatedBy: author.Username, CreatedByID: author.UserID}
 	if err := suite.apply(input); err != nil {
 		return Suite{}, err
 	}
 	return suite, nil
 }
 
-// Replace returns the suite with input applied; the revision advances when what runs changes (the
-// script, its account, its timeout, or its impact). A module suite or a retired one cannot be
-// replaced (ErrSuiteImmutable).
-func (s Suite) Replace(input UserSuiteInput, now time.Time) (Suite, error) {
+// Replace returns the suite with input applied by the User actorID. The revision advances when what
+// runs or who may run it changes (the script, sudo, the starter level, the timeout, or the impact);
+// a new name or description keeps it. A module suite or a retired one cannot be replaced
+// (ErrSuiteImmutable), and only the author may replace a user suite, an admin included
+// (ErrNotSuiteAuthor).
+func (s Suite) Replace(input UserSuiteInput, actorID string, now time.Time) (Suite, error) {
 	if s.Source != SourceUser || s.Retired {
 		return Suite{}, fmt.Errorf("%w: suite %s", ErrSuiteImmutable, s.ID)
+	}
+	if !s.AuthoredBy(actorID) {
+		return Suite{}, fmt.Errorf("%w: only the author of suite %s may change it", ErrNotSuiteAuthor, s.ID)
 	}
 	next := s
 	if err := next.apply(input); err != nil {
 		return Suite{}, err
 	}
-	if next.ScriptSHA256 != s.ScriptSHA256 || next.RunAs != s.RunAs || next.TimeoutSeconds != s.TimeoutSeconds || next.Impact != s.Impact {
+	if next.ScriptSHA256 != s.ScriptSHA256 || next.Sudo != s.Sudo || next.StarterLevel != s.StarterLevel ||
+		next.TimeoutSeconds != s.TimeoutSeconds || next.Impact != s.Impact {
 		next.Revision = s.Revision + 1
 	}
 	next.UpdatedAt = now
@@ -224,12 +308,12 @@ func (s *Suite) apply(input UserSuiteInput) error {
 	if len(input.Script) > MaxScriptBytes {
 		return fmt.Errorf("%w: script is larger than %d bytes", ErrInvalidRequest, MaxScriptBytes)
 	}
-	runAs := input.RunAs
-	if runAs == "" {
-		runAs = RunAsAutomationUser
+	level := input.StarterLevel
+	if level == "" {
+		level = StarterOwner
 	}
-	if runAs != RunAsAutomationUser && runAs != RunAsRoot {
-		return fmt.Errorf("%w: runAs must be %q or %q", ErrInvalidRequest, RunAsAutomationUser, RunAsRoot)
+	if !level.Valid() {
+		return fmt.Errorf("%w: starterLevel must be %q or %q", ErrInvalidRequest, StarterOwner, StarterMember)
 	}
 	timeout := input.TimeoutSeconds
 	if timeout == 0 {
@@ -248,7 +332,7 @@ func (s *Suite) apply(input UserSuiteInput) error {
 	digest := sha256.Sum256([]byte(input.Script))
 	s.Name, s.Description = name, strings.TrimSpace(input.Description)
 	s.Script, s.ScriptSHA256 = input.Script, hex.EncodeToString(digest[:])
-	s.RunAs, s.TimeoutSeconds, s.Impact = runAs, timeout, impact
+	s.Sudo, s.StarterLevel, s.TimeoutSeconds, s.Impact = input.Sudo, level, timeout, impact
 	s.Target = TargetServers
 	s.Checks = []Check{{ID: ScriptCheckID, Title: "Script exit code", Description: "The script exits 0."}}
 	s.BudgetSeconds = timeout + scriptBudgetMarginSeconds
@@ -265,6 +349,20 @@ var (
 	ErrSuiteImmutable = errors.New("validation suite cannot be changed")
 	// ErrSuiteInUse means a Validation Schedule names the suite being retired.
 	ErrSuiteInUse = errors.New("validation suite is used by a schedule")
+	// ErrNotSuiteAuthor means a User who is not a user suite's author tried to replace it, or one who
+	// is neither its author nor an admin tried to retire it; delivery answers 403, because every User
+	// may read the suite.
+	ErrNotSuiteAuthor = errors.New("not the author of the validation suite")
+	// ErrRevisionConflict means a write or a run named a suite revision that is no longer current: a
+	// replace raced another, a replace's precondition is stale, or a run pinned a revision the author
+	// has since changed. Delivery answers 409; the caller reads the suite again.
+	ErrRevisionConflict = errors.New("the validation suite changed since it was read")
+	// ErrRevisionNotFound means a suite has no kept revision with that number (or is a module suite).
+	ErrRevisionNotFound = errors.New("validation suite revision not found")
+	// ErrRunForbidden means the caller may read the targets but may not do what it asked: start a run
+	// below the suite's starter level, or without Host Access or sudo the suite needs on a target, or
+	// cancel a run it neither started nor operates. Delivery answers 403.
+	ErrRunForbidden = errors.New("not allowed for this validation run")
 	// ErrRunNotFound means no run has the id.
 	ErrRunNotFound = errors.New("validation run not found")
 	// ErrRunNotCancelable means the run already ended or is a gate run.

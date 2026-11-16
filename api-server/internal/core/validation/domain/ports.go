@@ -5,15 +5,26 @@ import (
 	"time"
 )
 
-// SuiteRepository stores the user-defined suites (module suites come from the build). Production
-// implementations are durable; Get returns ErrSuiteNotFound for an unknown id, retired suites
-// included in every read.
+// SuiteRepository stores the user-defined suites and their immutable revisions (module suites come
+// from the build). Production implementations are durable; Get returns ErrSuiteNotFound for an
+// unknown id, retired suites included in every read. Every write joins the caller's store transaction
+// through ctx, so a suite and its revision are written together or not at all.
 type SuiteRepository interface {
 	Create(ctx context.Context, suite Suite) error
-	// Replace writes the whole suite; ErrSuiteNotFound when it does not exist.
-	Replace(ctx context.Context, suite Suite) error
+	// Replace writes the whole suite only while the stored one is at expectedRevision and not retired:
+	// ErrSuiteNotFound when it does not exist, ErrSuiteImmutable when it was retired meanwhile, and
+	// ErrRevisionConflict when another write moved it on. It never overwrites a write it did not see.
+	Replace(ctx context.Context, suite Suite, expectedRevision int) error
+	// Retire marks the suite retired at now; retiring a retired suite succeeds, an unknown one is
+	// ErrSuiteNotFound.
+	Retire(ctx context.Context, id string, now time.Time) error
 	Get(ctx context.Context, id string) (Suite, error)
 	List(ctx context.Context, includeRetired bool) ([]Suite, error)
+	// AddRevision records one revision; a revision already recorded for the suite is
+	// ErrRevisionConflict, so a number never names two scripts.
+	AddRevision(ctx context.Context, revision SuiteRevision) error
+	// Revision returns one recorded revision, or ErrRevisionNotFound.
+	Revision(ctx context.Context, suiteID string, revision int) (SuiteRevision, error)
 }
 
 // RunFilter selects runs; every field is optional and exact-match. ServerID matches a run whose
@@ -29,12 +40,14 @@ type RunFilter struct {
 	ServerID        string
 	PlatformID      string
 	ScheduleID      string
-	Status          Status
-	Verdict         Verdict
-	Trigger         TriggerKind
-	ActiveOnly      bool
-	Offset          int
-	Limit           int
+	// RequestedByID keeps only the runs this User started (requestedBy=me).
+	RequestedByID string
+	Status        Status
+	Verdict       Verdict
+	Trigger       TriggerKind
+	ActiveOnly    bool
+	Offset        int
+	Limit         int
 }
 
 // RunRepository stores Validation Runs. Create and Save are called inside the transaction of the

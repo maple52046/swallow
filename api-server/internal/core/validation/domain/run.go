@@ -82,6 +82,15 @@ type RunSuite struct {
 	Script       string
 }
 
+// RunAccount is the Linux account a user suite run uses on its targets: the starter's Directory
+// account, matched on each host by both name and uid (a local account of the same name has another
+// uid), and whether the script runs through the starter's passwordless sudo.
+type RunAccount struct {
+	Username  string
+	UIDNumber int
+	Sudo      bool
+}
+
 // Target is what a run validates. ServerIDs are the target Servers of a servers suite, or the
 // access Servers a platform suite entered through; MemberIDs are the Platform's members at
 // acceptance, the Servers a platform suite's results may name.
@@ -153,10 +162,17 @@ type Run struct {
 	StatusReason string
 	Verdict      Verdict
 	Results      []Result
-	RequestedBy  string
-	RequestedAt  time.Time
-	StartedAt    *time.Time
-	FinishedAt   *time.Time
+	// RequestedBy names who asked: the starter's username for a manual run, the deployment's
+	// requester for a gate run, the schedule controller for a scheduled run.
+	RequestedBy string
+	// RequestedByID is the starter's user id for a manual run, empty otherwise; it, not the
+	// username, decides whether the caller is the run's starter (who may cancel it).
+	RequestedByID string
+	// RunAs is the account a user suite's script runs as on every target, nil for a module suite.
+	RunAs       *RunAccount
+	RequestedAt time.Time
+	StartedAt   *time.Time
+	FinishedAt  *time.Time
 	// ExpiresAt is when the store may delete the run (its retention).
 	ExpiresAt time.Time
 }

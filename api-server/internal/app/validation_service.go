@@ -5,9 +5,11 @@ import (
 
 	"go.mongodb.org/mongo-driver/mongo"
 
+	authstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/auth"
 	validationstore "github.com/maple52046/swallow/internal/adapters/store/mongodb/validation"
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
+	softwaredomain "github.com/maple52046/swallow/internal/core/software/domain"
 	"github.com/maple52046/swallow/internal/core/store"
 	validationapp "github.com/maple52046/swallow/internal/core/validation/application"
 	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
@@ -28,6 +30,11 @@ type validationDeps struct {
 	retention      time.Duration
 	// ntpServer is the installation's NTP server, which host checks measure the clock against.
 	ntpServer string
+	// directoryConfigured, access, and assignments answer what a User may do on a Server through the
+	// User's own account, which accepting a user suite run checks (validationStarters).
+	directoryConfigured bool
+	access              accessStores
+	assignments         softwaredomain.AssignmentRepository
 }
 
 // newValidationService builds the Validation service the API serves and the worker's schedule
@@ -51,6 +58,12 @@ func newValidationService(deps validationDeps) (*validationapp.Service, error) {
 		Transactor: deps.transactor, Catalog: catalog, Users: users, Runs: runs, Schedules: schedules,
 		Targets: validationTargets{servers: deps.servers, platforms: deps.platforms, lifecycle: deps.lifecycle,
 			modules: deps.modules.platforms},
+		Starters: validationStarters{
+			directoryConfigured: deps.directoryConfigured, users: authstore.NewMongoUserRepo(deps.db),
+			memberships: deps.access.memberships, policies: deps.access.policies, settings: deps.access.settings,
+			servers: deps.servers, assignments: deps.assignments, directoryClient: directoryClientKind(deps.modules.software),
+			limits: directoryInputs{servers: deps.servers, platforms: deps.platforms, modules: deps.modules.registry},
+		},
 		Launcher: validationLauncher{operations: deps.operations, workflows: deps.orchestrations,
 			catalog: workflowPlanCatalog(deps.modules.workflowKinds, deps.modules.software), registry: deps.modules.registry,
 			ntp: ntpStepPlanner{server: deps.ntpServer}},

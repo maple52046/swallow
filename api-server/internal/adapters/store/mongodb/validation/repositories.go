@@ -13,15 +13,24 @@ import (
 	validationdomain "github.com/maple52046/swallow/internal/core/validation/domain"
 )
 
+// The collections of the suite store.
+const (
+	suitesCollection         = "validation_suites"
+	suiteRevisionsCollection = "validation_suite_revisions"
+)
+
 // MongoSuiteRepo is the durable store of user-defined Validation Suites (collection
-// validation_suites).
+// validation_suites) and their kept revisions (collection validation_suite_revisions). Every method
+// joins the caller's transaction through ctx; the service writes a suite and its new revision in one.
 type MongoSuiteRepo struct {
-	col *mongo.Collection
+	col       *mongo.Collection
+	revisions *mongo.Collection
 }
 
-// NewMongoSuiteRepo returns the suite store.
+// NewMongoSuiteRepo returns the suite store. Neither collection needs an index: suites are read by
+// _id or listed whole, and a revision's _id is derived from its suite and number.
 func NewMongoSuiteRepo(db *mongo.Database) *MongoSuiteRepo {
-	return &MongoSuiteRepo{col: db.Collection("validation_suites")}
+	return &MongoSuiteRepo{col: db.Collection(suitesCollection), revisions: db.Collection(suiteRevisionsCollection)}
 }
 
 // Create implements validationdomain.SuiteRepository.
@@ -30,16 +39,62 @@ func (r *MongoSuiteRepo) Create(ctx context.Context, suite validationdomain.Suit
 	return err
 }
 
-// Replace implements validationdomain.SuiteRepository.
-func (r *MongoSuiteRepo) Replace(ctx context.Context, suite validationdomain.Suite) error {
-	result, err := r.col.ReplaceOne(ctx, bson.M{"_id": suite.ID}, toSuiteDoc(suite))
+// Replace implements validationdomain.SuiteRepository: one ReplaceOne conditional on the expected
+// revision and on the suite not being retired, so a concurrent replace or retire is reported, never
+// overwritten. When nothing matched, a read tells which case it was.
+func (r *MongoSuiteRepo) Replace(ctx context.Context, suite validationdomain.Suite, expectedRevision int) error {
+	result, err := r.col.ReplaceOne(ctx,
+		bson.M{"_id": suite.ID, "revision": expectedRevision, "retired": false}, toSuiteDoc(suite))
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 1 {
+		return nil
+	}
+	current, err := r.Get(ctx, suite.ID)
+	if err != nil {
+		return err
+	}
+	if current.Retired {
+		return fmt.Errorf("%w: suite %s was retired", validationdomain.ErrSuiteImmutable, suite.ID)
+	}
+	return fmt.Errorf("%w: suite %s is at revision %d, not %d", validationdomain.ErrRevisionConflict, suite.ID, current.Revision, expectedRevision)
+}
+
+// Retire implements validationdomain.SuiteRepository with a field update, so it never rewrites the
+// content a concurrent replace wrote.
+func (r *MongoSuiteRepo) Retire(ctx context.Context, id string, now time.Time) error {
+	result, err := r.col.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{"retired": true, "updatedAt": now}})
 	if err != nil {
 		return err
 	}
 	if result.MatchedCount == 0 {
-		return validationdomain.ErrSuiteNotFound
+		return fmt.Errorf("%w: %s", validationdomain.ErrSuiteNotFound, id)
 	}
 	return nil
+}
+
+// AddRevision implements validationdomain.SuiteRepository. The revision's _id is unique per (suite,
+// revision), so a second write of one number is a duplicate key, reported as ErrRevisionConflict.
+func (r *MongoSuiteRepo) AddRevision(ctx context.Context, revision validationdomain.SuiteRevision) error {
+	_, err := r.revisions.InsertOne(ctx, toSuiteRevisionDoc(revision))
+	if mongo.IsDuplicateKeyError(err) {
+		return fmt.Errorf("%w: suite %s already has revision %d", validationdomain.ErrRevisionConflict, revision.SuiteID, revision.Revision)
+	}
+	return err
+}
+
+// Revision implements validationdomain.SuiteRepository.
+func (r *MongoSuiteRepo) Revision(ctx context.Context, suiteID string, revision int) (validationdomain.SuiteRevision, error) {
+	var doc suiteRevisionDoc
+	err := r.revisions.FindOne(ctx, bson.M{"_id": revisionDocID(suiteID, revision)}).Decode(&doc)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return validationdomain.SuiteRevision{}, fmt.Errorf("%w: suite %s has no kept revision %d", validationdomain.ErrRevisionNotFound, suiteID, revision)
+	}
+	if err != nil {
+		return validationdomain.SuiteRevision{}, err
+	}
+	return toSuiteRevision(doc), nil
 }
 
 // Get implements validationdomain.SuiteRepository.
@@ -96,6 +151,7 @@ func NewMongoRunRepo(db *mongo.Database) (*MongoRunRepo, error) {
 		{Keys: bson.D{{Key: "target.platformId", Value: 1}}, Options: options.Index().SetName("validation_run_platform")},
 		{Keys: bson.D{{Key: "trigger.scheduleId", Value: 1}}, Options: options.Index().SetName("validation_run_schedule")},
 		{Keys: bson.D{{Key: "status", Value: 1}}, Options: options.Index().SetName("validation_run_status")},
+		{Keys: bson.D{{Key: "requestedById", Value: 1}, {Key: "requestedAt", Value: -1}}, Options: options.Index().SetName("validation_run_requester").SetSparse(true)},
 		{Keys: bson.D{{Key: "expiresAt", Value: 1}}, Options: options.Index().SetName("validation_run_retention").SetExpireAfterSeconds(0)},
 	})
 	if err != nil {
@@ -163,6 +219,9 @@ func (r *MongoRunRepo) List(ctx context.Context, filter validationdomain.RunFilt
 	}
 	if filter.ScheduleID != "" {
 		query["trigger.scheduleId"] = filter.ScheduleID
+	}
+	if filter.RequestedByID != "" {
+		query["requestedById"] = filter.RequestedByID
 	}
 	if filter.Trigger != "" {
 		query["trigger.kind"] = string(filter.Trigger)

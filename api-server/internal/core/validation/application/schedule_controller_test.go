@@ -166,8 +166,8 @@ func TestScheduleControllerSkipsRefusedRuns(t *testing.T) {
 	}
 }
 
-// A disabled schedule, one whose suite was retired, and one whose target is gone are not realized
-// and start nothing.
+// A disabled schedule, one that names a user suite, one whose suite was retired, and one whose
+// target is gone are not realized and start nothing.
 func TestScheduleControllerReportsWhyItCannotRun(t *testing.T) {
 	f := newScheduleFixture(t)
 	ctx := context.Background()
@@ -179,16 +179,19 @@ func TestScheduleControllerReportsWhyItCannotRun(t *testing.T) {
 		t.Errorf("disabled schedule realized %v reason %q", ok, reason)
 	}
 
-	suite, err := f.service.CreateSuite(ctx, validationdomain.UserSuiteInput{Name: "mounts", Script: "exit 0"}, "admin")
-	if err != nil {
-		t.Fatal(err)
-	}
+	// A schedule written before schedules refused user suites names one: it starts nothing.
+	suite := f.createUserSuite(t, validationdomain.UserSuiteInput{Name: "mounts", Script: "exit 0"}, alice)
 	spec := hourly()
 	spec.Name, spec.SuiteID = "user", suite.ID
-	id := f.create(t, spec)
-	retired, _ := f.users.Get(ctx, suite.ID)
-	retired.Retired = true
-	if err := f.users.Replace(ctx, retired); err != nil {
+	const id = "user-schedule"
+	if err := f.schedules.Create(ctx, validationdomain.Schedule{ID: id, SiteID: "site-a", Generation: 1, Spec: spec}); err != nil {
+		t.Fatal(err)
+	}
+	f.clock = f.clock.Add(2 * time.Hour)
+	if ok, reason := realized(f.reconcile(t, id)); ok || reason != ReasonUserSuiteUnsupported || len(f.launcher.persisted) != 0 {
+		t.Errorf("user suite: realized %v reason %q, %d runs", ok, reason, len(f.launcher.persisted))
+	}
+	if err := f.users.Retire(ctx, suite.ID, f.clock); err != nil {
 		t.Fatal(err)
 	}
 	if ok, reason := realized(f.reconcile(t, id)); ok || reason != ReasonSuiteMissing {

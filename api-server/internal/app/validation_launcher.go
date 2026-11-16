@@ -252,7 +252,10 @@ func completeValidationTask(id, job string, run validationdomain.Run, checks []w
 	}
 }
 
-// validationVars are the trusted variables every validation playbook receives (validation.md §3).
+// validationVars are the trusted variables every validation playbook receives (validation.md §3). A
+// user suite's playbook also gets the script, its timeout, and the account it runs as on every target
+// (swallow_validation_requester and swallow_validation_sudo, §3.1); a user suite run without an
+// account never reaches here, because Start refuses it.
 func validationVars(run validationdomain.Run, suite validationdomain.Suite, platform *validationapp.TargetPlatform) map[string]any {
 	checks := make([]string, 0, len(run.Checks))
 	for _, check := range run.Checks {
@@ -277,9 +280,16 @@ func validationVars(run validationdomain.Run, suite validationdomain.Suite, plat
 		"swallow_validation_members": members,
 	}
 	if suite.Source == validationdomain.SourceUser {
-		vars["swallow_validation_script"] = suite.Script
-		vars["swallow_validation_run_as"] = string(suite.RunAs)
+		// The script and the account are the run's own record, written at acceptance, so the
+		// playbook runs exactly what the run says it ran, as whom it says.
+		vars["swallow_validation_script"] = run.Suite.Script
 		vars["swallow_validation_timeout_seconds"] = suite.TimeoutSeconds
+		if run.RunAs != nil {
+			vars["swallow_validation_requester"] = map[string]any{
+				"userId": run.RequestedByID, "username": run.RunAs.Username, "uidNumber": run.RunAs.UIDNumber,
+			}
+			vars["swallow_validation_sudo"] = run.RunAs.Sudo
+		}
 	}
 	return vars
 }

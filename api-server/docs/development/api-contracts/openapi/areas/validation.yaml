@@ -3,9 +3,9 @@
 tags:
   - name: validation
     description: >-
-      Validate deployed Servers and Platforms with Validation Suites: list the catalog, manage
-      user-defined suites, start, list, read, and cancel Validation Runs, and manage Validation
-      Schedules.
+      Validate deployed Servers and Platforms with Validation Suites: list the catalog and its
+      revisions, write user-defined suites (run as the User who starts them), start, list, read, and
+      cancel Validation Runs, and manage Validation Schedules.
 paths:
   /api/v1/validation/suites:
     get:
@@ -40,7 +40,9 @@ paths:
       tags: [validation]
       operationId: createValidationSuite
       summary: Create a user-defined Validation Suite (a script judged by its exit code).
-      description: Requires the `admin` role. The suite starts at revision 1.
+      description: >-
+        Author: any authenticated User, who becomes the suite's author. The suite starts at revision 1,
+        which is kept. `revision` in the body is ignored.
       requestBody:
         required: true
         content:
@@ -57,7 +59,8 @@ paths:
         '400':
           description: >-
             `validation_error`: the body is not valid JSON, the name or script is empty, the script
-            is larger than 64 KiB, or `runAs`, `timeoutSeconds`, or `impact` is not accepted.
+            is larger than 64 KiB, or `starterLevel`, `timeoutSeconds`, `impact`, or `revision` is not
+            accepted.
           content:
             application/json:
               schema:
@@ -100,8 +103,11 @@ paths:
       operationId: replaceValidationSuite
       summary: Replace a user-defined Validation Suite, creating its next revision.
       description: >-
-        Requires the `admin` role. A change to the script, `runAs`, `timeoutSeconds`, or `impact`
-        increments `revision`; runs already accepted keep the revision they ran.
+        Author: only the suite's author, matched by user id; an admin who is not the author may not.
+        A change to any field but `name` and `description` increments `revision` and keeps the new
+        revision; runs already accepted keep the revision they ran. The write applies only at the
+        revision it read, so of two concurrent replaces one is `409`; with `revision` in the body it
+        applies only when that is the current revision.
       requestBody:
         required: true
         content:
@@ -124,7 +130,11 @@ paths:
         '401':
           $ref: '#/components/responses/Error'
         '403':
-          $ref: '#/components/responses/Error'
+          description: '`forbidden`: the caller is not the suite''s author.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404':
           description: '`not_found`: no suite has this id.'
           content:
@@ -132,7 +142,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: '`conflict`: the suite is a module suite, which cannot be changed, or it is retired.'
+          description: >-
+            `conflict`: the suite is a module suite, which cannot be changed, or it is retired; or it
+            is no longer at the revision this write read (another replace won, or `revision` is stale).
           content:
             application/json:
               schema:
@@ -144,15 +156,19 @@ paths:
       operationId: deleteValidationSuite
       summary: Retire a user-defined Validation Suite.
       description: >-
-        Requires the `admin` role. The suite leaves the catalog; its runs stay readable. Retiring a
-        retired suite succeeds.
+        Author or admin: the suite's author, or an admin. The suite leaves the catalog; its runs and
+        revisions stay readable. Retiring a retired suite succeeds.
       responses:
         '204':
           description: The suite is retired.
         '401':
           $ref: '#/components/responses/Error'
         '403':
-          $ref: '#/components/responses/Error'
+          description: '`forbidden`: the caller is neither the suite''s author nor an admin.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404':
           description: '`not_found`: no suite has this id.'
           content:
@@ -161,6 +177,44 @@ paths:
                 $ref: '#/components/schemas/Error'
         '409':
           description: '`conflict`: the suite is a module suite, or a Validation Schedule names it.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/validation/suites/{suiteId}/revisions/{revision}:
+    parameters:
+      - $ref: '#/components/parameters/ValidationSuiteId'
+      - name: revision
+        in: path
+        required: true
+        description: The revision number, from 1.
+        schema:
+          type: integer
+          minimum: 1
+    get:
+      tags: [validation]
+      operationId: getValidationSuiteRevision
+      summary: Read one kept revision of a user-defined Validation Suite.
+      description: >-
+        Reference: any authenticated User; a retired suite's revisions stay readable. A suite created
+        before revisions were kept has only the revision it had at that upgrade and later ones.
+      responses:
+        '200':
+          description: The revision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationSuiteRevision'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: >-
+            `not_found`: no suite has this id, the suite is a module suite, or it has no kept revision
+            with this number.
           content:
             application/json:
               schema:
@@ -218,6 +272,15 @@ paths:
           required: false
           schema:
             $ref: '#/components/schemas/ValidationTriggerKind'
+        - name: requestedBy
+          in: query
+          required: false
+          description: >-
+            `me` keeps only the runs the caller started (`requestedById` is the caller's id); it is the
+            only value.
+          schema:
+            type: string
+            enum: [me]
         - name: active
           in: query
           required: false
@@ -235,7 +298,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ValidationRunPage'
         '400':
-          description: '`validation_error`: a `status`, `verdict`, or `trigger` value is not one of its values.'
+          description: '`validation_error`: a `status`, `verdict`, `trigger`, or `requestedBy` value is not one of its values.'
           content:
             application/json:
               schema:
@@ -251,7 +314,10 @@ paths:
       operationId: startValidationRun
       summary: Start a Validation Run of a suite against deployed Servers or a Platform.
       description: >-
-        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Accepts the run and its `run-validation` Workflow in one
+        Pool read on every target, then by suite: Pool operate on every target for a module suite or a
+        user suite with `starterLevel: owner`, Pool read for `starterLevel: member`. A user suite runs as
+        the caller's own account, so the caller's Host Access (and, for a `sudo` suite, passwordless
+        sudo) on every target is checked too. Accepts the run and its `run-validation` Workflow in one
         transaction and returns 202 with the `pending` run; progress is read on the run (and its
         Workflow).
       requestBody:
@@ -272,8 +338,8 @@ paths:
             `validation_error`: the body is not valid JSON; `suiteId` is empty; a `servers` suite has
             no `serverIds`, a Server is listed twice, or `platformId` is set; a `platform` suite has no
             `platformId` or has `serverIds`; the parameters do not match the suite's schema; the
-            Servers belong to more than one Site; or a `disruptive` suite is started without
-            `confirm: true`.
+            Servers belong to more than one Site; a `disruptive` suite is started without
+            `confirm: true`; or `suiteRevision` is given for a module suite.
           content:
             application/json:
               schema:
@@ -281,19 +347,29 @@ paths:
         '401':
           $ref: '#/components/responses/Error'
         '403':
-          $ref: '#/components/responses/Error'
+          description: >-
+            `forbidden`: the caller is below the suite's starter level on a target, has no Host Access
+            to a target (user suite), or has no sudo on a target for a `sudo` user suite.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404':
-          description: '`not_found`: the suite (or a retired user suite), a target Server, or the Platform does not exist.'
+          description: >-
+            `not_found`: the suite (or a retired user suite), a target Server, or the Platform does not
+            exist, or the caller may not read a target.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
           description: >-
-            `conflict`: a target Server is not `deployed`, is locked, or (for a `workload` or
-            `disruptive` Servers suite) is claimed by a Platform; the Platform is not `active`, is not
-            of the suite's Platform type, or has no access Server; or a target already has active
-            durable work (another run's included).
+            `conflict`: `suiteRevision` is not the user suite's current revision; a target Server is not
+            `deployed`, is locked, or (for a `workload` or `disruptive` Servers suite) is claimed by a
+            Platform; the Platform is not `active`, is not of the suite's Platform type, or has no
+            access Server; for a user suite, no Directory is configured, the caller has no `uidNumber`, a
+            target has no installed directory client, or the caller's sudo on a target needs a password
+            (`sudo` suite); or a target already has active durable work (another run's included).
           content:
             application/json:
               schema:
@@ -344,8 +420,9 @@ paths:
       operationId: cancelValidationRun
       summary: Cancel a report-mode Validation Run.
       description: >-
-        Pool operate: an admin, or an `owner` of the Pool the resource belongs to. Writes the cancel of the run's Workflow and returns 202 with the
-        run; it ends `canceled` once the Workflow's cancel path finished.
+        Pool read on the run's targets, then the run's starter (`requestedById` is the caller), an
+        owner of every target's Pool, or an admin. Writes the cancel of the run's Workflow and returns
+        202 with the run; it ends `canceled` once the Workflow's cancel path finished.
       responses:
         '202':
           description: The cancel was accepted.
@@ -356,9 +433,13 @@ paths:
         '401':
           $ref: '#/components/responses/Error'
         '403':
-          $ref: '#/components/responses/Error'
+          description: '`forbidden`: the caller may read the run but neither started it nor operates its targets.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404':
-          description: '`not_found`: no run has this id.'
+          description: '`not_found`: no run has this id, or the caller may not read it.'
           content:
             application/json:
               schema:
@@ -540,7 +621,8 @@ components:
   responses:
     ValidationScheduleRejected:
       description: >-
-        `validation_error`: the body is not valid JSON; the name or `suiteId` is empty; the targets do
+        `validation_error`: the body is not valid JSON; the name or `suiteId` is empty; the suite is a
+        user suite (it runs as the User who starts it, and a scheduled run has none); the targets do
         not fit the suite's target kind; the parameters do not match the suite's schema; the trigger
         kind is unknown, a `cron` trigger has an invalid expression or time zone, or an
         `after-deployment` trigger has a `cron`; or the Servers belong to more than one Site.
@@ -563,8 +645,8 @@ components:
         A Validation Suite (glossary). A module suite's user-suite fields are null; a user suite's
         `module`, `platformType`, and `parameters` are null.
       required: [id, source, module, name, description, target, platformType, impact, checks, parameters,
-        budgetSeconds, script, runAs, timeoutSeconds, revision, scriptSha256, experimental, retired, createdAt,
-        updatedAt, createdBy]
+        budgetSeconds, script, sudo, starterLevel, timeoutSeconds, revision, scriptSha256, experimental, retired,
+        createdAt, updatedAt, createdBy, createdById]
       properties:
         id:
           type: string
@@ -603,10 +685,19 @@ components:
         script:
           type: string
           nullable: true
-        runAs:
+        sudo:
+          type: boolean
+          nullable: true
+          description: >-
+            Whether the starter runs the script through `sudo -n`, so only on targets where the starter
+            has passwordless sudo.
+        starterLevel:
           type: string
           nullable: true
-          enum: [automation-user, root, null]
+          enum: [owner, member, null]
+          description: >-
+            The least Pool Role a User needs on every target to start the suite. A module suite's is
+            null and behaves as `owner`.
         timeoutSeconds:
           type: integer
           nullable: true
@@ -634,6 +725,38 @@ components:
         createdBy:
           type: string
           nullable: true
+          description: The author's username as it was at creation, for display.
+        createdById:
+          type: string
+          nullable: true
+          description: >-
+            The author's user id, which decides who may replace and retire the suite; null for a module
+            suite and for a user suite whose author could not be identified.
+    ValidationSuiteRevision:
+      type: object
+      description: One kept revision of a user suite, immutable.
+      required: [suiteId, revision, script, scriptSha256, sudo, starterLevel, timeoutSeconds, impact, createdAt]
+      properties:
+        suiteId:
+          type: string
+        revision:
+          type: integer
+        script:
+          type: string
+        scriptSha256:
+          type: string
+        sudo:
+          type: boolean
+        starterLevel:
+          type: string
+          enum: [owner, member]
+        timeoutSeconds:
+          type: integer
+        impact:
+          type: string
+          enum: [observe, workload, disruptive]
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
     ValidationSuiteModule:
       type: object
       required: [kind, id, version]
@@ -673,10 +796,14 @@ components:
         script:
           type: string
           description: At most 64 KiB; run with its own interpreter line, or under /bin/sh without one.
-        runAs:
+        sudo:
+          type: boolean
+          default: false
+          description: Run the script through the starter's passwordless sudo (`sudo -n`).
+        starterLevel:
           type: string
-          enum: [automation-user, root]
-          default: automation-user
+          enum: [owner, member]
+          default: owner
         timeoutSeconds:
           type: integer
           minimum: 1
@@ -686,6 +813,10 @@ components:
           type: string
           enum: [observe, workload, disruptive]
           default: workload
+        revision:
+          type: integer
+          minimum: 1
+          description: On a replace, the revision the write expects (optional); ignored on create.
     ValidationRunRequest:
       type: object
       additionalProperties: false
@@ -709,6 +840,24 @@ components:
           type: boolean
           default: false
           description: Required to be true for a `disruptive` suite.
+        suiteRevision:
+          type: integer
+          minimum: 1
+          description: >-
+            The user suite revision the caller reviewed; the run is refused (409) when the suite is no
+            longer at it. Without it the current revision runs. Not accepted for a module suite.
+    ValidationRunAs:
+      type: object
+      description: The account a user suite run uses on its targets.
+      required: [username, uidNumber, sudo]
+      properties:
+        username:
+          type: string
+        uidNumber:
+          type: integer
+        sudo:
+          type: boolean
+          description: Whether the script runs through the account's `sudo -n`.
     ValidationRunStatus:
       type: string
       enum: [pending, running, completed, canceled]
@@ -783,7 +932,7 @@ components:
       type: object
       description: A Validation Run without its results, as the list returns it.
       required: [id, siteId, suite, checks, target, parameters, mode, trigger, workflowId, status, statusReason,
-        verdict, counts, requestedBy, requestedAt, startedAt, finishedAt]
+        verdict, counts, requestedBy, requestedById, runAs, requestedAt, startedAt, finishedAt]
       properties:
         id:
           type: string
@@ -821,6 +970,20 @@ components:
           $ref: '#/components/schemas/ValidationRunCounts'
         requestedBy:
           type: string
+          description: >-
+            Who asked: the starter's username for a `manual` run, the deployment's requester for a gate
+            run, `validation-schedule` for a scheduled run.
+        requestedById:
+          type: string
+          nullable: true
+          description: >-
+            The starter's user id for a `manual` run; null for other triggers and for runs accepted
+            before it was recorded.
+        runAs:
+          nullable: true
+          description: The account a user suite run uses on its targets; null for a module suite run.
+          allOf:
+            - $ref: '#/components/schemas/ValidationRunAs'
         requestedAt:
           $ref: '#/components/schemas/Timestamp'
         startedAt:
@@ -835,7 +998,7 @@ components:
       type: object
       description: A Validation Run (glossary) with every check's verdict on every target.
       required: [id, siteId, suite, checks, target, parameters, mode, trigger, workflowId, status, statusReason,
-        verdict, counts, results, requestedBy, requestedAt, startedAt, finishedAt]
+        verdict, counts, results, requestedBy, requestedById, runAs, requestedAt, startedAt, finishedAt]
       properties:
         id:
           type: string
@@ -876,6 +1039,20 @@ components:
             $ref: '#/components/schemas/ValidationResult'
         requestedBy:
           type: string
+          description: >-
+            Who asked: the starter's username for a `manual` run, the deployment's requester for a gate
+            run, `validation-schedule` for a scheduled run.
+        requestedById:
+          type: string
+          nullable: true
+          description: >-
+            The starter's user id for a `manual` run; null for other triggers and for runs accepted
+            before it was recorded.
+        runAs:
+          nullable: true
+          description: The account a user suite run uses on its targets; null for a module suite run.
+          allOf:
+            - $ref: '#/components/schemas/ValidationRunAs'
         requestedAt:
           $ref: '#/components/schemas/Timestamp'
         startedAt:

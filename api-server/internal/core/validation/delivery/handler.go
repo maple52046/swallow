@@ -5,9 +5,11 @@
 package delivery
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -21,7 +23,6 @@ import (
 	workflowapp "github.com/maple52046/swallow/internal/core/workflow/application"
 	workflowdomain "github.com/maple52046/swallow/internal/core/workflow/domain"
 	"github.com/maple52046/swallow/internal/shared/apierror"
-	"github.com/maple52046/swallow/internal/shared/middleware"
 	"github.com/maple52046/swallow/internal/shared/pagination"
 	"github.com/maple52046/swallow/internal/shared/wire"
 )
@@ -36,13 +37,16 @@ func NewHandler(service *validationapp.Service) *Handler {
 	return &Handler{service: service}
 }
 
-// RegisterRoutes mounts the validation routes on routes (the admin-only /api/v1/validation group).
+// RegisterRoutes mounts the validation routes on routes without authorization, for handler tests
+// that install the caller's Visibility first. Production registers each route with its own guard in
+// internal/app/api.go (contract validation.md, Authentication and Authorization).
 func (h *Handler) RegisterRoutes(routes fiber.Router) {
 	routes.Get("/suites", h.ListSuites)
 	routes.Post("/suites", h.CreateSuite)
 	routes.Get("/suites/:suiteId", h.GetSuite)
 	routes.Put("/suites/:suiteId", h.ReplaceSuite)
 	routes.Delete("/suites/:suiteId", h.DeleteSuite)
+	routes.Get("/suites/:suiteId/revisions/:revision", h.GetSuiteRevision)
 	routes.Get("/runs", h.ListRuns)
 	routes.Post("/runs", h.StartRun)
 	routes.Get("/runs/:runId", h.GetRun)
@@ -76,65 +80,106 @@ func (h *Handler) GetSuite(c *fiber.Ctx) error {
 	return c.JSON(toSuiteResponse(suite))
 }
 
+// userSuiteRequest is the body of a user suite create or replace (ValidationUserSuiteRequest).
+// Revision is the replace's optional precondition and is ignored on create.
 type userSuiteRequest struct {
 	Name           string `json:"name"`
 	Description    string `json:"description"`
 	Script         string `json:"script"`
-	RunAs          string `json:"runAs"`
+	Sudo           bool   `json:"sudo"`
+	StarterLevel   string `json:"starterLevel"`
 	TimeoutSeconds int    `json:"timeoutSeconds"`
 	Impact         string `json:"impact"`
+	Revision       int    `json:"revision"`
 }
 
 func (r userSuiteRequest) input() validationdomain.UserSuiteInput {
 	return validationdomain.UserSuiteInput{
-		Name: r.Name, Description: r.Description, Script: r.Script, RunAs: validationdomain.RunAs(r.RunAs),
-		TimeoutSeconds: r.TimeoutSeconds, Impact: validationdomain.Impact(r.Impact),
+		Name: r.Name, Description: r.Description, Script: r.Script, Sudo: r.Sudo,
+		StarterLevel: validationdomain.StarterLevel(r.StarterLevel), TimeoutSeconds: r.TimeoutSeconds,
+		Impact: validationdomain.Impact(r.Impact),
 	}
 }
 
-// CreateSuite creates a user suite.
+// CreateSuite creates a user suite whose author is the caller (any authenticated User).
 func (h *Handler) CreateSuite(c *fiber.Ctx) error {
 	var request userSuiteRequest
 	if err := c.BodyParser(&request); err != nil {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
 	}
-	suite, err := h.service.CreateSuite(c.Context(), request.input(), requestedBy(c))
+	actor, ok := actorOf(c)
+	if !ok {
+		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
+	}
+	suite, err := h.service.CreateSuite(c.UserContext(), request.input(), validationdomain.Author{UserID: actor.UserID, Username: actor.Username})
 	if err != nil {
 		return respondError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(toSuiteResponse(suite))
 }
 
-// ReplaceSuite replaces a user suite.
+// ReplaceSuite replaces a user suite; the use case admits only its author (403 otherwise).
 func (h *Handler) ReplaceSuite(c *fiber.Ctx) error {
 	var request userSuiteRequest
 	if err := c.BodyParser(&request); err != nil {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "Invalid request body."))
 	}
-	suite, err := h.service.ReplaceSuite(c.Context(), c.Params("suiteId"), request.input())
+	if request.Revision < 0 {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "revision must be positive."))
+	}
+	actor, ok := actorOf(c)
+	if !ok {
+		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
+	}
+	suite, err := h.service.ReplaceSuite(c.UserContext(), c.Params("suiteId"),
+		validationapp.SuiteReplace{Input: request.input(), ExpectedRevision: request.Revision}, actor)
 	if err != nil {
 		return respondError(c, err)
 	}
 	return c.JSON(toSuiteResponse(suite))
 }
 
-// DeleteSuite retires a user suite.
+// DeleteSuite retires a user suite; the use case admits its author or an admin (403 otherwise).
 func (h *Handler) DeleteSuite(c *fiber.Ctx) error {
-	if err := h.service.RetireSuite(c.Context(), c.Params("suiteId")); err != nil {
+	actor, ok := actorOf(c)
+	if !ok {
+		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
+	}
+	if err := h.service.RetireSuite(c.UserContext(), c.Params("suiteId"), actor); err != nil {
 		return respondError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
-type runRequest struct {
-	SuiteID    string         `json:"suiteId"`
-	ServerIDs  []string       `json:"serverIds"`
-	PlatformID string         `json:"platformId"`
-	Parameters map[string]any `json:"parameters"`
-	Confirm    bool           `json:"confirm"`
+// GetSuiteRevision returns one kept revision of a user suite (Reference: any User). A revision that
+// is not a positive number names no revision, so it is 404 like one that was never kept.
+func (h *Handler) GetSuiteRevision(c *fiber.Ctx) error {
+	number, err := strconv.Atoi(c.Params("revision"))
+	if err != nil || number < 1 {
+		return apierror.Respond(c, apierror.New(apierror.CodeNotFound, "No such revision."))
+	}
+	revision, err := h.service.SuiteRevision(c.UserContext(), c.Params("suiteId"), number)
+	if err != nil {
+		return respondError(c, err)
+	}
+	return c.JSON(suiteRevisionResponse{
+		SuiteID: revision.SuiteID, Revision: revision.Revision, Script: revision.Script, ScriptSHA256: revision.ScriptSHA256,
+		Sudo: revision.Sudo, StarterLevel: string(revision.StarterLevel), TimeoutSeconds: revision.TimeoutSeconds,
+		Impact: string(revision.Impact), CreatedAt: wire.Time(revision.CreatedAt),
+	})
 }
 
-// StartRun accepts a report run.
+type runRequest struct {
+	SuiteID       string         `json:"suiteId"`
+	ServerIDs     []string       `json:"serverIds"`
+	PlatformID    string         `json:"platformId"`
+	Parameters    map[string]any `json:"parameters"`
+	Confirm       bool           `json:"confirm"`
+	SuiteRevision int            `json:"suiteRevision"`
+}
+
+// StartRun accepts a report run started by the caller; the route guard has required Pool read on
+// every target, and the use case checks the rest (starter level, the caller's account).
 func (h *Handler) StartRun(c *fiber.Ctx) error {
 	var request runRequest
 	if err := c.BodyParser(&request); err != nil {
@@ -143,9 +188,16 @@ func (h *Handler) StartRun(c *fiber.Ctx) error {
 	if strings.TrimSpace(request.SuiteID) == "" {
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "suiteId is required."))
 	}
-	run, err := h.service.Start(c.Context(), validationapp.StartInput{
+	if request.SuiteRevision < 0 {
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "suiteRevision must be positive."))
+	}
+	actor, ok := actorOf(c)
+	if !ok {
+		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
+	}
+	run, err := h.service.Start(c.UserContext(), validationapp.StartInput{
 		SuiteID: request.SuiteID, ServerIDs: request.ServerIDs, PlatformID: request.PlatformID,
-		Parameters: request.Parameters, Confirm: request.Confirm, RequestedBy: requestedBy(c),
+		Parameters: request.Parameters, Confirm: request.Confirm, SuiteRevision: request.SuiteRevision, Starter: &actor,
 	})
 	if err != nil {
 		return respondError(c, err)
@@ -169,6 +221,13 @@ func (h *Handler) ListRuns(c *fiber.Ctx) error {
 	visibility, ok := accessdelivery.VisibilityFrom(c)
 	if !ok {
 		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
+	}
+	switch requested := c.Query("requestedBy"); requested {
+	case "":
+	case requestedByMe:
+		filter.RequestedByID = visibility.Scope().UserID
+	default:
+		return apierror.Respond(c, apierror.New(apierror.CodeValidation, "requestedBy must be me."))
 	}
 	if !visibility.Admin() {
 		servers, err := visibility.ReadableServers(c.UserContext())
@@ -197,9 +256,14 @@ func (h *Handler) GetRun(c *fiber.Ctx) error {
 	return c.JSON(toRunResponse(run, true))
 }
 
-// CancelRun cancels a report run.
+// CancelRun cancels a report run; the route guard has required Pool read on its targets, and the use
+// case admits its starter, an owner of its targets, or an admin.
 func (h *Handler) CancelRun(c *fiber.Ctx) error {
-	run, err := h.service.Cancel(c.Context(), c.Params("runId"), requestedBy(c))
+	actor, ok := actorOf(c)
+	if !ok {
+		return apierror.Respond(c, apierror.New(apierror.CodeInternal, "Internal error."))
+	}
+	run, err := h.service.Cancel(c.UserContext(), c.Params("runId"), actor)
 	if err != nil {
 		return respondError(c, err)
 	}
@@ -310,11 +374,32 @@ func validateRunFilter(filter validationdomain.RunFilter) error {
 	return nil
 }
 
-func requestedBy(c *fiber.Ctx) string {
-	if principal := middleware.GetPrincipal(c); principal != nil {
-		return principal.Username
+// requestedByMe is the only value of the run list's requestedBy filter: the caller's own runs.
+const requestedByMe = "me"
+
+// actorOf builds the use cases' Actor from the request's Visibility (installed by the route's guard,
+// or by FixedScope in handler tests): the caller's id, username, and admin role from the Scope
+// computed on this request, and its Pool operate checks. ok is false on a route mounted without a
+// Visibility, which must answer an internal error rather than act for an unknown caller.
+func actorOf(c *fiber.Ctx) (validationapp.Actor, bool) {
+	visibility, ok := accessdelivery.VisibilityFrom(c)
+	if !ok {
+		return validationapp.Actor{}, false
 	}
-	return ""
+	scope := visibility.Scope()
+	return validationapp.Actor{
+		UserID: scope.UserID, Username: scope.Username, Admin: scope.Admin, Targets: visibilityTargets{visibility},
+	}, true
+}
+
+// visibilityTargets answers validationapp.TargetAuthorizer with the request's Visibility.
+type visibilityTargets struct {
+	visibility *accessdelivery.Visibility
+}
+
+// OperatesTargets implements validationapp.TargetAuthorizer.
+func (t visibilityTargets) OperatesTargets(ctx context.Context, serverIDs []string, platformID string) (bool, error) {
+	return t.visibility.CanOperateTargets(ctx, serverIDs, platformID)
 }
 
 // respondError maps validation and workflow errors to the shared envelope (validation.md, Errors).
@@ -323,7 +408,11 @@ func respondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, validationdomain.ErrInvalidRequest),
 		errors.Is(err, workflowapp.ErrTargetsSpanSites):
 		return apierror.Respond(c, apierror.New(apierror.CodeValidation, err.Error()))
+	case errors.Is(err, validationdomain.ErrNotSuiteAuthor),
+		errors.Is(err, validationdomain.ErrRunForbidden):
+		return apierror.Respond(c, apierror.New(apierror.CodeForbidden, err.Error()))
 	case errors.Is(err, validationdomain.ErrSuiteNotFound),
+		errors.Is(err, validationdomain.ErrRevisionNotFound),
 		errors.Is(err, validationdomain.ErrRunNotFound),
 		errors.Is(err, validationdomain.ErrScheduleNotFound),
 		errors.Is(err, validationdomain.ErrTargetNotFound),
@@ -334,6 +423,7 @@ func respondError(c *fiber.Ctx, err error) error {
 		errors.Is(err, validationdomain.ErrRunNotCancelable),
 		errors.Is(err, validationdomain.ErrTargetNotRunnable),
 		errors.Is(err, validationdomain.ErrGenerationConflict),
+		errors.Is(err, validationdomain.ErrRevisionConflict),
 		errors.Is(err, workflowdomain.ErrTargetsBusy),
 		errors.Is(err, workflowdomain.ErrTargetLocked),
 		errors.Is(err, workflowdomain.ErrTargetStateInvalid),
@@ -378,7 +468,8 @@ type suiteResponse struct {
 	Parameters     json.RawMessage      `json:"parameters"`
 	BudgetSeconds  int                  `json:"budgetSeconds"`
 	Script         *string              `json:"script"`
-	RunAs          *string              `json:"runAs"`
+	Sudo           *bool                `json:"sudo"`
+	StarterLevel   *string              `json:"starterLevel"`
 	TimeoutSeconds *int                 `json:"timeoutSeconds"`
 	Revision       *int                 `json:"revision"`
 	ScriptSHA256   *string              `json:"scriptSha256"`
@@ -387,8 +478,25 @@ type suiteResponse struct {
 	CreatedAt      *string              `json:"createdAt"`
 	UpdatedAt      *string              `json:"updatedAt"`
 	CreatedBy      *string              `json:"createdBy"`
+	CreatedByID    *string              `json:"createdById"`
 }
 
+// suiteRevisionResponse is one kept revision of a user suite (ValidationSuiteRevision).
+type suiteRevisionResponse struct {
+	SuiteID        string `json:"suiteId"`
+	Revision       int    `json:"revision"`
+	Script         string `json:"script"`
+	ScriptSHA256   string `json:"scriptSha256"`
+	Sudo           bool   `json:"sudo"`
+	StarterLevel   string `json:"starterLevel"`
+	TimeoutSeconds int    `json:"timeoutSeconds"`
+	Impact         string `json:"impact"`
+	CreatedAt      string `json:"createdAt"`
+}
+
+// toSuiteResponse shapes a suite as ValidationSuite: a module suite's user-suite fields are null.
+// A user suite's createdById is null when its author could not be identified (a suite from before
+// authors were recorded by id).
 func toSuiteResponse(suite validationdomain.Suite) suiteResponse {
 	parameters := json.RawMessage("null")
 	if len(suite.ParametersJSON) > 0 {
@@ -404,11 +512,11 @@ func toSuiteResponse(suite validationdomain.Suite) suiteResponse {
 		response.Module = &suiteModuleResponse{Kind: suite.Module.Kind, ID: suite.Module.ID, Version: suite.Module.Version}
 	}
 	if suite.Source == validationdomain.SourceUser {
-		runAs, timeout, revision := string(suite.RunAs), suite.TimeoutSeconds, suite.Revision
-		response.Script, response.RunAs, response.TimeoutSeconds = &suite.Script, &runAs, &timeout
+		sudo, level, timeout, revision := suite.Sudo, string(suite.RequiredLevel()), suite.TimeoutSeconds, suite.Revision
+		response.Script, response.Sudo, response.StarterLevel, response.TimeoutSeconds = &suite.Script, &sudo, &level, &timeout
 		response.Revision, response.ScriptSHA256 = &revision, wire.String(suite.ScriptSHA256)
 		response.CreatedAt, response.UpdatedAt = wire.TimePtr(suite.CreatedAt), wire.TimePtr(suite.UpdatedAt)
-		response.CreatedBy = &suite.CreatedBy
+		response.CreatedBy, response.CreatedByID = &suite.CreatedBy, wire.String(suite.CreatedByID)
 	}
 	return response
 }
@@ -475,24 +583,33 @@ type resultResponse struct {
 // runResponse is a Validation Run; Results is omitted from list items (ValidationRunSummary) and
 // present, never null, on a read of one run (ValidationRun).
 type runResponse struct {
-	ID           string             `json:"id"`
-	SiteID       string             `json:"siteId"`
-	Suite        runSuiteResponse   `json:"suite"`
-	Checks       []checkResponse    `json:"checks"`
-	Target       runTargetResponse  `json:"target"`
-	Parameters   map[string]any     `json:"parameters"`
-	Mode         string             `json:"mode"`
-	Trigger      runTriggerResponse `json:"trigger"`
-	WorkflowID   string             `json:"workflowId"`
-	Status       string             `json:"status"`
-	StatusReason *string            `json:"statusReason"`
-	Verdict      *string            `json:"verdict"`
-	Counts       countsResponse     `json:"counts"`
-	Results      *[]resultResponse  `json:"results,omitempty"`
-	RequestedBy  string             `json:"requestedBy"`
-	RequestedAt  string             `json:"requestedAt"`
-	StartedAt    *string            `json:"startedAt"`
-	FinishedAt   *string            `json:"finishedAt"`
+	ID            string             `json:"id"`
+	SiteID        string             `json:"siteId"`
+	Suite         runSuiteResponse   `json:"suite"`
+	Checks        []checkResponse    `json:"checks"`
+	Target        runTargetResponse  `json:"target"`
+	Parameters    map[string]any     `json:"parameters"`
+	Mode          string             `json:"mode"`
+	Trigger       runTriggerResponse `json:"trigger"`
+	WorkflowID    string             `json:"workflowId"`
+	Status        string             `json:"status"`
+	StatusReason  *string            `json:"statusReason"`
+	Verdict       *string            `json:"verdict"`
+	Counts        countsResponse     `json:"counts"`
+	Results       *[]resultResponse  `json:"results,omitempty"`
+	RequestedBy   string             `json:"requestedBy"`
+	RequestedByID *string            `json:"requestedById"`
+	RunAs         *runAsResponse     `json:"runAs"`
+	RequestedAt   string             `json:"requestedAt"`
+	StartedAt     *string            `json:"startedAt"`
+	FinishedAt    *string            `json:"finishedAt"`
+}
+
+// runAsResponse is the account a user suite run uses on its targets (ValidationRunAs).
+type runAsResponse struct {
+	Username  string `json:"username"`
+	UIDNumber int    `json:"uidNumber"`
+	Sudo      bool   `json:"sudo"`
 }
 
 func toRunResponse(run validationdomain.Run, withResults bool) runResponse {
@@ -510,8 +627,11 @@ func toRunResponse(run validationdomain.Run, withResults bool) runResponse {
 		WorkflowID: run.WorkflowID, Status: string(run.Status), StatusReason: wire.String(run.StatusReason),
 		Verdict:     wire.String(string(run.Verdict)),
 		Counts:      countsResponse{Passed: counts.Passed, Failed: counts.Failed, Error: counts.Error, Skipped: counts.Skipped},
-		RequestedBy: run.RequestedBy, RequestedAt: wire.Time(run.RequestedAt),
+		RequestedBy: run.RequestedBy, RequestedByID: wire.String(run.RequestedByID), RequestedAt: wire.Time(run.RequestedAt),
 		StartedAt: wire.OptionalTime(run.StartedAt), FinishedAt: wire.OptionalTime(run.FinishedAt),
+	}
+	if run.RunAs != nil {
+		response.RunAs = &runAsResponse{Username: run.RunAs.Username, UIDNumber: run.RunAs.UIDNumber, Sudo: run.RunAs.Sudo}
 	}
 	if response.Parameters == nil {
 		response.Parameters = map[string]any{}

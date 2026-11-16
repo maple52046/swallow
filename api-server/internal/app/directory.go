@@ -96,17 +96,23 @@ func (in directoryInputs) Servers(ctx context.Context) ([]accessdomain.Directory
 	}
 	out := make([]accessdomain.DirectoryServer, 0, len(result.Servers))
 	for _, server := range result.Servers {
-		var names []string
-		for _, name := range []string{server.Observed.Hostname, server.Observed.FQDN} {
-			if name != "" {
-				names = append(names, name)
-			}
-		}
-		out = append(out, accessdomain.DirectoryServer{
-			ID: server.ID, PoolID: server.Spec.PoolID, Names: names, Addresses: server.Observed.Addresses,
-		})
+		out = append(out, directoryServerOf(server))
 	}
 	return out, nil
+}
+
+// directoryServerOf is a Server as the Directory names it: its Pool, its observed hostname and FQDN,
+// and its addresses. The Directory projection and run acceptance (validationStarters) both read it.
+func directoryServerOf(server *serverdomain.Server) accessdomain.DirectoryServer {
+	var names []string
+	for _, name := range []string{server.Observed.Hostname, server.Observed.FQDN} {
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return accessdomain.DirectoryServer{
+		ID: server.ID, PoolID: server.Spec.PoolID, Names: names, Addresses: server.Observed.Addresses,
+	}
 }
 
 // Pools implements accessdomain.DirectoryInputs: every Pool of the installation.

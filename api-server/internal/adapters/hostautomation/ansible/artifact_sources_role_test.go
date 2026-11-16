@@ -29,6 +29,9 @@ type roleRun struct {
 	// Task's targets; an empty inventory is localhost alone. Every host connects locally.
 	inventory string
 	limit     string
+	// keepBecome leaves the play's become keywords in force instead of turning become off, for a test
+	// that points ansible_become_exe at a stand-in for sudo.
+	keepBecome bool
 }
 
 // newRoleRun prepares a play of the shipped role, gathering facts when the role needs them, and
@@ -93,7 +96,9 @@ var recapCounts = regexp.MustCompile(`localhost\s+:\s+ok=\d+\s+changed=(\d+)\s+u
 // failed task counts.
 func (r *roleRun) run(vars map[string]any) (output string, changed, failed int) {
 	r.t.Helper()
-	vars["ansible_become"] = false
+	if !r.keepBecome {
+		vars["ansible_become"] = false
+	}
 	raw, err := json.Marshal(vars)
 	if err != nil {
 		r.t.Fatal(err)
