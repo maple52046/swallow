@@ -182,15 +182,19 @@ historical rationale.
 
 Not every change needs a plan. When you do write an implementation plan, in a
 tool's plan mode or as a planning step, also save it in this repository, so it is
-not kept only in the tool's own directory (for example `~/.cursor/plans/` or
-`~/.claude/plans/`), and save it before implementing it:
+not kept only in the tool's own directory (for example `~/.cursor/plans/`), and
+save it before implementing it:
 
 - Location: the root `docs/plans/manuscripts/`, even when the plan concerns one
   component. Never use a component-local plan tree or drop the `plans/` segment.
   A pre-write hook in Cursor (`.cursor/hooks.json`) and in Claude Code
   (`.claude/settings.json`) denies a plan manuscript written anywhere else; re-issue
   the write at the path it names.
-- Name: `YYYYMMDD-<short-topic>.md`, in Markdown.
+- Name: `YYYYMMDD-<short-topic>.md`, in Markdown. Claude Code's plan mode writes
+  its plan file straight into `docs/plans/manuscripts/` (`plansDirectory` in
+  `.claude/settings.json`) under a name Claude Code chooses. Once the plan is
+  approved, rename that file to this convention, or merge it into the existing plan
+  on the same topic and delete it, instead of saving a second copy.
 - One plan per topic: list the file names in `docs/plans/manuscripts/` (listing
   names is not reading plans) to find a plan on the same topic, and update that
   file instead of creating a duplicate. Open only that file.

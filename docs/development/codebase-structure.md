@@ -64,7 +64,8 @@ coding style。
 
 `.cursor/`、`.agents/` 與 `.claude/` 是各 agent 工具的 adapter：skill 只放指向 `skills/<name>/SKILL.md`
 的 wrapper，`CLAUDE.md`（root 與每個帶 `AGENTS.md` 的 component）只 import 同目錄的 `AGENTS.md`；
-規則本文只寫在 `AGENTS.md`。Claude Code 的 plan 位置 hook 轉接 `.cursor/hooks/` 的同一支腳本。
+規則本文只寫在 `AGENTS.md`。Claude Code 的 plan 位置 hook 轉接 `.cursor/hooks/` 的同一支腳本；
+`.claude/settings.json` 的 `plansDirectory` 讓 Claude Code 的 plan mode 直接把 plan 寫進 `docs/plans/manuscripts/`。
 
 ## Component 與目錄對應關係
 
