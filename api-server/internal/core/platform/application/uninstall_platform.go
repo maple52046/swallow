@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 	serverdomain "github.com/maple52046/swallow/internal/core/server/domain"
@@ -56,7 +57,8 @@ type UninstallPlatformResult struct {
 	OperationID string `json:"operationId"`
 }
 
-// Uninstall validates durable provenance and launches against the original target snapshot.
+// Uninstall validates durable provenance and launches against the Platform's members
+// (uninstallTargets).
 func (s *UninstallService) Uninstall(
 	ctx context.Context,
 	input UninstallPlatformInput,
@@ -100,7 +102,7 @@ func (s *UninstallService) Uninstall(
 		}
 	}
 
-	targetIDs := append([]string(nil), snapshot.Deployment.TargetServerIDs...)
+	targetIDs := uninstallTargets(platform, snapshot)
 	if len(targetIDs) == 0 {
 		return nil, fmt.Errorf("%w: deployment operation has no target snapshot",
 			platformdomain.ErrPlatformUninstallConflict)
@@ -136,4 +138,27 @@ func (s *UninstallService) Uninstall(
 		return nil, err
 	}
 	return &UninstallPlatformResult{PlatformID: platform.ID, OperationID: operationID}, nil
+}
+
+// uninstallTargets are the Servers an uninstall removes the Platform from: the members of its applied
+// spec, then those the spec being realized adds, because a scale-out or a scale-in changes the
+// members without a deploy Workflow, so the latest deploy names the members as they were then. A
+// Platform without an applied spec (deployed before specs existed) falls back to that Workflow's targets.
+func uninstallTargets(platform *platformdomain.Platform, snapshot platformdomain.LifecycleSnapshot) []string {
+	if platform.Status.Applied == nil {
+		return append([]string(nil), snapshot.Deployment.TargetServerIDs...)
+	}
+	var ids []string
+	add := func(spec *platformdomain.PlatformSpec) {
+		for _, member := range spec.Members {
+			if !slices.Contains(ids, member.ServerID) {
+				ids = append(ids, member.ServerID)
+			}
+		}
+	}
+	add(platform.Status.Applied)
+	if realizing := platform.Status.Realizing; realizing != nil {
+		add(&realizing.Spec)
+	}
+	return ids
 }

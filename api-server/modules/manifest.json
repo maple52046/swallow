@@ -46,6 +46,11 @@
       "path": "platform/slurm/playbooks/reconfigure-slurm.yml"
     },
     {
+      "name": "scale-out-slurm",
+      "path": "platform/slurm/playbooks/scale-out-slurm.yml",
+      "fetchesArtifacts": true
+    },
+    {
       "name": "deploy-node-exporter",
       "path": "software/node-exporter/playbooks/deploy-node-exporter.yml",
       "fetchesArtifacts": true

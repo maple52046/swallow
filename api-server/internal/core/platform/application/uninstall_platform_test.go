@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -537,5 +538,26 @@ func TestUninstallLiveLockGuardRunsBeforeOperationCreation(t *testing.T) {
 	}
 	if launcher.launch != nil {
 		t.Fatal("live lock conflict reached the Operation launcher")
+	}
+}
+
+// A Platform with a spec is uninstalled from its members, not from its latest deploy's targets: a
+// scale-out added a member and a scale-in removed one since, and a member a running change adds is
+// included too.
+func TestUninstallTargetsThePlatformsMembers(t *testing.T) {
+	service, launcher, servers, platform := newUninstallHarness(platformdomain.PlatformLifecycleActive)
+	servers.servers["server-3"] = deployedServer("server-3", "node-3", "site-1")
+	servers.servers["server-4"] = deployedServer("server-4", "node-4", "site-1")
+	platform.Status.Applied = &platformdomain.PlatformSpec{Members: []platformdomain.PlatformMember{
+		{ServerID: "server-1"}, {ServerID: "server-3"},
+	}}
+	platform.Status.Realizing = &platformdomain.PlatformRealizing{Spec: platformdomain.PlatformSpec{Members: []platformdomain.PlatformMember{
+		{ServerID: "server-1"}, {ServerID: "server-3"}, {ServerID: "server-4"},
+	}}}
+	if _, err := service.Uninstall(context.Background(), UninstallPlatformInput{PlatformID: "platform-1", RequestedBy: "admin"}); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if got := launcher.launch.TargetServerIDs; !slices.Equal(got, []string{"server-1", "server-3", "server-4"}) {
+		t.Errorf("targets = %v, want the applied members and the one being added, not the deploy's server-2", got)
 	}
 }

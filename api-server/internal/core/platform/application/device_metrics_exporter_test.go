@@ -263,3 +263,40 @@ func TestParseGPUIdentityNeverReportsAnUnconfirmedIdentityAsDistinct(t *testing.
 		}
 	}
 }
+
+// A scale-out installs the exporter on the GPU compute members it adds and keeps the GPU identity
+// the others reported; one that adds no GPU compute node installs no exporter and leaves the record.
+func TestScaleOutInstallsTheExporterOnTheNewGPUNodes(t *testing.T) {
+	service, launcher, platforms := newDeployHarness(exporterSlurmServers()...)
+	result, err := service.Deploy(context.Background(), exporterSlurmInput())
+	if err != nil {
+		t.Fatalf("Deploy() error = %v", err)
+	}
+	installed := launcher.launched.OperationID
+	platforms.platforms[result.PlatformID].DeviceMetricsExporter.GPUIdentity = platformdomain.GPUIdentityCollapsed
+
+	input := exporterSlurmInput()
+	input.PlatformID, input.realization, input.changed = result.PlatformID, platformdomain.RealizeScaleOut, []string{"s2"}
+	if _, err := service.Deploy(context.Background(), input); err != nil {
+		t.Fatalf("scale-out of a CPU node: Deploy() error = %v", err)
+	}
+	if launcher.launched.DeviceMetricsExporter != nil || platforms.platforms[result.PlatformID].DeviceMetricsExporter.LastWorkflowID != installed {
+		t.Errorf("a scale-out of a CPU node planned the exporter %+v or moved its record", launcher.launched.DeviceMetricsExporter)
+	}
+	if launcher.launched.TrustedVars[varSlurmDeviceMetricsExporterEnabled] != true {
+		t.Error("the Slurm side must keep the exporter's job hook on")
+	}
+
+	input.changed = []string{"s3"}
+	if _, err := service.Deploy(context.Background(), input); err != nil {
+		t.Fatalf("scale-out of a GPU node: Deploy() error = %v", err)
+	}
+	exporter := launcher.launched.DeviceMetricsExporter
+	if exporter == nil || !slices.Equal(exporter.GPUComputeServerIDs, []string{"s3"}) {
+		t.Fatalf("exporter launch = %+v, want s3", exporter)
+	}
+	record := platforms.platforms[result.PlatformID].DeviceMetricsExporter
+	if record.LastWorkflowID != launcher.launched.OperationID || record.GPUIdentity != platformdomain.GPUIdentityCollapsed {
+		t.Errorf("exporter record = %+v, want it under the scale-out keeping the GPU identity", record)
+	}
+}

@@ -10,14 +10,16 @@
     "validate-slurm-acceptance",
     "drain-slurm-nodes",
     "uninstall-slurm-node",
-    "reconfigure-slurm"
+    "reconfigure-slurm",
+    "scale-out-slurm"
   ],
   "workflowKinds": [
     "configure-slurm",
     "uninstall-slurm",
     "configure-omnistat",
     "scale-in-slurm",
-    "reconfigure-slurm"
+    "reconfigure-slurm",
+    "scale-out-slurm"
   ],
   "taskKinds": [],
   "completions": [
@@ -175,6 +177,29 @@
           },
           "targets": "members",
           "timeoutSeconds": 3600
+        }
+      ]
+    },
+    "slurm-scale-out": {
+      "version": 1,
+      "jobs": [
+        {
+          "name": "join-nodes",
+          "label": "Join New Nodes",
+          "retry": "job"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "join-nodes",
+          "name": "Join the new nodes",
+          "job": "join-nodes",
+          "content": {
+            "type": "host-automation",
+            "playbook": "scale-out-slurm"
+          },
+          "targets": "members",
+          "timeoutSeconds": 5400
         }
       ]
     },

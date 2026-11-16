@@ -44,6 +44,10 @@ const (
 	completionParamMode     = "mode"
 	completionParamKind     = "softwareKind"
 	completionParamServers  = "serverIds"
+	// completionParamKeptNodes is the omnistat-hardware-counters completion's param on a run that
+	// installs only some compute nodes (a scale-out's): the other nodes' outcomes, recorded with the
+	// run's own.
+	completionParamKeptNodes = "keptNodes"
 	// completionParamDeleteRecord is the platform-uninstall completion's param: whether the user
 	// asked a kept-servers uninstall to remove the Platform record.
 	completionParamDeleteRecord = "deleteRecord"
@@ -236,7 +240,8 @@ func workflowResults(observer platformDeploymentObserver, credentials ...platfor
 		}),
 		completionOmnistatHardwareCounters: resultFunc(func(ctx context.Context, r workflowapp.TaskResult) error {
 			recordID, _ := r.Completion.Params[completionParamRecord].(string)
-			return observer.recordHardwareCounters(ctx, r.Workflow.PlatformID, r.Workflow.ID, recordID,
+			kept, _ := r.Completion.Params[completionParamKeptNodes].([]any)
+			return observer.recordHardwareCounters(ctx, r.Workflow.PlatformID, r.Workflow.ID, recordID, kept,
 				workflowdomain.RunnerResult{Data: r.Data})
 		}),
 		completionPlatformUninstall: resultFunc(func(ctx context.Context, r workflowapp.TaskResult) error {

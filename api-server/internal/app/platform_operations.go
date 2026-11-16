@@ -156,7 +156,7 @@ func buildPlatformOperations(deps platformOperationDeps) (platformOperations, er
 	launcher := platformDeploymentLauncher{
 		operations: deps.operations, orchestrations: deps.orchestrations, deployments: deps.deployments, servers: deps.servers,
 		bootMedia: deps.bootMedia, software: deps.software, ntp: deps.ntp, nodeExporter: deps.nodeExporter,
-		monitoring: deps.monitoring, monitoringTokens: deps.monitoringTokens, gate: gate,
+		monitoring: deps.monitoring, monitoringTokens: deps.monitoringTokens, omnistats: deps.platforms, gate: gate,
 		registry: deps.modules.registry, catalog: gate.launcher.catalog,
 	}
 	// The GPU Operator and the Device Metrics Exporter are the AMD Accelerator module's Platform

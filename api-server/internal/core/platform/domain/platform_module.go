@@ -64,6 +64,10 @@ const (
 	// without redeploying the other members; only that member is validated. Like the scale-in it
 	// leaves the Platform active.
 	RealizeRescan PlatformRealization = "rescan"
+	// RealizeScaleOut adds members to a deployed Platform: only the new members are installed and
+	// validated, the members already in it are reconfigured in place, and its features are installed
+	// on the new members alone. Like the scale-in it leaves the Platform active.
+	RealizeScaleOut PlatformRealization = "scale-out"
 	// RealizeReconfigure reconfigures the deployed Platform in place for a change that concerns only
 	// how it schedules (node groups, partitions, expected GPUs): nothing is installed, no member is
 	// redeployed or validated, and the Platform stays active.

@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -488,7 +490,7 @@ func TestSlurmCompositionComposesOmnistat(t *testing.T) {
 		t.Errorf("swallow_omnistat_grafana_port = %v", vars["swallow_omnistat_grafana_port"])
 	}
 	if !slices.Equal(omnistat.Targets, serverRefs("s1", "s2")) {
-		t.Errorf("Omnistat Task targets = %v, want every target", omnistat.Targets)
+		t.Errorf("Omnistat Task targets = %v, want the observability host and the exporter nodes", omnistat.Targets)
 	}
 }
 
@@ -678,5 +680,60 @@ func TestDeviceMetricsExporterConstantsAgree(t *testing.T) {
 		platformdomain.DeviceMetricsExporterPort != softwaredomain.DeviceMetricsExporterPort {
 		t.Errorf("platform %s:%d, software %s:%d", platformdomain.DeviceMetricsExporterVersion, platformdomain.DeviceMetricsExporterPort,
 			softwaredomain.DeviceMetricsExporterVersion, softwaredomain.DeviceMetricsExporterPort)
+	}
+}
+
+// A deployment whose Platform Grafana is already installed with the same spec and linked leaves it
+// out, so its monitoring token is not issued again; a missing link, another spec, or an install that
+// did not finish installs it again.
+func TestSlurmCompositionLeavesAConvergedGrafana(t *testing.T) {
+	launch := platformdomain.DeploymentLaunch{
+		Platform: &platformdomain.Platform{ID: "plat-1", Name: "lab", Type: platformdomain.PlatformTypeSlurm,
+			MonitoringLinks: []platformdomain.MonitoringLink{{Name: platformGrafanaLinkName, URL: "http://10.0.0.1:3000"}}},
+		TargetServerIDs:      []string{"s1", "s2"},
+		RequestedBy:          "admin",
+		MonitoringDashboards: &platformdomain.MonitoringDashboardsLaunch{ServerID: "s1", InstallMethod: platformdomain.ObservabilityInstallNative},
+	}
+	first, err := slurmCompositionLauncher(t, nil).planSlurmComposition(context.Background(), launch, "op-1", false, installPlatformStepID)
+	if err != nil || len(first.installs) != 1 {
+		t.Fatalf("first plan = %v, %v", first.installs, err)
+	}
+	// The store reads the spec back as JSON values.
+	var stored map[string]any
+	raw, _ := json.Marshal(first.installs[0].Spec)
+	_ = json.Unmarshal(raw, &stored)
+	plan := func(assignment *softwaredomain.Assignment, launch platformdomain.DeploymentLaunch) composedPlan {
+		t.Helper()
+		launcher := slurmCompositionLauncher(t, nil)
+		servers := slurmTestServers{}
+		launcher.software = softwareapp.NewSoftwareService(&storetest.Transactor{}, testModules(t).software, testModules(t).accelerators,
+			assignmentList{assignment}, servers, nil, nil)
+		composed, err := launcher.planSlurmComposition(context.Background(), launch, "op-2", false, installPlatformStepID)
+		if err != nil {
+			t.Fatalf("planSlurmComposition() error = %v", err)
+		}
+		return composed
+	}
+	installed := func(spec map[string]any, state softwaredomain.AssignmentState) *softwaredomain.Assignment {
+		return &softwaredomain.Assignment{ServerID: "s1", Kind: softwaredomain.KindGrafana, Spec: spec, State: state}
+	}
+	if composed := plan(installed(stored, softwaredomain.StateInstalled), launch); len(composed.steps) != 0 || len(composed.tokenSteps) != 0 {
+		t.Errorf("a converged Grafana planned %v (token steps %v); want nothing", taskIDs(composed.steps), composed.tokenSteps)
+	}
+	unlinked := launch
+	unlinked.Platform = &platformdomain.Platform{ID: "plat-1", Name: "lab", Type: platformdomain.PlatformTypeSlurm}
+	changed := maps.Clone(stored)
+	changed[softwaredomain.SpecDashboards] = []any{"node-exporter", "omnistat"}
+	for name, tc := range map[string]struct {
+		assignment *softwaredomain.Assignment
+		launch     platformdomain.DeploymentLaunch
+	}{
+		"without its link":   {installed(stored, softwaredomain.StateInstalled), unlinked},
+		"with another spec":  {installed(changed, softwaredomain.StateInstalled), launch},
+		"after a failed run": {installed(stored, softwaredomain.StateFailed), launch},
+	} {
+		if composed := plan(tc.assignment, tc.launch); !slices.Equal(composed.tokenSteps, []string{"install-grafana"}) {
+			t.Errorf("%s: token steps %v; want the Grafana installed again", name, composed.tokenSteps)
+		}
 	}
 }

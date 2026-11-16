@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -205,5 +206,108 @@ func TestSlurmScaleInNeedsMembersToRemove(t *testing.T) {
 	launch := platformdomain.DeploymentLaunch{Platform: &platformdomain.Platform{ID: "plat-1", Name: "lab"}, ScaleIn: &platformdomain.ScaleInLaunch{}}
 	if _, err := launcher.prepareSlurmScaleIn(context.Background(), launch); err == nil {
 		t.Error("prepareSlurmScaleIn() without removals succeeded")
+	}
+}
+
+// A scale-out compiles the Slurm module's scale-out template between the ensure-os Job and the gate:
+// its join Task runs over every member and installs only the new one, the container runtime and
+// Omnistat run on the new member alone (Omnistat also on the primary controller, which reports its
+// result) and merge their hardware counters outcomes, no Platform Grafana is planned (so no
+// monitoring token is issued), and the gate validates only the new member. It is not a deploy.
+func TestSlurmScaleOutInstallsOnlyTheNewMembers(t *testing.T) {
+	modules := testModules(t)
+	launcher := slurmCompositionLauncher(t, map[string]bool{"s2": true, "s3": true})
+	launcher.registry, launcher.catalog = modules.registry, workflowPlanCatalog(modules.workflowKinds, modules.software)
+	gate, _ := testValidationGate(t)
+	launcher.gate = gate
+	launch := platformdomain.DeploymentLaunch{
+		Platform: &platformdomain.Platform{ID: "plat-1", Name: "lab", Type: platformdomain.PlatformTypeSlurm, SiteID: "site-1",
+			Omnistat: &platformdomain.Omnistat{HardwareCounters: platformdomain.HardwareCounters{Nodes: []platformdomain.HardwareCounterNode{
+				{ServerID: "s2", State: platformdomain.HardwareCountersCollecting},
+			}}}},
+		OperationID:        "op-1",
+		TargetServerIDs:    []string{"s1", "s2", "s3"},
+		RequestedBy:        "admin",
+		MachinePreparation: platformdomain.MachinePreparation{Mode: platformdomain.MachinePreparationExistingOS},
+		TrustedVars: map[string]any{
+			"swallow_slurm_controller_ids": []string{"s1"}, "swallow_slurm_primary_controller_id": "s1",
+			"swallow_slurm_compute_ids": []string{"s2", "s3"}, "swallow_slurm_gpu_compute_ids": []string{"s2", "s3"},
+		},
+		Realization:      platformdomain.RealizeScaleOut,
+		ChangedServerIDs: []string{"s3"},
+		ContainerRuntime: &platformdomain.ContainerRuntimeLaunch{Kind: platformdomain.ContainerRuntimeDockerCE, ServerIDs: []string{"s3"}},
+		Omnistat: &platformdomain.OmnistatLaunch{
+			ObservabilityServerID: "s1", ComputeServerIDs: []string{"s3"}, InstallMethod: platformdomain.ObservabilityInstallNative,
+			TrustedVars: map[string]any{"swallow_omnistat_compute_ids": []string{"s3"}}, MergeHardwareCounters: true,
+		},
+	}
+	prepared, err := launcher.PrepareDeployment(context.Background(), launch)
+	if err != nil {
+		t.Fatalf("PrepareDeployment() error = %v", err)
+	}
+	plan := prepared.(*preparedPlatformDeployment)
+	workflow := plan.workflow
+	if err := launcher.gate.launcher.catalog.Validate(workflow.Steps, workflow.Jobs); err != nil {
+		t.Fatalf("the plan catalog refuses the scale-out: %v", err)
+	}
+	if workflow.Kind != scaleOutSlurmKind || workflow.Definition != "platform/slurm/slurm-scale-out" ||
+		!slices.Equal(workflow.TargetServerIDs, []string{"s1", "s2", "s3"}) || len(plan.composed.tokenSteps) != 0 {
+		t.Errorf("workflow = kind %s definition %s targets %v token steps %v", workflow.Kind, workflow.Definition,
+			workflow.TargetServerIDs, plan.composed.tokenSteps)
+	}
+	byID := map[string]workflowdomain.Task{}
+	for _, step := range workflow.Steps {
+		byID[step.ID] = step
+		if step.ID == installPlatformStepID || strings.Contains(step.ID, "grafana") {
+			t.Errorf("a scale-out plans %s; it must not redeploy the Platform or reinstall its Grafana", step.ID)
+		}
+	}
+	join := byID["join-nodes"]
+	if playbook, _ := join.Parameters["playbook"].(string); playbook != "scale-out-slurm" ||
+		!slices.Equal(serverIDsOf(join.Targets), []string{"s1", "s2", "s3"}) || !slices.Equal(join.DependsOn, []string{"wait-for-ssh"}) {
+		t.Errorf("join Task = playbook %q targets %v depends %v", playbook, serverIDsOf(join.Targets), join.DependsOn)
+	}
+	if ids, _ := extraVars(t, join)[varScaleOutIDs].([]string); !slices.Equal(ids, []string{"s3"}) {
+		t.Errorf("join installs %v, want s3", ids)
+	}
+	if runtime := byID["install-docker-ce"]; !slices.Equal(serverIDsOf(runtime.Targets), []string{"s3"}) ||
+		!slices.Equal(runtime.DependsOn, []string{"join-nodes"}) {
+		t.Errorf("container runtime = targets %v depends %v", serverIDsOf(runtime.Targets), runtime.DependsOn)
+	}
+	omnistat := byID[omnistatStepID]
+	if !slices.Equal(serverIDsOf(omnistat.Targets), []string{"s1", "s3"}) {
+		t.Errorf("Omnistat targets = %v, want the primary controller and the new node", serverIDsOf(omnistat.Targets))
+	}
+	// The other compute node's outcome is kept on the completion, which records it with the new one's,
+	// and written back into the record the scale-out starts.
+	kept := []platformdomain.HardwareCounterNode{{ServerID: "s2", State: platformdomain.HardwareCountersCollecting}}
+	keptOnCompletion := slices.ContainsFunc(omnistat.Completion, func(c workflowdomain.Completion) bool {
+		params, _ := c.Params[completionParamKeptNodes].([]any)
+		return c.Type == completionOmnistatHardwareCounters &&
+			reflect.DeepEqual(hardwareCounterNodesOf("plat-1", "op-1", map[string]any{"hardwareCounters": map[string]any{"nodes": params}}), kept)
+	})
+	if !keptOnCompletion || !reflect.DeepEqual(plan.keptHardwareCounters, kept) {
+		t.Errorf("Omnistat completion = %v, kept %v; want s2's outcome kept", omnistat.Completion, plan.keptHardwareCounters)
+	}
+	reported := []platformdomain.HardwareCounterNode{{ServerID: "s3", State: platformdomain.HardwareCountersUnavailable, Reason: "no_gpu"}}
+	if got := withKeptNodes(reported, append(slices.Clone(kept), platformdomain.HardwareCounterNode{ServerID: "s3"})); !reflect.DeepEqual(got, append(reported, kept...)) {
+		t.Errorf("withKeptNodes() = %v; want s3's report and s2's kept outcome", got)
+	}
+	check := byID[gateTaskPrefix+slurmAcceptanceSuite]
+	parameters, _ := extraVars(t, check)["swallow_validation_parameters"].(map[string]any)
+	if !slices.Equal(check.DependsOn, []string{omnistatStepID}) || !slices.Equal(parameters["nodes"].([]string), []string{"s3"}) {
+		t.Errorf("gate = depends %v nodes %v; want the new node after Omnistat", check.DependsOn, parameters["nodes"])
+	}
+	labelled := false
+	for _, job := range workflow.Jobs {
+		labelled = labelled || job.Name == "join-nodes" && job.Label == "Join New Nodes"
+	}
+	if !labelled {
+		t.Errorf("Jobs = %+v, want the template's join-nodes Job labelled", workflow.Jobs)
+	}
+
+	launch.ChangedServerIDs = nil
+	if _, err := launcher.PrepareDeployment(context.Background(), launch); err == nil {
+		t.Error("a scale-out without members to add was planned")
 	}
 }

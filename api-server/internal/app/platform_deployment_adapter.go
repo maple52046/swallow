@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -102,6 +103,9 @@ type platformDeploymentLauncher struct {
 	// monitoringTokens issues the Platform's monitoring token for its Grafana when a deployment that
 	// composes one is persisted. Required wherever deployments are persisted (buildPlatformOperations).
 	monitoringTokens platformTokenIssuer
+	// omnistats writes back, under an accepted scale-out, the hardware counters outcomes of the compute
+	// nodes it does not install, which the record the scale-out starts would otherwise drop.
+	omnistats platformdomain.OmnistatRecorder
 	// gate composes a Slurm deployment's acceptance suite (validation.md §5). Required for Slurm:
 	// without it a Slurm deployment is refused rather than accepted without its gate.
 	gate *validationGate
@@ -131,6 +135,9 @@ type preparedPlatformDeployment struct {
 	// gate is the Validation Suite a Slurm deployment composes as its gate; its run is written with
 	// the Workflow.
 	gate *composedGate
+	// keptHardwareCounters are the outcomes of the compute nodes a scale-out does not install, written
+	// back into the Omnistat record it starts.
+	keptHardwareCounters []platformdomain.HardwareCounterNode
 }
 
 // OperationID is the preassigned Workflow id.
@@ -155,6 +162,11 @@ func (l platformDeploymentLauncher) PrepareDeployment(ctx context.Context, launc
 			return l.prepareSlurmScaleIn(ctx, launch)
 		}
 		return nil, fmt.Errorf("%w: only a Slurm Platform removes members", platformdomain.ErrInvalidDeployment)
+	case platformdomain.RealizeScaleOut:
+		if slurm {
+			return l.prepareSlurmScaleOut(ctx, launch)
+		}
+		return nil, fmt.Errorf("%w: only a Slurm Platform adds members in place", platformdomain.ErrInvalidDeployment)
 	case platformdomain.RealizeHardwareCounters:
 		if slurm {
 			return l.prepareSlurmHardwareCounters(ctx, launch)
@@ -205,6 +217,11 @@ func (l platformDeploymentLauncher) PersistDeployment(ctx context.Context, prepa
 	if install := plan.exporters.install; install != nil {
 		if err := l.software.RecordComposedInstall(ctx, *install, created.ID); err != nil {
 			return "", fmt.Errorf("record the Node Exporter's software assignments: %w", err)
+		}
+	}
+	if len(plan.keptHardwareCounters) > 0 && l.omnistats != nil {
+		if _, err := l.omnistats.SetHardwareCounterNodes(ctx, workflow.PlatformID, created.ID, plan.keptHardwareCounters, time.Now().UTC()); err != nil {
+			return "", fmt.Errorf("keep the hardware counters outcomes of the other compute nodes: %w", err)
 		}
 	}
 	if plan.gate != nil {
@@ -1088,16 +1105,31 @@ var hardwareCounterReasons = map[string]bool{
 
 // recordHardwareCounters records each compute node's hardware counters outcome a successful
 // configure-omnistat run reported, fenced on recordID (the Workflow the record names) like the
-// Omnistat State.
+// Omnistat State. A scale-out's run reports only the nodes it added, so the other nodes' outcomes its
+// completion keeps (kept) are recorded with them.
 func (o platformDeploymentObserver) recordHardwareCounters(
 	ctx context.Context,
 	platformID, workflowID, recordID string,
+	kept []any,
 	result workflowdomain.RunnerResult,
 ) error {
 	if recordID == "" {
 		recordID = workflowID
 	}
-	return o.platforms.RecordHardwareCounterNodes(ctx, platformID, recordID, hardwareCounterNodesOf(platformID, workflowID, result.Data))
+	nodes := withKeptNodes(hardwareCounterNodesOf(platformID, workflowID, result.Data),
+		hardwareCounterNodesOf(platformID, workflowID, map[string]any{"hardwareCounters": map[string]any{"nodes": kept}}))
+	return o.platforms.RecordHardwareCounterNodes(ctx, platformID, recordID, nodes)
+}
+
+// withKeptNodes adds to the nodes a run reported the kept outcomes of the nodes it did not report.
+func withKeptNodes(reported, kept []platformdomain.HardwareCounterNode) []platformdomain.HardwareCounterNode {
+	nodes := slices.Clone(reported)
+	for _, node := range kept {
+		if !slices.ContainsFunc(reported, func(other platformdomain.HardwareCounterNode) bool { return other.ServerID == node.ServerID }) {
+			nodes = append(nodes, node)
+		}
+	}
+	return nodes
 }
 
 // hardwareCounterNodesOf reads hardwareCounters.nodes of a configure-omnistat result; a result

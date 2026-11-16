@@ -760,10 +760,22 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 		launch.ScaleIn = &platformdomain.ScaleInLaunch{Removals: slices.Clone(input.removals), NodeNames: names}
 		launch.ChangedServerIDs = nil
 	}
+	// A scale-out installs the Platform's features on the members it adds alone (decision 083); the
+	// members already in it keep what they have.
+	scaleOut := input.realization == platformdomain.RealizeScaleOut
+	featureMembers := func(ids []string) []string {
+		if !scaleOut {
+			return ids
+		}
+		return slices.DeleteFunc(slices.Clone(ids), func(id string) bool { return !slices.Contains(launch.ChangedServerIDs, id) })
+	}
+	if scaleOut && len(launch.ChangedServerIDs) == 0 {
+		return nil, fmt.Errorf("%w: a scale-out needs members to add", platformdomain.ErrInvalidDeployment)
+	}
 	if containerRuntime != "" {
 		launch.ContainerRuntime = &platformdomain.ContainerRuntimeLaunch{
 			Kind:      containerRuntime,
-			ServerIDs: slurmContainerRuntimeIDs(validated.slurmSpec),
+			ServerIDs: featureMembers(slurmContainerRuntimeIDs(validated.slurmSpec)),
 		}
 	}
 	// The primary controller hosts the Platform's Grafana, and the enabled monitoring feature's
@@ -779,6 +791,7 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 			HardwareCounters: platformdomain.HardwareCounters{Requested: jobMonitoring.HardwareCounters},
 			LastWorkflowID:   launch.OperationID, UpdatedAt: time.Now().UTC(),
 		}
+		computeIDs := featureMembers(validated.slurmSpec.ComputeServerIDs())
 		// Only a Workflow that runs the Omnistat install completes the record it fences.
 		if input.realization.InstallsFeatures() {
 			records = append(records, func(ctx context.Context) error {
@@ -788,34 +801,45 @@ func (s *DeployService) deploySlurm(ctx context.Context, input DeployPlatformInp
 		launch.TrustedVars[varSlurmOmnistatEnabled] = true
 		launch.Omnistat = &platformdomain.OmnistatLaunch{
 			ObservabilityServerID: observability,
-			ComputeServerIDs:      validated.slurmSpec.ComputeServerIDs(),
+			ComputeServerIDs:      computeIDs,
 			InstallMethod:         record.InstallMethod,
 			HardwareCounters:      record.HardwareCounters.Requested,
-			TrustedVars:           buildOmnistatVars(platform, validated.slurmSpec, observability, gpuComputeIDs),
+			TrustedVars:           buildOmnistatVars(platform, validated.slurmSpec, observability, computeIDs, featureMembers(gpuComputeIDs)),
+			MergeHardwareCounters: scaleOut,
 		}
 		dashboardsMethod = record.InstallMethod
 	}
+	exporterIDs := featureMembers(gpuComputeIDs)
 	if exporterEnabled {
+		launch.TrustedVars[varSlurmDeviceMetricsExporterEnabled] = true
+		dashboardsMethod = exporter.InstallMethod
+	}
+	// A scale-out that adds no GPU compute node has no exporter to install, so its record stays as it is.
+	if exporterEnabled && len(exporterIDs) > 0 {
 		record := &platformdomain.DeviceMetricsExporter{
 			Enabled: true, Version: platformdomain.DeviceMetricsExporterVersion, InstallMethod: exporter.InstallMethod,
 			ObservabilityServerID: observability, State: platformdomain.DeviceMetricsExporterInstalling,
 			LastWorkflowID: launch.OperationID, UpdatedAt: time.Now().UTC(),
+		}
+		if scaleOut && platform.DeviceMetricsExporter != nil {
+			// The GPU identity the members already in the Platform reported stays until the new ones report theirs.
+			record.GPUIdentity = platform.DeviceMetricsExporter.GPUIdentity
 		}
 		if input.realization.InstallsFeatures() {
 			records = append(records, func(ctx context.Context) error {
 				return s.deviceMetricsExporters.SetDeviceMetricsExporter(ctx, platform.ID, record)
 			})
 		}
-		launch.TrustedVars[varSlurmDeviceMetricsExporterEnabled] = true
 		launch.DeviceMetricsExporter = &platformdomain.DeviceMetricsExporterLaunch{
 			ObservabilityServerID: observability,
-			GPUComputeServerIDs:   gpuComputeIDs,
+			GPUComputeServerIDs:   exporterIDs,
 			InstallMethod:         exporter.InstallMethod,
-			TrustedVars:           buildDeviceMetricsExporterVars(platform, validated.slurmSpec, gpuComputeIDs),
+			TrustedVars:           buildDeviceMetricsExporterVars(platform, validated.slurmSpec, exporterIDs),
 		}
-		dashboardsMethod = record.InstallMethod
 	}
-	if input.MonitoringDashboards == nil || *input.MonitoringDashboards {
+	// The Platform's Grafana shows the Site's metrics of its members through the gateway, so members
+	// that join need nothing from it: a scale-out leaves it, and its monitoring token, as they are.
+	if !scaleOut && (input.MonitoringDashboards == nil || *input.MonitoringDashboards) {
 		launch.MonitoringDashboards = &platformdomain.MonitoringDashboardsLaunch{ServerID: observability, InstallMethod: dashboardsMethod}
 	}
 	prepared, err := s.prepare(ctx, input, launch, validated.targets, records)
@@ -1514,12 +1538,12 @@ func buildOmnistatVars(
 	platform *platformdomain.Platform,
 	spec platformdomain.SlurmDeploymentSpec,
 	observabilityID string,
-	gpuComputeIDs []string,
+	computeIDs, gpuComputeIDs []string,
 ) map[string]any {
 	return map[string]any{
 		varOmnistatVersion:         platformdomain.OmnistatVersion,
 		varOmnistatPort:            platformdomain.OmnistatExporterPort,
-		varOmnistatComputeIDs:      spec.ComputeServerIDs(),
+		varOmnistatComputeIDs:      computeIDs,
 		varOmnistatObservabilityID: observabilityID,
 		varOmnistatSystemName:      slurmClusterName(spec.ClusterName, platform.Name),
 		varSlurmGPUComputeIDs:      gpuComputeIDs,

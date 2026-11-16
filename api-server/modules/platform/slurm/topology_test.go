@@ -179,8 +179,8 @@ func TestMemberChangesScaleComputeOnly(t *testing.T) {
 	added.Members = append(added.Members, platformdomain.PlatformMember{ServerID: "g3", Roles: []string{RoleCompute}})
 	added = withMember(added, "compute", "g3")
 	changes, err = Platform{}.Changes(&applied, added)
-	if err != nil || changes.Destructive() || changes.Realization != platformdomain.RealizeDeploy || len(changes.Blockers) != 0 {
-		t.Errorf("add a compute node = %+v, %v; want a direct deploy", changes, err)
+	if err != nil || changes.Destructive() || changes.Realization != platformdomain.RealizeScaleOut || len(changes.Blockers) != 0 {
+		t.Errorf("add a compute node = %+v, %v; want a direct scale-out", changes, err)
 	}
 
 	controller := applied.Clone()
@@ -265,9 +265,18 @@ func TestSchedulingChangesReconfigureInPlace(t *testing.T) {
 	}
 	added := withMember(applied, "compute", "g3")
 	added.Members = append(added.Members, platformdomain.PlatformMember{ServerID: "g3", Roles: []string{RoleCompute}})
-	if changes, _ := (Platform{}).Changes(&applied, added); changes.Realization != platformdomain.RealizeDeploy ||
+	if changes, _ := (Platform{}).Changes(&applied, added); changes.Realization != platformdomain.RealizeScaleOut || changes.Destructive() ||
 		slices.ContainsFunc(changes.Actions, func(a convergence.PlannedAction) bool { return a.Action == "change-group-members" }) {
-		t.Errorf("add a member = %+v; want a deploy without a move", changes)
+		t.Errorf("add a member = %+v; want a scale-out without a move", changes)
+	}
+	// A partition added with the member is applied in place by the same scale-out.
+	withPartition := change(func(top *topology) {
+		top.partitions = append(top.partitions, partition{Name: "extra", Groups: []string{"compute"}, MaxTime: "INFINITE"})
+	})
+	addedWithPartition := withMember(withPartition, "compute", "g3")
+	addedWithPartition.Members = append(addedWithPartition.Members, platformdomain.PlatformMember{ServerID: "g3", Roles: []string{RoleCompute}})
+	if changes, _ := (Platform{}).Changes(&applied, addedWithPartition); changes.Realization != platformdomain.RealizeScaleOut {
+		t.Errorf("add a member and a partition = %+v; want a scale-out", changes)
 	}
 	if changes, _ := (Platform{}).Changes(&applied, withoutMember(applied, "g2")); changes.Realization != platformdomain.RealizeScaleIn {
 		t.Errorf("remove a member = %+v; want a scale-in", changes)

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -113,6 +114,12 @@ type slurmMonitoring struct {
 	// grafanaPortVar names the playbook variable the software domain's Grafana port goes in, for the
 	// URL omnistat-query reads and the run reports.
 	grafanaPortVar string
+	// targetIDs are the Servers the feature's own Task runs on: its exporter nodes and the host that
+	// reports its result.
+	targetIDs []string
+	// keptNodes are the hardware counters outcomes of the compute nodes the run does not install (a
+	// scale-out's), which its result completion records with the run's own.
+	keptNodes []platformdomain.HardwareCounterNode
 }
 
 // completions declares the feature Task's State projection and result recording, fenced on the
@@ -121,9 +128,32 @@ type slurmMonitoring struct {
 func (m *slurmMonitoring) completions(platformID, recordID string) []workflowdomain.Completion {
 	completions := []workflowdomain.Completion{featureState(m.stateCompletion, platformID, recordID)}
 	if m.resultCompletion != "" {
-		completions = append(completions, workflowdomain.Completion{Type: m.resultCompletion, Params: map[string]any{completionParamRecord: recordID}})
+		params := map[string]any{completionParamRecord: recordID}
+		if len(m.keptNodes) > 0 {
+			kept := make([]any, 0, len(m.keptNodes))
+			for _, node := range m.keptNodes {
+				kept = append(kept, map[string]any{"serverId": node.ServerID, "state": string(node.State), "reason": node.Reason})
+			}
+			params[completionParamKeptNodes] = kept
+		}
+		completions = append(completions, workflowdomain.Completion{Type: m.resultCompletion, Params: params})
 	}
 	return completions
+}
+
+// keptHardwareCounterNodes are the hardware counters outcomes the Platform's Omnistat record holds
+// for the compute nodes a scale-out does not install; nil for any other run.
+func keptHardwareCounterNodes(launch platformdomain.DeploymentLaunch) []platformdomain.HardwareCounterNode {
+	if launch.Omnistat == nil || !launch.Omnistat.MergeHardwareCounters || launch.Platform == nil || launch.Platform.Omnistat == nil {
+		return nil
+	}
+	var kept []platformdomain.HardwareCounterNode
+	for _, node := range launch.Platform.Omnistat.HardwareCounters.Nodes {
+		if !slices.Contains(launch.Omnistat.ComputeServerIDs, node.ServerID) {
+			kept = append(kept, node)
+		}
+	}
+	return kept
 }
 
 // slurmMonitoringOf returns the deployment's monitoring feature, or nil when it has none. The
@@ -137,7 +167,17 @@ func slurmMonitoringOf(launch platformdomain.DeploymentLaunch) *slurmMonitoring 
 			trustedVars = map[string]any{}
 		}
 		trustedVars[omnistatHardwareCountersVar] = omnistat.HardwareCounters
+		var targets []string
+		if omnistat.ObservabilityServerID != "" {
+			targets = append(targets, omnistat.ObservabilityServerID)
+		}
+		for _, id := range omnistat.ComputeServerIDs {
+			if !slices.Contains(targets, id) {
+				targets = append(targets, id)
+			}
+		}
 		return &slurmMonitoring{
+			targetIDs: targets, keptNodes: keptHardwareCounterNodes(launch),
 			label: "Omnistat", dashboardBundle: softwaredomain.DashboardBundleOmnistat, trustedVars: trustedVars,
 			stepID: omnistatStepID, stepName: "Install Omnistat", job: jobConfigureOmnistat,
 			playbook: omnistatPlaybook, workflowKind: workflowdomain.WorkflowKindConfigureOmnistat,
@@ -223,10 +263,18 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 		}
 	}
 
+	grafanaSpec := map[string]any{}
+	grafanaConverged := false
 	if dashboards != nil {
+		grafanaSpec = platformGrafanaSpec(launch, runtime, l.monitoring.publicURL)
+		if grafanaConverged, err = l.platformGrafanaConverged(ctx, launch, dashboards.ServerID, grafanaSpec); err != nil {
+			return plan, err
+		}
+	}
+	if dashboards != nil && !grafanaConverged {
 		previous, err = l.appendComposedInstall(ctx, &plan, launch, operationID, provisionFirst, previous,
 			softwaredomain.KindGrafana, []string{dashboards.ServerID},
-			platformGrafanaSpec(launch, runtime, l.monitoring.publicURL),
+			grafanaSpec,
 			"Install the Platform Grafana on "+launch.Platform.Name,
 			composedInstallExtras{
 				platformToken: true,
@@ -256,6 +304,48 @@ func (l platformDeploymentLauncher) planSlurmComposition(
 	return plan, nil
 }
 
+// platformGrafanaConverged reports whether the Platform's Grafana is already installed on serverID
+// with spec and linked from the Platform. Installing it again would change nothing but its monitoring
+// token, which is issued with every install and stops the dashboards until the install finishes, so a
+// converged Grafana is left out of the deployment.
+func (l platformDeploymentLauncher) platformGrafanaConverged(
+	ctx context.Context,
+	launch platformdomain.DeploymentLaunch,
+	serverID string,
+	spec map[string]any,
+) (bool, error) {
+	if launch.Platform == nil || !slices.ContainsFunc(launch.Platform.MonitoringLinks, func(link platformdomain.MonitoringLink) bool {
+		return link.Name == platformGrafanaLinkName
+	}) {
+		return false, nil
+	}
+	existing, err := l.software.ListAssignments(ctx, softwaredomain.AssignmentFilter{ServerID: serverID, Kind: softwaredomain.KindGrafana})
+	if err != nil {
+		return false, err
+	}
+	if len(existing) == 0 || existing[0].State != softwaredomain.StateInstalled {
+		return false, nil
+	}
+	// The stored spec is the normalized one, so the wanted spec is normalized the same way; a spec the
+	// software service refuses is reported by the install this leaves in.
+	planned, err := l.software.PlanComposedInstall(ctx, softwareapp.InstallInput{
+		Kind: softwaredomain.KindGrafana, Targets: []softwareapp.InstallTarget{{ServerID: serverID}}, Spec: spec,
+		RequestedBy: launch.RequestedBy,
+	})
+	if err != nil {
+		return false, nil
+	}
+	return sameJSON(existing[0].Spec, planned.Spec), nil
+}
+
+// sameJSON reports whether a and b encode to the same JSON, so a spec read back from the store
+// ([]any, float64) equals the one built in memory ([]string, int).
+func sameJSON(a, b any) bool {
+	left, errLeft := json.Marshal(a)
+	right, errRight := json.Marshal(b)
+	return errLeft == nil && errRight == nil && string(left) == string(right)
+}
+
 // requireOmnistatScrapeAddresses refuses an Omnistat launch in an installation without the Site
 // metrics store's scrape addresses, which the exporter admits as its only remote clients.
 func (l platformDeploymentLauncher) requireOmnistatScrapeAddresses(launch platformdomain.DeploymentLaunch) error {
@@ -280,9 +370,10 @@ func (m *slurmMonitoring) taskVars() map[string]any {
 	return trustedVars
 }
 
-// omnistatTask plans the configure-omnistat Task over the deployment's targets after dependsOn, with
-// its State and hardware counters completions fenced on the record of this Workflow. A deployment and
-// a hardware counters change run the same Task, so the nodes converge the same way.
+// omnistatTask plans the configure-omnistat Task after dependsOn on the nodes that run the exporter
+// and the primary controller, which reports the run's result, with its State and hardware counters
+// completions fenced on the record of this Workflow. A deployment, a scale-out (the new compute nodes
+// alone), and a hardware counters change run the same Task, so the nodes converge the same way.
 func (l platformDeploymentLauncher) omnistatTask(
 	ctx context.Context,
 	launch platformdomain.DeploymentLaunch,
@@ -297,7 +388,7 @@ func (l platformDeploymentLauncher) omnistatTask(
 	prepared, err := l.operations.PrepareAnsibleStep(ctx, workflowapp.CreateExecutionInput{
 		Kind: string(monitoring.workflowKind), PlaybookName: monitoring.playbook,
 		Intent:          name + " on " + launch.Platform.Name,
-		TargetServerIDs: launch.TargetServerIDs, PlatformID: launch.Platform.ID,
+		TargetServerIDs: monitoring.targetIDs, PlatformID: launch.Platform.ID,
 		TrustedVars: trustedVars, RequestedBy: launch.RequestedBy,
 	}, operationID, provisionFirst)
 	if err != nil {

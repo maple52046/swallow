@@ -113,6 +113,9 @@ type OmnistatLaunch struct {
 	InstallMethod         ObservabilityInstallMethod
 	HardwareCounters      bool
 	TrustedVars           map[string]any
+	// MergeHardwareCounters marks a run that installs only ComputeServerIDs, the members a scale-out
+	// adds: the outcomes the other compute nodes reported are kept, and the run's replace only its own.
+	MergeHardwareCounters bool
 }
 
 // OmnistatRecorder persists a Platform's Omnistat record. It is separate from PlatformRepository so

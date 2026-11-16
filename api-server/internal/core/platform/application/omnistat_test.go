@@ -537,3 +537,45 @@ func TestAHardwareCountersChangeNeedsADeployedOmnistat(t *testing.T) {
 		t.Error("a refused hardware counters change must launch nothing")
 	}
 }
+
+// A scale-out installs Omnistat on the compute members it adds alone and leaves out the Platform's
+// Grafana: the launch names only the new compute node and asks for the other nodes' hardware counters
+// outcomes to be kept, and the record is written under the scale-out.
+func TestScaleOutInstallsOmnistatOnTheNewMembers(t *testing.T) {
+	service, launcher, platforms := newDeployHarness(slurmServers()...)
+	result, err := service.Deploy(context.Background(), omnistatSlurmInput())
+	if err != nil {
+		t.Fatalf("Deploy() error = %v", err)
+	}
+	if launcher.launched.MonitoringDashboards == nil {
+		t.Fatal("the first deploy must install the Platform's Grafana")
+	}
+	input := omnistatSlurmInput()
+	input.PlatformID, input.realization, input.changed = result.PlatformID, platformdomain.RealizeScaleOut, []string{"s3"}
+	if _, err := service.Deploy(context.Background(), input); err != nil {
+		t.Fatalf("scale-out Deploy() error = %v", err)
+	}
+	launch := launcher.launched
+	if launch.Realization != platformdomain.RealizeScaleOut || launch.MonitoringDashboards != nil || !slices.Equal(launch.ChangedServerIDs, []string{"s3"}) {
+		t.Errorf("scale-out launch = realization %s dashboards %+v changed %v; want s3 without the Grafana",
+			launch.Realization, launch.MonitoringDashboards, launch.ChangedServerIDs)
+	}
+	omnistat := launch.Omnistat
+	if omnistat == nil || !slices.Equal(omnistat.ComputeServerIDs, []string{"s3"}) || !omnistat.MergeHardwareCounters {
+		t.Fatalf("omnistat launch = %+v, want s3 with merged hardware counters", omnistat)
+	}
+	if computes, _ := omnistat.TrustedVars[varOmnistatComputeIDs].([]string); !slices.Equal(computes, []string{"s3"}) {
+		t.Errorf("%s = %v, want [s3]", varOmnistatComputeIDs, omnistat.TrustedVars[varOmnistatComputeIDs])
+	}
+	if computes, _ := launch.TrustedVars["swallow_slurm_compute_ids"].([]string); !slices.Equal(computes, []string{"s2", "s3"}) {
+		t.Errorf("the Slurm side's compute ids = %v; the controllers still configure every compute node", launch.TrustedVars["swallow_slurm_compute_ids"])
+	}
+	if record := platforms.platforms[result.PlatformID].Omnistat; record.LastWorkflowID != launch.OperationID {
+		t.Errorf("omnistat record = %+v, want it under the scale-out", record)
+	}
+
+	input.changed = []string{}
+	if _, err := service.Deploy(context.Background(), input); !errors.Is(err, platformdomain.ErrInvalidDeployment) {
+		t.Errorf("a scale-out without members to add: error = %v, want ErrInvalidDeployment", err)
+	}
+}

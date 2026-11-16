@@ -523,3 +523,9 @@ deployed Slurm Platform in place for a change of its node groups and partitions 
 a compute node ([platforms](platforms.md#rescan-a-slurm-node)). Its Job `reconfigure-slurm` is labeled
 `Reconfigure Slurm`; a rescan adds the gate's `validate-slurm` Job. Such changes and rescans used to run
 a `configure-slurm` Workflow that redeployed every member.
+
+The same day the kind `scale-out-slurm` was added (additive): the Workflow that adds compute members to
+a deployed Slurm Platform ([platforms](platforms.md#node-groups-and-partitions)). It installs and
+validates only the new members; its Job `join-nodes` is labeled `Join New Nodes`, and it carries the
+`Provision OS` Job, the new members' feature Jobs, and the gate's `validate-slurm` Job. Adding members
+used to run a `configure-slurm` Workflow that redeployed every member.

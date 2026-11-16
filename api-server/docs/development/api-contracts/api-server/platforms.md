@@ -764,6 +764,16 @@ A Slurm Platform's members are organized in node groups, and its compute groups 
   controllers' configuration from what each compute node recorded at its last detection and applies it
   with `scontrol reconfigure`. No member is redeployed, no feature is reinstalled, no gate runs, and the
   Platform stays `active`. A change of a group's `templateId` alone runs no Workflow.
+- Adding compute members, alone or with such group and partition changes, is a scale-out: it runs a
+  `scale-out-slurm` Workflow (definition `platform/slurm/slurm-scale-out`) and the Platform stays
+  `active`. The `Provision OS` Job installs an OS only on the new members that need one and checks SSH
+  on the others; the Job `join-nodes` (label `Join New Nodes`) installs Slurm on the new members, renders
+  the controllers' configuration from what the other compute nodes recorded and applies it with
+  `scontrol reconfigure`, and has the shared workload filesystem exported to the new members; the other
+  members are only read. The container runtime and Omnistat or the Device Metrics Exporter are installed
+  on the new members alone (Omnistat's hardware counters outcomes of the other nodes are kept), the
+  Platform Grafana is not reinstalled, and the gate validates the new members. A change that also turns
+  on a feature or changes another setting runs the `configure-slurm` deploy instead.
 
 Every Slurm deployment proves the cluster works with the `slurm-acceptance`
 [Validation Suite](validation.md) as its gate. After `install-platform` and the composed software, the Workflow runs the Job `validate-slurm`: the suite's check Task from the
@@ -1356,9 +1366,10 @@ validates the new spec as a deployment:
   feature, a Platform's `monitoringDashboards`, or a first container runtime or workload
   storage, turning Omnistat's `hardwareCounters` on or off, or adding a Slurm node group or partition
   and changing a partition or a group's template or `expectedGpusPerNode`) is written and answered
-  `200 OK` with `plan: null`; the platform controller converges it. Adding a member runs the type's
-  deploy Workflow over every member; members already in the Platform are left as they are, and the
-  Slurm gate validates only the new ones. Turning the hardware counters on or off alone runs a
+  `200 OK` with `plan: null`; the platform controller converges it. Adding a member to a Kubernetes
+  Platform runs its deploy Workflow over every member; members already in the Platform are left as they
+  are. Adding Slurm compute members runs a `scale-out-slurm` Workflow that installs only them
+  ([Node groups and partitions](#node-groups-and-partitions)); the Slurm gate validates only the new ones. Turning the hardware counters on or off alone runs a
   `configure-omnistat` Workflow instead ([Omnistat](#omnistat)); a change to templates alone runs none.
 - A destructive change (changing or turning off the GPU Operator, removing Slurm compute members or a
   partition, a Slurm change that needs a generated template on an applied Platform, and the changes
@@ -1505,8 +1516,9 @@ shortcut applies only to a whole-platform uninstall. A release requires the dura
 orchestration topology.
 
 Eligibility, checked when the approved plan starts the uninstall, requires a Platform with durable deployment provenance (`deploy-kubernetes` or
-`configure-slurm`). The target set is always the complete `targetServerIds` snapshot from its latest
-deployment Workflow, never current membership. All targets must still exist, be present,
+`configure-slurm`). The target set is the members of the Platform's applied spec, followed by those the
+spec being realized adds; a Platform without an applied spec uses the complete `targetServerIds`
+snapshot of its latest deployment Workflow. All targets must still exist, be present,
 be unlocked, and have no overlapping active Workflow. Lock is checked live before
 the uninstall Workflow is created. No single provisioning state is
 required because a failed deployment can leave a mixed target set.
@@ -1691,6 +1703,12 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 
 ## Compatibility Notes
 
+- Since 2026-11-16 adding Slurm compute members runs a `scale-out-slurm` Workflow that installs and
+  validates only them, and the Platform stays `active` (it used to run a `configure-slurm` Workflow over
+  every member and showed `deploying`). A Slurm deployment no longer reinstalls the Platform Grafana when
+  it is already installed with the same settings, so the Platform's monitoring token is not rotated.
+  An uninstall targets the Platform's members instead of its latest deployment's targets, which after a
+  scale-in still named the removed members.
 - Since 2026-11-16 a spec write of a Platform in a Pool that newly names a Deployment Template of
   another Pool is `400 validation_error`, and the Platform's generated templates are owned by its Pool
   ([Deployment Templates](provisioning.md#deployment-templates)).

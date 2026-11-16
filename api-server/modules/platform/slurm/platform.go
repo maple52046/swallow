@@ -108,10 +108,11 @@ func (Platform) SpecFromDeployRequest(body map[string]any) (platformdomain.Platf
 	return spec, nil
 }
 
-// Changes classifies a Slurm change: creating and uninstalling are destructive; adding a member,
+// Changes classifies a Slurm change: creating and uninstalling are destructive; adding compute
+// members, alone or with node group and partition changes, installs only them (RealizeScaleOut);
 // enabling a monitoring feature or the monitoring dashboards, and first enabling the workload
 // storage, a container runtime, native OCI containers, or PMIx converge directly by rerunning the
-// convergent deploy; a change of node groups and partitions alone reconfigures the cluster in place
+// convergent deploy, which also carries members added with them; a change of node groups and partitions alone reconfigures the cluster in place
 // (RealizeReconfigure); removing a member, changing roles, changing or disabling the storage or a
 // runtime, and changing the state save location, the GRES type, the GPU stack owner, or the driver
 // options are destructive. Switching Omnistat's hardware counters on or off is not destructive and
@@ -263,6 +264,13 @@ func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdo
 			// Removing compute members drains and cleans them; the reconfigure it runs carries every
 			// other change of the spec with it.
 			changes.Realization = platformdomain.RealizeScaleIn
+		case len(added) > 0 && !slices.ContainsFunc(changes.Actions, func(action convergence.PlannedAction) bool {
+			return action.Action != "add-member" && !slices.Contains(reconfigureActions, action.Action) &&
+				!slices.Contains(templateOnlyActions, action.Action)
+		}):
+			// Compute members join: only they are installed and validated, and the scheduling changes
+			// that come with them are applied to the others in place.
+			changes.Realization = platformdomain.RealizeScaleOut
 		case !slices.ContainsFunc(changes.Actions, func(action convergence.PlannedAction) bool {
 			return action.Action != "enable-hardware-counters" && action.Action != "disable-hardware-counters"
 		}):

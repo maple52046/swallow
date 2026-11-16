@@ -677,7 +677,8 @@ func (p *PlatformPlanner) PrepareApply(ctx context.Context, plan *convergence.Ch
 			input.ReleaseServers, input.ReleaseOptions, input.CancelActiveWorkflows = removal.ReleaseServers, removal.ReleaseOptions, removal.CancelActiveWorkflows
 		}
 		return &platformApply{uninstall: input}, nil
-	case platformdomain.RealizeDeploy, platformdomain.RealizeHardwareCounters, platformdomain.RealizeScaleIn, platformdomain.RealizeReconfigure:
+	case platformdomain.RealizeDeploy, platformdomain.RealizeHardwareCounters, platformdomain.RealizeScaleIn,
+		platformdomain.RealizeScaleOut, platformdomain.RealizeReconfigure:
 		prepared, err := PrepareSpecDeployment(ctx, p.deploy, p.modules[platform.Type], platform, requestedBy, changes.Realization)
 		if err != nil {
 			return nil, err
@@ -779,7 +780,8 @@ func (a *platformApply) WorkflowID() string {
 // Platform. The deploy is convergent: members already in the Platform are left as they are.
 // realization is RealizeDeploy, RealizeHardwareCounters for a Workflow that reconfigures only the
 // feature collecting the hardware counters, RealizeScaleIn for the removal of the members the spec
-// drops, or RealizeReconfigure for a Workflow that only reconfigures the deployed Platform.
+// drops, RealizeScaleOut for the members it adds, or RealizeReconfigure for a Workflow that only
+// reconfigures the deployed Platform.
 func PrepareSpecDeployment(
 	ctx context.Context,
 	deploy *DeployService,

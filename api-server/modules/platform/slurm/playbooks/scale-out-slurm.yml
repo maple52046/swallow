@@ -1,0 +1,142 @@
+---
+# Add compute nodes to a deployed Slurm cluster (decision 083). The nodes in
+# swallow_slurm_scale_out_ids are installed the way deploy-slurm installs a compute node; the
+# controllers render their configuration again and apply it with scontrol reconfigure; the workload
+# NFS server, when there is one, exports to the new nodes too. The other members are only read: a
+# compute node's hardware comes from what its last detection recorded (slurm_node_hardware), so their
+# daemons, driver, packages, and jobs are left alone, and a GPU fault on one of them does not fail the
+# nodes being added. Topology arrives through the same trusted variables as deploy-slurm. Every
+# include below that installs or starts something is limited to the new nodes.
+
+- name: Hold the OS's automatic package maintenance
+  # On every host, like every playbook that may change packages (decision 073): the workload NFS
+  # server ensures its package too. The hold installs nothing.
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: package_maintenance_hold
+
+- name: Point the new nodes at the run's artifact sources
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Configure the artifact sources
+      ansible.builtin.include_role:
+        name: artifact_sources
+      when: inventory_hostname in swallow_slurm_scale_out_ids
+
+- name: Classify Slurm nodes by assigned daemon
+  hosts: all
+  gather_facts: true
+  roles:
+    - role: slurm_facts
+  tasks:
+    # MUNGE rejects credentials between nodes whose clocks disagree, so a new node's clock is checked
+    # before it joins (decision 065).
+    - name: Check a new node's clock
+      ansible.builtin.include_role:
+        name: time_sync_check
+      when: inventory_hostname in swallow_slurm_scale_out_ids
+    - name: Check a new node's prerequisites
+      ansible.builtin.include_role:
+        name: slurm_preflight
+      when: inventory_hostname in swallow_slurm_scale_out_ids
+    - name: Verify a new node's Slurm packages
+      ansible.builtin.include_role:
+        name: slurm_packages_verify
+      when: inventory_hostname in swallow_slurm_scale_out_ids
+
+- name: Give the new nodes the cluster's MUNGE key
+  # slurm_munge reads the key from the primary controller by delegation, so only the new nodes run it.
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Establish MUNGE authentication
+      ansible.builtin.include_role:
+        name: slurm_munge
+      when: inventory_hostname in swallow_slurm_scale_out_ids
+
+- name: Read the compute nodes' hardware
+  hosts: slurm_compute
+  gather_facts: false
+  tasks:
+    - name: Detect the new nodes and read the others' records
+      ansible.builtin.include_role:
+        name: slurm_node_hardware
+        tasks_from: "{{ 'main' if inventory_hostname in swallow_slurm_scale_out_ids else 'recorded' }}"
+
+- name: Reconfigure the primary controller
+  # The primary renders slurm.conf and gres.conf first, as in deploy-slurm, so a backup never
+  # carries a configuration the primary does not.
+  hosts: slurm_primary
+  gather_facts: false
+  roles:
+    - role: slurm_config
+    - role: slurm_controller
+
+- name: Reconfigure the backup controllers
+  hosts: slurm_controller:!slurm_primary
+  gather_facts: false
+  serial: 1
+  roles:
+    - role: slurm_config
+    - role: slurm_controller
+
+- name: Configure the new compute nodes and start slurmd
+  # After the controllers know the nodes, so a configless slurmd finds itself in the configuration.
+  hosts: slurm_compute
+  gather_facts: false
+  tasks:
+    # Before slurmd starts: slurm.conf names the dispatchers, and a missing Prolog drains a node.
+    - name: Install the job hooks
+      ansible.builtin.include_role:
+        name: slurm_job_hooks
+      when: inventory_hostname in swallow_slurm_scale_out_ids
+    - name: Configure native OCI containers
+      ansible.builtin.include_role:
+        name: slurm_oci
+      when: inventory_hostname in swallow_slurm_scale_out_ids
+    - name: Install PMIx
+      ansible.builtin.include_role:
+        name: slurm_pmix
+      when: inventory_hostname in swallow_slurm_scale_out_ids
+    - name: Configure and start slurmd
+      ansible.builtin.include_role:
+        name: slurm_compute
+      when: inventory_hostname in swallow_slurm_scale_out_ids
+
+- name: Export the shared workload filesystem to the new nodes
+  # The export lists every workload client's address. No hosts without self-hosted workload storage.
+  hosts: slurm_workload_server
+  gather_facts: false
+  roles:
+    - role: slurm_workload_storage_server
+      when: (swallow_slurm_workload_enabled | default(false) | bool) and (slurm_is_workload_server | bool)
+
+- name: Mount the shared workload filesystem on the new nodes
+  hosts: slurm_workload_client
+  gather_facts: false
+  tasks:
+    - name: Mount the workload filesystem
+      ansible.builtin.include_role:
+        name: slurm_workload_storage_client
+      when:
+        - swallow_slurm_workload_enabled | default(false) | bool
+        - inventory_hostname in swallow_slurm_scale_out_ids
+
+- name: Verify the new nodes joined
+  hosts: slurm_primary
+  gather_facts: false
+  roles:
+    - role: slurm_verify
+      vars:
+        slurm_verify_nodes: "{{ swallow_slurm_scale_out_ids | map('extract', hostvars, 'slurm_node_name') | list }}"
+
+- name: Release the OS's automatic package maintenance
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Release the package maintenance hold
+      ansible.builtin.include_role:
+        name: package_maintenance_hold
+        tasks_from: release

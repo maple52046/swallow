@@ -15,13 +15,17 @@
   changed_when: false
 
 - name: Wait for every compute node to register in a schedulable state
+  # slurm_verify_nodes narrows the wait to the nodes a run adds (scale-out-slurm), so a node that was
+  # already drained or down does not fail them; without it every compute node must be schedulable.
   ansible.builtin.command:
-    cmd: sinfo --noheader --Node --format=%T
+    cmd: >-
+      sinfo --noheader --Node --format=%T
+      {{ ('--nodes=' + (slurm_verify_nodes | join(','))) if slurm_verify_nodes | default([]) | length > 0 else '' }}
   become: true
   register: slurm_verify_sinfo
   until:
     - slurm_verify_sinfo.rc == 0
-    - slurm_verify_sinfo.stdout_lines | length >= (swallow_slurm_compute_ids | length)
+    - slurm_verify_sinfo.stdout_lines | length >= (slurm_verify_nodes | default(swallow_slurm_compute_ids, true) | length)
     - slurm_verify_sinfo.stdout_lines | reject('match', '^(idle|mixed|allocated)') | list | length == 0
   retries: 24
   delay: 5

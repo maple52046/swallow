@@ -133,3 +133,51 @@ func TestSlurmNodeHardwareRecordIsReadWithoutDetecting(t *testing.T) {
 		}
 	}
 }
+
+// scale-out-slurm installs only the nodes it adds: every install role runs under the new-node guard,
+// the other compute nodes only read their records, the controllers render and apply the configuration
+// before the new nodes start slurmd, and the cluster's own services are not touched. slurm_verify waits
+// only for the new nodes.
+func TestScaleOutSlurmInstallsOnlyTheNewNodes(t *testing.T) {
+	scaleOut := slurmPlaybookFile(t, "scale-out-slurm.yml")
+	guard := "inventory_hostname in swallow_slurm_scale_out_ids"
+	for _, want := range []string{
+		"role: package_maintenance_hold", "name: artifact_sources", "role: slurm_facts",
+		"name: time_sync_check", "name: slurm_preflight", "name: slurm_packages_verify", "name: slurm_munge",
+		`tasks_from: "{{ 'main' if inventory_hostname in swallow_slurm_scale_out_ids else 'recorded' }}"`,
+		"hosts: slurm_primary", "role: slurm_config", "role: slurm_controller",
+		"hosts: slurm_controller:!slurm_primary",
+		"name: slurm_job_hooks", "name: slurm_oci", "name: slurm_pmix", "name: slurm_compute",
+		"role: slurm_workload_storage_server", "name: slurm_workload_storage_client",
+		"role: slurm_verify", "slurm_verify_nodes:",
+	} {
+		if !strings.Contains(scaleOut, want) {
+			t.Errorf("scale-out-slurm.yml does not contain %q", want)
+		}
+	}
+	for _, unwanted := range []string{
+		"slurm_state_server", "slurm_controller_state", "slurm_login", "slurm_slurmrestd", "slurm_cluster_credential",
+	} {
+		if strings.Contains(scaleOut, unwanted) {
+			t.Errorf("scale-out-slurm.yml runs %s; the cluster's services stay as they are", unwanted)
+		}
+	}
+	// Every host-local step that installs or starts something on a node is limited to the new nodes:
+	// the artifact sources, three checks, MUNGE, the hardware detection, four compute roles, and the mount.
+	if got := strings.Count(scaleOut, guard); got < 11 {
+		t.Errorf("scale-out-slurm.yml guards %d steps with %q; every install step on a node must be guarded", got, guard)
+	}
+	order := []string{"Give the new nodes the cluster's MUNGE key", "Read the compute nodes' hardware",
+		"Reconfigure the primary controller", "Reconfigure the backup controllers",
+		"Configure the new compute nodes and start slurmd", "Export the shared workload filesystem to the new nodes",
+		"Mount the shared workload filesystem on the new nodes", "Verify the new nodes joined"}
+	for i := 1; i < len(order); i++ {
+		if strings.Index(scaleOut, order[i-1]) > strings.Index(scaleOut, order[i]) {
+			t.Errorf("scale-out-slurm.yml runs %q after %q", order[i-1], order[i])
+		}
+	}
+	verify := slurmPlaybookFile(t, "roles", "slurm_verify", "tasks", "main.yml")
+	if !strings.Contains(verify, "--nodes=") || !strings.Contains(verify, "slurm_verify_nodes | default(swallow_slurm_compute_ids, true)") {
+		t.Error("slurm_verify does not narrow its wait to slurm_verify_nodes")
+	}
+}
