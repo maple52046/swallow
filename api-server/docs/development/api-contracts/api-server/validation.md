@@ -142,7 +142,8 @@ account cannot run it (Runs), `error`.
   overwrites a revision it did not load. Runs already accepted keep the revision, sha256, and script
   they ran.
 - `DELETE` (the author or an admin) retires the suite: it leaves the catalog (`includeRetired=true`
-  lists it), stays readable by id with its revisions, and cannot be run or replaced (`409`). It is
+  lists it), stays readable by id with its revisions, and cannot be run (`404`, as for a suite that
+  does not exist; Start) or replaced (`409`). It is
   refused (`409`) while a Validation Schedule names it.
 - A module suite written is `409`; a user suite written by a caller its class does not allow is
   `403`.
@@ -288,8 +289,8 @@ A Validation Schedule is desired state ([desired-state-model](../../../../../doc
 | --- | --- | --- |
 | 400 | `validation_error` | Malformed body or parameter, as each operation lists: among them `suiteRevision` for a module suite, a `requestedBy` other than `me`, and a schedule naming a user suite |
 | 403 | `forbidden` | A user suite replaced by other than its author, or retired by other than its author or an admin; a run started below the suite's starter level, or by a caller without Host Access, or without `sudo` for a `sudo` suite, on a target; a run canceled by a caller who is not its starter, an owner of every target's Pool, or an admin |
-| 404 | `not_found` | The suite, suite revision, run, schedule, target Server, or Platform does not exist, or the caller may not read it |
-| 409 | `conflict` | A module suite written, a retired suite run, a stale `suiteRevision` or `revision`, a concurrent replace, a target not runnable (including no account for the caller there, or `sudo` that needs a password) or busy, a run already ended, a gate run canceled, or a stale `generation` |
+| 404 | `not_found` | The suite, suite revision, run, schedule, target Server, or Platform does not exist, or the caller may not read it; a retired suite started |
+| 409 | `conflict` | A module suite written, a retired suite replaced, a stale `suiteRevision` or `revision`, a concurrent replace, a target not runnable (including no account for the caller there, or `sudo` that needs a password) or busy, a run already ended, a gate run canceled, or a stale `generation` |
 | 503 | `provider_unavailable` | The Site cannot run Ansible automation, or a Server Lock cannot be confirmed |
 
 ## Compatibility Notes

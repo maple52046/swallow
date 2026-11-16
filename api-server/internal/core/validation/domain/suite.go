@@ -178,7 +178,7 @@ func (s Suite) AuthoredBy(userID string) bool {
 // (ErrSuiteImmutable), and a user suite is retired only by its author or an admin (ErrNotSuiteAuthor).
 func (s Suite) CheckRetire(actorID string, admin bool) error {
 	if s.Source != SourceUser {
-		return fmt.Errorf("%w: module suite %s", ErrSuiteImmutable, s.ID)
+		return fmt.Errorf("%w: suite %s is declared by a module", ErrSuiteImmutable, s.ID)
 	}
 	if !admin && !s.AuthoredBy(actorID) {
 		return fmt.Errorf("%w: only the author of suite %s or an admin may retire it", ErrNotSuiteAuthor, s.ID)
@@ -276,11 +276,14 @@ func NewUserSuite(id string, input UserSuiteInput, author Author, now time.Time)
 // Replace returns the suite with input applied by the User actorID. The revision advances when what
 // runs or who may run it changes (the script, sudo, the starter level, the timeout, or the impact);
 // a new name or description keeps it. A module suite or a retired one cannot be replaced
-// (ErrSuiteImmutable), and only the author may replace a user suite, an admin included
-// (ErrNotSuiteAuthor).
+// (ErrSuiteImmutable, whose message says which), and only the author may replace a user suite, an
+// admin included (ErrNotSuiteAuthor).
 func (s Suite) Replace(input UserSuiteInput, actorID string, now time.Time) (Suite, error) {
-	if s.Source != SourceUser || s.Retired {
-		return Suite{}, fmt.Errorf("%w: suite %s", ErrSuiteImmutable, s.ID)
+	if s.Source != SourceUser {
+		return Suite{}, fmt.Errorf("%w: suite %s is declared by a module", ErrSuiteImmutable, s.ID)
+	}
+	if s.Retired {
+		return Suite{}, fmt.Errorf("%w: suite %s is retired", ErrSuiteImmutable, s.ID)
 	}
 	if !s.AuthoredBy(actorID) {
 		return Suite{}, fmt.Errorf("%w: only the author of suite %s may change it", ErrNotSuiteAuthor, s.ID)

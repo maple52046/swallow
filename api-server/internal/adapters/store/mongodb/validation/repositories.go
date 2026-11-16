@@ -56,7 +56,7 @@ func (r *MongoSuiteRepo) Replace(ctx context.Context, suite validationdomain.Sui
 		return err
 	}
 	if current.Retired {
-		return fmt.Errorf("%w: suite %s was retired", validationdomain.ErrSuiteImmutable, suite.ID)
+		return fmt.Errorf("%w: suite %s is retired", validationdomain.ErrSuiteImmutable, suite.ID)
 	}
 	return fmt.Errorf("%w: suite %s is at revision %d, not %d", validationdomain.ErrRevisionConflict, suite.ID, current.Revision, expectedRevision)
 }

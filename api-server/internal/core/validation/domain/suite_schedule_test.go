@@ -2,6 +2,7 @@ package domain
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -54,8 +55,14 @@ func TestUserSuiteRevisions(t *testing.T) {
 	}
 	retired := suite
 	retired.Retired = true
-	if _, err := retired.Replace(UserSuiteInput{Name: "a", Script: "x"}, alice.UserID, now); !errors.Is(err, ErrSuiteImmutable) {
-		t.Errorf("Replace(retired) error = %v, want ErrSuiteImmutable", err)
+	if _, err := retired.Replace(UserSuiteInput{Name: "a", Script: "x"}, alice.UserID, now); !errors.Is(err, ErrSuiteImmutable) ||
+		!strings.Contains(err.Error(), "suite u-1 is retired") {
+		t.Errorf("Replace(retired) error = %v, want ErrSuiteImmutable saying the suite is retired", err)
+	}
+	module := Suite{ID: "host-baseline", Source: SourceModule}
+	if _, err := module.Replace(UserSuiteInput{Name: "a", Script: "x"}, alice.UserID, now); err == nil ||
+		!strings.Contains(err.Error(), "suite host-baseline is declared by a module") {
+		t.Errorf("Replace(module) error = %v, want one saying the suite is a module's", err)
 	}
 	record := suite.CurrentRevision(now)
 	if record.SuiteID != "u-1" || record.Revision != 1 || record.Script != script || record.ScriptSHA256 != suite.ScriptSHA256 ||
