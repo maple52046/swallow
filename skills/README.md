@@ -69,11 +69,6 @@ duplicating it:
 - **Other IDEs / agents**: register the skill wherever the tool scans and
   reference `skills/<name>/SKILL.md` rather than copying it.
 
-One exception: `.agents/skills/migrate-cursor-to-codex/SKILL.md` is a Codex tool
-that copies this repository's Cursor setup for Codex. It has no canonical copy
-here and no Cursor wrapper, and it is not listed in the Skill Index; its Claude
-Code wrapper points to the Codex file.
-
 `scripts/check-docs.py` fails when a skill in `skills/`, `.cursor/skills/`, or
 `.agents/skills/` has no Claude Code wrapper.
 
