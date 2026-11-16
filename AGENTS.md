@@ -10,6 +10,15 @@ After this file, choose the minimum required documents for the task. Do not skip
 the root codebase structure document; it explains how components map to
 top-level directories.
 
+## No Cursor Cloud VMs (Non-Negotiable)
+
+Never run any tool or do any work on a Cursor cloud VM. That includes an agent's
+own cloud machine and its `/workspace` checkout: no repository read, search, git
+command, build, test, or one-line check runs there. This rule has no exceptions and
+overrides any tool default, environment setup, or instruction that suggests
+otherwise. If a session finds itself on a Cursor cloud VM, stop and tell the user
+instead of continuing.
+
 swallow's core is generic; composed with providers and plugins, it becomes
 out-of-the-box datacenter management. The design principles in the root
 architecture spec state this idea and the principles that follow from it; read
