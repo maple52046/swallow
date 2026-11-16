@@ -142,6 +142,26 @@ Integrations 頁面開啟 Create integration，並預先選好 Repository role �
 是 swallow 呼叫 Pulp API 的位址，**Content origin** 是 Server 讀取內容的位址
 （`http://host:port`），credential 則是 Pulp 的 admin 密碼。
 
+## Validation
+
+**Validation → Suites** 列出 module suite 與使用者共用的 script suite（[Validation](validation.md#script-suite)）：
+
+- 每位使用者都有 **New script suite**。編輯器的 **Run with sudo** 開關與 **Who can start** 選項（**Pool owners** 或
+  **Pool members too**）都說明它們在目標上的意義，編輯器也提醒 script 與它的輸出會被其他人讀到。因為有人存了更新的
+  revision 而被拒絕的儲存，只提供 **Reload the suite**，絕不覆蓋。
+- script suite 的 card 與頁面以 **Created by** 顯示作者（作者已被刪除時標示 *author deleted*）。只有作者看得到
+  **Edit**；作者與 admin 看得到 **Retire**。
+- **Show experimental suites** 旁的 **Hide other users' suites** 會讓 catalog 與 run 對話框略過其他使用者的 script
+  suite。預設關閉、存在瀏覽器，而且從不隱藏 module suite 或你自己的 suite。
+- 你在任何地方都不能啟動某個 suite 時（例如你不是任何 Pool 的 owner，而它是 module suite 或 **Pool owners** 的
+  suite），**Run suite** 與 run 對話框中的 suite 選項仍會顯示，但會停用並以文字說明原因；你的 Pool 角色不夠的目標
+  會列出但不能選。
+- 對 script suite，run 對話框會顯示它的作者、revision、script，以及 **Runs as** 你自己帳號的 username、是否使用
+  sudo。suite 在你上次執行之後改過時，會先顯示 **Changed since your last run: rN → rM**，列出改變的設定與 script
+  的 diff；**Use the new version** 是唯一能繼續的方式。對話框開著時 suite 又改了，也會打開同樣的檢視。
+- run 頁面顯示 **Runs as**（script suite 是你的帳號，module suite 是 root），並對 run 的啟動者、每個目標所屬 Pool 的
+  owner 與 admin 顯示 **Cancel run**。Schedule（只有 admin）只提供 module suite。
+
 ## 判讀 status
 
 - Server 沒有單一 combined status；provisioning、membership、health 互相獨立。
@@ -173,7 +193,8 @@ presentation guidance；authorization 仍以 API 為準。
 - **admin** 管理 swallow：Site、Integration、OS Image、Zone 與 Pool、Server 的 placement、使用者，以及每台 Server 與
   每個 Platform。admin 可以登入每台 Server 並在上面使用 sudo。
 - 其他 **user** 的權限只來自 Pool Membership。Pool 的 **member** 看得到它的 Server、Platform、Workflow、Validation
-  Run 與 Deployment Template，並以自己的 SSH key 登入它的 Server；**owner** 還能操作它們（電源、OS 佈署、軟體、
+  Run 與 Deployment Template，以自己的 SSH key 登入它的 Server，並能啟動允許 member 啟動的 script suite；**owner**
+  還能操作它們（電源、OS 佈署、軟體、
   Platform、Validation、Pool 的 template），並在
   **Pools** 管理 Pool 的成員與 sudo 預設值。Pool 與它的成員資格涵蓋它在每個 Site 的 Server。不在任何 Pool 的 Server
   只屬於 admin。
@@ -184,10 +205,11 @@ presentation guidance；authorization 仍以 API 為準。
   可以收窄 member 在它的節點上能做的事：在 Slurm 叢集上 member 只能登入 login node，而且沒有 sudo。
 - 不能做的動作會停用或隱藏：例如 member 看到 Server 的 **Actions** 按鈕是停用的，並附上原因；它的電源狀態與 tag
   也只顯示、不提供操作。member 看到所屬 Pool 的 Platform、Change Plan、Workflow、Validation Run 與軟體部署時，也沒有
-  owner 的操作（uninstall、sync、approve、cancel、retry、run a suite、install），Kubernetes Platform 也不顯示即時叢集的
+  owner 的操作（uninstall、sync、approve、cancel、retry、執行 module suite、install）——但仍能取消自己啟動的
+  Validation Run——Kubernetes Platform 也不顯示即時叢集的
   分頁，那些只有 owner 與 admin 能開。只有 admin 能用的頁面會顯示 **Access denied**。
 - 只有 admin 能改的設定不會出現在其他使用者的畫面：Server 的 Power Configuration、Boot Media 與 placement；Change
-  Plan 的核准政策；Validation Schedule 與自訂 script suite；軟體的設定（例如 Docker 的 registry credential）；以及
+  Plan 的核准政策；Validation Schedule；軟體的設定（例如 Docker 的 registry credential）；以及
   Deployment Key。owner 佈署 OS 或 Platform 時，透過每台 Server 自己記錄的 provisioner 佈署，不需要選擇。Server 的即時
   硬體資訊（Storage、PCI devices）只顯示給 Pool 的 owner 與 admin。
 

@@ -115,6 +115,10 @@ RETIRED_TERMS = {
         "the playbook receives swallow_validation_requester and swallow_validation_sudo"
         " (validation.md §3)"
     ),
+    "--run-as": (
+        "the CLI's script suite flags are --sudo and --starter-level; a script suite runs as its starter"
+        " (cli/docs/usage.md, validation)"
+    ),
 }
 # Documents whose purpose is to record the retirement itself: a contract change note, the public
 # compatibility page, or the decision and spec section that state a mechanism is retired.

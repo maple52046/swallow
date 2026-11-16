@@ -959,22 +959,29 @@ swallow workflows task artifacts wf1 task1
 swallow validation suites list
 swallow validation suites get host-baseline
 
-# script suite：以 exit code 判定（0 是 passed，其他是 failed，超過 timeout 是 error）。
-# script 依原樣儲存與顯示，不要放入 secret。
-swallow validation suites create --name "Data mounts" --script-file check-mounts.sh --timeout 120
-swallow validation suites update <suiteId> --name "Data mounts" --script-file check-mounts.sh --run-as root
-swallow validation suites retire <suiteId>
+# script suite：任何使用者都能建立，並成為它的作者。它在每台目標上以啟動 run 的使用者帳號執行，以 exit code
+# 判定（0 是 passed，其他是 failed，超過 timeout 是 error）。--sudo 透過啟動者的免密碼 sudo -n 執行；
+# --starter-level 是 owner（預設：每個目標所屬 Pool 的 owner）或 member（該 Pool 的任何 member）。每位使用者
+# 都讀得到 script，能讀 run 的人也讀得到它的輸出；兩者都不要放入 secret。
+swallow validation suites create --name "Data mounts" --script-file check-mounts.sh --timeout 120 --starter-level member
+# 只有作者能更新；--revision 讓更新只在 suite 仍是你讀到的 revision 時套用（否則 409）。
+swallow validation suites update <suiteId> --name "Data mounts" --script-file check-mounts.sh --sudo --revision 3
+swallow validation suites revision <suiteId> 2    # 一個保留的 revision：script、sha256 與設定
+swallow validation suites retire <suiteId>        # 作者或 admin
 
 # run：servers suite 以 --server 指定（可重複或以逗號分隔），platform suite 以 --platform。
 # --param 的值以 YAML 讀取（64 是數字，[a,b] 是清單）；disruptive 的 suite 要加 --confirm。
 swallow validation runs start --suite host-baseline --server srv1,srv2 --param minCpus=64
 swallow validation runs start --suite slurm-acceptance --platform plat1 --wait
+# script suite：固定你檢視過的 revision；suite 改過之後再啟動是 409 conflict。
+swallow validation runs start --suite <suiteId> --server srv1 --suite-revision 3 --wait
 swallow validation runs list --server srv1 --verdict failed
+swallow validation runs list --suite <suiteId> --mine --page-size 1   # 你最近一次執行這個 suite 的 run
 swallow validation runs get <runId> -o yaml    # 每個 check 在每個目標上的 verdict；表格只顯示計數
 swallow validation runs watch <runId> --interval 10s
-swallow validation runs cancel <runId>
+swallow validation runs cancel <runId>         # run 的啟動者、每個目標所屬 Pool 的 owner 或 admin
 
-# schedule：spec 以 body 傳入。
+# schedule（admin）：spec 以 body 傳入，suite 必須是 module suite。
 swallow validation schedules create -f nightly.yaml
 swallow validation schedules update <scheduleId> -f nightly.yaml
 swallow validation schedules list
@@ -988,6 +995,11 @@ swallow validation schedules delete <scheduleId>
 的數量改變時在 stderr 印一行，最後印出 run。只有 run 以 verdict `passed` 完成時 exit 0，script 可以用它作為
 閘門。部署的 gate run（例如 Slurm 部署的 `slurm-acceptance`）以 `--trigger deployment` 列出；它隨部署結束，
 不能單獨取消。
+
+目標無法以你的帳號執行 script suite 時，run 在啟動前就會被拒絕：你不能在那裡啟動這個 suite、不能登入那台目標，
+或 `--sudo` 的 suite 在那裡沒有 sudo 時是 `403 forbidden`；你在那裡的 sudo 需要密碼、沒有設定 Directory、你的帳號
+沒有 uid，或目標沒有 directory client 時是 `409 conflict`。執行時主機仍與預期不同的目標，結果是 `error`，summary
+以 `[validation_account_missing]` 這類代碼開頭；見 [Validation 指南](../../docs/zh-TW/guides/validation.md#script-suite)。
 
 ### monitoring
 

@@ -1022,22 +1022,30 @@ swallow workflows task artifacts wf1 task1
 swallow validation suites list
 swallow validation suites get host-baseline
 
-# A script suite: its exit code is the verdict (0 passed, other failed, past the timeout an error).
-# The script is stored and shown as written; do not put secrets in it.
-swallow validation suites create --name "Data mounts" --script-file check-mounts.sh --timeout 120
-swallow validation suites update <suiteId> --name "Data mounts" --script-file check-mounts.sh --run-as root
-swallow validation suites retire <suiteId>
+# A script suite: any user writes one and becomes its author. It runs on each target as the account
+# of the user who starts the run; its exit code is the verdict (0 passed, other failed, past the
+# timeout an error). --sudo runs it through the starter's passwordless sudo -n; --starter-level is
+# owner (the default: an owner of every target's Pool) or member (any member of it). Every user
+# reads the script, and whoever reads a run reads its output; do not put secrets in either.
+swallow validation suites create --name "Data mounts" --script-file check-mounts.sh --timeout 120 --starter-level member
+# Only the author updates it; --revision applies the update only at the revision you read (409 otherwise).
+swallow validation suites update <suiteId> --name "Data mounts" --script-file check-mounts.sh --sudo --revision 3
+swallow validation suites revision <suiteId> 2    # one kept revision: script, sha256, and settings
+swallow validation suites retire <suiteId>        # the author or an admin
 
 # Runs: a servers suite takes --server (repeat or comma-separate), a platform suite --platform.
 # --param values are read as YAML (64 is a number, [a,b] a list); a disruptive suite needs --confirm.
 swallow validation runs start --suite host-baseline --server srv1,srv2 --param minCpus=64
 swallow validation runs start --suite slurm-acceptance --platform plat1 --wait
+# A script suite: pin the revision you reviewed; a start after the suite changed is 409 conflict.
+swallow validation runs start --suite <suiteId> --server srv1 --suite-revision 3 --wait
 swallow validation runs list --server srv1 --verdict failed
+swallow validation runs list --suite <suiteId> --mine --page-size 1   # your latest run of the suite
 swallow validation runs get <runId> -o yaml    # every check's verdict on every target; a table shows only the counts
 swallow validation runs watch <runId> --interval 10s
-swallow validation runs cancel <runId>
+swallow validation runs cancel <runId>         # its starter, an owner of every target's Pool, or an admin
 
-# Schedules: the spec is a body.
+# Schedules (admins): the spec is a body, and its suite must be a module suite.
 swallow validation schedules create -f nightly.yaml
 swallow validation schedules update <scheduleId> -f nightly.yaml
 swallow validation schedules list
@@ -1052,6 +1060,13 @@ writing a line to stderr when its status or counts change, then print the run. T
 when the run completed with verdict `passed`, so a script can gate on them. A deployment's gate run
 (for example a Slurm deployment's `slurm-acceptance`) is listed with `--trigger deployment`; it ends
 with its deployment and cannot be canceled on its own.
+
+A script suite run is refused before it starts when a target cannot run it as your account:
+`403 forbidden` when you may not start the suite there, may not log in there, or have no sudo there
+for a `--sudo` suite; `409 conflict` when your sudo there needs a password, when no Directory is
+configured, your account has no uid, or the target has no directory client. A target that still
+disagrees when the script runs gets an `error` result whose summary starts with a code such as
+`[validation_account_missing]`; see the [Validation guide](../../docs/en/guides/validation.md#script-suites).
 
 ### monitoring
 

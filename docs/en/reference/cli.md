@@ -103,7 +103,7 @@ and follow each link into the complete usage manual.
 - [`workflows`](../../../cli/docs/usage.md#workflows) — `list`, `get`, `create`,
   `cancel`, `rerun`, and `timeline`; `task retry|logs|stderr|events|artifacts`
   diagnoses and controls individual Tasks.
-- [`validation`](../../../cli/docs/usage.md#validation) — `suites list|get|create|update|retire`,
+- [`validation`](../../../cli/docs/usage.md#validation) — `suites list|get|revision|create|update|retire`,
   `runs list|get|start|watch|cancel` (`start --wait` and `watch` exit non-zero unless the verdict
   is passed), and `schedules list|get|create|update|delete`. See the [Validation guide](../guides/validation.md).
 - [`monitoring`](../../../cli/docs/usage.md#monitoring) — list and acknowledge

@@ -180,6 +180,35 @@ the Repository role and the Pulp provider: the endpoint is where swallow reaches
 Pulp's API, **Content origin** is the address Servers read it at
 (`http://host:port`), and the credential is the Pulp admin password.
 
+## Validation
+
+**Validation → Suites** lists module suites and the script suites users share
+([Validation](validation.md#script-suites)):
+
+- Every user has **New script suite**. The editor's **Run with sudo** switch and
+  **Who can start** choice (**Pool owners** or **Pool members too**) each explain what
+  they mean on the targets, and the editor warns that the script and its output are
+  read by others. A save refused because someone saved a newer revision offers
+  **Reload the suite**, never an overwrite.
+- A script suite's card and page show **Created by** with its author (*author
+  deleted* when that user is gone). **Edit** appears only for the author; **Retire**
+  for the author and admins.
+- **Hide other users' suites** next to **Show experimental suites** leaves other
+  users' script suites out of the catalog and the run dialog. It is off by default,
+  kept in your browser, and never hides module suites or your own.
+- **Run suite** and the run dialog's suite choices stay visible but disabled, with
+  the reason in words, when you cannot start a suite anywhere (for example a module
+  suite or a **Pool owners** suite when you own no Pool); targets your Pool role does
+  not reach are listed but cannot be chosen.
+- For a script suite, the run dialog shows its author, revision, script, and
+  **Runs as** with your own account's username, with or without sudo. A suite that changed
+  since your last run first shows **Changed since your last run: rN → rM** with the
+  changed settings and a script diff; **Use the new version** is the only way on. The
+  same review opens when the suite changes while the dialog is open.
+- A run page shows **Runs as** (your account for a script suite, root for a module
+  suite), and **Cancel run** for the run's starter, an owner of every target's Pool,
+  and admins. Schedules (admins only) offer module suites only.
+
 ## Reading status
 
 - Never expect one combined Server status. Provisioning, membership, and health
@@ -223,7 +252,8 @@ Who can do what:
   Server and use sudo there.
 - Every other **user** gets access only through Pool Memberships. A **member** of a
   Pool sees its Servers, Platforms, Workflows, Validation Runs, and Deployment Templates and
-  logs in to its Servers with their SSH keys; an **owner** also operates them (power, OS
+  logs in to its Servers with their SSH keys, and starts the script suites that let
+  members start them; an **owner** also operates them (power, OS
   deployment, software, Platforms, Validation, the Pool's templates) and manages the Pool's
   members and sudo defaults under **Pools**. A Pool and its memberships cover its Servers in every Site. A
   Server in no Pool belongs to admins only.
@@ -239,12 +269,13 @@ Who can do what:
   Server's **Actions** button disabled with the reason, and its power state and tags
   without their controls. A member also sees its Pool's Platforms, Change Plans,
   Workflows, Validation Runs, and software deployments without an owner's controls
-  (uninstall, sync, approve, cancel, retry, run a suite, install), and a Kubernetes
+  (uninstall, sync, approve, cancel, retry, run a module suite, install) — it can still
+  cancel a Validation Run it started — and a Kubernetes
   Platform without its live cluster tabs, which only owners and admins open. A page
   only an admin can use shows **Access denied**.
 - Settings only an admin changes stay out of other users' screens: a Server's Power
   Configuration, Boot Media, and placement; the Change Plan approval policy; Validation
-  Schedules and custom script suites; software settings such as Docker registry
+  Schedules; software settings such as Docker registry
   credentials; and the Deployment Key. An owner who deploys an OS or a Platform deploys
   through the provisioner each Server records, without choosing one. A Server's live
   hardware detail (Storage, PCI devices) is shown to the Pool's owners and admins.
