@@ -145,10 +145,11 @@ func (l platformDeploymentLauncher) PrepareDeployment(ctx context.Context, launc
 	slurm := launch.Platform != nil && launch.Platform.Type == platformdomain.PlatformTypeSlurm
 	switch launch.Realization {
 	case platformdomain.RealizeNothing, platformdomain.RealizeDeploy:
-	case platformdomain.RealizeRescan:
-		if !slurm {
-			return nil, fmt.Errorf("%w: only a Slurm Platform rescans a node's hardware", platformdomain.ErrInvalidDeployment)
+	case platformdomain.RealizeRescan, platformdomain.RealizeReconfigure:
+		if slurm {
+			return l.prepareSlurmReconfigure(ctx, launch)
 		}
+		return nil, fmt.Errorf("%w: only a Slurm Platform reconfigures in place or rescans a node's hardware", platformdomain.ErrInvalidDeployment)
 	case platformdomain.RealizeScaleIn:
 		if slurm {
 			return l.prepareSlurmScaleIn(ctx, launch)

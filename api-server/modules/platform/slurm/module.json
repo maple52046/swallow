@@ -9,13 +9,15 @@
     "configure-omnistat",
     "validate-slurm-acceptance",
     "drain-slurm-nodes",
-    "uninstall-slurm-node"
+    "uninstall-slurm-node",
+    "reconfigure-slurm"
   ],
   "workflowKinds": [
     "configure-slurm",
     "uninstall-slurm",
     "configure-omnistat",
-    "scale-in-slurm"
+    "scale-in-slurm",
+    "reconfigure-slurm"
   ],
   "taskKinds": [],
   "completions": [
@@ -153,6 +155,29 @@
         }
       ]
     },
+    "slurm-reconfigure": {
+      "version": 1,
+      "jobs": [
+        {
+          "name": "reconfigure-slurm",
+          "label": "Reconfigure Slurm",
+          "retry": "job"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "reconfigure-slurm",
+          "name": "Reconfigure Slurm",
+          "job": "reconfigure-slurm",
+          "content": {
+            "type": "host-automation",
+            "playbook": "reconfigure-slurm"
+          },
+          "targets": "members",
+          "timeoutSeconds": 3600
+        }
+      ]
+    },
     "slurm-scale-in": {
       "version": 1,
       "jobs": [
@@ -190,7 +215,7 @@
           "job": "reconfigure-slurm",
           "content": {
             "type": "host-automation",
-            "playbook": "deploy-slurm"
+            "playbook": "reconfigure-slurm"
           },
           "targets": "members",
           "dependsOn": [

@@ -489,6 +489,7 @@ components:
         - configure-slurm
         - uninstall-slurm
         - scale-in-slurm
+        - reconfigure-slurm
         - install-exporters
         - uninstall-exporters
         - deploy-k8s-exporters

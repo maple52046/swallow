@@ -18,13 +18,18 @@ func TestSlurmPlaybookProvisionsSharedControllerState(t *testing.T) {
 		required []string
 	}{
 		{
-			path: "deploy-slurm.yml",
+			path: filepath.Join("roles", "slurm_facts", "tasks", "main.yml"),
 			required: []string{
 				"swallow_slurm_state_server_id",
 				"swallow_slurm_high_availability",
 				"slurm_state_mount_options: rw,_netdev,hard,timeo=600,retrans=2,vers=3",
 				"slurm_controller_state_mode",
 				"slurm_state_source",
+			},
+		},
+		{
+			path: "deploy-slurm.yml",
+			required: []string{
 				"hosts: slurm_state_server",
 				"role: slurm_state_server",
 				"role: slurm_controller_state",
@@ -110,12 +115,18 @@ func TestSlurmPlaybookWiresLoginAndWorkloadStorage(t *testing.T) {
 		required []string
 	}{
 		{
-			path: "deploy-slurm.yml",
+			path: filepath.Join("roles", "slurm_facts", "tasks", "main.yml"),
 			required: []string{
 				"swallow_slurm_login_ids",
 				"swallow_slurm_workload_enabled",
 				"swallow_slurm_workload_source",
 				"if (swallow_slurm_workload_mode | default('')) == 'self-hosted'",
+			},
+		},
+		{
+			path: "deploy-slurm.yml",
+			required: []string{
+				"swallow_slurm_workload_enabled",
 				"hosts: slurm_login",
 				"role: slurm_login",
 				"hosts: slurm_workload_server",

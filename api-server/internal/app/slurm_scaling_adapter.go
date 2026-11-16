@@ -160,3 +160,98 @@ func (l platformDeploymentLauncher) prepareSlurmScaleIn(ctx context.Context, lau
 		StepSecretValues: map[string]map[string]any{},
 	}}, nil
 }
+
+// A Slurm reconfigure (decision 083) is the Slurm module's declarative reconfigure template: the
+// controllers' configuration rendered again from what the compute nodes recorded and applied in
+// place, without redeploying any member. A rescan is the same Workflow detecting its nodes again,
+// followed by the gate on them.
+const (
+	reconfigureSlurmKind workflowdomain.WorkflowKind = "reconfigure-slurm"
+	reconfigureTemplate                              = "slurm-reconfigure"
+	// varRescanIDs names the compute nodes reconfigure-slurm detects again instead of reading their
+	// record.
+	varRescanIDs = "swallow_slurm_rescan_ids"
+)
+
+// prepareSlurmReconfigure plans a RealizeReconfigure or RealizeRescan launch: the reconfigure
+// template over every member and, for a rescan, the slurm-acceptance gate on the rescanned members
+// (launch.ChangedServerIDs). It installs nothing, so the Platform's features and their records are
+// left as they are, and it is not a deploy, so the Platform stays active meanwhile.
+func (l platformDeploymentLauncher) prepareSlurmReconfigure(ctx context.Context, launch platformdomain.DeploymentLaunch) (*preparedPlatformDeployment, error) {
+	rescan := launch.Realization == platformdomain.RealizeRescan
+	if rescan && len(launch.ChangedServerIDs) == 0 {
+		return nil, fmt.Errorf("%w: a rescan needs the members to detect again", platformdomain.ErrInvalidDeployment)
+	}
+	if l.registry == nil {
+		return nil, fmt.Errorf("%w: the reconfigure template is not available in this process", platformdomain.ErrInvalidDeployment)
+	}
+	template, ok := l.registry.Template(moduledomain.KindPlatform, slurm.ID, reconfigureTemplate)
+	if !ok {
+		return nil, fmt.Errorf("%w: the Slurm module declares no %s template", platformdomain.ErrInvalidDeployment, reconfigureTemplate)
+	}
+	operationID := launch.OperationID
+	if operationID == "" {
+		operationID = uuid.NewString()
+	}
+	compiled, err := template.Compile(l.catalog, workflowdomain.TemplateInput{Members: slices.Clone(launch.TargetServerIDs)})
+	if err != nil {
+		return nil, fmt.Errorf("plan the reconfigure: %w", err)
+	}
+	trusted := maps.Clone(launch.TrustedVars)
+	trusted[varRescanIDs] = []string{}
+	if rescan {
+		trusted[varRescanIDs] = slices.Clone(launch.ChangedServerIDs)
+	}
+	summary := "Reconfigure Slurm Platform " + launch.Platform.Name
+	if rescan {
+		summary = fmt.Sprintf("Rescan %d nodes of Slurm Platform %s", len(launch.ChangedServerIDs), launch.Platform.Name)
+	}
+	steps := make([]workflowdomain.Task, 0, len(compiled.Tasks))
+	var extra map[string]any
+	site := ""
+	for _, step := range compiled.Tasks {
+		if step.Executor != workflowdomain.RunnerKindHostAutomation {
+			steps = append(steps, step)
+			continue
+		}
+		playbook, _ := step.Parameters["playbook"].(string)
+		prepared, err := l.operations.PrepareAnsibleStep(ctx, workflowapp.CreateExecutionInput{
+			Kind: string(reconfigureSlurmKind), PlaybookName: playbook,
+			Intent:          step.Name + " on " + launch.Platform.Name,
+			TargetServerIDs: serverIDsOf(step.Targets), PlatformID: launch.Platform.ID,
+			TrustedVars: trusted, SecretVars: launch.SecretVars, RequestedBy: launch.RequestedBy,
+		}, operationID, false)
+		if err != nil {
+			return nil, err
+		}
+		step.Kind = "ansible-playbook"
+		step.Targets = prepared.Targets
+		step.Parameters = map[string]any{"playbook": prepared.Playbook, "extraVars": prepared.ExtraVars}
+		if extra == nil {
+			extra, site = prepared.ExtraVars, prepared.SiteID
+		}
+		steps = append(steps, step)
+	}
+	jobs := compiled.Jobs
+	var gate *composedGate
+	if rescan {
+		if gate, err = l.gate.compose(ctx, launch, operationID, slurmGateRequest(launch, site),
+			[]string{steps[len(steps)-1].ID}, false); err != nil {
+			return nil, err
+		}
+		steps = append(steps, gate.steps...)
+		jobs = append(slices.Clone(jobs), gate.jobs...)
+	}
+	return &preparedPlatformDeployment{workflow: workflowapp.CreateWorkflowInput{
+		ID: operationID, Kind: reconfigureSlurmKind,
+		IntentSummary:  summary,
+		IntentSnapshot: map[string]any{"platformName": launch.Platform.Name, "rescan": slices.Clone(launch.ChangedServerIDs), "extraVars": extra},
+		Definition:     "platform/slurm/" + reconfigureTemplate, DefinitionVersion: template.Version,
+		SiteID: site, PlatformID: launch.Platform.ID,
+		TargetServerIDs: slices.Clone(launch.TargetServerIDs),
+		TargetResources: []workflowdomain.ResourceReference{{Kind: "platform", ID: launch.Platform.ID}},
+		Steps:           steps, Jobs: jobs,
+		RequestedBy: launch.RequestedBy, RequestCorrelation: launch.RequestCorrelation,
+		StepSecretValues: map[string]map[string]any{},
+	}, gate: gate}, nil
+}

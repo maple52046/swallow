@@ -305,7 +305,7 @@ func (c *PlatformController) act(ctx context.Context, module platformdomain.Plat
 		applied := platform.Spec.Clone()
 		status.Applied, status.ObservedGeneration = &applied, platform.Generation
 		return nil
-	case platformdomain.RealizeDeploy, platformdomain.RealizeHardwareCounters:
+	case platformdomain.RealizeDeploy, platformdomain.RealizeHardwareCounters, platformdomain.RealizeReconfigure:
 		prepared, err := PrepareSpecDeployment(ctx, c.planner.deploy, module, platform, controllerRequester, changes.Realization)
 		if err != nil {
 			return err

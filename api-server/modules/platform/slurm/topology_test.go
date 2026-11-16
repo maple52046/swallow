@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/maple52046/swallow/internal/core/convergence"
 	platformdomain "github.com/maple52046/swallow/internal/core/platform/domain"
 )
 
@@ -214,6 +215,62 @@ func TestPartitionChanges(t *testing.T) {
 	changes, _ = Platform{}.Changes(&added, applied)
 	if !changes.Destructive() || len(changes.Actions) != 1 || changes.Actions[0].Action != "remove-partition" {
 		t.Errorf("remove a partition = %+v", changes)
+	}
+}
+
+// A change of groups and partitions alone reconfigures the cluster in place: adding or removing a
+// partition, a group's expected GPUs, an empty compute group, and moving a member between groups,
+// which is its own action because neither group gains or loses a Platform member. A group's template
+// alone needs nothing; adding a member still deploys; removing one is still a scale-in.
+func TestSchedulingChangesReconfigureInPlace(t *testing.T) {
+	applied, _ := Platform{}.UpgradeSpec(threeNodeSpec())
+	change := func(edit func(top *topology)) platformdomain.PlatformSpec {
+		top := readTopology(applied)
+		top.groups, top.partitions = slices.Clone(top.groups), slices.Clone(top.partitions)
+		edit(&top)
+		return withTopology(applied, top)
+	}
+	indexOf := func(top *topology, name string) int {
+		return slices.IndexFunc(top.groups, func(g nodeGroup) bool { return g.Name == name })
+	}
+	for name, desired := range map[string]platformdomain.PlatformSpec{
+		"add a partition": change(func(top *topology) {
+			top.partitions = append(top.partitions, partition{Name: "debug", Groups: []string{"compute"}})
+		}),
+		"expect more GPUs": change(func(top *topology) { top.groups[indexOf(top, "compute")].ExpectedGPUsPerNode = 16 }),
+		"add an empty group": change(func(top *topology) {
+			top.groups = append(top.groups, nodeGroup{Name: "spare", Role: RoleCompute})
+		}),
+		"move a member to another group": change(func(top *topology) {
+			compute := indexOf(top, "compute")
+			top.groups[compute].Members = []string{"g1"}
+			top.groups = append(top.groups, nodeGroup{Name: "big", Role: RoleCompute, Members: []string{"g2"}})
+			top.partitions[0].Groups = []string{"compute", "big"}
+		}),
+	} {
+		changes, err := Platform{}.Changes(&applied, desired)
+		if err != nil || changes.Realization != platformdomain.RealizeReconfigure || len(changes.Blockers) != 0 {
+			t.Errorf("%s = %+v, %v; want a reconfigure", name, changes, err)
+		}
+		if name == "move a member to another group" && !slices.ContainsFunc(changes.Actions, func(a convergence.PlannedAction) bool {
+			return a.Action == "change-group-members" && a.Target.ID == "compute" && a.From == "g1, g2" && a.To == "g1"
+		}) {
+			t.Errorf("a move = %+v; want change-group-members on compute", changes.Actions)
+		}
+	}
+	template := change(func(top *topology) { top.groups[indexOf(top, "compute")].TemplateID = "t-2" })
+	withTemplate := change(func(top *topology) { top.groups[indexOf(top, "compute")].TemplateID = "t-1" })
+	if changes, _ := (Platform{}).Changes(&withTemplate, template); changes.Realization != platformdomain.RealizeNothing {
+		t.Errorf("a group's template = %+v; want no Workflow", changes)
+	}
+	added := withMember(applied, "compute", "g3")
+	added.Members = append(added.Members, platformdomain.PlatformMember{ServerID: "g3", Roles: []string{RoleCompute}})
+	if changes, _ := (Platform{}).Changes(&applied, added); changes.Realization != platformdomain.RealizeDeploy ||
+		slices.ContainsFunc(changes.Actions, func(a convergence.PlannedAction) bool { return a.Action == "change-group-members" }) {
+		t.Errorf("add a member = %+v; want a deploy without a move", changes)
+	}
+	if changes, _ := (Platform{}).Changes(&applied, withoutMember(applied, "g2")); changes.Realization != platformdomain.RealizeScaleIn {
+		t.Errorf("remove a member = %+v; want a scale-in", changes)
 	}
 }
 

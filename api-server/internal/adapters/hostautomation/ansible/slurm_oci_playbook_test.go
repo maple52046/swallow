@@ -28,13 +28,13 @@ func TestOCIConfKeepsTheCrossNodeInvariants(t *testing.T) {
 	if strings.Contains(conf, "MountSpoolDir") {
 		t.Error("oci.conf must not move the step spool away from its host path (MountSpoolDir)")
 	}
-	playbook := slurmPlaybookFile(t, "deploy-slurm.yml")
+	playbook := slurmPlaybookFile(t, "roles", "slurm_facts", "tasks", "main.yml")
 	for _, want := range []string{
 		"slurm_oci_crun: /usr/bin/crun",
 		"slurm_oci_container_path: /run/user/%U/slurm-oci",
 	} {
 		if !strings.Contains(playbook, want) {
-			t.Errorf("deploy-slurm.yml does not set %q", want)
+			t.Errorf("slurm_facts does not set %q", want)
 		}
 	}
 	if strings.Contains(playbook, "slurm_oci_container_path: ") && strings.Contains(

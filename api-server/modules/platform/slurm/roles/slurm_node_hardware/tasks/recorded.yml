@@ -1,0 +1,42 @@
+---
+# Give the controller's configuration what an earlier detection recorded on this compute node
+# (main.yml), without touching its driver, GPUs, or slurmd: a reconfigure that changes only how the
+# cluster schedules leaves the nodes and their jobs alone. GRES and Features are derived again with
+# the deployment's variables of the day (expected GPUs, the GPU type, the group's features). A node
+# without a record of this version (deployed before the record existed) is detected instead.
+
+- name: Read this node's hardware record
+  ansible.builtin.slurp:
+    src: "{{ slurm_node_hardware_record }}"
+  register: slurm_node_hardware_saved
+  failed_when: false
+  become: true
+
+- name: Decide whether the record can be used
+  ansible.builtin.set_fact:
+    slurm_node_hardware_recorded: >-
+      {{ (slurm_node_hardware_saved.content | b64decode | from_json)
+         if slurm_node_hardware_saved.content is defined else {} }}
+
+- name: Detect a node without a usable record
+  ansible.builtin.include_tasks: main.yml
+  when: (slurm_node_hardware_recorded.version | default(0) | int) != (slurm_node_hardware_record_version | int)
+
+- name: Use the recorded hardware
+  when: (slurm_node_hardware_recorded.version | default(0) | int) == (slurm_node_hardware_record_version | int)
+  block:
+    - name: Restore the detected node line and GPUs
+      ansible.builtin.set_fact:
+        slurm_node_line: "{{ slurm_node_hardware_recorded.nodeLine }}"
+        slurm_is_gpu_compute: "{{ inventory_hostname in (swallow_slurm_gpu_compute_ids | default([])) }}"
+        slurm_gpus: "{{ slurm_node_hardware_recorded.gpus | default([]) }}"
+        slurm_gpus_detected: "{{ slurm_node_hardware_recorded.gpus | default([]) }}"
+        slurm_gpu_health: "{{ {'model_features': slurm_node_hardware_recorded.modelFeatures | default([])} }}"
+
+    - name: Keep the operating system's memory out of what Slurm schedules
+      ansible.builtin.include_tasks: memory.yml
+
+    - name: Summarize the GPUs for slurm.conf
+      ansible.builtin.include_role:
+        name: slurm_gpu
+        tasks_from: summarize.yml

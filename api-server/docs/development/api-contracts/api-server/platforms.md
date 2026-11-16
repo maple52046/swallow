@@ -754,6 +754,13 @@ A Slurm Platform's members are organized in node groups, and its compute groups 
   a `templateId` that does not exist, and a member added below its template's `minimumHardware` are
   `validation_error`s naming the Server and what it lacks. A group whose members' GPU models differ is a
   warning unless its template names a GPU model.
+- A change of groups and partitions alone (a partition added, changed, or removed, a compute group added
+  or removed, a member moved between groups, which plans `change-group-members`, or a group's
+  `expectedGpusPerNode`) reconfigures the cluster in place: it runs a `reconfigure-slurm` Workflow
+  (definition `platform/slurm/slurm-reconfigure`, Job label `Reconfigure Slurm`) that renders the
+  controllers' configuration from what each compute node recorded at its last detection and applies it
+  with `scontrol reconfigure`. No member is redeployed, no feature is reinstalled, no gate runs, and the
+  Platform stays `active`. A change of a group's `templateId` alone runs no Workflow.
 
 Every Slurm deployment proves the cluster works with the `slurm-acceptance`
 [Validation Suite](validation.md) as its gate. After `install-platform` and the composed software, the Workflow runs the Job `validate-slurm`: the suite's check Task from the
@@ -1407,7 +1414,7 @@ removed).
 
 The approved plan starts a `scale-in-slurm` Workflow (definition `platform/slurm/slurm-scale-in`): drain
 the leaving nodes from the primary controller (each poll logs every node's job count), reconfigure the
-members that stay, clean the leaving nodes (stop `slurmd`, `munge`, and `sackd`, unmount the workload
+members that stay in place as a [groups and partitions change](#node-groups-and-partitions) does, clean the leaving nodes (stop `slurmd`, `munge`, and `sackd`, unmount the workload
 filesystem and remove its `fstab` line, remove swallow's Slurm, Omnistat, and GPU configuration;
 `slurm_unmount_busy` when the filesystem stays busy), release the ones that asked for it, then remove
 them from the Platform and release their Platform Claims. The Platform stays `active` throughout.
@@ -1424,9 +1431,11 @@ and retry, or write the removal again with `force`.
 
 `POST /api/v1/platforms/{platformId}/slurm/nodes/{serverId}/rescan` re-detects a compute node's GPUs
 after deployment (for example after a GPU failed) and reconfigures the cluster so its GRES match the
-node again, without removing and adding it. It runs the Slurm deploy Workflow of the applied spec again,
-which converges every node (a node whose hardware did not change reports no change and keeps its jobs),
-and its gate validates only that node. It is an action, not a spec change. It answers `202 Accepted`
+node again, without removing and adding it. It runs a `reconfigure-slurm` Workflow (definition
+`platform/slurm/slurm-reconfigure`): that node's hardware is detected again, the controllers'
+configuration is rendered from it and from what the other nodes recorded at their last detection, and
+applied with `scontrol reconfigure`; no member is redeployed and no feature is reinstalled. The gate
+then validates only that node. It is an action, not a spec change. It answers `202 Accepted`
 with the `operationId` of the Workflow. A Platform that is not an applied Slurm Platform, or a Server that is not
 one of its compute members, is `409 conflict`; a Platform with a Workflow already running is
 `409 conflict` too.
@@ -1679,6 +1688,10 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 
 ## Compatibility Notes
 
+- Since 2026-11-16 a change of a Slurm Platform's node groups and partitions alone, and a rescan, run a
+  `reconfigure-slurm` Workflow that reconfigures the cluster in place instead of a `configure-slurm`
+  Workflow that redeployed every member; the Platform stays `active` meanwhile. Moving a member between
+  groups is planned as `change-group-members` (it used to be applied without a Workflow).
 - Since 2026-11-14 a Slurm Platform scales its compute nodes through its spec
   ([Node groups and partitions](#node-groups-and-partitions), [Remove members](#remove-members)). Removing a
   compute member is a Change Plan that can be approved instead of one carrying a blocker, and adding or

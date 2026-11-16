@@ -311,7 +311,8 @@ type DeploymentLaunch struct {
 	// Realization is what the Workflow carries out: empty or RealizeDeploy is the whole deployment;
 	// RealizeHardwareCounters is only the monitoring feature's own Task on an already deployed
 	// Platform, so the launcher composes nothing else; RealizeScaleIn is the removal of ScaleIn's
-	// members; RealizeRescan redeploys to redetect the hardware of ChangedServerIDs.
+	// members; RealizeRescan redetects the hardware of ChangedServerIDs and reconfigures the
+	// Platform with it; RealizeReconfigure only reconfigures the Platform in place.
 	Realization PlatformRealization
 	// ChangedServerIDs are the members this deployment adds (every member on a first deploy, the
 	// rescanned one on a rescan): the deployment's gate validates only them, so the work running on

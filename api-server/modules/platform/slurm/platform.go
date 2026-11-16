@@ -111,7 +111,8 @@ func (Platform) SpecFromDeployRequest(body map[string]any) (platformdomain.Platf
 // Changes classifies a Slurm change: creating and uninstalling are destructive; adding a member,
 // enabling a monitoring feature or the monitoring dashboards, and first enabling the workload
 // storage, a container runtime, native OCI containers, or PMIx converge directly by rerunning the
-// convergent deploy; removing a member, changing roles, changing or disabling the storage or a
+// convergent deploy; a change of node groups and partitions alone reconfigures the cluster in place
+// (RealizeReconfigure); removing a member, changing roles, changing or disabling the storage or a
 // runtime, and changing the state save location, the GRES type, the GPU stack owner, or the driver
 // options are destructive. Switching Omnistat's hardware counters on or off is not destructive and
 // reconfigures only Omnistat (RealizeHardwareCounters). swallow cannot yet remove members, change
@@ -273,6 +274,12 @@ func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdo
 		}) && !deploys:
 			// A group's template only decides how its next member is installed.
 			changes.Realization = platformdomain.RealizeNothing
+		case !slices.ContainsFunc(changes.Actions, func(action convergence.PlannedAction) bool {
+			return !slices.Contains(reconfigureActions, action.Action) && !slices.Contains(templateOnlyActions, action.Action)
+		}):
+			// Groups and partitions only change how the cluster schedules: the controllers'
+			// configuration is rendered again from what the nodes recorded, and nothing is installed.
+			changes.Realization = platformdomain.RealizeReconfigure
 		}
 	}
 	return changes, nil
@@ -280,6 +287,14 @@ func (Platform) Changes(applied *platformdomain.PlatformSpec, desired platformdo
 
 // templateOnlyActions change only which Deployment Template a group's next member is installed from.
 var templateOnlyActions = []string{"change-group-template"}
+
+// reconfigureActions change only how the cluster schedules its existing members: the partitions,
+// the groups and the members in them (the Features and partitions a node gets), and the GPUs a group
+// expects (gpu_degraded and Weight).
+var reconfigureActions = []string{
+	"add-node-group", "remove-node-group", "change-group-members", "change-expected-gpus",
+	"add-partition", "change-partition", "remove-partition",
+}
 
 // computeMembers returns the members that run slurmd.
 func computeMembers(spec platformdomain.PlatformSpec) []string {
@@ -302,6 +317,15 @@ func topologyChanges(applied, desired platformdomain.PlatformSpec, add func(conv
 	before, after := readTopology(applied), readTopology(desired)
 	ref := func(kind, id string) convergence.ResourceRef { return convergence.ResourceRef{Kind: kind, ID: id} }
 	deploys := false
+	// Members in both specs: a group membership change of one of them is a move between groups,
+	// while members that join or leave are their own add-member and remove-member actions.
+	staying := func(ids []string) []string {
+		return slices.DeleteFunc(slices.Clone(ids), func(id string) bool {
+			_, before := applied.Member(id)
+			_, after := desired.Member(id)
+			return !before || !after
+		})
+	}
 	beforeGroups := map[string]nodeGroup{}
 	for _, group := range before.groups {
 		beforeGroups[group.Name] = group
@@ -325,6 +349,11 @@ func topologyChanges(applied, desired platformdomain.PlatformSpec, add func(conv
 				// A member moved between groups, or joined or left this one: the partitions and
 				// Features it gets follow its groups.
 				deploys = true
+				if !sameSet(staying(previous.Members), staying(group.Members)) {
+					add(convergence.PlannedAction{Target: ref("node-group", group.Name), Action: "change-group-members",
+						From: strings.Join(staying(previous.Members), ", "), To: strings.Join(staying(group.Members), ", "),
+						Reason: "the members' partitions and Features follow their groups; jobs keep running"}, true)
+				}
 			}
 			if previous.ExpectedGPUsPerNode != group.ExpectedGPUsPerNode {
 				add(convergence.PlannedAction{Target: ref("node-group", group.Name), Action: "change-expected-gpus", From: fmt.Sprint(previous.ExpectedGPUsPerNode), To: fmt.Sprint(group.ExpectedGPUsPerNode),

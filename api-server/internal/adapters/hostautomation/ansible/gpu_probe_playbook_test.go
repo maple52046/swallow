@@ -184,7 +184,7 @@ func TestAMDSMIHealthNamesTheGPUModel(t *testing.T) {
 	if features, _ := report["model_features"].([]any); len(features) != 0 || !strings.Contains(fmt.Sprint(report["notes"]), "no GPU model name") {
 		t.Errorf("no market name: model_features %v, notes %v", report["model_features"], report["notes"])
 	}
-	if !strings.Contains(slurmPlaybookFile(t, "roles", "slurm_gpu", "tasks", "main.yml"), "slurm_gpu_health.model_features") {
+	if !strings.Contains(slurmPlaybookFile(t, "roles", "slurm_gpu", "tasks", "summarize.yml"), "slurm_gpu_health.model_features") {
 		t.Error("slurm_gpu does not add the GPU models AMD SMI names to the node's features")
 	}
 }

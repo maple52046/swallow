@@ -517,3 +517,9 @@ members from a Slurm Platform after its Change Plan is approved
 ([platforms](platforms.md#remove-members)). Its Tasks have the kinds `ansible-playbook`, `release-os`,
 and `complete-member-removal`, and its Jobs the labels `Drain Nodes`, `Reconfigure Slurm`, `Clean Removed Nodes`,
 `Release Servers`, and `Finalize Member Removal`.
+
+On 2026-11-16 the kind `reconfigure-slurm` was added (additive): the Workflow that reconfigures a
+deployed Slurm Platform in place for a change of its node groups and partitions alone, and that rescans
+a compute node ([platforms](platforms.md#rescan-a-slurm-node)). Its Job `reconfigure-slurm` is labeled
+`Reconfigure Slurm`; a rescan adds the gate's `validate-slurm` Job. Such changes and rescans used to run
+a `configure-slurm` Workflow that redeployed every member.

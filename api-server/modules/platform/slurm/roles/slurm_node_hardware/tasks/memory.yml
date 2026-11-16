@@ -1,0 +1,14 @@
+---
+# The CPUs slurm.conf lists for the node and the memory Slurm may schedule on it, from slurm_node_line.
+# A node never gives up more than half of its memory, however small it is.
+
+- name: Keep the operating system's memory out of what Slurm schedules
+  vars:
+    detected_mib: "{{ slurm_node_line | regex_search('RealMemory=(\\d+)', '\\1') | first | int }}"
+    reserve_mib: >-
+      {{ [[(detected_mib | int) * (slurm_memory_reserve_percent | int) // 100,
+           slurm_memory_reserve_min_mib | int] | max,
+          slurm_memory_reserve_max_mib | int] | min }}
+  ansible.builtin.set_fact:
+    slurm_node_cpus: "{{ slurm_node_line | regex_search('CPUs=(\\d+)', '\\1') | first | int }}"
+    slurm_node_schedulable_memory: "{{ [(detected_mib | int) - (reserve_mib | int), (detected_mib | int) // 2] | max }}"

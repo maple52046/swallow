@@ -1,0 +1,7 @@
+---
+# What a compute node's detection found, kept on the node so a reconfigure that does not detect it
+# again (reconfigure-slurm) renders the same node line, GRES, and Features. Removed with the node's
+# Slurm configuration (slurm_node_cleanup).
+slurm_node_hardware_record: /var/lib/swallow/slurm/node-hardware.json
+# The record's layout; a record of another version is detected again instead of read.
+slurm_node_hardware_record_version: 1

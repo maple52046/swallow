@@ -1,0 +1,49 @@
+---
+# Detect a compute node's hardware for the controller's configuration: the node line slurmd
+# detects, the memory Slurm may schedule, and its GPUs (role slurm_gpu, which also loads amdgpu
+# and checks the GPUs' health). What was detected is recorded on the node (recorded.yml reads it).
+
+- name: Read the slurmd-detected node line
+  # slurmd -C prints the CPU/socket/core/memory Slurm actually detects on this host; using
+  # it verbatim avoids a NodeName that disagrees with hardware and drops the node to INVAL.
+  ansible.builtin.command:
+    cmd: /usr/sbin/slurmd -C
+  register: slurm_node_detect
+  changed_when: false
+  become: true
+
+- name: Remember this node's detected NodeName line
+  ansible.builtin.set_fact:
+    slurm_node_line: "{{ slurm_node_detect.stdout_lines | select('match', '^NodeName=') | first }}"
+
+- name: Keep the operating system's memory out of what Slurm schedules
+  ansible.builtin.include_tasks: memory.yml
+
+- name: Load amdgpu and map the GPUs of a GPU compute node
+  # GPU GRES (decision 063): see the slurm_gpu role. A CPU compute node stops loading amdgpu
+  # and reports no GPUs, so a rerun converges both ways.
+  ansible.builtin.include_role:
+    name: slurm_gpu
+    apply:
+      become: true
+
+- name: Create the directory for the hardware record
+  ansible.builtin.file:
+    path: "{{ slurm_node_hardware_record | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Record what was detected
+  ansible.builtin.copy:
+    dest: "{{ slurm_node_hardware_record }}"
+    content: >-
+      {{ {'version': slurm_node_hardware_record_version, 'nodeLine': slurm_node_line,
+          'gpus': slurm_gpus_detected | default([]),
+          'modelFeatures': (slurm_gpu_health | default({})).model_features | default([])} | to_nice_json }}
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
