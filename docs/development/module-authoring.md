@@ -413,8 +413,15 @@ role 的行為要實際執行才看得出來時（改寫主機設定、冪等、
 
 - 只讀取或執行短暫的工作，不安裝套件、不改設定（需要套件的檢查等 artifact 宣告涵蓋它們，[validation.md](validation.md) §7）。
   要在主機上執行的 probe 以 `ansible.builtin.script` 從 role 的 `files/` 複製，執行完就消失；不要安裝。
+- 以 run 發起者的帳號執行的 task（`become_user: <發起者>`，目前只有 `run-validation-script`，[validation.md](validation.md)
+  §3.1）：主機沒有 `acl`，Ansible 無法把暫存檔交給另一個非 root 的帳號，所以這種 task 只能用 pipelined 的 module
+  （`command`、`stat` 這類），task var 設 `ansible_pipelining: true`；`ansible.builtin.script`、`copy`、`template` 即使
+  pipelining 也要傳檔，一定失敗，檔案由 root 寫好再交給發起者。還要設 `ansible_remote_tmp`（已存在、不在發起者 home 的
+  目錄），否則 module 會在可寫的 home 留下 `~/.ansible/tmp`；並帶 `ignore_errors: true`，因為 automation user 不能切換成
+  發起者時的錯誤不受 `failed_when: false` 影響。以 `cmd is defined` 判斷指令有沒有執行。
 - check 沒有通過是 verdict，不是失敗：命令都 `failed_when: false`，再依結果判定。playbook 本身失敗（主機連不上、工具壞掉）
-  才是 Task 失敗，它的 check 由 swallow 補上 `error`。
+  才是 Task 失敗，它的 check 由 swallow 補上 `error`。前置條件不成立而判定為 `error` 的結果，summary 以 `[code]` 開頭
+  （[validation.md](validation.md) §4.3）。
 - 從 trusted var 讀 run 的內容：`swallow_validation_parameters`、`swallow_validation_targets`、`swallow_validation_members`、
   `swallow_validation_mode`（`gate` 時才可以做部署的補救動作，例如 drain）等，清單見 [validation.md](validation.md) §3。
 - Platform suite 在一台 access Server 執行一次：inventory 有每個成員（供 `hostvars` 讀取），`--limit` 才把 play 限縮到

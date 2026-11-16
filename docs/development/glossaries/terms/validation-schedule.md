@@ -9,7 +9,8 @@
   run, and its Conditions. Its Controller starts each Validation Run in `report` mode; a time missed
   while the worker was down runs once, a target still busy with other work skips that occurrence, and
   a schedule never has two runs at once. `after-deployment` follows a Platform target's deployments
-  (each Platform generation applied) or a Server target's OS deployments.
+  (each Platform generation applied) or a Server target's OS deployments. It names only module
+  suites: a user-defined suite runs as the User who starts it, and a scheduled run has none.
 - Disallowed meaning: Not a Validation Run, and not a gate: a deployment that composes a suite does so
   through its Platform module, not through a schedule. Not a Workflow schedule: swallow has no
   schedule for other Workflows.
@@ -19,4 +20,5 @@
   `kubernetes-smoke` after each deployment of the Platform."
 - Related terms: Validation Suite, Validation Run, Desired State, Controller.
 - Change note: Added 2026-11-12 for [decision 081](../../../decisions/081-validation-suites-and-runs.md)
-  (validation suites and runs).
+  (validation suites and runs). Changed 2026-11-17: schedules no longer name user-defined suites,
+  which now run as the User who starts them.

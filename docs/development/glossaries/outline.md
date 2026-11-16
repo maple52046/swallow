@@ -176,7 +176,7 @@ For glossary authoring or modification, read [`spec.md`](spec.md) before editing
 
 ### Validation
 
-- [Validation Suite](terms/validation-suite.md): A named test plan run against deployed Servers or a Platform — module-declared (swallow-defined) or a user's script judged by its exit code; never request validation or OS Image verification.
+- [Validation Suite](terms/validation-suite.md): A named test plan run against deployed Servers or a Platform — module-declared (swallow-defined) or a script any User writes, judged by its exit code and run as the User who starts it; never request validation or OS Image verification.
 - [Validation Check](terms/validation-check.md): One named judgement of a suite on each target, optionally `gating` a deployment that composes the suite.
 - [Validation Verdict](terms/validation-verdict.md): A check's outcome on a target — `passed | failed | error | skipped` — and a run's derived verdict `passed | failed | error`.
 - [Validation Impact](terms/validation-impact.md): What running a suite does to its targets — `observe | workload | disruptive` — which decides where it may run and whether it can be preempted.

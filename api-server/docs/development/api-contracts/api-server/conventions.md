@@ -75,6 +75,8 @@ Each endpoint contract states which of these classes its routes belong to:
 | Reference | Any authenticated User. |
 | Pool read | An admin, or a User with any Pool Role in the Pool the resource belongs to. |
 | Pool operate | An admin, or an `owner` of the Pool the resource belongs to. |
+| Author | Creating: any authenticated User, who becomes the resource's author. Afterwards: only its author, matched by user id; an admin who is not the author may not. |
+| Author or admin | The resource's author (by user id), or User Role `admin`. |
 | Admin | User Role `admin`. |
 
 - A Server belongs to the Pool its placement names; a Platform to the Pool every one of its nodes is
@@ -83,7 +85,8 @@ Each endpoint contract states which of these classes its routes belong to:
 - A **list** returns only what the caller may read; `total` counts only those.
 - Reading a resource the caller may not read yields `404 not_found`, the same as a resource that
   does not exist, so a caller cannot probe other Pools. A caller that may read a resource but not
-  operate it, or that calls an admin route, yields `403 forbidden`.
+  operate it, or that calls an admin route, yields `403 forbidden`. So does a caller that is not the
+  author of a resource it may read, on an Author or an Author-or-admin route.
 
 ## Error Response
 
@@ -202,3 +205,5 @@ scraping rather than for consumers (OpenAPI area `system`):
 - Since 2026-11-13 (decision 082) the User Roles are `admin` and `user`; `owner` is a Pool Role.
   Before, every route except auth required `admin` and the role `owner` was listed but unused.
   `BREAKING CHANGE`: the `role` enum of auth-me lost `owner`.
+- Since 2026-11-17 the Author and Author-or-admin classes exist, first for user-defined Validation
+  Suites ([validation](validation.md)), whose writes were admin before.

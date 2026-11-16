@@ -13,7 +13,7 @@ contract before implementing or integrating against it.
 
 | Document | Status | Purpose |
 | --- | --- | --- |
-| [conventions.md](conventions.md) | Active | Base path, authentication scheme, authorization classes (User Role and Pool Role), error envelope and code-to-status map, timestamp format, pagination envelope, and the operational endpoints (`/livez`, `/readyz`, `/healthz`, `/metrics`). Every HTTP contract below references it instead of repeating these rules. |
+| [conventions.md](conventions.md) | Active | Base path, authentication scheme, authorization classes (User Role, Pool Role, and authorship), error envelope and code-to-status map, timestamp format, pagination envelope, and the operational endpoints (`/livez`, `/readyz`, `/healthz`, `/metrics`). Every HTTP contract below references it instead of repeating these rules. |
 | [../openapi/](../openapi) | Active | The OpenAPI 3.0.3 description of every route below: the authoritative wire shape, split into `common.yaml` and `areas/*.yaml` and bundled into `openapi.yaml` (see [../README.md](../README.md)). |
 
 ## HTTP REST API
@@ -49,7 +49,7 @@ lists the components that call it today.
 | [server-tags.md](server-tags.md) | Active | `GET/POST /api/v1/provisioning/tags`, `DELETE/PATCH /api/v1/provisioning/tags/{name}` | List a Site's known tags, edit Server tags (single or batch, tri-state), and delete or rename a tag across a Site. |
 | [site-automation.md](site-automation.md) | Active | `GET/PUT /api/v1/sites/{id}/automation`, `PUT /api/v1/sites/{id}/automation/credential` | Configure embedded Ansible execution and its optional write-only become password; every Site logs in with the installation Deployment Key. |
 | [ssh-keys.md](ssh-keys.md) | Active | `/api/v1/ssh-keys` | Manage the system Deployment Key and the caller's public-key-only Access Keys, realized into key-capable provisioners. |
-| [validation.md](validation.md) | Active | `/api/v1/validation` | List the Validation Suite catalog and manage user-defined suites (scripts judged by exit code), start, list, read, and cancel Validation Runs of a suite against deployed Servers or a Platform with every check's verdict, and manage Validation Schedules. |
+| [validation.md](validation.md) | Active | `/api/v1/validation` | List the Validation Suite catalog and its revisions, let any User write user-defined suites (scripts judged by exit code, run as the User who starts them), start, list, read, and cancel Validation Runs of a suite against deployed Servers or a Platform with every check's verdict, and manage Validation Schedules. |
 | [workflows.md](workflows.md) | Active | `/api/v1/workflows` | Create, list, observe, retry, rerun, and cancel Workflows (Jobs and Tasks), with timeline, logs, and per-Task events. |
 | [platforms.md](platforms.md) | Active | `/api/v1/platforms` | Create, change, and delete Kubernetes and Slurm Platforms by their spec (destructive changes through Change Plans), scale Slurm compute nodes by node group and partition, read their status and membership, manage the Slurm deployment requirement and Monitoring Links. |
 | [software.md](software.md) | Active | `/api/v1/software` | List the Managed Software catalog, install and uninstall a kind on deployed Servers, and read Software Assignments. |

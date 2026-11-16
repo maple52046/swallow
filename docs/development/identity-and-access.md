@@ -124,11 +124,23 @@ flowchart LR
 | 類別 | 誰可以 | 路由（摘要；完整以各契約為準） |
 | --- | --- | --- |
 | 自己的帳號 | 任何已登入的 User | `GET /auth/me`、`PUT /auth/me/password`（只限 Session）、`/api-keys`、自己的 Access Key（`GET /ssh-keys`、`POST /ssh-keys`、`POST /ssh-keys/generate`、`GET`／`DELETE /ssh-keys/{keyId}`） |
-| 共用的參考資料 | 任何已登入的 User | `GET /modules`、`GET /sites`、`GET /sites/{id}`、Zone 與 Pool 目錄的讀取、`GET /software/catalog`、`GET /provisioning/images`、`GET /provisioning/image-catalogs`、`GET /provisioning/tags`、`GET /platforms/deployment-requirements/slurm`、`GET /platforms/gpu-operator/releases`、`GET /validation/suites(/{suiteId})`、`GET /monitoring/metrics/names` |
+| 共用的參考資料 | 任何已登入的 User | `GET /modules`、`GET /sites`、`GET /sites/{id}`、Zone 與 Pool 目錄的讀取、`GET /software/catalog`、`GET /provisioning/images`、`GET /provisioning/image-catalogs`、`GET /provisioning/tags`、`GET /platforms/deployment-requirements/slurm`、`GET /platforms/gpu-operator/releases`、`GET /validation/suites(/{suiteId})`、`GET /validation/suites/{suiteId}/revisions/{revision}`、`GET /monitoring/metrics/names` |
+| 作者 | 建立：任何已登入的 User，建立者成為作者；之後只有作者（以 user id 比對）。admin 不是作者時也不行 | `POST /validation/suites`、`PUT /validation/suites/{suiteId}`（user suite） |
+| 作者或 admin | 資源的作者或 User Role `admin` | `DELETE /validation/suites/{suiteId}`（retire user suite） |
 | Pool 範圍的讀取 | 能讀取資源的 User（Pool 的 owner 或 member） | `GET /servers`（過濾）、`GET /servers/stream`（過濾）、`GET /servers/{id}` 與其讀取子路由（`events`、`network`、`provisioning-tasks`、`power-state`）、`GET /platforms`（過濾）、`GET /platforms/{id}`、`GET /platforms/{id}/slurm`、`GET /software/assignments`（過濾）、`GET /workflows`（過濾）與 Workflow 的讀取子路由、`GET /change-plans`（過濾）、`GET /validation/runs`（過濾）、`GET /monitoring/metrics(/range)`（該 Server）、`GET /provisioning/templates`（過濾）與 `GET /provisioning/templates/{id}`、Pool 的 members 與 access policy 的讀取 |
-| Pool 範圍的操作 | 資源所在 Pool 的 owner | Server 的動作（`refresh`、`power-on`、`power-off`、`inspect`、`test`、`abort`、`override-failed-testing`、`lock`、`unlock`、`mark-broken`、`mark-fixed`、`rescue-mode`、`exit-rescue-mode`、`default-user`、網路 link、`provisioner-detail`、Docker Host Explorer）、`POST /provisioning/deployment-operations`（指定 template 時也要能讀取該 template）、`release-operations`、`recover-operations`、`deployments/preflight`、`POST /provisioning/tags`（每個目標 Server）、`POST /software/assignments`、`POST /software/uninstall`、`POST /platforms`（每個節點都在呼叫者是 owner 的同一個 Pool）、Platform 的 `PATCH`、`PUT /spec`、`DELETE`、`sync` 與 Kubernetes explorer、Change Plan 的核准與拒絕（Platform 的 plan）、Workflow 的 `cancel`、`rerun`、Task 重試、`POST /validation/runs`、`POST /validation/runs/{runId}/cancel`、Pool 的 members 與 access policy 的寫入、Pool 的 member candidates、`POST /provisioning/templates`（body 的 `poolId`）與 template 的 `PATCH`、`DELETE`、user data 的寫入與清除（移到別的 Pool 只限 admin） |
-| admin | User Role `admin` | 其他所有路由：`/overview`、Site 與 Integration 的寫入與 automation、`/users`、`/access/*`、Zone 與 Pool 目錄的寫入、`PUT /servers/{id}/placement`、`PUT /platforms/{id}/pool`、`DELETE /servers/{id}`、Boot Media、Redfish probe、Power Configuration、virtual machines、`/provisioning` 的其餘路由（OS Image、image verification、Provisioning Task、reconcile、HTTP Proxy、Subnet DNS、Boot ISO、VM enrollment、tag 的刪除與改名）、Deployment Key 與 `POST /ssh-keys/sync`、registry credentials、`POST /platforms/sync`、`PUT /platforms/deployment-requirements/slurm`、Change Plan 政策、`POST /workflows`、Validation Suite 的寫入與 Validation Schedule、alerts |
+| Pool 範圍的操作 | 資源所在 Pool 的 owner | Server 的動作（`refresh`、`power-on`、`power-off`、`inspect`、`test`、`abort`、`override-failed-testing`、`lock`、`unlock`、`mark-broken`、`mark-fixed`、`rescue-mode`、`exit-rescue-mode`、`default-user`、網路 link、`provisioner-detail`、Docker Host Explorer）、`POST /provisioning/deployment-operations`（指定 template 時也要能讀取該 template）、`release-operations`、`recover-operations`、`deployments/preflight`、`POST /provisioning/tags`（每個目標 Server）、`POST /software/assignments`、`POST /software/uninstall`、`POST /platforms`（每個節點都在呼叫者是 owner 的同一個 Pool）、Platform 的 `PATCH`、`PUT /spec`、`DELETE`、`sync` 與 Kubernetes explorer、Change Plan 的核准與拒絕（Platform 的 plan）、Workflow 的 `cancel`、`rerun`、Task 重試、`POST /validation/runs`（module suite 與 `starterLevel: owner` 的 user suite；見下）、`POST /validation/runs/{runId}/cancel`（另見下）、Pool 的 members 與 access policy 的寫入、Pool 的 member candidates、`POST /provisioning/templates`（body 的 `poolId`）與 template 的 `PATCH`、`DELETE`、user data 的寫入與清除（移到別的 Pool 只限 admin） |
+| admin | User Role `admin` | 其他所有路由：`/overview`、Site 與 Integration 的寫入與 automation、`/users`、`/access/*`、Zone 與 Pool 目錄的寫入、`PUT /servers/{id}/placement`、`PUT /platforms/{id}/pool`、`DELETE /servers/{id}`、Boot Media、Redfish probe、Power Configuration、virtual machines、`/provisioning` 的其餘路由（OS Image、image verification、Provisioning Task、reconcile、HTTP Proxy、Subnet DNS、Boot ISO、VM enrollment、tag 的刪除與改名）、Deployment Key 與 `POST /ssh-keys/sync`、registry credentials、`POST /platforms/sync`、`PUT /platforms/deployment-requirements/slurm`、Change Plan 政策、`POST /workflows`、Validation Schedule、alerts |
 
+- 「作者」與「作者或 admin」以資源記下的建立者 user id 判斷，不以 username：刪除的 User 的 username 可能被之後的 User
+  使用，user id 不會。作者被刪除後沒有人能修改那個資源，admin 仍能 retire。與 Deployment Template 的 `createdBy`（只記錄、
+  不決定權限）不同，這兩類的建立者就是權限的來源。判斷在 use case（不是 `api.go` 的 middleware），因為要先讀出資源；
+  不符時回 `403 forbidden`（所有已登入的 User 都能讀 suite，所以不以 `404` 隱藏）。
+- `POST /validation/runs`：路由的 guard 要求每個目標都能讀取（不能讀取回 `404`）；use case 再依 suite 判斷：module suite
+  與 `starterLevel: owner` 的 user suite 要求每個目標都能操作，`starterLevel: member` 的 user suite 只要求能讀取。user suite
+  的 script 以發起者自己的 Linux 帳號在目標上執行，所以 use case 另外檢查發起者在每個目標的 Host Access 與（suite 要 `sudo`
+  時）sudo，見 §8.3。
+- `POST /validation/runs/{runId}/cancel`：路由的 guard 要求能讀取 run；use case 允許 run 的發起者（以 user id 比對）、能操作
+  每個目標的 User（Pool 的 owner）與 admin，其他人 `403`。能讀取 run 的人都能讀它的輸出（evidence）。
 - `provisioner-detail` 帶出 BMC 的連線資料（含帳號與密碼）。它屬於 Pool 範圍的操作：Pool 的 owner 被信任可以取得自己
   Pool 的 Server 的 BMC；改寫 BMC 設定的 Power Configuration 仍只有 admin。
 
@@ -253,6 +265,19 @@ base DN 預設 `dc=swallow,dc=internal`。swallow 只管理 `ou=people`、`ou=gr
   member 都沒有 `sudo`（有 root 的人能讀 MUNGE key，冒用任何 User）。member 經 Slurm 在 compute node 上執行 job，
   Directory 讓每個節點都認得同一組 uid。
 - Kubernetes：`default` 不允許 member 登入節點，也沒有 `sudo`（節點的 root 等於叢集的管理權）。
+
+### 8.3 以 User 的帳號執行的自動化
+
+- user suite 的 script 以發起 run 的 User 的帳號在目標上執行（[validation.md](validation.md) §2.2）：automation user 登入，
+  再以 `sudo -u <username>`（Ansible 的 `become_user`）切換。這條路徑**不經過 Host Access**：sudo 只對呼叫者（本機的
+  automation user，`pam_localuser` 在 `common-account` 是 `sufficient`）執行 PAM 的 account 階段，不檢查目標 User，所以
+  SSSD 的 `ldap_access_order = host` 不會拒絕（2026-11-16 在 Ubuntu 24.04、sudo 1.9.15 實測）。
+- 所以 API 在受理時檢查 Host Access：發起者在每個目標都要能登入，`sudo: true` 的 suite 還要在每個目標有 sudo；不符時
+  `403`。sudo 需要密碼時 `409`（swallow 沒有 User 的密碼，script 只能用 `sudo -n`）。判斷與 Directory 的投影（§8.1、§8.2）
+  共用同一個函式（`HostAccessFor`），兩者不會分歧。不依賴主機上 script 內的 `sudo` 再檢查一次。
+- 主機上的帳號來自 Directory 與 directory client（§9），所以沒有 Directory、目標沒有安裝 directory client（包含非 Ubuntu）、
+  或發起者沒有 `uidNumber` 時，受理也拒絕（`409`）。主機端仍以 uid 比對帳號，擋下同名的本機帳號。
+- 主機的 sudo 規則與 API 可能有約一分鐘的差距（§9 的快取）；這段期間以主機的結果為準，run 在那台主機記一筆 `error`。
 
 ---
 

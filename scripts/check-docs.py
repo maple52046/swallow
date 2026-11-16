@@ -107,6 +107,14 @@ RETIRED_TERMS = {
         "Pools are not realized in the provisioner; the catalog controller is zone-catalog"
         " (os-provisioning.md §8)"
     ),
+    "automation-user": (
+        "a user suite runs as the User who starts the run; its sudo flag replaced runAs"
+        " (validation.md §2.2)"
+    ),
+    "swallow_validation_run_as": (
+        "the playbook receives swallow_validation_requester and swallow_validation_sudo"
+        " (validation.md §3)"
+    ),
 }
 # Documents whose purpose is to record the retirement itself: a contract change note, the public
 # compatibility page, or the decision and spec section that state a mechanism is retired.
@@ -134,6 +142,7 @@ RETIRED_TERM_RECORDS = {
     ("api-server/docs/development/api-contracts/api-server/local-repository.md", "serveDeployments"),
     ("docs/development/glossaries/terms/local-repository.md", "serveDeployments"),
     ("docs/development/glossaries/terms/local-repository-mode.md", "serveDeployments"),
+    ("api-server/docs/development/api-contracts/api-server/validation.md", "automation-user"),
 }
 
 # Architecture-review tracking codes are defined only in uncommitted plan drafts, so a committed

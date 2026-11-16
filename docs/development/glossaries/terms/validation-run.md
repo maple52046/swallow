@@ -5,8 +5,9 @@
   swallow's durable record of what was asked, what ran, and every Validation Check's Validation
   Verdict on every target.
 - Allowed meaning: An action, not desired state: its request — the suite (for a user suite, the
-  revision, its sha256, and the script it ran), the targets, the parameters, the mode, and the trigger
-  — is written once when it is accepted; each check's verdict on each target is observed from the
+  revision, its sha256, and the script it ran), the targets, the parameters, the mode, the trigger,
+  the User who started it, and for a user suite the account the script runs as (that User's
+  username and `uidNumber`, and whether it runs through `sudo`) — is written once when it is accepted; each check's verdict on each target is observed from the
   Task that judged it; its status and verdict are derived. Status: `pending` (accepted, not started),
   `running`, `completed` (every check has a verdict), or `canceled`. Mode: `report` — its own Workflow
   (kind `run-validation`), unattended, with a budget, and preemptible unless the suite is
@@ -26,4 +27,5 @@
 - Related terms: Validation Suite, Validation Check, Validation Verdict, Validation Schedule,
   Workflow, Task.
 - Change note: Added 2026-11-12 for [decision 081](../../../decisions/081-validation-suites-and-runs.md)
-  (validation suites and runs).
+  (validation suites and runs). Changed 2026-11-17: a run records who started it by user id and,
+  for a user suite, the starter's account, because a user suite now runs as the User who starts it.

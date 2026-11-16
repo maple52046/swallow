@@ -3,13 +3,14 @@
 - Status: Accepted
 - Date: 2026-11-12
 - 現行規格：[validation.md](../development/validation.md)；[workflow-execution.md](../development/workflow-execution.md) §4、§5.6、§6、§9、§12；
-  [core-and-extensions.md](../development/core-and-extensions.md) §4、§5；[module-authoring.md](../development/module-authoring.md) §7
+  [core-and-extensions.md](../development/core-and-extensions.md) §4、§5；[module-authoring.md](../development/module-authoring.md) §7；
+  [identity-and-access.md](../development/identity-and-access.md) §4.2、§8.3
 
 ## Context
 
 swallow offers three capabilities: Deployment (OS provisioning, Platform and Managed Software
 deployment), Monitoring (with alerts), and Validation. The first two exist; Validation is the third.
-A user (usually an admin) picks a test plan in the dashboard or the CLI and runs it against deployed
+A user picks a test plan in the dashboard or the CLI and runs it against deployed
 Servers (one or many) or a Platform (entered through its login or access node); plans range from a
 single check on a Server to hardware checks, multi-host networking, Platform acceptance, HA tests,
 and benchmarks. Runs are started by a user, on a schedule, or by a deployment (validate after
@@ -62,13 +63,22 @@ What existed before:
      composed this way, so decisions 063 and 066 still hold: what makes a Slurm Platform deployed is
      unchanged. Cheap postconditions (readiness, node registration, membership) stay in the
      deployment's own Tasks.
-4. **A user-defined suite is a script, run as data by one allowlisted playbook.** An admin writes a
-   script; every edit is a new immutable revision; a run records the revision, its sha256, and the
-   script it ran. One playbook from the release's allowlist copies the script to each target, runs it
-   with a timeout as the automation user or root, and records exit code 0 as `passed`, any other code
-   as `failed`, and a timeout as `error`. The allowlist rule stays for host automation content; a
-   user script is never composed into a deployment gate, supports no secret, and is admin-only.
-5. **Schedules are desired state.** A Validation Schedule names a suite, its targets, and a trigger:
+4. **A user-defined suite is a script, run as data by one allowlisted playbook, as the User who
+   starts it.** Any User writes a script and shares it with every User; only its author edits it,
+   and its author or an admin retires it. Every edit is a new immutable revision, kept; a run
+   records the revision, its sha256, and the script it ran, and a User who starts a run names the
+   revision they reviewed, so a script changed after the review is refused instead of run. The
+   author sets the least Pool Role on the targets that may start it (`owner` or `member`); module
+   suites are started by Pool owners and run as root. One playbook from the release's allowlist
+   logs in as the automation user, has root place the script in a private directory, and runs it
+   with a timeout as the **starter's own Linux account** (`become_user`), optionally through the
+   starter's passwordless `sudo`; it records exit code 0 as `passed`, any other code as `failed`, and
+   a timeout or an unmet account precondition as `error`. Because switching to a User from the
+   automation account bypasses the host's login check, the API checks the starter's Host Access and
+   `sudo` on every target when it accepts the run, and refuses targets where the starter has no
+   account. The allowlist rule stays for host automation content; a user script is never composed
+   into a deployment gate or a schedule, and supports no secret.
+5. **Schedules are desired state.** A Validation Schedule names a module suite, its targets, and a trigger:
    a cron expression in a time zone, or a deployment of the target succeeding. A controller starts the
    runs; a missed time runs once, and a busy target skips that occurrence.
 
@@ -86,6 +96,13 @@ What existed before:
   bypassing the allowlist and the content tests.
 - **Expected-output matching for user scripts.** Deferred: the exit code is the script's own verdict
   and needs nothing extra from the user.
+- **Run a user script as the automation user or root.** Rejected: once any User may write a suite,
+  its author would gain those rights on every Pool whose owner runs it, and a member would gain root
+  where the Sudo Policy and Platform limits deny it.
+- **Log in over SSH as the starter.** Rejected: swallow holds no User's private key (Access Keys are
+  public only), so it would need new key infrastructure.
+- **Run scheduled user suites as the schedule's creator.** Rejected for now: the creator is an admin,
+  who may log in and `sudo` everywhere. Schedules may later name a Pool owner to run as.
 
 ## Consequences
 
@@ -96,9 +113,16 @@ What existed before:
   Task timeout, usable by any Workflow.
 - Results become swallow-owned evidence with their own retention; the Workflow still keeps no Task
   output.
-- A user script runs arbitrary commands on the targets with the automation user's or root's rights:
-  the API is admin-only, and the run records what ran.
+- A user script runs arbitrary commands on the targets with only the starter's rights there; the run
+  records who started it, the account it ran as, and what ran. A starter still trusts the author's
+  script, which is why a run names the revision its starter reviewed.
+- User suites run only where the starter has an account: a Directory, the directory client on the
+  target (Ubuntu only today), and, with `sudo`, passwordless `sudo`, which no Pool enables by default.
+- Host Access is enforced by the API as well as by the hosts, through one shared computation.
 
 ## Revision history
 
 - 2026-11-12: accepted.
+- 2026-11-17: every User writes and shares user suites, edited only by their author, started at the
+  author's chosen Pool Role, pinned to a reviewed revision, and run as the starter's own account;
+  Bill wants every user to create and share suites and to run them under their own account.

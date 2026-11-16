@@ -11,7 +11,10 @@
   no login on its nodes). A Server in no Pool admits only admins. swallow projects Host Access into
   the Directory, where the Servers' directory client enforces it; a change of membership,
   placement, or Platform takes effect at the Directory's next pass and the Servers' cache refresh,
-  without running automation on the Servers.
+  without running automation on the Servers. swallow also checks it itself before it runs anything on
+  a Server as a User (a user-defined Validation Suite runs as the User who starts it): switching to
+  that User from the automation account does not pass through the login check the directory client
+  enforces.
 - Disallowed meaning: Not the automation account's access (the Deployment Key and the Server
   Default User). Not a firewall or network rule. Not Platform membership.
 - Synonyms: Login access.
@@ -22,4 +25,6 @@
 - Related terms: Pool Membership, Pool Role, Sudo Policy, Directory, Platform Module, Node Role,
   Pool, Server.
 - Change note: Added 2026-11-13 ([decision 082](../../../decisions/082-accounts-pool-access-and-directory.md)
-  (accounts, pool access, and directory)).
+  (accounts, pool access, and directory)). Changed 2026-11-17: swallow checks it before running a
+  user-defined Validation Suite as a User, because a lab probe showed `sudo -u` from the automation
+  account bypasses the directory client's login check.
