@@ -690,7 +690,8 @@ Plan：節點先 drain，最多等 `--drain-timeout` 讓工作結束（加上 `-
 `nodes remove`，會以新的旗標（例如 `--force`）重寫它的移除方式並回傳新的 Change Plan，它的 Workflow 以新的方式移除節點。機器壞掉的節點以 `--force` 移除：從
 controller 以存下的名稱 drain，工作無法結束時設為 DOWN，連不到時跳過清理並記 warning。在由 Swallow 安裝成員的平台上，
 `nodes add --interface <serverId>=<interfaceId>` 與 `--ip <serverId>=<address>`（static template）覆寫新節點的網路。partition 是建在 compute 群組上的排程
-佇列，剛好一個是預設；修改它們會原地重新設定 Slurm。因為還有工作而被擋下的 partition 移除不會自己重新提出：工作結束後再執行一次 `partitions remove`。這些指令讀出平台、修改 spec，再以讀到的 generation 寫回；API
+佇列，剛好一個是預設；修改它們或群組會原地重新設定 Slurm，不重新部署任何節點。`nodes rescan` 只重新偵測那一台、
+重新設定 controller，並只驗證那一台。因為還有工作而被擋下的 partition 移除不會自己重新提出：工作結束後再執行一次 `partitions remove`。這些指令讀出平台、修改 spec，再以讀到的 generation 寫回；API
 回的 warning（例如 GPU 少於群組預期的節點，會被排到最後而不是被拒絕）印在 stderr。
 
 平台以 spec 描述：成員與它們的角色、該類型的設定，以及成員如何取得作業系統。建立平台與破壞性變更（調整或移除

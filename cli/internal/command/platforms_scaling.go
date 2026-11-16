@@ -103,9 +103,9 @@ func platformsNodesCmd() *cobra.Command {
 		Use:   "rescan <platformId> <serverId>",
 		Short: "Re-detect a compute node's GPUs and reconfigure the cluster",
 		Long: "Re-detect a compute node's GPUs after deployment (for example after a GPU failed) and reconfigure\n" +
-			"the cluster so Slurm hands out the GPUs the node has now. The Slurm deploy workflow of the\n" +
-			"applied spec runs again; nodes whose hardware did not change keep their jobs, and only this node\n" +
-			"is validated. Prints the workflow id.",
+			"the cluster so Slurm hands out the GPUs the node has now. Only this node is detected again and\n" +
+			"validated; the controllers are reconfigured in place, and no node is redeployed, so the others\n" +
+			"keep their jobs. Prints the workflow id.",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return sendJSON(cmd, "POST", fmt.Sprintf("platforms/%s/slurm/nodes/%s/rescan", args[0], args[1]), nil, nil)
