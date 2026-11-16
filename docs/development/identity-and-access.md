@@ -107,6 +107,10 @@ flowchart LR
 - Server 屬於它的 placement（`spec.poolId`）指向的 Pool；placement 寫入即生效。沒有 Pool 的 Server（新 Server 一律
   如此，直到 admin 把它放進 Pool）只有 admin 能讀取與操作。
 - Platform 屬於「它的每個節點都在」的那個 Pool（§5）；沒有這樣的 Pool 時只有 admin 能讀取與管理。
+- Deployment Template 屬於擁有它的 Pool（`poolId`，建立時指定）：Pool 的 member 能讀取並以它部署，owner 才能修改與
+  刪除，只有 admin 能把它移到別的 Pool。`createdBy` 只記錄建立者，不決定權限；建立者離開 Pool 時 template 的歸屬與
+  `createdBy` 都不變。Platform 為 node group 產生的 template 屬於 Platform 的 Pool，隨 Platform 換 Pool。沒有 Pool 的
+  template（擁有者模型之前建立的）只有 admin 能讀取與操作。
 - Workflow 屬於它的目標：每個目標 Server（與目標 Platform）都能讀取時才能讀取；每個目標都能操作時才能取消、rerun 或
   重試。沒有任何目標的 Workflow 只有 admin。
 - **列表一律過濾**到呼叫者能讀取的項目，不回傳不能讀取的項目，也不以數量洩漏它們（`total` 是過濾後的數量）。直接讀取
@@ -120,10 +124,10 @@ flowchart LR
 | 類別 | 誰可以 | 路由（摘要；完整以各契約為準） |
 | --- | --- | --- |
 | 自己的帳號 | 任何已登入的 User | `GET /auth/me`、`PUT /auth/me/password`（只限 Session）、`/api-keys`、自己的 Access Key（`GET /ssh-keys`、`POST /ssh-keys`、`POST /ssh-keys/generate`、`GET`／`DELETE /ssh-keys/{keyId}`） |
-| 共用的參考資料 | 任何已登入的 User | `GET /modules`、`GET /sites`、`GET /sites/{id}`、Zone 與 Pool 目錄的讀取、`GET /software/catalog`、`GET /provisioning/images`、`GET /provisioning/image-catalogs`、`GET /provisioning/templates(/{id})`、`GET /provisioning/tags`、`GET /platforms/deployment-requirements/slurm`、`GET /platforms/gpu-operator/releases`、`GET /validation/suites(/{suiteId})`、`GET /monitoring/metrics/names` |
-| Pool 範圍的讀取 | 能讀取資源的 User（Pool 的 owner 或 member） | `GET /servers`（過濾）、`GET /servers/stream`（過濾）、`GET /servers/{id}` 與其讀取子路由（`events`、`network`、`provisioning-tasks`、`power-state`）、`GET /platforms`（過濾）、`GET /platforms/{id}`、`GET /platforms/{id}/slurm`、`GET /software/assignments`（過濾）、`GET /workflows`（過濾）與 Workflow 的讀取子路由、`GET /change-plans`（過濾）、`GET /validation/runs`（過濾）、`GET /monitoring/metrics(/range)`（該 Server）、Pool 的 members 與 access policy 的讀取 |
-| Pool 範圍的操作 | 資源所在 Pool 的 owner | Server 的動作（`refresh`、`power-on`、`power-off`、`inspect`、`test`、`abort`、`override-failed-testing`、`lock`、`unlock`、`mark-broken`、`mark-fixed`、`rescue-mode`、`exit-rescue-mode`、`default-user`、網路 link、`provisioner-detail`、Docker Host Explorer）、`POST /provisioning/deployment-operations`、`release-operations`、`recover-operations`、`deployments/preflight`、`POST /provisioning/tags`（每個目標 Server）、`POST /software/assignments`、`POST /software/uninstall`、`POST /platforms`（每個節點都在呼叫者是 owner 的同一個 Pool）、Platform 的 `PATCH`、`PUT /spec`、`DELETE`、`sync` 與 Kubernetes explorer、Change Plan 的核准與拒絕（Platform 的 plan）、Workflow 的 `cancel`、`rerun`、Task 重試、`POST /validation/runs`、`POST /validation/runs/{runId}/cancel`、Pool 的 members 與 access policy 的寫入、Pool 的 member candidates |
-| admin | User Role `admin` | 其他所有路由：`/overview`、Site 與 Integration 的寫入與 automation、`/users`、`/access/*`、Zone 與 Pool 目錄的寫入、`PUT /servers/{id}/placement`、`PUT /platforms/{id}/pool`、`DELETE /servers/{id}`、Boot Media、Redfish probe、Power Configuration、virtual machines、`/provisioning` 的其餘路由（OS Image、template 的寫入、image verification、Provisioning Task、reconcile、HTTP Proxy、Subnet DNS、Boot ISO、VM enrollment、tag 的刪除與改名）、Deployment Key 與 `POST /ssh-keys/sync`、registry credentials、`POST /platforms/sync`、`PUT /platforms/deployment-requirements/slurm`、Change Plan 政策、`POST /workflows`、Validation Suite 的寫入與 Validation Schedule、alerts |
+| 共用的參考資料 | 任何已登入的 User | `GET /modules`、`GET /sites`、`GET /sites/{id}`、Zone 與 Pool 目錄的讀取、`GET /software/catalog`、`GET /provisioning/images`、`GET /provisioning/image-catalogs`、`GET /provisioning/tags`、`GET /platforms/deployment-requirements/slurm`、`GET /platforms/gpu-operator/releases`、`GET /validation/suites(/{suiteId})`、`GET /monitoring/metrics/names` |
+| Pool 範圍的讀取 | 能讀取資源的 User（Pool 的 owner 或 member） | `GET /servers`（過濾）、`GET /servers/stream`（過濾）、`GET /servers/{id}` 與其讀取子路由（`events`、`network`、`provisioning-tasks`、`power-state`）、`GET /platforms`（過濾）、`GET /platforms/{id}`、`GET /platforms/{id}/slurm`、`GET /software/assignments`（過濾）、`GET /workflows`（過濾）與 Workflow 的讀取子路由、`GET /change-plans`（過濾）、`GET /validation/runs`（過濾）、`GET /monitoring/metrics(/range)`（該 Server）、`GET /provisioning/templates`（過濾）與 `GET /provisioning/templates/{id}`、Pool 的 members 與 access policy 的讀取 |
+| Pool 範圍的操作 | 資源所在 Pool 的 owner | Server 的動作（`refresh`、`power-on`、`power-off`、`inspect`、`test`、`abort`、`override-failed-testing`、`lock`、`unlock`、`mark-broken`、`mark-fixed`、`rescue-mode`、`exit-rescue-mode`、`default-user`、網路 link、`provisioner-detail`、Docker Host Explorer）、`POST /provisioning/deployment-operations`（指定 template 時也要能讀取該 template）、`release-operations`、`recover-operations`、`deployments/preflight`、`POST /provisioning/tags`（每個目標 Server）、`POST /software/assignments`、`POST /software/uninstall`、`POST /platforms`（每個節點都在呼叫者是 owner 的同一個 Pool）、Platform 的 `PATCH`、`PUT /spec`、`DELETE`、`sync` 與 Kubernetes explorer、Change Plan 的核准與拒絕（Platform 的 plan）、Workflow 的 `cancel`、`rerun`、Task 重試、`POST /validation/runs`、`POST /validation/runs/{runId}/cancel`、Pool 的 members 與 access policy 的寫入、Pool 的 member candidates、`POST /provisioning/templates`（body 的 `poolId`）與 template 的 `PATCH`、`DELETE`、user data 的寫入與清除（移到別的 Pool 只限 admin） |
+| admin | User Role `admin` | 其他所有路由：`/overview`、Site 與 Integration 的寫入與 automation、`/users`、`/access/*`、Zone 與 Pool 目錄的寫入、`PUT /servers/{id}/placement`、`PUT /platforms/{id}/pool`、`DELETE /servers/{id}`、Boot Media、Redfish probe、Power Configuration、virtual machines、`/provisioning` 的其餘路由（OS Image、image verification、Provisioning Task、reconcile、HTTP Proxy、Subnet DNS、Boot ISO、VM enrollment、tag 的刪除與改名）、Deployment Key 與 `POST /ssh-keys/sync`、registry credentials、`POST /platforms/sync`、`PUT /platforms/deployment-requirements/slurm`、Change Plan 政策、`POST /workflows`、Validation Suite 的寫入與 Validation Schedule、alerts |
 
 - `provisioner-detail` 帶出 BMC 的連線資料（含帳號與密碼）。它屬於 Pool 範圍的操作：Pool 的 owner 被信任可以取得自己
   Pool 的 Server 的 BMC；改寫 BMC 設定的 Power Configuration 仍只有 admin。
@@ -135,7 +139,7 @@ flowchart LR
   「能不能讀取／操作這些 Server、這個 Platform」，列表以它的 Pool 清單過濾。
 - `internal/core/access/delivery` 的 `Guard` 提供 Fiber middleware：`Scope()` 為每個已驗證的請求算一次 `Scope` 並放進
   context（handler 以 `VisibilityFrom` 讀取，用於列表過濾）；`Admin()`；依路徑參數判斷的 `Server`、`Platform`、
-  `Workflow`、`Pool`（讀取類用 `Read`、其餘用 `Operate`）；依 request body 的 `ServersInBody`、`PlatformMembersInBody`；
+  `Workflow`、`Pool`（讀取類用 `Read`、其餘用 `Operate`）；依 request body 的 `ServersInBody`、`PlatformMembersInBody`、`PoolInBody`；依資源所屬 Pool 的 `InPool`；
   其他判斷用 `Custom`。`internal/app/api.go` 的每個路由都經 `route(...)` 或 `adminRoute(...)` 套用其中之一。
 - SSE（`GET /servers/stream`）在連線時取得可見範圍的快照；之後成員資格的變化要重新連線才生效。
 

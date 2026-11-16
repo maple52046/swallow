@@ -9,7 +9,7 @@ published HTTP API，browser 內只保存 UI preference 與目前 session。
 
 側邊欄以分隔線把區域分成四段：Overview；Servers、Platforms 與 Software；
 Monitoring 與 Activity；OS Images、Deployment Templates、Infrastructure、Pools 與 Users。它只列出你能使用的區域：
-admin 看得到全部，其他 user 看得到 Servers、Platforms、Software、Activity、Validation、OS Images 與 Pools（見
+admin 看得到全部，其他 user 看得到 Servers、Platforms、Software、Activity、Validation、OS Images、Deployment Templates 與 Pools（見
 [Session 與權限](#session-與權限)）。用頁面頂端的按鈕可把側邊欄收合成圖示（這個瀏覽器會記住選擇）；
 滑鼠停在圖示上或以鍵盤聚焦時會顯示名稱。手機上以選單按鈕開啟同一份側邊欄的 drawer。
 
@@ -22,7 +22,7 @@ admin 看得到全部，其他 user 看得到 Servers、Platforms、Software、A
 | Monitoring | Fleet health、勾選 Server／Pool／Zone／Platform 的用量圖表、current metrics、選用的 Grafana link，以及（開發中的）alert 與 silence |
 | Activity | 兩個分頁。**Workflows**：durable execution、Job、Task、event、log、cancel、rerun 與 retry。**Change Plans**：Platform 破壞性變更的計畫，包括等待核准或拒絕的 plan、已核准 plan 的紀錄，以及安全開關 |
 | OS Images | 佈署 Server 所用的 OS image：catalog、每個 image 支援的 deploy mode 與 Deploy。admin 另外可以 upload、編輯、測試與刪除 image；其他 user 看得到每個 image，可以 refresh，並把 image 佈署到自己是 owner 的 Pool 的 Server |
-| Deployment Templates（admin） | OS image 可重複使用的佈署設定：Disk 或 RAM、網路，以及選用的 cloud-init |
+| Deployment Templates | OS image 可重複使用的佈署設定：Disk 或 RAM、網路，以及選用的 cloud-init。每個 template 屬於一個 Pool：member 看得到並能使用，owner 能建立與修改，admin 看得到全部並能把 template 移到別的 Pool |
 | Infrastructure | Site、Integration、Zone、credential、automation settings、Site 的 local repository（deployment 從哪裡取得 artifact、來源、同步狀態與內容，見[初始設定](initial-setup.md#4-註冊-local-repository)），以及 [Boot ISO](#boot-iso-與-server-boot-media) |
 | Pools | 你所屬的 Pool（admin 看得到 installation 的每個 Pool，並在這裡建立、改名與刪除）；每個 Pool 的成員、Pool Role，以及誰在它的 Server 上有 sudo |
 | Users（admin） | 帳號、存取設定、Directory 的狀態與最近的存取變更 |
@@ -172,8 +172,9 @@ presentation guidance；authorization 仍以 API 為準。
 
 - **admin** 管理 swallow：Site、Integration、OS Image、Zone 與 Pool、Server 的 placement、使用者，以及每台 Server 與
   每個 Platform。admin 可以登入每台 Server 並在上面使用 sudo。
-- 其他 **user** 的權限只來自 Pool Membership。Pool 的 **member** 看得到它的 Server、Platform、Workflow 與 Validation
-  Run，並以自己的 SSH key 登入它的 Server；**owner** 還能操作它們（電源、OS 佈署、軟體、Platform、Validation），並在
+- 其他 **user** 的權限只來自 Pool Membership。Pool 的 **member** 看得到它的 Server、Platform、Workflow、Validation
+  Run 與 Deployment Template，並以自己的 SSH key 登入它的 Server；**owner** 還能操作它們（電源、OS 佈署、軟體、
+  Platform、Validation、Pool 的 template），並在
   **Pools** 管理 Pool 的成員與 sudo 預設值。Pool 與它的成員資格涵蓋它在每個 Site 的 Server。不在任何 Pool 的 Server
   只屬於 admin。
 - 只有 admin 建立帳號（**Users → Create user**）；owner 以 **Add member**（在 **Pools** 中 Pool 那一列，或點選 Pool 名稱開啟的 Pool 頁面）把

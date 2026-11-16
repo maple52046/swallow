@@ -12,8 +12,12 @@
   GPU count; each optional) that a Server joining a Node Group installed from the
   template must meet. A Platform's Node Group installs its new members from one
   template; a template a Platform generates from its machine preparation
-  (`<platform>-<group>`) is an ordinary template once created.
-- Disallowed meaning: Packages, scripts, playbooks, mutable automation content,
+  (`<platform>-<group>`) is an ordinary template once created. A template is owned by
+  one Pool: the Pool's members read it and deploy with it, its owners change and
+  delete it, and only an admin moves it to another Pool. It records its creator,
+  which never decides access and is unchanged when that User leaves the Pool. A
+  template a Platform generates is owned by the Platform's Pool.
+- Disallowed meaning: A User's personal template: the creator owns nothing. Packages, scripts, playbooks, mutable automation content,
   a copy of an OS Image, or an execution/progress record. Not a hardware
   specification or a role: the floor is an eligibility check, the same template
   installs machines with different CPUs and memory, and roles, partitions, and
@@ -38,3 +42,7 @@
   generates, per [decision 083](../../../decisions/083-platform-member-scaling.md)
   (Platform member scaling); the floor is distinct from a Platform type's Minimum
   Resource Requirement, which still applies on its own.
+  Updated 2026-11-16: a template is owned by a Pool and records its creator, per
+  [decision 009](../../../decisions/009-deployment-template-ownership.md) (deployment
+  template ownership) and [decision 082](../../../decisions/082-accounts-pool-access-and-directory.md)
+  (accounts, pool access, and directory); names are unique within an Integration and Pool.

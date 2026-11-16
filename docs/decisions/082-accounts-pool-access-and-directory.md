@@ -34,7 +34,9 @@ everything; owners operate the Pool's Servers, deploy and change Platforms whose
 the Pool, approve their Change Plans, and manage the Pool's members and Sudo Policy; members read
 the Pool's resources and log in. A Server in no Pool belongs to admins alone, and a Platform belongs
 to the Pool that holds every one of its nodes (otherwise only admins manage it); a Platform's Servers
-change Pool only together, when an admin moves the whole Platform. Only admins create
+change Pool only together, when an admin moves the whole Platform. A Deployment Template belongs to
+the Pool that owns it: members read and deploy with it, owners change it, and only admins move it
+([decision 009](009-deployment-template-ownership.md) (deployment template ownership)). Only admins create
 Users; owners add existing Users to their Pool. The API enforces this on every route, filters every
 list to what the caller may read, and records every access change in an audit log.
 
@@ -123,3 +125,4 @@ Directory is unreachable.
 - 2026-11-13: accepted.
 - 2026-11-13: Pools became installation-wide and swallow-only (no longer per Site or realized as provisioner resource pools); on upgrade each Site's `default` Pool is merged into one and the other Pools are deleted.
 - 2026-11-14: a Platform's Servers change Pool only together: placing one of them in another Pool, or in none, is refused, and an admin moves the whole Platform instead.
+- 2026-11-16: Deployment Templates became Pool-owned: Pool read and Pool operate instead of reference and admin.

@@ -54,6 +54,13 @@ mechanism, and it exists so the fleet Server list can show a meaningful image
 name without a per-request fan-out. The catalog itself remains live-read and
 un-mirrored.
 
+A template is owned by one Pool and records who created it. The Pool's members
+read it and deploy with it, its owners change and delete it, and only an admin
+moves it to another Pool; the creator is a record that never decides access, so
+a template keeps its owner and its record when that User leaves the Pool. A
+template a Platform generates is owned by the Platform's Pool and moves with the
+Platform. A Platform in a Pool may newly reference only templates of that Pool.
+
 ## Alternatives considered
 
 - Restore `ProvisioningProfile`: rejected because mutable automation content
@@ -64,6 +71,9 @@ un-mirrored.
   are specific to one provisioner Integration.
 - Store cloud-init as editable plaintext: rejected because user data commonly
   contains credentials and bootstrap tokens.
+- Let a User own a template personally: rejected because a team's shared
+  deployment intent would lose its owner when that User leaves; access follows
+  the Pool's roles instead.
 
 ## Consequences
 
@@ -79,3 +89,4 @@ cannot be rolled back safely.
 
 - 2026-11-02: referred to the people who use swallow as users instead of operators; the decision is unchanged.
 - 2026-11-14: templates gained the optional minimum hardware floor, protection while a Platform node group references them, and Platform-generated templates (decision 083); they no longer sit behind an experimental flag.
+- 2026-11-16: a template is owned by a Pool and records its creator; reading it became Pool read and changing it Pool operate instead of reference and admin (decision 082).

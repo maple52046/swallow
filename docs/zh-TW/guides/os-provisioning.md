@@ -32,7 +32,10 @@ Deployment Template 保存可重用的 user choice，不是 executable automatio
 它可以預選 image 與 settings，但 deployment request 仍會驗證每個 current target。
 Template 絕不繞過目前 eligibility。
 
-admin 在側邊欄 OS Images 旁的 **Deployment Templates** 頁面管理 template。template 可以設定最低硬體：CPU 核心數、
+template 在側邊欄 OS Images 旁的 **Deployment Templates** 頁面。每個 template 屬於建立時選定的 Pool，並記下建立者。
+Pool 的 member 看得到並能用它部署，owner 能建立、修改與刪除 Pool 的 template，只有 admin 能把 template 移到別的
+Pool；admin 看得到全部 template。建立者離開 Pool 時 template 仍屬於該 Pool。Platform 為節點群組產生的 template 屬於
+Platform 的 Pool，在 Pool 裡的 Platform 只使用該 Pool 的 template。template 可以設定最低硬體：CPU 核心數、
 記憶體、儲存、GPU 型號與 compute GPU 數，每一項都可以不填。Server 要加入從這個 template 裝機的 Platform 節點群組，必須
 達到每一項設定的值，inventory 沒有回報某一項時視為未達；單台部署 OS 不讀它。頁面列出從每個 template 裝機的 Platform
 節點群組，使用中的 template 不能刪除。修改 template 只影響之後加入的節點，不會重裝已裝好的節點（見

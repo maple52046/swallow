@@ -35,8 +35,12 @@ A Deployment Template records reusable user choices, not executable
 automation. It can preselect an image and settings while the deployment request
 still validates each current target. Templates never bypass current eligibility.
 
-Admins manage templates on the **Deployment Templates** page, next to OS Images in the
-sidebar. A template may set a minimum hardware: CPU cores, memory, storage, a GPU model, and a
+Templates live on the **Deployment Templates** page, next to OS Images in the sidebar. Each
+template belongs to a Pool, chosen when it is created, and records who created it. The Pool's
+members see it and deploy with it, its owners create, edit, and delete its templates, and only an
+admin moves a template to another Pool; an admin sees every template. The template stays with the
+Pool when its creator leaves. A template a Platform generates for a node group belongs to the
+Platform's Pool, and a Platform in a Pool uses only that Pool's templates. A template may set a minimum hardware: CPU cores, memory, storage, a GPU model, and a
 number of compute GPUs, each optional. A Server joining a Platform node group installed from the
 template must meet every value set, and one whose inventory does not report a value does not;
 deploying single Servers ignores it. The page lists the Platform node groups that install from

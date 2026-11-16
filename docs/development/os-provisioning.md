@@ -118,7 +118,11 @@ Deployment Templates。
   `inherit`（沿用 template）、`replace`（只用於該次）或 `omit`。
 - 建立 template、修改其 image 或網路、以及用它部署時，都以 provider 的 live catalog 驗證 image。image 從
   catalog 消失時 template 仍在、但無法用來部署；UI 必須顯示這個狀態，而不是把 image metadata 複製進 template。
-- 名稱在同一 Integration 內 case-insensitive 唯一；Integration 仍被 template 參照時不能刪除（`409`）。
+- 歸屬：template 屬於建立時指定的 Pool（`poolId`），並記下建立者（`createdBy`）。Pool 的 member 能讀取並以它部署，
+  owner 能修改、設定 cloud-init 與刪除，只有 admin 能把它移到別的 Pool；`createdBy` 只是紀錄，不決定權限，建立者離開
+  Pool 時歸屬與紀錄都不變（[identity-and-access.md](identity-and-access.md) §4）。Pool 仍擁有 template 時不能刪除
+  （`409`）。沒有 Pool 的舊 template 只有 admin 能讀取與操作。
+- 名稱在同一 Integration 與 Pool 內 case-insensitive 唯一；Integration 仍被 template 參照時不能刪除（`409`）。
 - 沒有 `network` 的舊紀錄讀為 `automatic`；2026-09-06 前存成 `dhcp` 的 template 現在代表 DHCP（§6）。
 - 選用的最低硬體（`minimumHardware`）：CPU 核心數、記憶體 MiB、儲存 GB、GPU 型號（在 GPU Inventory 的 compute GPU
   型號中以不分大小寫的子字串比對）、compute GPU 數，每一項都可以不填。它只約束 Platform 的節點群組：spec 寫入時，
@@ -129,14 +133,18 @@ Deployment Templates。
   template 與內容摘要，讀者能看出成員和目前的 template 是否不同。
 - Platform 產生的 template：provision_os 的 Platform 為沒有 template 的節點群組，以機器準備的內容（image、Deploy
   Target、網路、sealed cloud-init）在成員所屬的 Integration 建立 `<platform>-<group>`（名稱已被用時加上 id 前綴），
-  之後就是一般的 template，user 可以修改或改為引用別的 template（[decision 083](../decisions/083-platform-member-scaling.md)
-  （Platform member scaling））。
+  屬於 Platform 的 Pool、記下執行這次變更的人，Platform 換 Pool 時由 Platform controller 一併搬移；之後就是一般的
+  template，user 可以修改或改為引用別的 template（[decision 083](../decisions/083-platform-member-scaling.md)
+  （Platform member scaling））。在 Pool 裡的 Platform，spec 寫入新引用的 template（節點群組的或機器準備的）必須屬於
+  同一個 Pool；既有的引用保留。
 - 用 template 部署時，請求沒填的網路 mode、subnet 與 default gateway 沿用 template 的值；只指定 template 的
   Kubernetes 部署以 template 的 Deploy Target 決定 root 的模式。
 
 **設計理由**：沒有任何外部系統擁有「某個 Integration 上可重用的 image、部署模式與 cloud-init 組合」，所以由
 swallow 擁有；可變的 automation 內容屬於 release 內的 playbook，不屬於資料庫（退場的 `ProvisioningProfile`
 正是越過這條線）。image 識別與能力只在單一 provisioner Integration 內成立，所以 template 不做成 fleet-wide。
+template 歸 Pool 而不歸個人：團隊共用的部署意圖不應隨某個 User 離開而失去擁有者，所以權限跟著 Pool 的角色走，
+建立者只留紀錄。
 最低硬體是資格門檻而不是規格：同一份 template 可以裝 CPU、記憶體不同的機器，Slurm 的節點設定本來就逐台偵測。
 見 [decision 009](../decisions/009-deployment-template-ownership.md)。
 
