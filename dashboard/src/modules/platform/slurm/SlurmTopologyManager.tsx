@@ -457,7 +457,7 @@ export function SlurmTopologyManager({ platform, members, canOperate, onChanged,
         >
           <Text>
             Swallow re-detects the node&rsquo;s GPUs and reconfigures the cluster so Slurm hands out the GPUs the node has now, for example after a GPU failed.
-            Nodes whose hardware did not change keep running their jobs.
+            Only this node is detected again and validated; no node is redeployed, and the others keep running their jobs.
           </Text>
         </ConfirmDialog>
       )}
