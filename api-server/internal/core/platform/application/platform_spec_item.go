@@ -106,6 +106,9 @@ type PlatformStatusItem struct {
 	Conditions          []convergence.ConditionItem `json:"conditions"`
 	Applied             *PlatformSpecItem           `json:"applied"`
 	RealizingWorkflowID *string                     `json:"realizingWorkflowId"`
+	// RealizingChange is what RealizingWorkflowID carries out (platforms.md "Spec And Status"); nil
+	// when no Workflow realizes the spec, or the change was not recorded.
+	RealizingChange *string `json:"realizingChange"`
 	// MemberTemplates records the Deployment Template each member was installed from (platforms.md,
 	// "Node Groups And Templates").
 	MemberTemplates []MemberTemplateItem `json:"memberTemplates"`
@@ -202,6 +205,9 @@ func toPlatformStatusItem(status platformdomain.PlatformStatus) PlatformStatusIt
 	}
 	if status.Realizing != nil {
 		item.RealizingWorkflowID = &status.Realizing.WorkflowID
+		if change := string(status.Realizing.Realization); change != "" {
+			item.RealizingChange = &change
+		}
 	}
 	return item
 }

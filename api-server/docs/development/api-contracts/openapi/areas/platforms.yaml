@@ -1591,7 +1591,7 @@ components:
         What swallow realized and judged for the spec: the generation the applied spec realized,
         the shared Conditions (`realized`, `drifted`), the applied spec, and the Workflow realizing a
         newer one.
-      required: [observedGeneration, conditions, applied, realizingWorkflowId, poolId, memberTemplates]
+      required: [observedGeneration, conditions, applied, realizingWorkflowId, realizingChange, poolId, memberTemplates]
       properties:
         observedGeneration:
           type: integer
@@ -1616,6 +1616,19 @@ components:
           type: string
           nullable: true
           description: The Workflow carrying out a newer generation, until it succeeds.
+        realizingChange:
+          type: string
+          nullable: true
+          enum: [deploy, scale-out, scale-in, reconfigure, hardware-counters, gpu-operator, uninstall, null]
+          description: >-
+            What realizingWorkflowId carries out, while lifecycleState follows only deploys and
+            uninstalls: `scale-out` adds members, `scale-in` removes members, `reconfigure` changes only
+            how the cluster schedules, `hardware-counters` switches Omnistat's hardware counters,
+            `gpu-operator` changes the GPU Operator, `deploy` reruns the convergent deploy, and
+            `uninstall` removes the Platform. It stays while the Workflow failed, with `realized` false
+            and reason `failed`. Null when no Workflow realizes the spec or the change was not recorded
+            (a Workflow started before the field existed); a client shows a value it does not know
+            as a change in progress.
         memberTemplates:
           type: array
           description: The Deployment Template each member installed from one was installed from.

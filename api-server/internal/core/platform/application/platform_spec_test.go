@@ -601,6 +601,13 @@ func TestAddingAMemberConvergesWithoutAPlan(t *testing.T) {
 	if len(h.platforms.platforms) != 1 {
 		t.Errorf("platforms = %d, want the convergent deploy to reuse the Platform", len(h.platforms.platforms))
 	}
+	// The realizing Workflow records what it carries out, which the API reports while the lifecycle
+	// says only whether the Platform is installed.
+	status := h.platforms.platforms[platform.ID].Status
+	if item := toPlatformStatusItem(status); status.Realizing == nil || status.Realizing.Realization != platformdomain.RealizeDeploy ||
+		item.RealizingChange == nil || *item.RealizingChange != "deploy" {
+		t.Errorf("realizing = %+v, item change %v; want the deploy recorded", status.Realizing, item.RealizingChange)
+	}
 	h.reconcile(t, platform.ID)
 	if h.launcher.launches != 2 {
 		t.Errorf("launches = %d, want the running generation not started again", h.launcher.launches)
@@ -608,6 +615,9 @@ func TestAddingAMemberConvergesWithoutAPlan(t *testing.T) {
 	h.succeed(t, platform.ID)
 	if applied := h.platforms.platforms[platform.ID].Status.Applied; applied == nil || len(applied.Members) != 5 {
 		t.Errorf("applied = %+v, want the five members", applied)
+	}
+	if change := toPlatformStatusItem(h.platforms.platforms[platform.ID].Status).RealizingChange; change != nil {
+		t.Errorf("realizing change = %q after the Workflow succeeded, want none", *change)
 	}
 }
 

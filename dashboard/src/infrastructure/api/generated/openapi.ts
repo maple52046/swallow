@@ -6635,6 +6635,11 @@ export interface components {
             observedGeneration: number;
             /** @description The Pool the Platform belongs to: the Pool every member of the spec (and every Server it still claims) is placed in; null when they are in different Pools or in none, and then only admins may manage it (identity-and-access.md §5). */
             poolId: string | null;
+            /**
+             * @description What realizingWorkflowId carries out, while lifecycleState follows only deploys and uninstalls: `scale-out` adds members, `scale-in` removes members, `reconfigure` changes only how the cluster schedules, `hardware-counters` switches Omnistat's hardware counters, `gpu-operator` changes the GPU Operator, `deploy` reruns the convergent deploy, and `uninstall` removes the Platform. It stays while the Workflow failed, with `realized` false and reason `failed`. Null when no Workflow realizes the spec or the change was not recorded (a Workflow started before the field existed); a client shows a value it does not know as a change in progress.
+             * @enum {string|null}
+             */
+            realizingChange: "deploy" | "scale-out" | "scale-in" | "reconfigure" | "hardware-counters" | "gpu-operator" | "uninstall" | null;
             /** @description The Workflow carrying out a newer generation, until it succeeds. */
             realizingWorkflowId: string | null;
         };

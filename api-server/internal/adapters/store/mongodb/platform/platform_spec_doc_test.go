@@ -98,7 +98,7 @@ func TestPlatformSpecSealsInlineUserData(t *testing.T) {
 	}
 	if err := repo.WriteStatus(ctx, "p1", platformdomain.PlatformStatus{
 		Applied:   &spec,
-		Realizing: &platformdomain.PlatformRealizing{Generation: 1, WorkflowID: "w1", Spec: spec, StartedAt: now},
+		Realizing: &platformdomain.PlatformRealizing{Generation: 1, WorkflowID: "w1", Spec: spec, StartedAt: now, Realization: platformdomain.RealizeScaleOut},
 	}); err != nil {
 		t.Fatalf("WriteStatus: %v", err)
 	}
@@ -114,7 +114,8 @@ func TestPlatformSpecSealsInlineUserData(t *testing.T) {
 		t.Fatal(err)
 	}
 	if stored.Spec.MachinePreparation.UserData != userData || stored.Status.Applied.MachinePreparation.UserData != userData ||
-		stored.Status.Realizing == nil || stored.Status.Realizing.WorkflowID != "w1" || stored.Status.Realizing.Spec.MachinePreparation.UserData != userData {
+		stored.Status.Realizing == nil || stored.Status.Realizing.WorkflowID != "w1" || stored.Status.Realizing.Spec.MachinePreparation.UserData != userData ||
+		stored.Status.Realizing.Realization != platformdomain.RealizeScaleOut {
 		t.Errorf("read back spec %+v status %+v", stored.Spec.MachinePreparation, stored.Status)
 	}
 

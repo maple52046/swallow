@@ -240,6 +240,7 @@ Every Platform response also carries `generation`, `spec`, and `status`:
     ],
     "applied": { "desired": "present", "members": [ /* generation 1 */ ], "settings": {}, "machinePreparation": null, "memberRemovals": [], "removal": null },
     "realizingWorkflowId": "w-2",
+    "realizingChange": "scale-out",
     "memberTemplates": []
   }
 }
@@ -262,7 +263,12 @@ Every Platform response also carries `generation`, `spec`, and `status`:
   [Delete](#delete-a-platform) choices.
 - `status.applied` is the spec the last successful Workflow realized, which the next change is
   planned against; `status.observedGeneration` is its generation. `status.realizingWorkflowId`
-  names the Workflow carrying out a newer generation. `status.memberTemplates` records, for each member
+  names the Workflow carrying out a newer generation, and `status.realizingChange` what it carries out:
+  `scale-out`, `scale-in`, `reconfigure`, `hardware-counters`, `gpu-operator`, `deploy` (the convergent
+  deploy), or `uninstall`. `lifecycleState` follows only deploys and uninstalls, so a Platform that adds
+  or removes nodes stays `active`, and this field is what says so; it stays while the Workflow has failed
+  (`realized` is false with reason `failed`) and is `null` when no Workflow realizes the spec or the change
+  was not recorded. A client shows a value it does not know as a change in progress. `status.memberTemplates` records, for each member
   installed from a Deployment Template, the `templateId` and `deployedAt`; `matchesTemplate` is `false`
   when the template installs something else since (it was changed after the member was installed) or no
   longer exists. Always an array.
@@ -1703,6 +1709,8 @@ transport/auth failures return `provider_unavailable`; provider rejection return
 
 ## Compatibility Notes
 
+- Since 2026-11-16 `status.realizingChange` names what `status.realizingWorkflowId` carries out
+  (additive); it is `null` for a Workflow started before the field existed.
 - Since 2026-11-16 adding Slurm compute members runs a `scale-out-slurm` Workflow that installs and
   validates only them, and the Platform stays `active` (it used to run a `configure-slurm` Workflow over
   every member and showed `deploying`). A Slurm deployment no longer reinstalls the Platform Grafana when

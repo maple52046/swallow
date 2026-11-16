@@ -129,6 +129,10 @@ type PlatformRealizing struct {
 	WorkflowID string
 	Spec       PlatformSpec
 	StartedAt  time.Time
+	// Realization is the change the Workflow carries out (a scale-out, a reconfigure, ...), so a
+	// reader can say what is happening while the lifecycle, which follows deploys and uninstalls,
+	// stays active; empty when it is not known (a record from before it was kept).
+	Realization PlatformRealization
 }
 
 // ErrGenerationConflict means the Platform's spec changed since the writer read it: the write named

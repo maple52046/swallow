@@ -65,10 +65,11 @@ type platformStatusDoc struct {
 }
 
 type platformRealizingDoc struct {
-	Generation int64            `bson:"generation"`
-	WorkflowID string           `bson:"workflowId"`
-	Spec       *platformSpecDoc `bson:"spec"`
-	StartedAt  time.Time        `bson:"startedAt"`
+	Generation  int64            `bson:"generation"`
+	WorkflowID  string           `bson:"workflowId"`
+	Spec        *platformSpecDoc `bson:"spec"`
+	StartedAt   time.Time        `bson:"startedAt"`
+	Realization string           `bson:"realization,omitempty"`
 }
 
 // machinePreparationJSON fixes the stored names of the machine preparation independently of the
@@ -235,7 +236,7 @@ func toStatusDoc(status platformdomain.PlatformStatus) *platformStatusDoc {
 	if realizing := status.Realizing; realizing != nil {
 		doc.Realizing = &platformRealizingDoc{
 			Generation: realizing.Generation, WorkflowID: realizing.WorkflowID,
-			Spec: toSpecDoc(&realizing.Spec), StartedAt: realizing.StartedAt,
+			Spec: toSpecDoc(&realizing.Spec), StartedAt: realizing.StartedAt, Realization: string(realizing.Realization),
 		}
 	}
 	return doc
@@ -254,6 +255,7 @@ func (d *platformStatusDoc) toDomain() platformdomain.PlatformStatus {
 		status.Realizing = &platformdomain.PlatformRealizing{
 			Generation: d.Realizing.Generation, WorkflowID: d.Realizing.WorkflowID,
 			Spec: *d.Realizing.Spec.toDomain(), StartedAt: d.Realizing.StartedAt,
+			Realization: platformdomain.PlatformRealization(d.Realizing.Realization),
 		}
 	}
 	return status

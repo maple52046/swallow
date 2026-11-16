@@ -213,6 +213,7 @@ func (c *PlatformController) Reconcile(ctx context.Context, request convergence.
 		// A deployment accepted outside the controller (the deploy route) realizes the first spec.
 		status.Realizing = &platformdomain.PlatformRealizing{
 			Generation: platform.Generation, WorkflowID: snapshot.Deployment.ID, Spec: spec.Clone(), StartedAt: snapshot.Deployment.RequestedAt,
+			Realization: platformdomain.RealizeDeploy,
 		}
 	}
 	failed := false
@@ -277,17 +278,20 @@ func (c *PlatformController) Reconcile(ctx context.Context, request convergence.
 // non-destructive change. A change that needs no Workflow is applied at once.
 func (c *PlatformController) act(ctx context.Context, module platformdomain.PlatformModule, platform *platformdomain.Platform, status *platformdomain.PlatformStatus) error {
 	started := c.now()
+	changes, classifyErr := c.planner.classify(ctx, module, status.Applied, *platform.Spec)
 	workflowID, err := c.plans.ApplyApproved(ctx, platformRef(platform.ID))
 	if err != nil {
 		return err
 	}
 	if workflowID != "" {
-		status.Realizing = &platformdomain.PlatformRealizing{Generation: platform.Generation, WorkflowID: workflowID, Spec: platform.Spec.Clone(), StartedAt: started}
+		status.Realizing = &platformdomain.PlatformRealizing{
+			Generation: platform.Generation, WorkflowID: workflowID, Spec: platform.Spec.Clone(), StartedAt: started,
+			Realization: changes.Realization,
+		}
 		return nil
 	}
-	changes, err := c.planner.classify(ctx, module, status.Applied, *platform.Spec)
-	if err != nil {
-		return err
+	if classifyErr != nil {
+		return classifyErr
 	}
 	if changes.Empty() {
 		if platform.Spec.Desired == platformdomain.PlatformPresent && status.Applied != nil {
@@ -335,7 +339,10 @@ func (c *PlatformController) act(ctx context.Context, module platformdomain.Plat
 	default:
 		return fmt.Errorf("platform controller cannot start a %q Workflow", changes.Realization)
 	}
-	status.Realizing = &platformdomain.PlatformRealizing{Generation: platform.Generation, WorkflowID: workflowID, Spec: platform.Spec.Clone(), StartedAt: started}
+	status.Realizing = &platformdomain.PlatformRealizing{
+		Generation: platform.Generation, WorkflowID: workflowID, Spec: platform.Spec.Clone(), StartedAt: started,
+		Realization: changes.Realization,
+	}
 	return nil
 }
 
@@ -516,6 +523,7 @@ func (c *PlatformController) adopt(ctx context.Context, module platformdomain.Pl
 	} else if spec.Desired == platformdomain.PlatformPresent && snapshot.Deployment != nil {
 		status.Realizing = &platformdomain.PlatformRealizing{
 			Generation: generation, WorkflowID: snapshot.Deployment.ID, Spec: spec.Clone(), StartedAt: snapshot.Deployment.RequestedAt,
+			Realization: platformdomain.RealizeDeploy,
 		}
 	}
 	slog.Info("platform adopted", "platformId", platform.ID, "members", len(spec.Members), "desired", spec.Desired)
