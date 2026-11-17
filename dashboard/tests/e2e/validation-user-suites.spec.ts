@@ -106,6 +106,17 @@ test('Hiding other users\' suites keeps module suites and survives a reload', as
   await expect(page.getByRole('link', { name: /Legacy disk check/ })).toHaveCount(0)
   await expect(page.getByRole('link', { name: /Data mounts/ })).toBeVisible()
   await expect(page.getByRole('link', { name: /Host baseline/ })).toBeVisible()
+  // Like the experimental switch's count, the label keeps only the number: bob's and carol's suites.
+  await expect(hide).toHaveAccessibleName('Hide other users’ suites (2)')
+
+  // The two switches share one left-aligned column, so their toggles' left edges line up. The
+  // control has no role of its own; Ark UI marks it with data-part="control" inside the switch.
+  const toggleOf = (name: RegExp) => page.getByRole('checkbox', { name }).locator('..').locator('[data-part="control"]')
+  const experimentalBox = await toggleOf(/^Show experimental suites/).boundingBox()
+  const hideBox = await toggleOf(/^Hide other users’ suites/).boundingBox()
+  expect(experimentalBox).not.toBeNull()
+  expect(hideBox).not.toBeNull()
+  expect(Math.abs((experimentalBox?.x ?? 0) - (hideBox?.x ?? 0))).toBeLessThanOrEqual(1)
 
   await page.reload()
   await expect(page.getByRole('checkbox', { name: /^Hide other users’ suites/ })).toBeChecked()

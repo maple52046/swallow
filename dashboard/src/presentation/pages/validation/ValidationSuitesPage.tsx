@@ -147,7 +147,8 @@ export function ValidationSuitesPage() {
             <Heading as="h2" size="lg">Validation suites</Heading>
             <Text color="fg.muted">Module capabilities of this release and the script suites Users share.</Text>
           </Stack>
-          <Stack gap="2" align={{ base: 'flex-start', md: 'flex-end' }}>
+          {/* Left-aligned at every width so the toggles line up whatever the labels' length. */}
+          <Stack gap="2" align="flex-start">
             <Switch.Root checked={showExperimental} onCheckedChange={(details) => setShowExperimental(details.checked === true)}>
               <Switch.HiddenInput />
               <Switch.Control><Switch.Thumb /></Switch.Control>
@@ -159,7 +160,7 @@ export function ValidationSuitesPage() {
               <Switch.HiddenInput />
               <Switch.Control><Switch.Thumb /></Switch.Control>
               <Switch.Label>
-                Hide other users’ suites{state.status === 'ready' && hideOthers && hiddenOtherUsers > 0 ? ` (${hiddenOtherUsers} hidden)` : ''}
+                Hide other users’ suites{state.status === 'ready' && hideOthers && hiddenOtherUsers > 0 ? ` (${hiddenOtherUsers})` : ''}
               </Switch.Label>
             </Switch.Root>
           </Stack>
