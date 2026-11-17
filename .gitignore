@@ -1,3 +1,4 @@
 docs/plans/manuscripts/*.md
 dashboard/.vite/
 out/
+/.agent-tasks/
