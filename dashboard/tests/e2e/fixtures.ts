@@ -409,6 +409,12 @@ export interface FixtureOptions {
    * refused with `409` as a concurrent save would make it.
    */
   validationConcurrentSave?: string
+  /**
+   * Whether the Validation Runs include the `error` verdict: run-failed also holds an error result,
+   * and site-a gains run-error, a completed run whose verdict is error. Off by default, so other
+   * tests' run counts and findings are unchanged.
+   */
+  validationErrors?: boolean
   /** Whether GET /api/v1/modules fails, so a generated settings form cannot load. */
   modulesUnavailable?: boolean
   /**
@@ -2664,7 +2670,7 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     }
   }
   // Per-page Validation Suites, Runs, and Schedules (validation.md), written as the signed-in identity.
-  const validationApi = createValidationFixtures(options.identity, options.validationConcurrentSave)
+  const validationApi = createValidationFixtures(options.identity, options.validationConcurrentSave, options.validationErrors)
   // Per-page Users, Pool memberships, Sudo Policy, and the signed-in identity (users.md, pool-access.md).
   const accessApi = createAccessFixtures(options.identity)
   await page.route('**/api/v1/**', async (route) => {

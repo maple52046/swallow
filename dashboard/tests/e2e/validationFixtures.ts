@@ -13,8 +13,9 @@ import type { FixtureIdentity } from './accessFixtures'
 // "Data mounts" at revision 3 whose revision 1 was never kept, bob's owner-level sudo suite, and one
 // whose author was deleted); a completed failed run with a result per check and Server, a
 // completed gate run, running runs of the admin and of bob, a finished run of alice, and two
-// schedules. State is per page, so one test's writes never leak into another. The signed-in
-// identity is the access fixtures' (admin, alice the owner of pool-research, bob its member).
+// schedules; the `error` verdict only on request (`withErrors`). State is per page, so one test's
+// writes never leak into another. The signed-in identity is the access fixtures' (admin, alice the
+// owner of pool-research, bob its member).
 
 const now = '2026-08-27T03:00:00Z'
 
@@ -174,6 +175,29 @@ function initialRuns(): ValidationRun[] {
   ]
 }
 
+// The `error` verdict, opted into with `withErrors`: run-failed also holds a check that could not
+// judge its target (its verdict stays failed, as any failed result fails a run), and a site-a run
+// whose verdict is error sits beside it, so one page shows Failed and Error side by side.
+function withErrorRuns(runs: ValidationRun[]): ValidationRun[] {
+  const errored = runs.map((item) => (item.id !== 'run-failed' ? item : {
+    ...item,
+    counts: { passed: 2, failed: 1, error: 1, skipped: 0 },
+    results: item.results.map((entry) => (entry.check === 'time-sync' && entry.target.id === 'srv-2'
+      ? { ...entry, verdict: 'error' as const, summary: 'chronyc tracking failed: 506 Cannot talk to daemon' }
+      : entry)),
+  }))
+  const erroredRun = run('run-error', {
+    target: { kind: 'servers', serverIds: ['srv-1'], platformId: null },
+    verdict: 'error', counts: { passed: 1, failed: 0, error: 1, skipped: 0 },
+    requestedAt: '2026-08-27T01:30:00Z', startedAt: '2026-08-27T01:31:00Z', finishedAt: '2026-08-27T01:40:00Z',
+    results: [
+      result('time-sync', 'srv-1', 'passed', 'synchronized, 0.5 ms from 10.0.0.1'),
+      result('cpu-count', 'srv-1', 'error', 'no result was recorded', { taskId: null }),
+    ],
+  })
+  return [...errored, erroredRun]
+}
+
 function initialSchedules(): ValidationSchedule[] {
   const realized = (status: 'true' | 'false', reason: string, message = '') => [{ type: 'realized', status, reason, message, lastTransitionTime: now, observedGeneration: 1 }]
   return [
@@ -227,16 +251,18 @@ interface SuiteBody {
  *   suite a schedule uses, and a schedule naming a user suite are refused.
  *
  * `concurrentSave`, a user suite id, makes another author save a new revision of that suite just
- * before the page's next write to it, so that write meets a `409`.
+ * before the page's next write to it, so that write meets a `409`. `withErrors` adds the `error`
+ * verdict to the runs (see `withErrorRuns`); without it, no run has an error.
  */
 export function createValidationFixtures(
   identity: FixtureIdentity = 'admin',
   concurrentSave?: string,
+  withErrors = false,
 ): { handle: (route: Route, request: Request, url: URL) => Promise<void> } {
   const caller = CALLERS[identity]
   const suites = [hostBaseline, kubernetesSmoke, failover, mounts, kernelModules, legacyDisk]
   const revisions = initialRevisions()
-  let runs = initialRuns()
+  let runs = withErrors ? withErrorRuns(initialRuns()) : initialRuns()
   let schedules = initialSchedules()
   let pendingConcurrentSave = concurrentSave
 

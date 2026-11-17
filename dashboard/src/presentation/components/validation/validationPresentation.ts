@@ -24,9 +24,12 @@ export const VERDICT_LABEL: Readonly<Record<ValidationVerdict, string>> = {
   passed: 'Passed', failed: 'Failed', error: 'Error', skipped: 'Skipped',
 }
 
-/** The StatusBadge status each verdict reads as: an error is a warning, a skip is neutral. */
+/**
+ * The StatusBadge status each verdict reads as: an error needs attention as a failure does, so it
+ * shares the red of `failed` and the label tells the two apart; a skip is neutral.
+ */
 export const VERDICT_BADGE: Readonly<Record<ValidationVerdict, string>> = {
-  passed: 'succeeded', failed: 'failed', error: 'warning', skipped: 'skipped',
+  passed: 'succeeded', failed: 'failed', error: 'failed', skipped: 'skipped',
 }
 
 /** People's names of a run's lifecycle states. */

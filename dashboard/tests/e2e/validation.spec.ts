@@ -1,4 +1,4 @@
-import { expect, test } from 'playwright/test'
+import { expect, test, type Locator } from 'playwright/test'
 import { installApiFixtures } from './fixtures'
 
 test.beforeEach(async ({ page }) => {
@@ -54,6 +54,41 @@ test('Run detail presents issues first and keeps a complete inline-inspector mat
   const matrix = page.getByRole('table', { name: 'Results by check and target' })
   await matrix.getByRole('button', { name: 'CPU count on gpu-node-02: Failed. Show details' }).click()
   await expect(matrix.getByRole('region', { name: 'CPU count on gpu-node-02' })).toContainText('CPU(s): 64')
+})
+
+test('An error outcome is as red as a failure and told apart from it by its label', async ({ page }) => {
+  // Compared with a Failed badge on the same page rather than with fixed RGB values, so a theme
+  // change of the failure colour keeps the two together without editing this test.
+  const look = (target: Locator) => target.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return { color: style.color, background: style.backgroundColor, border: style.borderLeftColor }
+  })
+  await installApiFixtures(page, { validationErrors: true })
+
+  await page.goto('/validation/runs?site=site-a')
+  await expect(page.getByText('Showing 1–4 of 4 runs')).toBeVisible()
+  const runs = page.getByRole('table', { name: 'Validation Runs' })
+  const failedRun = runs.getByRole('row', { name: /run-failed/ }).getByText('Failed', { exact: true })
+  const errorRun = runs.getByRole('row', { name: /run-error/ }).getByText('Error', { exact: true })
+  await expect(failedRun).toBeVisible()
+  await expect(errorRun).toBeVisible()
+  expect(await look(errorRun)).toEqual(await look(failedRun))
+
+  await page.goto('/validation/runs/run-failed?site=site-a')
+  const failedIssue = page.getByRole('region', { name: 'CPU count on gpu-node-02' })
+  const errorIssue = page.getByRole('region', { name: 'Time synchronization on gpu-node-02' })
+  await expect(errorIssue).toContainText('chronyc tracking failed')
+  const failedIssueBadge = failedIssue.getByText('Failed', { exact: true })
+  const errorIssueBadge = errorIssue.getByText('Error', { exact: true })
+  expect(await look(errorIssueBadge)).toEqual(await look(failedIssueBadge))
+  // Each issue is marked by the left border of the entry around its inspector.
+  expect((await look(errorIssue.locator('xpath=..'))).border).toBe((await look(failedIssue.locator('xpath=..'))).border)
+
+  const matrix = page.getByRole('table', { name: 'Results by check and target' })
+  const failedCell = matrix.getByRole('button', { name: 'CPU count on gpu-node-02: Failed. Show details' }).getByText('Failed', { exact: true })
+  const errorCell = matrix.getByRole('button', { name: 'Time synchronization on gpu-node-02: Error. Show details' }).getByText('Error', { exact: true })
+  expect(await look(errorCell)).toEqual(await look(failedCell))
+  expect(await look(errorCell)).toEqual(await look(failedIssueBadge))
 })
 
 test('Suite catalog groups capabilities and Suite detail keeps secondary history visible', async ({ page }) => {

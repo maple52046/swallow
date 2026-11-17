@@ -297,6 +297,8 @@ test.describe('dashboard visual review', () => {
         ...(visualCase.name.startsWith('platform-detail-slurm-') && visualCase.name !== 'platform-detail-slurm' ? { slurmDeployed: true, platformDeploymentWorkflows: true } : {}),
         // A Kubernetes Platform last deployed before the credential split: Cluster access says so.
         ...(visualCase.name === 'platform-detail-kubernetes-single-credential' ? { singleClusterCredential: true } : {}),
+        // Runs and a run's page with the error verdict beside a failure, both red and told apart by label.
+        ...(visualCase.name === 'validation-runs' || visualCase.name === 'validation-run-detail' ? { validationErrors: true } : {}),
       })
       await setAppearance(page, appearance)
       // The release view of basic monitoring: alerts are the one monitoring surface still in

@@ -172,7 +172,7 @@ export function ValidationRunDetailPage() {
         {issues.length > 0 ? (
           <Stack gap="4">
             {issues.map((result) => (
-              <Box key={`${result.check}:${result.target.kind}:${result.target.id}`} borderLeftWidth="3px" borderColor={result.verdict === 'failed' ? 'red.solid' : 'orange.solid'} ps="4">
+              <Box key={`${result.check}:${result.target.kind}:${result.target.id}`} borderLeftWidth="3px" borderColor="red.solid" ps="4">
                 <HStack gap="3" mb="2" wrap="wrap">
                   <Heading as="h3" size="sm">{checkTitle(result.check)}</Heading>
                   <StatusBadge status={VERDICT_BADGE[result.verdict]} label={VERDICT_LABEL[result.verdict]} />
