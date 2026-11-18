@@ -12,7 +12,9 @@ judges it. It always exits 0 and never changes the host:
 - AMD SMI: `amd-smi ras --cper` exports the ring's records into a private temporary directory, and
   `amd-smi ras --afid --cper-file` decodes each record's AFID. The directory is removed before the
   report is printed, even when the run is stopped (SIGHUP is ignored, SIGTERM unwinds), and every
-  amd-smi call has a timeout. No --follow, no rdcd.
+  amd-smi call has a timeout. No --follow, no rdcd. An export that writes nothing but says it went
+  wrong failed, even with exit code 0. A record's severity is the most severe its JSON companion, its
+  file name, and its AFIDs name; when none names one, it is unknown, not guessed.
 
 The AFID table carries only each AFID's category, error type, and severity. AMD's service-action
 guidance for an AFID is not public and is deliberately absent; an AFID outside the table is reported
@@ -72,6 +74,12 @@ MEASUREMENT_LIMIT = 20
 
 # What an amd-smi without AFID decoding says when asked for it.
 AFID_UNSUPPORTED = re.compile(r"not supported|unrecognized argument|unknown option|invalid choice|no such option", re.I)
+# What an export that wrote nothing says when it did not work, even with exit code 0.
+EXPORT_TROUBLE = re.compile(r"error|fail|not supported", re.I)
+# The AFIDs an amd-smi line names after the word AFID: "AFID: 24", "AFIDs: [24, 29]".
+AFID_NAMED = re.compile(r"\bafids?\b\s*[:=#]?\s*\[?\s*(\d+(?:\s*,\s*\d+)*)", re.I)
+# The most severe first, for a record whose sources disagree.
+SEVERITY_ORDER = (FATAL, UNCORRECTED, CORRECTED)
 
 
 def read(path):
@@ -83,14 +91,16 @@ def read(path):
 
 
 def bounded(lines):
-    """Joins lines up to the evidence limit and says how many did not fit."""
+    """Joins lines up to the evidence limit, counted in UTF-8 bytes as the API bounds evidence, and
+    says how many did not fit."""
     kept, size = [], 0
     for index, line in enumerate(lines):
-        if size + len(line) + 1 > EVIDENCE_LIMIT:
+        length = len(line.encode("utf-8")) + 1
+        if size + length > EVIDENCE_LIMIT:
             kept.append("... %d more" % (len(lines) - index))
             break
         kept.append(line)
-        size += len(line) + 1
+        size += length
     return "\n".join(kept)
 
 
@@ -106,20 +116,24 @@ def run(command, timeout):
 
 
 def gpu_ras(root, bdf):
-    """One GPU's driver, RAS feature mask, error counts per block, and raw ACA UMC data."""
+    """One GPU's driver, RAS feature mask (None: unreadable), error counts per block, the blocks whose
+    counts cannot be read, and raw ACA UMC data."""
     device = "%s/sys/bus/pci/devices/%s" % (root, bdf)
     driver = os.path.join(device, "driver")
     ras = os.path.join(device, "ras")
     gpu = {"bdf": bdf, "driver": os.path.basename(os.path.realpath(driver)) if os.path.lexists(driver) else "",
-           "ras": os.path.isdir(ras), "mask": None, "blocks": {}, "aca": ""}
+           "ras": os.path.isdir(ras), "mask": None, "blocks": {}, "unreadable": [], "aca": ""}
     if not gpu["ras"]:
         return gpu
     mask = re.search(r"0x[0-9a-fA-F]+", read(os.path.join(ras, "features")))
     gpu["mask"] = int(mask.group(0), 16) if mask else None
     for path in sorted(glob.glob(os.path.join(ras, "*_err_count"))):
+        block = os.path.basename(path)[:-len("_err_count")]
         counts = {key: int(value) for key, value in re.findall(r"^\s*(ue|ce|de)\s*:\s*(\d+)", read(path), re.M)}
         if counts:
-            gpu["blocks"][os.path.basename(path)[:-len("_err_count")]] = counts
+            gpu["blocks"][block] = counts
+        else:
+            gpu["unreadable"].append(block)
     aca = os.path.join(ras, "aca_umc")
     if os.path.isfile(aca):
         gpu["aca"] = read(aca)[:400]
@@ -174,42 +188,46 @@ def severity_of(value):
     return None
 
 
-def json_severity(document):
-    """The first severity a record's JSON companion names under a key with "severity" in it."""
+def json_severities(document):
+    """Every severity a record's JSON companion names under a key with "severity" in it."""
+    found = []
     if isinstance(document, dict):
         for key, value in document.items():
-            if "severity" in str(key).lower() and not isinstance(value, (dict, list)):
-                found = severity_of(value)
-                if found:
-                    return found
-        document = list(document.values())
-    if isinstance(document, list):
+            if isinstance(value, (dict, list)):
+                found += json_severities(value)
+            elif "severity" in str(key).lower() and severity_of(value):
+                found.append(severity_of(value))
+    elif isinstance(document, list):
         for value in document:
-            found = json_severity(value)
-            if found:
-                return found
-    return None
+            found += json_severities(value)
+    return found
 
 
 def record_severity(path, afids):
-    """A record's severity: its JSON companion, then its file name (fatal-3.cper), then its AFIDs."""
+    """A record's severity, or None when nothing says it: the most severe that its JSON companion,
+    its file name (fatal-3.cper; boot-0.cper says none), and its AFIDs name, so a record whose
+    sources disagree counts as the worst of them."""
+    found = []
     companion = path[:-len(".cper")] + ".json"
     if os.path.isfile(companion):
         try:
             with open(companion, encoding="utf-8") as handle:
-                found = json_severity(json.load(handle))
-            if found:
-                return found
+                found += json_severities(json.load(handle))
         except (OSError, ValueError):
             pass
-    found = severity_of(re.sub(r"[-_]?\d+$", "", os.path.basename(path)[:-len(".cper")]))
-    if found:
-        return found
-    for afid in afids:
-        found = AFID_SEVERITY.get(AFIDS.get(afid, ("", "", ""))[2])
-        if found:
-            return found
-    return None
+    found.append(severity_of(re.sub(r"[-_]?\d+$", "", os.path.basename(path)[:-len(".cper")])))
+    found += [AFID_SEVERITY.get(AFIDS.get(afid, ("", "", ""))[2]) for afid in afids]
+    return next((severity for severity in SEVERITY_ORDER if severity in found), None)
+
+
+def parse_afids(out, path):
+    """The AFIDs amd-smi printed for the record at path: the numbers after the word AFID when it says
+    the word, otherwise every bare number (the file's own name is ignored either way)."""
+    text = out.replace(path, " ").replace(os.path.basename(path), " ")
+    named = AFID_NAMED.findall(text)
+    if re.search(r"afid", text, re.I):
+        return [int(number) for numbers in named for number in re.findall(r"\d+", numbers)]
+    return [int(number) for number in re.findall(r"(?<![\w.-])\d+(?![\w.-])", text)]
 
 
 def decode_afids(amd_smi, path):
@@ -218,8 +236,7 @@ def decode_afids(amd_smi, path):
     said = (out + "\n" + err).strip()
     if AFID_UNSUPPORTED.search(said):
         return [], said[-300:], True
-    text = out.replace(path, " ").replace(os.path.basename(path), " ")
-    afids = [int(number) for number in re.findall(r"(?<![\w.-])\d+(?![\w.-])", text)]
+    afids = parse_afids(out, path)
     if code != 0 or not afids:
         return [], (said or "amd-smi exited %s and printed no AFID" % code)[-300:], False
     return afids, "", False
@@ -238,10 +255,14 @@ def export_and_decode(amd_smi, folder):
     files = sorted(glob.glob(os.path.join(folder, "**", "*.cper"), recursive=True))
     cper = {"exportCommand": " ".join(["amd-smi"] + command[1:-1] + ["<private directory>"]),
             "exportExit": code, "records": len(files), "afidUnsupported": False, "afidError": "",
-            "counts": {UNCORRECTED: 0, FATAL: 0, CORRECTED: 0, UNKNOWN: 0}, "undecoded": 0, "lines": []}
-    if code != 0:
+            "counts": {UNCORRECTED: 0, FATAL: 0, CORRECTED: 0, UNKNOWN: 0}, "unknownRecords": [],
+            "undecoded": 0, "lines": []}
+    said = (out + "\n" + err).strip()
+    # An export that wrote nothing and says it went wrong failed even with exit code 0; one that
+    # wrote nothing and says nothing found no record.
+    if code != 0 or (not files and EXPORT_TROUBLE.search(said)):
         cper["state"] = "export_failed"
-        cper["exportError"] = ((err or out).strip() or "amd-smi exited %s" % code)[-400:]
+        cper["exportError"] = (" ".join(said.split()) or "amd-smi exited %s" % code)[-400:]
         return cper
     cper["state"] = "exported"
     deadline = time.monotonic() + DECODE_BUDGET
@@ -259,8 +280,11 @@ def export_and_decode(amd_smi, folder):
             cper["undecoded"] += 1
         severity = record_severity(path, afids) or UNKNOWN
         cper["counts"][severity] += 1
+        name = os.path.relpath(path, folder)
+        if severity == UNKNOWN:
+            cper["unknownRecords"].append(name)
         detail = ", ".join(describe(afid) for afid in afids) or error
-        cper["lines"].append("%s: %s, %s" % (os.path.relpath(path, folder), severity, detail))
+        cper["lines"].append("%s: %s, %s" % (name, severity, detail))
     return cper
 
 
@@ -283,7 +307,8 @@ def main():
         "gpus": len(gpus),
         "rasEnabled": [gpu["bdf"] for gpu in driven if gpu["ras"] and gpu["mask"]],
         "rasMissing": [gpu["bdf"] for gpu in gpus if gpu["driver"] != "amdgpu" or not gpu["ras"]],
-        "rasOff": [gpu["bdf"] for gpu in driven if gpu["ras"] and not gpu["mask"]],
+        "rasOff": [gpu["bdf"] for gpu in driven if gpu["ras"] and gpu["mask"] == 0],
+        "rasUnreadable": [gpu["bdf"] for gpu in driven if gpu["ras"] and gpu["mask"] is None],
     }
     lines = []
     for gpu in gpus:
@@ -297,12 +322,17 @@ def main():
 
     counted = [gpu for gpu in driven if gpu["blocks"]]
     measurements, lines = [], []
+    for gpu in driven:
+        if gpu["ras"] and not gpu["blocks"]:
+            lines.append("%s: no readable error count (%s)" % (
+                gpu["bdf"], "unreadable: " + " ".join(gpu["unreadable"]) if gpu["unreadable"] else "no ras/*_err_count"))
     for gpu in counted:
         gpu["ue"] = sum(counts.get("ue", 0) for counts in gpu["blocks"].values())
         gpu["ce"] = sum(counts.get("ce", 0) for counts in gpu["blocks"].values())
         blocks = "; ".join("%s %s" % (block, " ".join("%s %d" % item for item in sorted(counts.items())))
                            for block, counts in sorted(gpu["blocks"].items()))
-        lines.append("%s: ue %d, ce %d (%s)" % (gpu["bdf"], gpu["ue"], gpu["ce"], blocks))
+        lines.append("%s: ue %d, ce %d (%s)%s" % (gpu["bdf"], gpu["ue"], gpu["ce"], blocks,
+                                                   "; unreadable: " + " ".join(gpu["unreadable"]) if gpu["unreadable"] else ""))
         if gpu["aca"]:
             lines.append("%s: aca_umc %s" % (gpu["bdf"], gpu["aca"]))
         measurements.append({"name": "uncorrectable_errors[%s]" % gpu["bdf"], "value": gpu["ue"], "unit": "count", "expected": "= 0"})
@@ -319,6 +349,8 @@ def main():
         ]
     report.update({
         "eccGpus": len(counted),
+        # GPUs with a RAS interface whose error counts none can be read: not judged, an error.
+        "countsUnreadable": [gpu["bdf"] for gpu in driven if gpu["ras"] and not gpu["blocks"]],
         "ueGpus": [gpu["bdf"] for gpu in counted if gpu["ue"] > 0],
         "ueTotal": sum(gpu["ue"] for gpu in counted),
         "ceMax": max([gpu["ce"] for gpu in counted] or [0]),

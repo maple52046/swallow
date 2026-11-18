@@ -61,17 +61,25 @@
         tasks_from: record
       vars:
         amd_gpu_ras_off: "{{ amd_gpu_ras_report.rasMissing | default([]) + amd_gpu_ras_report.rasOff | default([]) }}"
+        # A feature mask that cannot be read says nothing about RAS: an error, not a failure.
+        amd_gpu_ras_unread: "{{ amd_gpu_ras_report.rasUnreadable | default([]) }}"
         validation_report_check: ras-enabled
         validation_report_verdict: >-
-          {{ amd_gpu_ras_unjudged or ('failed' if amd_gpu_ras_off | length > 0 else 'passed') }}
+          {{ amd_gpu_ras_unjudged
+             or ('failed' if amd_gpu_ras_off | length > 0 else ('error' if amd_gpu_ras_unread | length > 0 else 'passed')) }}
         validation_report_summary: >-
           {{ amd_gpu_ras_unjudged_summary if amd_gpu_ras_unjudged
              else (('RAS is not on for ' ~ amd_gpu_ras_off | length ~ ' of ' ~ amd_gpu_ras_report.gpus ~ ' GPUs: '
                     ~ ([('no RAS interface on ' ~ amd_gpu_ras_report.rasMissing | join(' '))
                           if amd_gpu_ras_report.rasMissing | length > 0 else '',
                         ('feature mask 0 on ' ~ amd_gpu_ras_report.rasOff | join(' '))
-                          if amd_gpu_ras_report.rasOff | length > 0 else ''] | select | join('; ')))
+                          if amd_gpu_ras_report.rasOff | length > 0 else '',
+                        ('feature mask unreadable on ' ~ amd_gpu_ras_unread | join(' '))
+                          if amd_gpu_ras_unread | length > 0 else ''] | select | join('; ')))
                    if amd_gpu_ras_off | length > 0
+                   else ('[ras_features_unreadable] the RAS feature mask (ras/features) is unreadable on '
+                         ~ amd_gpu_ras_unread | join(' '))
+                        if amd_gpu_ras_unread | length > 0
                    else 'RAS is on for every one of the ' ~ amd_gpu_ras_report.gpus ~ ' GPUs') }}
         validation_report_evidence: "{{ amd_gpu_ras_report.rasEvidence | default('') }}"
 
@@ -82,22 +90,30 @@
       vars:
         amd_gpu_ras_ue: "{{ amd_gpu_ras_report.ueGpus | default([]) | length > 0 }}"
         amd_gpu_ras_ce_over: "{{ amd_gpu_ras_max | int >= 0 and amd_gpu_ras_report.ceMax | default(0) | int > amd_gpu_ras_max | int }}"
+        # GPUs with a RAS interface but no error count that can be read: not judged, an error.
+        amd_gpu_ras_counts_unread: "{{ amd_gpu_ras_report.countsUnreadable | default([]) }}"
         validation_report_check: ecc-counts
         validation_report_verdict: >-
           {{ amd_gpu_ras_unjudged
-             or ('skipped' if amd_gpu_ras_report.eccGpus | int == 0
-                 else ('failed' if amd_gpu_ras_ue | bool or amd_gpu_ras_ce_over | bool else 'passed')) }}
+             or ('failed' if amd_gpu_ras_ue | bool or amd_gpu_ras_ce_over | bool
+                 else ('error' if amd_gpu_ras_counts_unread | length > 0
+                       else ('skipped' if amd_gpu_ras_report.eccGpus | int == 0 else 'passed'))) }}
         validation_report_summary: >-
           {{ amd_gpu_ras_unjudged_summary if amd_gpu_ras_unjudged
+             else ([('uncorrectable errors on ' ~ amd_gpu_ras_report.ueGpus | join(' ')
+                     ~ ' (' ~ amd_gpu_ras_report.ueTotal ~ ' in all)') if amd_gpu_ras_ue | bool else '',
+                   (amd_gpu_ras_report.ceMaxGpu ~ ' counted ' ~ amd_gpu_ras_report.ceMax
+                     ~ ' correctable errors, more than the ' ~ amd_gpu_ras_max ~ ' allowed') if amd_gpu_ras_ce_over | bool else '',
+                   ('the error counts are unreadable on ' ~ amd_gpu_ras_counts_unread | join(' '))
+                     if amd_gpu_ras_counts_unread | length > 0 else ''] | select | join('; '))
+                  if amd_gpu_ras_ue | bool or amd_gpu_ras_ce_over | bool
+             else ('[ras_counts_unreadable] no RAS error count (ras/*_err_count) can be read on '
+                   ~ amd_gpu_ras_counts_unread | join(' '))
+                  if amd_gpu_ras_counts_unread | length > 0
              else ('no GPU the amdgpu driver drives exposes RAS error counts' if amd_gpu_ras_report.eccGpus | int == 0
-                   else ([('uncorrectable errors on ' ~ amd_gpu_ras_report.ueGpus | join(' ')
-                           ~ ' (' ~ amd_gpu_ras_report.ueTotal ~ ' in all)') if amd_gpu_ras_ue | bool else '',
-                         (amd_gpu_ras_report.ceMaxGpu ~ ' counted ' ~ amd_gpu_ras_report.ceMax
-                           ~ ' correctable errors, more than the ' ~ amd_gpu_ras_max ~ ' allowed') if amd_gpu_ras_ce_over | bool else ''] | select | join('; '))
-                        if amd_gpu_ras_ue | bool or amd_gpu_ras_ce_over | bool
-                        else ('no uncorrectable error on ' ~ amd_gpu_ras_report.eccGpus ~ ' GPUs; at most '
-                              ~ amd_gpu_ras_report.ceMax ~ ' correctable errors on one GPU'
-                              ~ (' (' ~ amd_gpu_ras_max ~ ' allowed)' if amd_gpu_ras_max | int >= 0 else ''))) }}
+                   else ('no uncorrectable error on ' ~ amd_gpu_ras_report.eccGpus ~ ' GPUs; at most '
+                         ~ amd_gpu_ras_report.ceMax ~ ' correctable errors on one GPU'
+                         ~ (' (' ~ amd_gpu_ras_max ~ ' allowed)' if amd_gpu_ras_max | int >= 0 else ''))) }}
         validation_report_evidence: "{{ amd_gpu_ras_report.eccEvidence | default('') }}"
         validation_report_measurements: "{{ amd_gpu_ras_report.eccMeasurements | default([]) if not amd_gpu_ras_unjudged else [] }}"
 
@@ -116,7 +132,7 @@
              else amd_gpu_ras_cper_unjudged_summary[amd_gpu_ras_state]
                   | default(('exported ' ~ amd_gpu_ras_cper.records ~ ' CPER records from the CPER rings of ' ~ amd_gpu_ras_rings ~ ' GPUs')
                             if amd_gpu_ras_state == 'exported'
-                            else 'amd-smi could not export the CPER records: ' ~ amd_gpu_ras_cper.exportError | default('')) }}
+                            else '[cper_export_failed] amd-smi could not export the CPER records: ' ~ amd_gpu_ras_cper.exportError | default('')) }}
         validation_report_evidence: >-
           {{ ('GPUs with a CPER ring: ' ~ amd_gpu_ras_cper.ringGpus | default([]) | join(' ')
               ~ ('\n' ~ amd_gpu_ras_cper.exportCommand ~ ': exit ' ~ amd_gpu_ras_cper.exportExit
@@ -138,12 +154,13 @@
         # corrected records are held to it times the GPUs with a CPER ring.
         amd_gpu_ras_allowed: "{{ amd_gpu_ras_max | int * amd_gpu_ras_rings | int }}"
         amd_gpu_ras_corrected_over: "{{ amd_gpu_ras_max | int >= 0 and amd_gpu_ras_cper.corrected | default(0) | int > amd_gpu_ras_allowed | int }}"
+        # A fatal or uncorrected record, or too many corrected ones, fails; a record whose severity
+        # cannot be determined proves nothing, so without a failure it makes the check an error.
         amd_gpu_ras_judgement: >-
-          {{ ('failed' if amd_gpu_ras_severe | int > 0
-              else ('error' if amd_gpu_ras_cper.afidUnsupported | default(false)
-                    else ('failed' if amd_gpu_ras_cper.unknown | default(0) | int > 0 or amd_gpu_ras_corrected_over | bool
-                          else 'passed')))
-             if amd_gpu_ras_state == 'exported' else 'error' }}
+          {{ 'error' if amd_gpu_ras_state != 'exported'
+             else ('failed' if amd_gpu_ras_severe | int > 0 or amd_gpu_ras_corrected_over | bool
+                   else ('error' if amd_gpu_ras_cper.afidUnsupported | default(false) or amd_gpu_ras_cper.unknown | default(0) | int > 0
+                         else 'passed')) }}
         validation_report_check: cper-errors
         validation_report_verdict: >-
           {{ amd_gpu_ras_unjudged or amd_gpu_ras_cper_unjudged[amd_gpu_ras_state] | default(amd_gpu_ras_judgement) }}
@@ -154,6 +171,10 @@
                              if amd_gpu_ras_state != 'exported'
                              else ('[amd_smi_afid_unsupported] this AMD SMI cannot decode AFIDs: '
                                    ~ (amd_gpu_ras_cper.afidError | default('')).split() | join(' '))
+                                  if amd_gpu_ras_judgement == 'error' and amd_gpu_ras_cper.afidUnsupported | default(false)
+                             else ('[cper_severity_unknown] the severity of ' ~ amd_gpu_ras_cper.unknown ~ ' of '
+                                   ~ amd_gpu_ras_cper.records ~ ' CPER records cannot be determined: '
+                                   ~ amd_gpu_ras_cper.unknownRecords | default([]) | join(' '))
                                   if amd_gpu_ras_judgement == 'error'
                              else ('the CPER rings hold no record' if amd_gpu_ras_cper.records | int == 0
                                    else ([(amd_gpu_ras_cper.fatal ~ ' fatal') if amd_gpu_ras_cper.fatal | int > 0 else '',

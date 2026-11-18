@@ -546,8 +546,9 @@ func fakeDRIDebugfs(t *testing.T, root, minor, bdf string, ring bool) {
 }
 
 // fakeAMDSMI stands in for amd-smi. `ras --cper` writes the records of fake-amd-smi.json into the
-// folder it is given, each with a JSON companion naming its severity when the record has one, or
-// fails with exportFails; `ras --afid --cper-file` prints the record's AFID, or refuses like an AMD
+// folder it is given, each with a JSON companion naming its severity when the record has one; it
+// fails with exportFails, and with exportSays prints that and exits 0 without writing anything.
+// `ras --afid --cper-file` prints what the record says (by default its AFID), or refuses like an AMD
 // SMI without AFID decoding when afidUnsupported is set. Every call is appended to calls.log.
 const fakeAMDSMI = `#!/usr/bin/env python3
 import json, os, sys
@@ -559,6 +560,9 @@ with open(os.path.join(here, "calls.log"), "a") as log:
 if args[:2] == ["ras", "--cper"]:
     if config.get("exportFails"):
         sys.exit("Unable to read the CPER ring")
+    if config.get("exportSays"):
+        print(config["exportSays"])
+        sys.exit(0)
     folder = args[args.index("--folder") + 1]
     for name, record in config["records"].items():
         with open(os.path.join(folder, name), "wb") as cper:
@@ -569,7 +573,8 @@ if args[:2] == ["ras", "--cper"]:
 elif args[:2] == ["ras", "--afid"]:
     if config.get("afidUnsupported"):
         sys.exit("amd-smi: error: unrecognized arguments: --afid")
-    print(config["records"][os.path.basename(args[args.index("--cper-file") + 1])]["afid"])
+    record = config["records"][os.path.basename(args[args.index("--cper-file") + 1])]
+    print(record.get("said") or record["afid"])
 else:
     sys.exit("unexpected: " + " ".join(args))
 `
@@ -598,27 +603,32 @@ func TestAMDGPURASJudgesTheDriversReport(t *testing.T) {
 	}
 	resultPath := filepath.Join(run.dir, "result.json")
 	// record is one CPER record fakeAMDSMI exports: the severity its JSON companion names (empty
-	// writes no companion, so the file name or the AFID decides) and the AFID it decodes to.
+	// writes no companion, so the file name or the AFID decides), the AFID it decodes to, and what
+	// amd-smi prints when decoding it (empty: the bare AFID).
 	type record struct {
 		Severity string `json:"severity,omitempty"`
 		AFID     int    `json:"afid"`
+		Said     string `json:"said,omitempty"`
 	}
 	corrected := map[string]record{"corrected-1.cper": {Severity: "AMDSMI_CPER_SEV_NON_FATAL_CORRECTED", AFID: 24}}
 	for _, tc := range []struct {
 		name            string
 		gpus            int
 		secondMask      string // the second GPU's feature mask; default 0x7fff
+		secondCounts    string // what every err_count of the second GPU holds; default parsable counts
 		ue              string // the first GPU's umc uncorrectable count; default 0
 		noRing          bool
 		noDebugfs       bool
 		noAMDSMI        bool
 		exportFails     bool
+		exportSays      string
 		afidUnsupported bool
 		records         map[string]record
 		parameters      map[string]any
-		want            map[string]string // verdict by check
-		summaries       map[string]string // a phrase each check's summary holds
-		evidence        map[string]string // a phrase each check's evidence holds
+		want            map[string]string   // verdict by check
+		summaries       map[string]string   // a phrase each check's summary holds
+		evidence        map[string]string   // a phrase each check's evidence holds
+		absent          map[string][]string // phrases neither the summary nor the evidence of each check holds
 	}{
 		{
 			name: "healthy", gpus: 2, records: corrected,
@@ -642,7 +652,49 @@ func TestAMDGPURASJudgesTheDriversReport(t *testing.T) {
 			name: "uncorrectable error and RAS off", gpus: 2, secondMask: "0x0", ue: "2", records: map[string]record{},
 			want: map[string]string{"ras-enabled": "failed", "ecc-counts": "failed", "cper-export": "passed", "cper-errors": "passed"},
 			summaries: map[string]string{"ras-enabled": "feature mask 0 on 0000:0b:00.0", "ecc-counts": "uncorrectable errors on 0000:0a:00.0",
-				"cper-errors": "the CPER rings hold no record"},
+				"cper-export": "exported 0 CPER records", "cper-errors": "the CPER rings hold no record"},
+		},
+		{
+			name: "feature mask unreadable", gpus: 2, secondMask: "unreadable", records: corrected,
+			want:      map[string]string{"ras-enabled": "error", "ecc-counts": "passed"},
+			summaries: map[string]string{"ras-enabled": "[ras_features_unreadable] the RAS feature mask (ras/features) is unreadable on 0000:0b:00.0"},
+			evidence:  map[string]string{"ras-enabled": "0000:0b:00.0: feature mask unreadable"},
+			absent:    map[string][]string{"ras-enabled": {"feature mask 0 on", "0000:0b:00.0: feature mask 0"}},
+		},
+		{
+			name: "error counts unreadable", gpus: 2, secondCounts: "Input/output error\n", records: corrected,
+			want:      map[string]string{"ras-enabled": "passed", "ecc-counts": "error"},
+			summaries: map[string]string{"ecc-counts": "[ras_counts_unreadable] no RAS error count (ras/*_err_count) can be read on 0000:0b:00.0"},
+			evidence:  map[string]string{"ecc-counts": "0000:0b:00.0: no readable error count (unreadable: gfx umc)"},
+		},
+		{
+			name: "uncorrectable error beside unreadable counts", gpus: 2, ue: "1", secondCounts: "garbage", records: corrected,
+			want:      map[string]string{"ecc-counts": "failed"},
+			summaries: map[string]string{"ecc-counts": "the error counts are unreadable on 0000:0b:00.0"},
+		},
+		{
+			name: "export says it failed", gpus: 2, exportSays: "ERROR: failed to read the CPER entries",
+			want: map[string]string{"cper-export": "failed", "cper-errors": "error"},
+			summaries: map[string]string{"cper-export": "[cper_export_failed] amd-smi could not export the CPER records: ERROR: failed to read",
+				"cper-errors": "[cper_export_failed]"},
+			evidence: map[string]string{"cper-export": "failed to read the CPER entries"},
+		},
+		{
+			name: "severity unknown", gpus: 2, records: map[string]record{"boot-0.cper": {AFID: 99}, "corrected-1.cper": {AFID: 24}},
+			want:      map[string]string{"cper-export": "passed", "cper-errors": "error"},
+			summaries: map[string]string{"cper-errors": "[cper_severity_unknown] the severity of 1 of 2 CPER records cannot be determined: boot-0.cper"},
+			evidence:  map[string]string{"cper-errors": "boot-0.cper: UNKNOWN, AFID 99"},
+		},
+		{
+			name: "boot records and disagreeing sources", gpus: 2, records: map[string]record{
+				"boot-0.cper":      {Severity: "FATAL", AFID: 99},
+				"boot-1.cper":      {AFID: 24},
+				"corrected-4.cper": {AFID: 30, Said: "Record 1 of 1, AFID: 30"},
+			},
+			want:      map[string]string{"cper-errors": "failed"},
+			summaries: map[string]string{"cper-errors": "2 fatal, 1 corrected of 3 CPER records"},
+			evidence:  map[string]string{"cper-errors": "corrected-4.cper: FATAL, AFID 30 (Device Internal / All Other / Fatal)"},
+			absent:    map[string][]string{"cper-errors": {"AFID 1 ("}},
 		},
 		{
 			name: "fatal record", gpus: 2,
@@ -683,8 +735,9 @@ func TestAMDGPURASJudgesTheDriversReport(t *testing.T) {
 		},
 		{
 			name: "export fails", gpus: 2, exportFails: true,
-			want:      map[string]string{"cper-export": "failed", "cper-errors": "error"},
-			summaries: map[string]string{"cper-export": "Unable to read the CPER ring", "cper-errors": "[cper_export_failed]"},
+			want: map[string]string{"cper-export": "failed", "cper-errors": "error"},
+			summaries: map[string]string{"cper-export": "[cper_export_failed] amd-smi could not export the CPER records: Unable to read the CPER ring",
+				"cper-errors": "[cper_export_failed]"},
 		},
 	} {
 		root := filepath.Join(run.dir, strings.ReplaceAll(tc.name, " ", "-"))
@@ -699,13 +752,18 @@ func TestAMDGPURASJudgesTheDriversReport(t *testing.T) {
 			} else if tc.secondMask != "" {
 				mask = tc.secondMask
 			}
-			fakeAMDRAS(t, root, bdf, mask, map[string]string{"umc": "ue: " + ue + "\nce: " + ce + "\n", "gfx": "ue: 0\nce: 0\n"})
+			counts := map[string]string{"umc": "ue: " + ue + "\nce: " + ce + "\n", "gfx": "ue: 0\nce: 0\n"}
+			if i == 1 && tc.secondCounts != "" {
+				counts = map[string]string{"umc": tc.secondCounts, "gfx": tc.secondCounts}
+			}
+			fakeAMDRAS(t, root, bdf, mask, counts)
 			if !tc.noDebugfs {
 				fakeDRIDebugfs(t, root, strconv.Itoa(i), bdf, !tc.noRing)
 				fakeDRIDebugfs(t, root, strconv.Itoa(128+i), bdf, false)
 			}
 		}
-		config, err := json.Marshal(map[string]any{"records": tc.records, "exportFails": tc.exportFails, "afidUnsupported": tc.afidUnsupported})
+		config, err := json.Marshal(map[string]any{"records": tc.records, "exportFails": tc.exportFails, "exportSays": tc.exportSays,
+			"afidUnsupported": tc.afidUnsupported})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -746,6 +804,11 @@ func TestAMDGPURASJudgesTheDriversReport(t *testing.T) {
 			if want := tc.evidence[check]; !strings.Contains(evidence, want) {
 				t.Errorf("%s: %s evidence %q does not hold %q", tc.name, check, evidence, want)
 			}
+			for _, absent := range tc.absent[check] {
+				if strings.Contains(summary+"\n"+evidence, absent) {
+					t.Errorf("%s: %s says %q (summary %q, evidence %q)", tc.name, check, absent, summary, evidence)
+				}
+			}
 		}
 
 		calls, err := os.ReadFile(filepath.Join(run.dir, "calls.log"))
@@ -765,6 +828,41 @@ func TestAMDGPURASJudgesTheDriversReport(t *testing.T) {
 		if exported := strings.Contains(string(calls), "ras --cper --severity all --gpu all --folder "); exported != wantExport {
 			t.Errorf("%s: amd-smi exported the CPER records: %v, want %v (calls %q)", tc.name, exported, wantExport, calls)
 		}
+	}
+}
+
+// The RAS helper bounds its evidence in UTF-8 bytes, as the API does, so evidence of multibyte text
+// (a raw aca_umc dump, a kernel log line) is not cut short by the API in the middle of a line.
+func TestAMDGPURASBoundsEvidenceInUTF8Bytes(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 is not available")
+	}
+	helper := filepath.Join(roleDir(t, "amd_gpu_ras"), "files", "amd_gpu_ras.py")
+	// Two lines of 3000 two-byte characters: 6001 bytes each, so only the first fits in 7800 bytes,
+	// although both fit in 7800 characters.
+	script := `import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("amd_gpu_ras", sys.argv[1])
+helper = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(helper)
+evidence = helper.bounded(["é" * 3000, "é" * 3000])
+print(json.dumps({"bytes": len(evidence.encode("utf-8")), "evidence": evidence}))
+`
+	// -B: importing the helper must not leave __pycache__ beside it in the role's files.
+	out, err := exec.Command(python, "-I", "-B", "-c", script, helper).Output()
+	if err != nil {
+		t.Fatalf("run bounded: %v", err)
+	}
+	var got struct {
+		Bytes    int    `json:"bytes"`
+		Evidence string `json:"evidence"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("decode %q: %v", out, err)
+	}
+	if got.Bytes > 7800 || !strings.HasSuffix(got.Evidence, "... 1 more") {
+		t.Errorf("bounded(two 6001-byte lines) = %d bytes ending %q, want at most 7800 bytes and the second line counted as one more",
+			got.Bytes, got.Evidence[max(0, len(got.Evidence)-20):])
 	}
 }
 
