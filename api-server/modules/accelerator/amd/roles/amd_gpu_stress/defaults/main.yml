@@ -1,0 +1,46 @@
+---
+# amd_gpu_stress role defaults. The include sets amd_gpu_stress_gpus (the PCI addresses of the AMD
+# GPUs, from amd_gpu_census) and amd_gpu_stress_parameters (the run's parameters); the rest are
+# fixed here or for the content tests.
+
+# The RVS release for each ROCm major version: its path in swallow_artifacts.files and its SHA-256.
+# The AMD module declares each one as a file artifact with the same path and checksum. RVS is not in
+# the ROCm 10 Core SDK (it moved to ROCm-Extras), so the run brings its own; TransferBench is part of
+# it. Only the ROCm 10 release has been run on a lab Server (MI250X, 2026-11-19).
+amd_gpu_stress_rvs_releases:
+  - rocm: "10"
+    path: rocm-validation-suite/amdrocm10-rvs-1.7.112-1077-Linux.tar.gz
+    sha256: 9d6728db51ef1cea237c0f2195622e9f4e91de5ca8c5df85206185c6e59d286e
+  - rocm: "7"
+    path: rocm-validation-suite/amdrocm7-rvs-1.5.125-620-Linux.tar.gz
+    sha256: 8fb0c95d59ba1167758a8c4af8e2135b35a78ffab560dc3dffe2989ba57d7fba
+
+# rccl-tests at the last commit of its retired standalone repository (it moved into
+# ROCm/rocm-systems), built on the host for the collectives check.
+amd_gpu_stress_rccl_tests:
+  path: rccl-tests/rccl-tests-40b1b17901370a7880d4a56854b5361c89f8d324.tar.gz
+  sha256: fbe6b7123ba9861fa16172b48bc950d044d5d84428c256726d7bc235c2bcbb65
+
+# The suite's checks, in the order the helper reports them; a helper that does not run makes each one
+# an error.
+amd_gpu_stress_checks: [gemm, hbm-integrity, hbm-bandwidth, pcie-bandwidth, xgmi-bandwidth, xgmi-links, power,
+                        collectives, thermal-throttle, ras-after-stress]
+
+# How long one RVS stage or the all-reduce may run, in seconds, by level, and how long the whole
+# helper may run: less than the Task's timeout in the module's template (7200), so a stage that hangs
+# ends as its own [stress_timeout] and the results of the others still reach the run. A full run took
+# about 31 minutes on an 8-GPU MI250X Server (2026-11-19).
+amd_gpu_stress_stage_timeouts:
+  full: 2400
+  quick: 600
+amd_gpu_stress_deadline: 6600
+
+# For the content tests: a prefix of the sysfs paths, the tools, the ROCm the host uses, and where the
+# private directory goes. Playbooks do not set them.
+amd_gpu_stress_root: ""
+amd_gpu_stress_amd_smi: ""
+amd_gpu_stress_dmesg: dmesg
+amd_gpu_stress_ldd: ldd
+amd_gpu_stress_make: make
+amd_gpu_stress_rocm: /opt/rocm
+amd_gpu_stress_workdir: /var/tmp

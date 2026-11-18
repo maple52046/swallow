@@ -29,6 +29,7 @@ swallow's modules provide suites:
 | `network-mesh` (experimental) | Servers | Observe | Every target reaches every other one, carries a full-sized unfragmented packet, and accepts SSH connections |
 | `amd-gpu-basic` (experimental) | Servers | Workload | The amdgpu driver brings up every AMD GPU on PCI, and the HIP probe works on each |
 | `amd-gpu-ras` (experimental) | Servers | Observe | RAS is on for every AMD GPU, no uncorrectable error is counted, and the driver's CPER error records export through AMD SMI with none fatal or uncorrected; `maxCorrectable` also limits correctable errors per GPU |
+| `amd-gpu-stress` (experimental) | Servers | Workload | An open-source replacement for AMD's AGFHC health check: the ROCm Validation Suite reaches the GEMM and power targets AMD ships for the GPU's SKU and passes its HBM, PCIe, and XGMI tests; an RCCL all-reduce over every GPU returns no wrong value; no GPU runs too hot or reports an XGMI error during the stress; and the stress adds no uncorrectable error or fatal CPER record |
 | `kubernetes-smoke` (experimental) | A Kubernetes Platform | Observe | Nodes Ready, a pod runs on every node that takes workloads, cluster DNS, Service routing |
 
 In the Dashboard, **Validation → Suites** is a capability catalog grouped into Platform, Server, and custom script suites. Open a card for its checks, parameters, impact, budget, recent Runs, and Schedules. Deep links to an experimental suite remain readable.
@@ -55,6 +56,25 @@ is an Error too, never a guess: a RAS feature mask (`[ras_features_unreadable]`)
 a GPU's error counts (`[ras_counts_unreadable]`), or the severity of a CPER record
 (`[cper_severity_unknown]`). A failed export is **Failed**, and its summary starts
 with `[cper_export_failed]`.
+
+`amd-gpu-stress` keeps the GPUs busy for about 30 minutes on an 8-GPU Server
+at its default `level` `full`; `level` `quick` keeps the same tests and targets
+and shortens each one, as a smoke test of about 15 minutes. The run downloads
+the ROCm Validation Suite release for the host's ROCm and the rccl-tests source
+that the AMD module declares (from your Local Repository when the Site uses one)
+into a private directory, and removes it afterwards; it installs nothing. Its
+GEMM and power targets come from AMD's conf for the GPU's SKU, chosen from the
+GPU's name; set `rvsProfile` (for example `MI250X`) when the summary starts with
+`[rvs_profile_unknown]`. Bandwidths are recorded and judged only when you give
+`minHbmGBps`, `minPcieGBps`, `minXgmiGBps`, or `minBusBwGBps`. **Temperature and
+throttling** fails when any GPU sensor goes above `maxTemperatureC` (default
+95 °C) while the stress runs; its evidence lists the GPUs' own slowdown and
+shutdown temperatures for comparison. A host whose ROCm
+lacks the libraries the ROCm Validation Suite needs (a runtime-only ROCm without
+rocBLAS or hipBLASLt) makes its six checks **Error** with
+`[rocm_libraries_missing]`; a ROCm version the module declares no release for
+gives `[rvs_unsupported_rocm]`, and a host without HIP, RCCL, or make makes
+**RCCL all-reduce** an Error with `[rccl_build_unavailable]`.
 
 ### Script suites
 

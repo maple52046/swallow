@@ -6,7 +6,8 @@
   "playbooks": [
     "configure-amd-gpu-operator",
     "validate-amd-gpu-basic",
-    "validate-amd-gpu-ras"
+    "validate-amd-gpu-ras",
+    "validate-amd-gpu-stress"
   ],
   "workflowKinds": [
     "configure-gpu-operator",
@@ -39,6 +40,23 @@
       "docker.io/rocm/device-metrics-exporter:v1.5.1",
       "docker.io/rocm/k8s-gpu-dra-driver:v1.0.1",
       "docker.io/library/busybox:1.36"
+    ],
+    "files": [
+      {
+        "path": "rocm-validation-suite/amdrocm10-rvs-1.7.112-1077-Linux.tar.gz",
+        "url": "https://stable.repo.amd.com/rocm/extras/rvs/tarball/amdrocm10-rvs-1.7.112-1077-Linux.tar.gz",
+        "sha256": "9d6728db51ef1cea237c0f2195622e9f4e91de5ca8c5df85206185c6e59d286e"
+      },
+      {
+        "path": "rocm-validation-suite/amdrocm7-rvs-1.5.125-620-Linux.tar.gz",
+        "url": "https://repo.amd.com/rocm/rvs/tarball/amdrocm7-rvs-1.5.125-620-Linux.tar.gz",
+        "sha256": "8fb0c95d59ba1167758a8c4af8e2135b35a78ffab560dc3dffe2989ba57d7fba"
+      },
+      {
+        "path": "rccl-tests/rccl-tests-40b1b17901370a7880d4a56854b5361c89f8d324.tar.gz",
+        "url": "https://github.com/ROCm/rccl-tests/archive/40b1b17901370a7880d4a56854b5361c89f8d324.tar.gz",
+        "sha256": "fbe6b7123ba9861fa16172b48bc950d044d5d84428c256726d7bc235c2bcbb65"
+      }
     ]
   },
   "templates": {
@@ -85,6 +103,29 @@
           },
           "targets": "servers",
           "timeoutSeconds": 540
+        }
+      ]
+    },
+    "amd-gpu-stress": {
+      "version": 1,
+      "jobs": [
+        {
+          "name": "validate-amd-gpu-stress",
+          "label": "Stress AMD GPUs",
+          "retry": "job"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "amd-gpu-stress",
+          "name": "Stress the AMD GPUs",
+          "job": "validate-amd-gpu-stress",
+          "content": {
+            "type": "host-automation",
+            "playbook": "validate-amd-gpu-stress"
+          },
+          "targets": "servers",
+          "timeoutSeconds": 7200
         }
       ]
     }
@@ -171,6 +212,136 @@
           "id": "cper-errors",
           "title": "CPER records",
           "description": "No exported CPER record is fatal or uncorrected; with maxCorrectable, the corrected records stay within it per GPU. Each record's AFID is decoded and classified.",
+          "gating": true
+        }
+      ]
+    },
+    {
+      "id": "amd-gpu-stress",
+      "title": "AMD GPU stress",
+      "description": "Stresses each Server's AMD GPUs with open-source tools in place of AMD's AGFHC: the ROCm Validation Suite (GEMM, power, HBM integrity and bandwidth, PCIe and XGMI bandwidth) against the pass targets AMD ships for the GPU's SKU, an RCCL all-reduce over every GPU, the temperature and throttling while the stress runs, XGMI errors and links, and no new uncorrectable error or fatal CPER record afterwards. The run downloads the declared RVS release and rccl-tests source into a private directory it removes, and installs nothing. A Server without an AMD GPU skips every check.",
+      "target": "servers",
+      "impact": "workload",
+      "budgetSeconds": 7800,
+      "experimental": true,
+      "template": "amd-gpu-stress",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "level": {
+            "type": "string",
+            "title": "Level",
+            "description": "full runs AMD's RVS conf for the GPU's SKU as it ships; quick keeps its actions and targets and shortens how long each runs, as a smoke test. Default: full.",
+            "enum": [
+              "full",
+              "quick"
+            ]
+          },
+          "rvsProfile": {
+            "type": "string",
+            "title": "RVS profile",
+            "description": "The RVS conf directory to use, such as MI250X or MI300X. Default: the one the GPU's market name, VBIOS, or product name names.",
+            "pattern": "^[A-Za-z0-9._-]{1,32}$"
+          },
+          "minHbmGBps": {
+            "type": "integer",
+            "title": "Lowest HBM bandwidth (GB/s)",
+            "description": "The lowest average bandwidth each babel function may reach on a GPU. Default: none; the bandwidth is recorded, not judged.",
+            "minimum": 0
+          },
+          "minPcieGBps": {
+            "type": "integer",
+            "title": "Lowest PCIe bandwidth (GB/s)",
+            "description": "The lowest host-to-GPU bandwidth each pebb action may measure. Default: none; recorded, not judged.",
+            "minimum": 0
+          },
+          "minXgmiGBps": {
+            "type": "integer",
+            "title": "Lowest XGMI bandwidth (GB/s)",
+            "description": "The lowest GPU-to-GPU bandwidth each pbqt action may measure. Default: none; recorded, not judged.",
+            "minimum": 0
+          },
+          "minBusBwGBps": {
+            "type": "integer",
+            "title": "Lowest all-reduce bus bandwidth (GB/s)",
+            "description": "The lowest RCCL all-reduce bus bandwidth over every GPU. Default: none; recorded, not judged.",
+            "minimum": 0
+          },
+          "maxTemperatureC": {
+            "type": "integer",
+            "title": "Highest temperature (C)",
+            "description": "The highest temperature any GPU sensor may report while the stress runs. Default: 95.",
+            "minimum": 1,
+            "maximum": 150
+          },
+          "maxCorrectable": {
+            "type": "integer",
+            "title": "New correctable errors allowed per GPU",
+            "description": "The correctable errors each GPU may add during the stress. Default: none; new correctable errors are recorded, not judged.",
+            "minimum": 0
+          }
+        }
+      },
+      "checks": [
+        {
+          "id": "gemm",
+          "title": "GEMM throughput",
+          "description": "RVS gst reaches the GEMM target of every action in the SKU's gst_single.conf on every GPU.",
+          "gating": true
+        },
+        {
+          "id": "hbm-integrity",
+          "title": "HBM integrity",
+          "description": "RVS mem passes every memory pattern test.",
+          "gating": true
+        },
+        {
+          "id": "hbm-bandwidth",
+          "title": "HBM bandwidth",
+          "description": "RVS babel passes; with minHbmGBps, every function's average bandwidth reaches it.",
+          "gating": true
+        },
+        {
+          "id": "pcie-bandwidth",
+          "title": "PCIe bandwidth",
+          "description": "RVS pebb passes; with minPcieGBps, every action reaches it.",
+          "gating": true
+        },
+        {
+          "id": "xgmi-bandwidth",
+          "title": "XGMI bandwidth",
+          "description": "RVS pbqt passes; with minXgmiGBps, every GPU pair reaches it.",
+          "gating": true
+        },
+        {
+          "id": "xgmi-links",
+          "title": "XGMI links",
+          "description": "No GPU reports an XGMI error during the stress, and no reported XGMI link is down.",
+          "gating": true
+        },
+        {
+          "id": "power",
+          "title": "Power",
+          "description": "RVS iet holds the target power of the SKU's iet_stress.conf.",
+          "gating": true
+        },
+        {
+          "id": "collectives",
+          "title": "RCCL all-reduce",
+          "description": "rccl-tests all_reduce_perf over every GPU returns no wrong value; with minBusBwGBps, its bus bandwidth reaches it.",
+          "gating": true
+        },
+        {
+          "id": "thermal-throttle",
+          "title": "Temperature and throttling",
+          "description": "While the stress runs, no GPU sensor exceeds maxTemperatureC and no PROCHOT or thermal throttle accumulator rises.",
+          "gating": true
+        },
+        {
+          "id": "ras-after-stress",
+          "title": "RAS after the stress",
+          "description": "The stress adds no uncorrectable error and no fatal or uncorrected CPER record; with maxCorrectable, no GPU adds more correctable errors than that.",
           "gating": true
         }
       ]

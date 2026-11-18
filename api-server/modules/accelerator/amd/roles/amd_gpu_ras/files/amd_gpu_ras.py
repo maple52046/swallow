@@ -362,6 +362,8 @@ def main():
         "ceMaxGpu": max(counted, key=lambda gpu: gpu["ce"])["bdf"] if counted else "",
         "eccEvidence": bounded(lines),
         "eccMeasurements": measurements,
+        # Each GPU's totals, so amd-gpu-stress can compare a reading before its stress with one after.
+        "counts": {gpu["bdf"]: {"ue": gpu["ue"], "ce": gpu["ce"]} for gpu in counted},
     })
 
     rings = cper_rings(root, [gpu["bdf"] for gpu in driven])

@@ -1,0 +1,51 @@
+---
+# Validation Suite amd-gpu-stress (docs/development/validation.md §7): the open-source replacement for
+# AMD's AGFHC field health check. It stresses each Server's AMD GPUs with the ROCm Validation Suite
+# (RVS) and rccl-tests and judges them against the pass targets AMD ships for the GPU's SKU in RVS
+# (role amd_gpu_stress): gemm (RVS gst), power (iet), hbm-integrity (mem), hbm-bandwidth (babel),
+# pcie-bandwidth (pebb), xgmi-bandwidth (pbqt), collectives (rccl-tests all_reduce_perf),
+# thermal-throttle (AMD SMI telemetry while the stress runs), xgmi-links (XGMI errors and link status),
+# and ras-after-stress (no new uncorrectable error or fatal CPER record, read with the amd-gpu-ras
+# helper before and after). One verdict per check and Server; the GPUs' detail is in the evidence and
+# measurements.
+#
+# The run downloads the declared RVS release and rccl-tests source (swallow_artifacts.files) into a
+# private directory the helper removes; it installs nothing and changes no host setting, so it does
+# not point the host's package sources anywhere (artifact_sources). A Server without an AMD GPU skips
+# every check. Every verdict reaches the run through the shared validation_report role.
+
+- name: Stress the AMD GPUs
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Count the AMD GPUs
+      ansible.builtin.include_role:
+        name: amd_gpu_census
+
+    - name: Stress the AMD GPUs and judge them
+      ansible.builtin.include_role:
+        name: amd_gpu_stress
+      vars:
+        amd_gpu_stress_gpus: "{{ amd_gpu_census.pciDevices | default([]) }}"
+        amd_gpu_stress_parameters: "{{ swallow_validation_parameters | default({}) }}"
+      when: amd_gpu_census.pci | int > 0
+
+    - name: Judge a Server the census could not read or that has no AMD GPU
+      ansible.builtin.include_role:
+        name: validation_report
+        tasks_from: record
+      vars:
+        validation_report_check: "{{ amd_gpu_stress_check }}"
+        validation_report_verdict: "{{ 'skipped' if amd_gpu_census.pci | int == 0 else 'error' }}"
+        validation_report_summary: >-
+          {{ 'no AMD GPU on PCI' if amd_gpu_census.pci | int == 0
+             else 'the GPU census did not run: ' ~ amd_gpu_census.error | default('') }}
+      loop: [gemm, hbm-integrity, hbm-bandwidth, pcie-bandwidth, xgmi-bandwidth, xgmi-links, power, collectives,
+             thermal-throttle, ras-after-stress]
+      loop_control:
+        loop_var: amd_gpu_stress_check
+      when: amd_gpu_census.pci | int <= 0
+
+    - name: Write the results for Swallow
+      ansible.builtin.include_role:
+        name: validation_report

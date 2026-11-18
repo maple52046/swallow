@@ -238,6 +238,13 @@ func TestArtifactPlaybooksPointAtTheirSourcesBeforeFetching(t *testing.T) {
 		flagged++
 		t.Run(entry.Name, func(t *testing.T) {
 			walk := walkPlaybookFetches(t, entry.Path)
+			if _, ok := selfFetchingPlaybooks[entry.Name]; ok {
+				if walk.pointedAt >= 0 {
+					t.Errorf("%s runs %s, which changes the host's package sources; its helper fetches declared files only",
+						entry.Path, artifactSourcesRole)
+				}
+				return
+			}
 			switch {
 			case walk.pointedAt < 0:
 				t.Errorf("%s fetches artifacts but never runs %s", entry.Path, artifactSourcesRole)
@@ -262,6 +269,18 @@ var fetchesArtifactsNotYet = map[string]string{
 		"its native method still downloads the release from GitHub",
 }
 
+// selfFetchingPlaybooks are the manifest playbooks whose helper downloads the files the module
+// declares by itself, from the URLs swallow_artifacts.files gives and checked against their SHA-256,
+// into a private directory it removes. No task of theirs fetches and they change no host setting, so
+// they must not run artifact_sources (it repoints the host's apt and registries); they are still
+// marked fetchesArtifacts, or swallow would not hand them swallow_artifacts. The reason says why the
+// helper, not a get_url task, downloads.
+var selfFetchingPlaybooks = map[string]string{
+	"validate-amd-gpu-stress": "a Validation Suite leaves the host as it found it (validation.md §7); amd_gpu_stress.py " +
+		"downloads RVS and rccl-tests into its own directory and removes it even when the run is cancelled, " +
+		"which a get_url task before it could not promise",
+}
+
 // Every playbook that installs, downloads, or pulls is marked fetchesArtifacts, aliases included
 // (a Workflow accepted under an old name retries under it), so a new playbook cannot quietly fetch
 // something swallow does not declare. An uninstall playbook only removes what an install put there;
@@ -275,6 +294,13 @@ func TestFetchingPlaybooksAreMarkedFetchesArtifacts(t *testing.T) {
 			continue
 		}
 		fetches := walkPlaybookFetches(t, entry.Path).fetches
+		if _, ok := selfFetchingPlaybooks[entry.Name]; ok {
+			if !entry.FetchesArtifacts || len(fetches) > 0 {
+				t.Errorf("%s fetches through its helper: it must be marked fetchesArtifacts (marked: %v) and have no fetching task (%v)",
+					entry.Name, entry.FetchesArtifacts, fetches)
+			}
+			continue
+		}
 		if reason, ok := fetchesArtifactsNotYet[entry.Name]; ok {
 			if entry.FetchesArtifacts {
 				t.Errorf("%s is marked fetchesArtifacts; drop it from fetchesArtifactsNotYet (%s)", entry.Name, reason)
@@ -291,6 +317,11 @@ func TestFetchingPlaybooksAreMarkedFetchesArtifacts(t *testing.T) {
 	for name := range fetchesArtifactsNotYet {
 		if !names[name] {
 			t.Errorf("fetchesArtifactsNotYet names %s, which the manifest no longer has", name)
+		}
+	}
+	for name := range selfFetchingPlaybooks {
+		if !names[name] {
+			t.Errorf("selfFetchingPlaybooks names %s, which the manifest no longer has", name)
 		}
 	}
 }
@@ -632,7 +663,7 @@ func TestPinnedFilesAreDeclaredModuleArtifacts(t *testing.T) {
 			}
 		}
 	}
-	for _, role := range []string{"k0s_binary", "helm", "device_metrics_exporter", "omnistat", "victoriametrics", "python_toolchain"} {
+	for _, role := range []string{"k0s_binary", "helm", "device_metrics_exporter", "omnistat", "victoriametrics", "python_toolchain", "amd_gpu_stress"} {
 		if !found[role] {
 			t.Errorf("role %s pins no file (path and sha256 in its defaults); the declaration check would miss it", role)
 		}

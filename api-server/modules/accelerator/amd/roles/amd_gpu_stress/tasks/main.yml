@@ -1,0 +1,53 @@
+---
+# Stress this host's AMD GPUs (files/amd_gpu_stress.py) and add what it judged to this host's
+# swallow_validation_results. The helper runs as root: it downloads the declared RVS release and
+# rccl-tests source from where swallow_artifacts says, checks their SHA-256, and unpacks, builds, and
+# runs them in a private directory under /var/tmp that it removes itself, even when the run is
+# cancelled (it ignores SIGHUP and stops its tool on SIGTERM). It installs nothing and changes no
+# setting. It reads RAS before and after the stress with the amd_gpu_ras helper, passed to it inline.
+# A helper that cannot run makes every check an error.
+
+- name: Stress the AMD GPUs
+  ansible.builtin.script:
+    cmd: >-
+      amd_gpu_stress.py --target={{ inventory_hostname | quote }}
+      --level={{ amd_gpu_stress_level | quote }} --profile={{ amd_gpu_stress_parameters.rvsProfile | default('') | quote }}
+      {% for release in amd_gpu_stress_rvs_releases %}
+      --rvs={{ (release.rocm ~ '|' ~ swallow_artifacts.files[release.path] ~ '|' ~ release.sha256) | quote }}
+      {% endfor %}
+      --rccl-tests-url={{ swallow_artifacts.files[amd_gpu_stress_rccl_tests.path] | quote }}
+      --rccl-tests-sha256={{ amd_gpu_stress_rccl_tests.sha256 | quote }}
+      --ras-helper={{ lookup('ansible.builtin.file', role_path ~ '/../amd_gpu_ras/files/amd_gpu_ras.py') | b64encode | quote }}
+      --stage-timeout={{ amd_gpu_stress_stage_timeouts[amd_gpu_stress_level] | int }} --deadline={{ amd_gpu_stress_deadline | int }}
+      --min-hbm-gbps={{ amd_gpu_stress_parameters.minHbmGBps | default(-1) | float }}
+      --min-pcie-gbps={{ amd_gpu_stress_parameters.minPcieGBps | default(-1) | float }}
+      --min-xgmi-gbps={{ amd_gpu_stress_parameters.minXgmiGBps | default(-1) | float }}
+      --min-busbw-gbps={{ amd_gpu_stress_parameters.minBusBwGBps | default(-1) | float }}
+      --max-temperature={{ amd_gpu_stress_parameters.maxTemperatureC | default(95) | float }}
+      --max-correctable={{ amd_gpu_stress_parameters.maxCorrectable | default(-1) | int }}
+      --rocm={{ amd_gpu_stress_rocm | quote }} --root={{ amd_gpu_stress_root | quote }}
+      --amd-smi={{ amd_gpu_stress_amd_smi | quote }} --dmesg={{ amd_gpu_stress_dmesg | quote }}
+      --ldd={{ amd_gpu_stress_ldd | quote }} --make={{ amd_gpu_stress_make | quote }}
+      --workdir={{ amd_gpu_stress_workdir | quote }}
+      {% for gpu in amd_gpu_stress_gpus %} --gpu={{ gpu | quote }}{% endfor %}
+    executable: python3
+  vars:
+    amd_gpu_stress_level: "{{ amd_gpu_stress_parameters.level | default('full') }}"
+  become: true
+  register: amd_gpu_stress_run
+  changed_when: false
+  failed_when: false
+
+- name: Record what the stress judged
+  ansible.builtin.set_fact:
+    swallow_validation_results: >-
+      {{ swallow_validation_results | default([])
+         + ((amd_gpu_stress_run.stdout | from_json).checks
+            if amd_gpu_stress_run.rc | default(1) == 0 and (amd_gpu_stress_run.stdout | default('') | trim).startswith('{')
+            else amd_gpu_stress_unrun | from_json) }}
+  vars:
+    amd_gpu_stress_unrun: >-
+      [{% for check in amd_gpu_stress_checks %}{{ {'check': check, 'target': {'kind': 'server', 'id': inventory_hostname},
+        'verdict': 'error', 'summary': '[stress_helper_failed] the stress helper did not run: '
+        ~ ((amd_gpu_stress_run.stderr | default('', true) or amd_gpu_stress_run.msg | default('no output', true)) | trim)[-500:],
+        'measurements': [], 'evidence': ''} | to_json }}{{ ',' if not loop.last else '' }}{% endfor %}]

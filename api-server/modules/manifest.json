@@ -180,6 +180,11 @@
       "path": "accelerator/amd/playbooks/validate-amd-gpu-ras.yml"
     },
     {
+      "name": "validate-amd-gpu-stress",
+      "path": "accelerator/amd/playbooks/validate-amd-gpu-stress.yml",
+      "fetchesArtifacts": true
+    },
+    {
       "name": "validate-host-baseline",
       "path": "validation/host/playbooks/validate-host-baseline.yml"
     },

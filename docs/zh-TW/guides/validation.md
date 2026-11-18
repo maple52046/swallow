@@ -26,6 +26,7 @@ swallow 的模組提供這些 suite：
 | `network-mesh`（實驗性） | Server | Observe | 每台目標都能連到其他目標、能傳送不分段的完整大小封包，並接受 SSH 連線 |
 | `amd-gpu-basic`（實驗性） | Server | Workload | amdgpu driver 帶起 PCI 上的每張 AMD GPU，且每張都通過 HIP probe |
 | `amd-gpu-ras`（實驗性） | Server | Observe | 每張 AMD GPU 都開啟 RAS、沒有計到 uncorrectable error，driver 的 CPER 錯誤紀錄能經 AMD SMI 匯出且沒有 fatal 或 uncorrected；`maxCorrectable` 另外限制每張 GPU 的 correctable error |
+| `amd-gpu-stress`（實驗性） | Server | Workload | AMD AGFHC 健康檢查的開源替代：ROCm Validation Suite 達到 AMD 為該 GPU SKU 發布的 GEMM 與功耗目標，並通過 HBM、PCIe 與 XGMI 測試；跨全部 GPU 的 RCCL all-reduce 沒有錯誤值；壓測期間沒有 GPU 過熱或回報 XGMI error；壓測沒有新增 uncorrectable error 或 fatal CPER 紀錄 |
 | `kubernetes-smoke`（實驗性） | Kubernetes Platform | Observe | 節點 Ready、每台收工作的節點都能執行 pod、cluster DNS、Service 轉送 |
 
 Dashboard 的 **Validation → Suites** 是能力 catalog，依 Platform、Server 與自訂 script 分組。開啟 card 可查看 checks、parameters、impact、budget、最近 Runs 與引用它的 Schedules；直接連到實驗性 suite 仍可閱讀。
@@ -43,6 +44,18 @@ MI308X 的 SR-IOV virtual function 都看過這種情況。不是由 amdgpu driv
 `[amd_smi_missing]` 或 `[amd_smi_afid_unsupported]` 開頭。suite 讀不出來的東西也是 **Error**，不會用猜的：RAS feature
 mask（`[ras_features_unreadable]`）、GPU 的錯誤計數（`[ras_counts_unreadable]`），或 CPER 紀錄的 severity
 （`[cper_severity_unknown]`）。匯出失敗是 **Failed**，summary 以 `[cper_export_failed]` 開頭。
+
+`amd-gpu-stress` 在 8 張 GPU 的 Server 上以預設的 `level` `full` 大約占用 GPU 30 分鐘；`level` `quick` 保留同樣的測試與
+目標，只縮短每一項，作為約 15 分鐘的 smoke test。run 會把 AMD 模組宣告的、符合主機 ROCm 版本的 ROCm Validation Suite
+release 與 rccl-tests 原始碼下載到私有目錄（Site 使用 Local Repository 時從它取得），結束後刪除；不安裝任何東西。GEMM 與
+功耗的目標來自 AMD 為該 GPU SKU 提供的 conf，依 GPU 的名稱選擇；summary 以 `[rvs_profile_unknown]` 開頭時，設定
+`rvsProfile`（例如 `MI250X`）。頻寬只記錄，給了 `minHbmGBps`、`minPcieGBps`、`minXgmiGBps` 或 `minBusBwGBps` 才判定。壓測期間任何 GPU 溫度感測器超過
+`maxTemperatureC`（預設 95 °C）時，**Temperature and throttling** 失敗；evidence 列出 GPU 自己回報的 slowdown 與 shutdown
+溫度供對照。
+主機的 ROCm 缺少 ROCm Validation Suite 需要的 library（只有 runtime、沒有 rocBLAS 或 hipBLASLt 的 ROCm）時，它的六個
+check 是 **Error**，summary 以 `[rocm_libraries_missing]` 開頭；模組沒有宣告該 ROCm 版本的 release 是
+`[rvs_unsupported_rocm]`；主機沒有 HIP、RCCL 或 make 時，**RCCL all-reduce** 是 Error，summary 以
+`[rccl_build_unavailable]` 開頭。
 
 ### Script suite
 

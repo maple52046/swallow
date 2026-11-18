@@ -293,11 +293,12 @@ Validation Schedule 是 desired state（[desired-state-model.md](desired-state-m
 | `kubernetes-smoke` | Platform `kubernetes` | `platform` | `observe` | 是 | `nodes-ready`、`pod-scheduling`（每台 workload node）、`cluster-dns`、`service-routing` |
 | `amd-gpu-basic` | Accelerator `amd` | `servers` | `workload` | 是 | `kfd-gpus`、`hip-probe` |
 | `amd-gpu-ras` | Accelerator `amd` | `servers` | `observe` | 是 | `ras-enabled`、`ecc-counts`、`cper-export`、`cper-errors` |
+| `amd-gpu-stress` | Accelerator `amd` | `servers` | `workload` | 是 | `gemm`、`hbm-integrity`、`hbm-bandwidth`、`pcie-bandwidth`、`xgmi-bandwidth`、`xgmi-links`、`power`、`collectives`、`thermal-throttle`、`ras-after-stress` |
 | `host-baseline` | Validation `host` | `servers` | `observe` | 是 | `time-sync`、`cpu-count`、`memory`、`root-filesystem` |
 | `network-mesh` | Validation `network` | `servers` | `observe` | 是 | `ping-mesh`、`mtu`、`ssh-port` |
 | user suite | Validation `script` | `servers` | 依 suite | 否 | `script` |
 
-- `slurm-acceptance` 是部署原有的驗證，部署以 gate 組入它（§5）。其他五個模組 suite 是部署之外新加的檢查，標為實驗性，
+- `slurm-acceptance` 是部署原有的驗證，部署以 gate 組入它（§5）。其他六個模組 suite 是部署之外新加的檢查，標為實驗性，
   之後重新設計：被 Platform claim 的 Server 仍不接受 `workload` 的 servers suite，重新設計時改由 Platform 的 suite 提供
   成員上的網路與 GPU 檢查。
 
@@ -352,12 +353,65 @@ Validation Schedule 是 desired state（[desired-state-model.md](desired-state-m
   - evidence 以 UTF-8 bytes 計算上限（§4.2）。
   - export 寫在 helper 自己建立的私有暫存目錄，helper 回報之前刪除；它忽略 SIGHUP，所以 run 被取消時仍會在每個
     amd-smi 呼叫的 timeout 內結束並刪除目錄。不用 `--follow`，不啟動 `rdcd`。
+- `amd-gpu-stress` 是 AMD 專有的 AGFHC（AMD GPU Field Health Check）的開源替代：以 ROCm Validation Suite（RVS）與
+  rccl-tests 壓測每台 Server 的 AMD GPU，以 AMD 隨 RVS 為該 SKU 發布的門檻判定（role `amd_gpu_stress` 的 helper，以 root
+  執行）。`amd-gpu-ras` 只讀取、可常態排程；這個 suite 吃滿 GPU 數十分鐘，所以是 `workload`，兩者分開。每個 check 在每台
+  Server 一個 verdict，GPU 的細節放在 evidence 與 measurements：
+  - 工具：ROCm 10 起 RVS 與 TransferBench 不在 ROCm Core SDK 內（移到 ROCm-Extras），所以 run 自己帶。模組以 file
+    artifact 宣告每個 ROCm major 的 RVS release tarball（ROCm 10 是 RVS 1.7.112，ROCm 7 是 1.5.125）與 rccl-tests 固定
+    commit 的原始碼（獨立 repo 已退役，取最後一個 commit），playbook 標 `fetchesArtifacts`。helper 依主機
+    `/opt/rocm/.info/version` 的 major 選 release，從 `swallow_artifacts.files` 給的位址下載、以 sha256 驗證，解開在自己建立的
+    私有暫存目錄（`/var/tmp/swallow-amd-gpu-stress-*`）並改為 root 擁有（RVS 只載入 root 擁有的模組），rccl-tests 以主機的
+    hipcc 與 RCCL `make MPI=0` 建在同一個目錄。不安裝、不改設定，所以不跑 `artifact_sources`（它會改主機的 apt 來源）；
+    這個例外列在 `artifact_sources_playbook_test.go` 的 `selfFetchingPlaybooks`。下載由 helper 而不是 `get_url` 做，因為
+    run 被取消時只有等待工具的 helper 能保證刪除目錄（module-authoring.md §7.2）。
+  - SKU 與門檻：以 AMD SMI 的 market name、VBIOS 與 sysfs `product_name` 對 RVS 的 conf 目錄名（`conf/<profile>/`）做比對，
+    取最長的唯一相符者；參數 `rvsProfile` 可以指定。不寫死任何門檻：`gemm`（gst，`gst_single.conf` 每個 action 的
+    `target_stress`）與 `power`（iet，`iet_stress.conf` 的 `target_power`）只用該 SKU 的 conf，沒有時是 `error`
+    （`[rvs_conf_missing]`）；`hbm-integrity`（mem）、`hbm-bandwidth`（babel）、`pcie-bandwidth`（pebb）、`xgmi-bandwidth`
+    （pbqt）沒有該 SKU 的 conf 時用 RVS 的通用 conf。比對不到或不唯一是 `error`（`[rvs_profile_unknown]`，evidence 列出
+    偵測到的字串與可用的目錄）。
+  - 判定：RVS 結尾的摘要表是每個 action 的 PASS／FAIL，任一 FAIL 是 `failed`；表中缺少 conf 的 action 是 `error`
+    （`[rvs_result_missing]`）。gst 每顆 GPU 的 GFLOPS 與目標、iet 每顆 GPU 的峰值功耗（MI250X 一個 OAM 的兩顆 GCD 只有一顆
+    回報功耗）、babel 每個 function 最低的平均頻寬、pebb 與 pbqt 每個 action 最低的頻寬記成 measurement。頻寬沒有 AMD 的門檻，
+    參數 `minHbmGBps`、`minPcieGBps`、`minXgmiGBps` 給了才判定，沒給只記錄。`collectives` 以 `all_reduce_perf -b 256M -e 256M
+    -f 2 -g <GPU 數> -d half` 跑全部 GPU：有 wrong value 或指令失敗是 `failed`，bus bandwidth 依 `minBusBwGBps` 判定；主機沒有
+    hipcc、`rccl.h`、`librccl.so` 或 make 是 `error`（`[rccl_build_unavailable]`），建置失敗是 `error`（`[rccl_build_failed]`）。
+  - `thermal-throttle`：壓測期間每 2 秒以 `amd-smi metric -p -t -v` 取樣，任何溫度感測器超過 `maxTemperatureC`（預設 95）或
+    PROCHOT、socket、VR、HBM thermal 的 throttle accumulator 增加是 `failed`；`throttle_status` 只記在 evidence（功耗上限的
+    throttle 在 iet 下是預期的），GPU 自己回報的 slowdown 與 shutdown 溫度（`amd-smi static --limit`）也記在 evidence 供對照。
+    沒有任何樣本是 `error`（`[telemetry_unavailable]`）。MI250X 不回報 accumulator（N/A），只判定溫度。預設 95 °C 來自知識中
+    AGFHC 的判定（MI308X 的範例），不是每種 SKU 自己的上限。
+  - `xgmi-links`：壓測前讀一次 `amd-smi metric -x`（讀取會清除）、壓測後再讀，期間有 XGMI error 的 GPU，或
+    `amd-smi xgmi` 的 link status 有 down 的 link，是 `failed`；兩者都沒有回報或只有一顆 GPU 是 `skipped`。MI250X 回報
+    XGMI error status，不回報 link status。
+  - `ras-after-stress`：以 `amd_gpu_ras` 的 helper 在壓測前後各讀一次：新增 uncorrectable，或新增 FATAL、NONFATAL-UNCORRECTED
+    的 CPER 記錄是 `failed`；新增 correctable 依 `maxCorrectable`（每顆 GPU）判定，沒有給時只記錄。沒有 CPER ring 時只比
+    err_count。
+  - 參數 `level`：`full`（預設）原樣執行該 SKU 的 conf；`quick` 保留每個 action 與門檻，只把 `duration` 縮到 5 秒、`count`
+    到 1、mem 的 `num_passes` 與 `num_iter` 縮小，iet 保留 180 秒：iet 判定的是平均功耗，2026-11-19 在 MI250X 上 5 秒完全
+    爬不到目標，60 秒在兩次 run 中有一次有一個 package 沒達標。
+  - 前置條件：沒有 AMD GPU 的 Server 全部 `skipped`；amdgpu 一顆都沒有驅動是 `error`（`[amdgpu_not_bound]`）；沒有
+    `amd-smi` 是 `error`（`[amd_smi_missing]`）。RVS 的六個 check 在下列情況是 `error`：ROCm 沒有宣告對應的 RVS release
+    （`[rvs_unsupported_rocm]`）、下載失敗或 sha256 不符（`[artifact_download_failed]`）、主機的 ROCm 缺 RVS 需要的
+    library（`[rocm_libraries_missing]`，例如只有 runtime 的 ROCm 10 image 沒有 rocBLAS、hipBLASLt、hipRAND），以及 RVS
+    列不出 GPU（`[rvs_failed]`）；其他 check 照常判定。每個 RVS stage 與 all-reduce 有自己的 timeout（`full` 2400 秒、
+    `quick` 600 秒），並且不超過整個 helper 的期限（6600 秒，扣掉壓測後讀取與回報保留的 300 秒），所以卡住的 stage 是它自己的
+    `error`（`[stress_timeout]`），其他 check 的結果仍會回報；範本的 Task timeout 是 7200 秒，suite 的 `budgetSeconds` 7800 秒。
+  - 執行順序：RAS 基線、XGMI error 基線，接著 gst、iet、mem、babel、pebb、pbqt、rccl-tests，最後 XGMI 與 RAS 再讀一次；
+    一項失敗不中斷其他項。helper 忽略 SIGHUP，收到 SIGTERM 時停止正在執行的工具（整個 process group），最後一定刪除私有目錄。
+  - 2026-11-19 在 rich-gecko（MI250X，8 顆 GCD，ROCm 10.0.0 的 TheRock gfx90a dist，RVS 1.7.112）經 swallow 實測：`quick`
+    約 12 分鐘、十個 check 都通過；`full` 約 31 分鐘（RVS 的 gst 702 秒、iet 618 秒、pebb 162 秒、pbqt 111 秒、babel 85 秒、
+    mem 42 秒，rccl-tests 建置 84 秒），`thermal-throttle` 失敗：iet 以 560 W 跑 10 分鐘時四顆 GCD 的 hotspot 到 101–103 °C，
+    超過預設的 95 °C，也超過 GPU 自己回報的 hotspot slowdown 100 °C，其他九個 check 通過。ROCm 7 的 release 只宣告，沒有在
+    lab 執行過。
 - `host-baseline` 的 `cpu-count` 與 `memory` 預設以硬體盤點（inventory 的 `cpu_cores`、`memory_mib` 的 90%）為期望，沒有時
   是 `skipped`；`time-sync` 以部署的 `time_sync_check` 量測與 NTP server 的差距。
 - `network-mesh` 從每台目標以 inventory 連線的位址探測其他目標（ICMP、不分段的 MTU 大小封包、SSH port），所以結果描述
   管理網路；只有一台目標時三個 check 都是 `skipped`。
-- 需要安裝套件的檢查（iperf3 頻寬、RCCL allreduce、benchmark）與 HA 測試（impact `disruptive`）尚未提供：前者等
-  artifact 宣告與 Local Repository 涵蓋它們（[local-repository.md](local-repository.md)）。
+- 驗證不安裝套件、不改設定。需要工具的檢查可以把模組宣告的 file artifact（[local-repository.md](local-repository.md)）下載到
+  私有暫存目錄執行，結束時刪除（`amd-gpu-stress`）。需要安裝套件的檢查（iperf3 頻寬）與 HA 測試（impact `disruptive`）尚未
+  提供。
 
 ## 8. API、dashboard 與 CLI
 
@@ -390,7 +444,7 @@ Validation Schedule 是 desired state（[desired-state-model.md](desired-state-m
 | launcher（report run 的 Workflow 組成）、完成行為的接線 | `internal/app/validation_launcher.go`、`internal/app/validation_completions.go`、`internal/app/workflow_completions.go` |
 | gate 組入部署（Slurm 的 `slurm-acceptance`） | `internal/app/validation_gate.go`、`internal/app/platform_deployment_adapter.go` 的 `prepareSlurm` |
 | schedule controller 與它讀的部署 | `internal/core/validation/application/schedule_controller.go`、`internal/app/validation_deployments.go`（worker 在 `internal/app/worker.go` 登錄） |
-| 驗證內容 | `modules/validation/{host,network,script}/`、各模組的 `playbooks/validate-*.yml` 與它們的 role（`slurm_acceptance`、`k0s_smoke`、`amd_gpu_census`、`amd_gpu_ras`）、共用 role `modules/shared/roles/validation_report/` 與 `gpu_probe` |
+| 驗證內容 | `modules/validation/{host,network,script}/`、各模組的 `playbooks/validate-*.yml` 與它們的 role（`slurm_acceptance`、`k0s_smoke`、`amd_gpu_census`、`amd_gpu_ras`、`amd_gpu_stress`）、共用 role `modules/shared/roles/validation_report/` 與 `gpu_probe` |
 
 ## 10. 設計理由與相關文件
 

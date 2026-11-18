@@ -251,7 +251,8 @@ SELinux、哪些 role 依 OS 分支）見 platform-deployment §2.3。
      playbook 不得讀它，也不得設 `PIP_INDEX_URL`、`UV_*INDEX*` 這類變數或 `--index-url` 這類參數
      （`python_toolchain_playbook_test.go` 的 `TestOnlyArtifactSourcesChoosesAPythonIndex`）。
    - 內容測試 `artifact_sources_playbook_test.go` 強制：`uninstall-*` 以外會取得內容的 playbook 都有標記；標記的 playbook
-     先執行 `artifact_sources`；role 與 playbook 不寫網際網路的 URL（註解除外），每個 `get_url` 都從
+     先執行 `artifact_sources`（例外：由 helper 自己下載宣告的檔案到私有目錄、不改主機設定的驗證 playbook，列在
+     `selfFetchingPlaybooks`，§7.2）；role 與 playbook 不寫網際網路的 URL（註解除外），每個 `get_url` 都從
      `swallow_artifacts.files` 下載；role 固定的檔案與模組的宣告一致（§6）。
    - 過渡期的例外列在該測試的 allowlist，並附理由：RHEL 系列的 dnf 分支還用上游的 yum repository（Local Repository
      還沒有 rpm），Prometheus 模組還不在 artifact 宣告的範圍內。
@@ -411,8 +412,13 @@ role 的行為要實際執行才看得出來時（改寫主機設定、冪等、
 
 ### 7.2 寫驗證的 playbook
 
-- 只讀取或執行短暫的工作，不安裝套件、不改設定（需要套件的檢查等 artifact 宣告涵蓋它們，[validation.md](validation.md) §7）。
-  要在主機上執行的 probe 以 `ansible.builtin.script` 從 role 的 `files/` 複製，執行完就消失；不要安裝。
+- 只讀取或執行短暫的工作，不安裝套件、不改設定。要在主機上執行的 probe 以 `ansible.builtin.script` 從 role 的 `files/`
+  複製，執行完就消失；不要安裝。
+- 需要的工具不在主機上時，以模組宣告的 file artifact 帶來（§4 第 8 條的 `path` 與 `sha256` 寫在 role 的 defaults）：由
+  helper 從 `swallow_artifacts.files` 給的位址下載到它自己建立的私有暫存目錄、以 sha256 驗證後執行，結束時（包括被取消時）
+  刪除整個目錄，範例是 `amd_gpu_stress`（[validation.md](validation.md) §7）。playbook 標 `fetchesArtifacts`，但不跑
+  `artifact_sources`（它會改主機的 apt 與 registry 設定）；這種 playbook 列在 `artifact_sources_playbook_test.go` 的
+  `selfFetchingPlaybooks` 並寫出理由。
 - 以 run 發起者的帳號執行的 task（`become_user: <發起者>`，目前只有 `run-validation-script`，[validation.md](validation.md)
   §3.1）：主機沒有 `acl`，Ansible 無法把暫存檔交給另一個非 root 的帳號，所以這種 task 只能用 pipelined 的 module
   （`command`、`stat` 這類），task var 設 `ansible_pipelining: true`；`ansible.builtin.script`、`copy`、`template` 即使
