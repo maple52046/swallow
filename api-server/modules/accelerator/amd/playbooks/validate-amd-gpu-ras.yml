@@ -7,9 +7,11 @@
 # their AFID and classified (role amd_gpu_ras). One verdict per check and Server; the GPUs' detail is
 # in the evidence and measurements.
 #
-# A Server without an AMD GPU skips every check; GPUs whose driver keeps no CPER ring (before MI300,
-# such as MI250X) skip the two CPER checks. A host without debugfs or amd-smi, or with an AMD SMI that
-# cannot decode AFIDs, makes them errors whose summary starts with its code (validation.md §4.3). The
+# A Server without an AMD GPU skips every check. AMD GPUs amdgpu drives none of fail ras-enabled and
+# make the other checks errors ([amdgpu_not_bound]); only the GPUs it drives are judged. When the
+# driver keeps a CPER ring for none of them, the two CPER checks are skipped (validation.md §7 lists
+# where that was observed; the summary claims no cause). A host without debugfs or amd-smi, or with
+# an AMD SMI that cannot decode AFIDs, makes them errors whose summary starts with its code (§4.3). The
 # role only reads, as root; the export goes to a private directory removed before the role reports.
 # Every verdict reaches the run through the shared validation_report role.
 
@@ -24,14 +26,22 @@
     amd_gpu_ras_cper: "{{ amd_gpu_ras_report.cper | default({}) }}"
     amd_gpu_ras_rings: "{{ amd_gpu_ras_cper.ringGpus | default([]) | length }}"
     # What keeps every check from judging: no census, no AMD GPU, or a helper that did not run.
-    amd_gpu_ras_unjudged: >-
+    amd_gpu_ras_blocked: >-
       {{ 'error' if amd_gpu_census.pci | int < 0
          else ('skipped' if amd_gpu_census.pci | int == 0
                else ('error' if amd_gpu_ras_report.error is defined else '')) }}
-    amd_gpu_ras_unjudged_summary: >-
+    amd_gpu_ras_blocked_summary: >-
       {{ ('the GPU census did not run: ' ~ amd_gpu_census.error | default('')) if amd_gpu_census.pci | int < 0
          else ('no AMD GPU on PCI' if amd_gpu_census.pci | int == 0
                else 'the RAS helper did not run: ' ~ amd_gpu_ras_report.error | default('')) }}
+    # What keeps the checks after ras-enabled from judging: the above, or AMD GPUs amdgpu drives none
+    # of, whose RAS state cannot be read (ras-enabled fails on them instead).
+    amd_gpu_ras_unjudged: >-
+      {{ amd_gpu_ras_blocked or ('error' if amd_gpu_ras_report.driven | default(1) | int == 0 else '') }}
+    amd_gpu_ras_unjudged_summary: >-
+      {{ amd_gpu_ras_blocked_summary if amd_gpu_ras_blocked
+         else '[amdgpu_not_bound] the amdgpu driver drives none of the ' ~ amd_gpu_ras_report.gpus
+              ~ ' AMD GPUs, so their RAS state cannot be read' }}
     # What keeps the two CPER checks from judging, by the helper's CPER state.
     amd_gpu_ras_cper_unjudged:
       debugfs_unavailable: error
@@ -40,7 +50,7 @@
     amd_gpu_ras_cper_unjudged_summary:
       debugfs_unavailable: >-
         [debugfs_unavailable] debugfs is not mounted at /sys/kernel/debug, so the amdgpu driver's CPER ring cannot be read
-      no_ring: the amdgpu driver keeps no CPER ring for these GPUs (GPUs before MI300, such as MI250X, have none)
+      no_ring: the amdgpu driver keeps no CPER ring (debugfs dri/<n>/amdgpu_ring_cper) for any of these GPUs
       amd_smi_missing: "[amd_smi_missing] amd-smi is not installed or not on the PATH; it exports the CPER records"
   tasks:
     - name: Count the AMD GPUs
@@ -60,17 +70,22 @@
         name: validation_report
         tasks_from: record
       vars:
-        amd_gpu_ras_off: "{{ amd_gpu_ras_report.rasMissing | default([]) + amd_gpu_ras_report.rasOff | default([]) }}"
+        # A GPU amdgpu does not drive (unbound, or another driver) has no RAS on: a failure.
+        amd_gpu_ras_unbound: "{{ amd_gpu_ras_report.unbound | default([]) }}"
+        amd_gpu_ras_off: >-
+          {{ amd_gpu_ras_unbound + amd_gpu_ras_report.rasMissing | default([]) + amd_gpu_ras_report.rasOff | default([]) }}
         # A feature mask that cannot be read says nothing about RAS: an error, not a failure.
         amd_gpu_ras_unread: "{{ amd_gpu_ras_report.rasUnreadable | default([]) }}"
         validation_report_check: ras-enabled
         validation_report_verdict: >-
-          {{ amd_gpu_ras_unjudged
+          {{ amd_gpu_ras_blocked
              or ('failed' if amd_gpu_ras_off | length > 0 else ('error' if amd_gpu_ras_unread | length > 0 else 'passed')) }}
         validation_report_summary: >-
-          {{ amd_gpu_ras_unjudged_summary if amd_gpu_ras_unjudged
+          {{ amd_gpu_ras_blocked_summary if amd_gpu_ras_blocked
              else (('RAS is not on for ' ~ amd_gpu_ras_off | length ~ ' of ' ~ amd_gpu_ras_report.gpus ~ ' GPUs: '
-                    ~ ([('no RAS interface on ' ~ amd_gpu_ras_report.rasMissing | join(' '))
+                    ~ ([('not driven by amdgpu: ' ~ amd_gpu_ras_unbound | join(', '))
+                          if amd_gpu_ras_unbound | length > 0 else '',
+                        ('no RAS interface on ' ~ amd_gpu_ras_report.rasMissing | join(' '))
                           if amd_gpu_ras_report.rasMissing | length > 0 else '',
                         ('feature mask 0 on ' ~ amd_gpu_ras_report.rasOff | join(' '))
                           if amd_gpu_ras_report.rasOff | length > 0 else '',

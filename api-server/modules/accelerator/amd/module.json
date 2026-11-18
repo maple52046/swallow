@@ -130,7 +130,7 @@
     {
       "id": "amd-gpu-ras",
       "title": "AMD GPU RAS and error records",
-      "description": "Reads, without changing anything, what the amdgpu driver reports about each Server's AMD GPUs: that RAS is on, the uncorrectable and correctable error counts, and the CPER error records the driver keeps, exported and decoded through AMD SMI. A Server without an AMD GPU skips every check; GPUs whose driver keeps no CPER ring (before MI300, such as MI250X) skip the two CPER checks.",
+      "description": "Reads, without changing anything, what the amdgpu driver reports about each Server's AMD GPUs: that RAS is on, the uncorrectable and correctable error counts, and the CPER error records the driver keeps, exported and decoded through AMD SMI. A Server without an AMD GPU skips every check; when the driver keeps a CPER ring for none of its GPUs, the two CPER checks are skipped.",
       "target": "servers",
       "impact": "observe",
       "budgetSeconds": 600,

@@ -3,12 +3,14 @@
 amd_gpu_census role) for the amd-gpu-ras Validation Suite, and print one JSON object; the playbook
 judges it. It always exits 0 and never changes the host:
 
-- sysfs: each GPU's driver, its RAS feature mask (ras/features), and the ue/ce counts of every
+- sysfs: each GPU's driver (a GPU amdgpu does not drive is listed in unbound, and only the GPUs it
+  drives are read further), its RAS feature mask (ras/features), and the ue/ce counts of every
   ras/<block>_err_count; ras/aca_umc (MI300 bare metal) is kept raw, since its format is not
   documented. The kernel log's "ras initialized" lines are evidence only.
 - debugfs: which GPUs the driver keeps a CPER ring for (dri/<n>/amdgpu_ring_cper, mapped to a GPU
-  through dri/<n>/name). Without debugfs the CPER state is debugfs_unavailable; with no ring, no_ring
-  (GPUs before MI300, such as MI250X).
+  through dri/<n>/name). Without debugfs the CPER state is debugfs_unavailable; with no ring for any
+  GPU, no_ring. Why a driver keeps no ring is not inferred here (validation.md §7 records where it
+  was observed).
 - AMD SMI: `amd-smi ras --cper` exports the ring's records into a private temporary directory, and
   `amd-smi ras --afid --cper-file` decodes each record's AFID. The directory is removed before the
   report is printed, even when the run is stopped (SIGHUP is ignored, SIGTERM unwinds), and every
@@ -306,7 +308,10 @@ def main():
     report = {
         "gpus": len(gpus),
         "rasEnabled": [gpu["bdf"] for gpu in driven if gpu["ras"] and gpu["mask"]],
-        "rasMissing": [gpu["bdf"] for gpu in gpus if gpu["driver"] != "amdgpu" or not gpu["ras"]],
+        # GPUs amdgpu does not drive have no RAS state to read; "no driver" when unbound.
+        "driven": len(driven),
+        "unbound": ["%s (%s)" % (gpu["bdf"], gpu["driver"] or "no driver") for gpu in gpus if gpu["driver"] != "amdgpu"],
+        "rasMissing": [gpu["bdf"] for gpu in driven if not gpu["ras"]],
         "rasOff": [gpu["bdf"] for gpu in driven if gpu["ras"] and gpu["mask"] == 0],
         "rasUnreadable": [gpu["bdf"] for gpu in driven if gpu["ras"] and gpu["mask"] is None],
     }

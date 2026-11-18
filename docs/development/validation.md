@@ -323,8 +323,10 @@ Validation Schedule 是 desired state（[desired-state-model.md](desired-state-m
   主機沒有 HIP runtime（GPU container 自帶的 Kubernetes node）時 `hip-probe` 是 `skipped`。
 - `amd-gpu-ras` 只讀取 amdgpu driver 對每顆 GPU 的回報（role `amd_gpu_ras` 的 helper，以 root 執行），每個 check 在每台
   Server 一個 verdict，GPU 的細節放在 evidence 與 measurements：
-  - `ras-enabled`：每顆 amdgpu 驅動的 GPU 都有 `ras/`，`ras/features` 的 feature mask 不是 0；沒有 `ras/` 或 mask 是 0 是
-    `failed`。讀不出 mask 不能判定，是 `error`（`[ras_features_unreadable]`），summary 與 evidence 寫「unreadable」，不寫成
+  - `ras-enabled`：census 找到的每顆 AMD GPU 都由 amdgpu 驅動，有 `ras/`，`ras/features` 的 feature mask 不是 0。不是由
+    amdgpu 驅動的 GPU（summary 寫出 GPU 與它的 driver，沒有綁定時是「no driver」）、amdgpu 驅動卻沒有 `ras/`，或 mask 是 0，
+    都是 `failed`。只有部分 GPU 沒有綁定 amdgpu 時，其他三個 check 照常判定綁定的 GPU；amdgpu 一顆都沒有驅動時，它們是
+    `error`（`[amdgpu_not_bound]`），因為讀不到任何 RAS 狀態。讀不出 mask 不能判定，是 `error`（`[ras_features_unreadable]`），summary 與 evidence 寫「unreadable」，不寫成
     mask 0。evidence 附上 kernel log 的 `ras initialized` 行。
   - `ecc-counts`：`ras/<block>_err_count` 的 `ue` 大於 0 是 `failed`；`ce` 是 measurement，超過參數 `maxCorrectable`（每顆
     GPU）才 `failed`，沒有給時只記錄。有 `ras/` 卻沒有任何讀得出的 err_count 的 GPU 是 `error`（`[ras_counts_unreadable]`，
@@ -338,8 +340,13 @@ Validation Schedule 是 desired state（[desired-state-model.md](desired-state-m
     最嚴重的為準。有 FATAL 或 NONFATAL-UNCORRECTED 的記錄，或 corrected 超過 `maxCorrectable` 乘以有 CPER ring 的 GPU 數
     （export 不說記錄來自哪顆 GPU）是 `failed`。沒有這些時，判斷不出 severity 的記錄不猜，是 `error`
     （`[cper_severity_unknown]`，列出記錄）。
-  - 沒有 AMD GPU 的 Server 四個 check 都是 `skipped`；driver 沒有 CPER ring（debugfs 的 `dri/<n>/amdgpu_ring_cper`，
-    MI300 之前的 GPU，例如 MI250X）時兩個 CPER check 是 `skipped`。debugfs 沒有掛載、沒有 `amd-smi`、AMD SMI 不能解碼
+  - 沒有 AMD GPU 的 Server 四個 check 都是 `skipped`；driver 沒有為任何一顆 GPU 保留 CPER ring（debugfs 的
+    `dri/<n>/amdgpu_ring_cper`）時兩個 CPER check 是 `skipped`，summary 不推測原因。2026-11-18 實測沒有 CPER ring 的組合：
+    MI250X（gfx90a）bare metal，ROCm 10.0.0、amdgpu 31.50，`ras/features` 不是 0，每顆 GPU 都有 `gfx`、`hdp`、`mca.mp0`、
+    `mca.mp1`、`mca.mpio`、`mmhub`、`pcie_bif`、`sdma`、`umc`（ue、ce、de）與 `xgmi_wafl` 的 err_count，而 `amd-smi ras
+    --cper` 回報 `AMDSMI_STATUS_NOT_SUPPORTED`（要求啟用 CPER）；MI308X 的 SR-IOV VF guest（amdgpu 31.50）有
+    `ras/features`，沒有任何 err_count（所以 `ecc-counts` 是 `[ras_counts_unreadable]`）。amd-smi 在 `/opt/rocm/bin`，
+    non-login shell 的 PATH 沒有它，helper 會找那裡。debugfs 沒有掛載、沒有 `amd-smi`、AMD SMI 不能解碼
     AFID（已有判定 `failed` 的記錄時仍是 `failed`）、export 失敗時，CPER check 是 `error`，summary 以 `[debugfs_unavailable]`、`[amd_smi_missing]`、
     `[amd_smi_afid_unsupported]`、`[cper_export_failed]`（`cper-errors`；`cper-export` 本身是 `failed`，summary 一樣以它開頭）開頭。
   - evidence 以 UTF-8 bytes 計算上限（§4.2）。

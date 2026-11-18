@@ -616,6 +616,8 @@ func TestAMDGPURASJudgesTheDriversReport(t *testing.T) {
 		gpus            int
 		secondMask      string // the second GPU's feature mask; default 0x7fff
 		secondCounts    string // what every err_count of the second GPU holds; default parsable counts
+		noCounts        bool   // no GPU has an err_count file
+		unbound         int    // how many GPUs, from the first, no driver is bound to
 		ue              string // the first GPU's umc uncorrectable count; default 0
 		noRing          bool
 		noDebugfs       bool
@@ -715,8 +717,35 @@ func TestAMDGPURASJudgesTheDriversReport(t *testing.T) {
 		},
 		{
 			name: "no CPER ring", gpus: 2, noRing: true,
-			want:      map[string]string{"ras-enabled": "passed", "ecc-counts": "passed", "cper-export": "skipped", "cper-errors": "skipped"},
-			summaries: map[string]string{"cper-export": "keeps no CPER ring", "cper-errors": "such as MI250X"},
+			want: map[string]string{"ras-enabled": "passed", "ecc-counts": "passed", "cper-export": "skipped", "cper-errors": "skipped"},
+			summaries: map[string]string{
+				"cper-export": "the amdgpu driver keeps no CPER ring (debugfs dri/<n>/amdgpu_ring_cper) for any of these GPUs",
+				"cper-errors": "the amdgpu driver keeps no CPER ring (debugfs dri/<n>/amdgpu_ring_cper) for any of these GPUs"},
+			absent: map[string][]string{"cper-export": {"MI250X", "MI300"}, "cper-errors": {"MI250X", "MI300"}},
+		},
+		{
+			// An SR-IOV virtual function: RAS features, but neither error counts nor a CPER ring.
+			name: "no error count files", gpus: 2, noCounts: true, noRing: true,
+			want:      map[string]string{"ras-enabled": "passed", "ecc-counts": "error", "cper-export": "skipped", "cper-errors": "skipped"},
+			summaries: map[string]string{"ecc-counts": "[ras_counts_unreadable] no RAS error count (ras/*_err_count) can be read on 0000:0a:00.0 0000:0b:00.0"},
+			evidence:  map[string]string{"ecc-counts": "0000:0a:00.0: no readable error count (no ras/*_err_count)"},
+		},
+		{
+			name: "amdgpu drives no GPU", gpus: 2, unbound: 2, records: corrected,
+			want: map[string]string{"ras-enabled": "failed", "ecc-counts": "error", "cper-export": "error", "cper-errors": "error"},
+			summaries: map[string]string{
+				"ras-enabled": "RAS is not on for 2 of 2 GPUs: not driven by amdgpu: 0000:0a:00.0 (no driver), 0000:0b:00.0 (no driver)",
+				"ecc-counts":  "[amdgpu_not_bound] the amdgpu driver drives none of the 2 AMD GPUs, so their RAS state cannot be read",
+				"cper-export": "[amdgpu_not_bound]", "cper-errors": "[amdgpu_not_bound]"},
+			evidence: map[string]string{"ras-enabled": "0000:0a:00.0: driven by no driver, not amdgpu"},
+			absent:   map[string][]string{"ras-enabled": {"no RAS interface"}},
+		},
+		{
+			name: "amdgpu drives one of two GPUs", gpus: 2, unbound: 1, records: corrected,
+			want: map[string]string{"ras-enabled": "failed", "ecc-counts": "passed", "cper-export": "passed", "cper-errors": "passed"},
+			summaries: map[string]string{"ras-enabled": "RAS is not on for 1 of 2 GPUs: not driven by amdgpu: 0000:0a:00.0 (no driver)",
+				"ecc-counts": "no uncorrectable error on 1 GPUs", "cper-export": "from the CPER rings of 1 GPUs"},
+			absent: map[string][]string{"ras-enabled": {"0000:0b:00.0 (no driver)"}},
 		},
 		{
 			name: "no amd-smi", gpus: 2, noAMDSMI: true,
@@ -756,7 +785,15 @@ func TestAMDGPURASJudgesTheDriversReport(t *testing.T) {
 			if i == 1 && tc.secondCounts != "" {
 				counts = map[string]string{"umc": tc.secondCounts, "gfx": tc.secondCounts}
 			}
+			if tc.noCounts {
+				counts = nil
+			}
 			fakeAMDRAS(t, root, bdf, mask, counts)
+			if i < tc.unbound {
+				if err := os.Remove(filepath.Join(root, "sys", "bus", "pci", "devices", bdf, "driver")); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if !tc.noDebugfs {
 				fakeDRIDebugfs(t, root, strconv.Itoa(i), bdf, !tc.noRing)
 				fakeDRIDebugfs(t, root, strconv.Itoa(128+i), bdf, false)
@@ -824,7 +861,7 @@ func TestAMDGPURASJudgesTheDriversReport(t *testing.T) {
 				t.Errorf("%s: the export's directory %s stayed on the host (stat: %v)", tc.name, folder, err)
 			}
 		}
-		wantExport := tc.gpus > 0 && !tc.noRing && !tc.noDebugfs && !tc.noAMDSMI
+		wantExport := tc.gpus > tc.unbound && !tc.noRing && !tc.noDebugfs && !tc.noAMDSMI
 		if exported := strings.Contains(string(calls), "ras --cper --severity all --gpu all --folder "); exported != wantExport {
 			t.Errorf("%s: amd-smi exported the CPER records: %v, want %v (calls %q)", tc.name, exported, wantExport, calls)
 		}

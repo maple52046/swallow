@@ -43,8 +43,11 @@ other users wrote; it never hides module suites or your own.
 
 A Server without an AMD GPU, a cluster without containers or MPI turned on, and
 similar cases skip the checks that do not apply; a skipped check does not fail a
-run. `amd-gpu-ras` skips its two CPER checks on GPUs whose driver keeps no CPER
-error records (GPUs before MI300, such as MI250X). A host without debugfs mounted
+run. `amd-gpu-ras` skips its two CPER checks when the amdgpu driver keeps no CPER
+error records for any of the GPUs; this was seen on MI250X bare metal and on an
+MI308X SR-IOV virtual function. AMD GPUs that the amdgpu driver does not drive
+fail **RAS is on**; when it drives none of them, the other checks are **Error**
+with `[amdgpu_not_bound]`. A host without debugfs mounted
 or without `amd-smi`, or whose AMD SMI cannot decode AFIDs, makes those checks
 **Error**, with a summary that starts with `[debugfs_unavailable]`,
 `[amd_smi_missing]`, or `[amd_smi_afid_unsupported]`. What the suite cannot read
