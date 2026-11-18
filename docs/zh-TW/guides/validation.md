@@ -38,7 +38,9 @@ schedule 一律顯示。同樣地，**Hide other users' suites**（預設關閉�
 沒有 AMD GPU 的 Server、沒有開啟 container 或 MPI 的叢集等情況，不適用的 check 會是 skipped；skipped 不會讓 run 失敗。
 driver 沒有保留 CPER 錯誤紀錄的 GPU（MI300 之前的 GPU，例如 MI250X），`amd-gpu-ras` 的兩個 CPER check 是 skipped。主機沒有
 掛載 debugfs、沒有 `amd-smi`，或 AMD SMI 不能解碼 AFID 時，這兩個 check 是 **Error**，summary 以 `[debugfs_unavailable]`、
-`[amd_smi_missing]` 或 `[amd_smi_afid_unsupported]` 開頭。
+`[amd_smi_missing]` 或 `[amd_smi_afid_unsupported]` 開頭。suite 讀不出來的東西也是 **Error**，不會用猜的：RAS feature
+mask（`[ras_features_unreadable]`）、GPU 的錯誤計數（`[ras_counts_unreadable]`），或 CPER 紀錄的 severity
+（`[cper_severity_unknown]`）。匯出失敗是 **Failed**，summary 以 `[cper_export_failed]` 開頭。
 
 ### Script suite
 

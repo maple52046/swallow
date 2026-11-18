@@ -323,19 +323,26 @@ Validation Schedule 是 desired state（[desired-state-model.md](desired-state-m
   主機沒有 HIP runtime（GPU container 自帶的 Kubernetes node）時 `hip-probe` 是 `skipped`。
 - `amd-gpu-ras` 只讀取 amdgpu driver 對每顆 GPU 的回報（role `amd_gpu_ras` 的 helper，以 root 執行），每個 check 在每台
   Server 一個 verdict，GPU 的細節放在 evidence 與 measurements：
-  - `ras-enabled`：每顆 amdgpu 驅動的 GPU 都有 `ras/`，`ras/features` 的 feature mask 不是 0；evidence 附上 kernel log 的
-    `ras initialized` 行。
+  - `ras-enabled`：每顆 amdgpu 驅動的 GPU 都有 `ras/`，`ras/features` 的 feature mask 不是 0；沒有 `ras/` 或 mask 是 0 是
+    `failed`。讀不出 mask 不能判定，是 `error`（`[ras_features_unreadable]`），summary 與 evidence 寫「unreadable」，不寫成
+    mask 0。evidence 附上 kernel log 的 `ras initialized` 行。
   - `ecc-counts`：`ras/<block>_err_count` 的 `ue` 大於 0 是 `failed`；`ce` 是 measurement，超過參數 `maxCorrectable`（每顆
-    GPU）才 `failed`，沒有給時只記錄。MI300 的 `ras/aca_umc` 格式沒有文件，原樣放在 evidence。
-  - `cper-export`：`amd-smi ras --cper --severity all --gpu all --folder <私有暫存目錄>` 成功，0 筆是 `passed`。
-  - `cper-errors`：以 `amd-smi ras --afid --cper-file` 逐筆解碼 AFID，依 AFID 15–34 的分類（category、error type、
-    severity；不含 AMD 不公開的 service-action 建議）寫進 evidence，表外的 AFID 只列數字。severity 取自記錄的 JSON、
-    檔名（`fatal-3.cper`），最後是 AFID；有 FATAL、NONFATAL-UNCORRECTED 或判斷不出 severity 的記錄是 `failed`，corrected
-    超過 `maxCorrectable` 乘以有 CPER ring 的 GPU 數是 `failed`（export 不說記錄來自哪顆 GPU）。
+    GPU）才 `failed`，沒有給時只記錄。有 `ras/` 卻沒有任何讀得出的 err_count 的 GPU 是 `error`（`[ras_counts_unreadable]`，
+    列出 GPU），除非另有 GPU 已判定 `failed`。MI300 的 `ras/aca_umc` 格式沒有文件，原樣放在 evidence。
+  - `cper-export`：`amd-smi ras --cper --severity all --gpu all --folder <私有暫存目錄>` 成功，0 筆是 `passed`。exit code
+    不是 0，或是 0 卻沒有寫出記錄而輸出提到 error、fail、not supported，都是 `failed`，summary 以 `[cper_export_failed]`
+    開頭，evidence 附上 amd-smi 的輸出。
+  - `cper-errors`：以 `amd-smi ras --afid --cper-file` 逐筆解碼 AFID（輸出有「AFID」字樣時只取它後面的數字），依 AFID
+    15–34 的分類（category、error type、severity；不含 AMD 不公開的 service-action 建議）寫進 evidence，表外的 AFID 只列
+    數字。severity 取記錄的 JSON、檔名（`fatal-3.cper`；`boot-0.cper` 不說）與 AFID 之中最嚴重的一個，所以來源不一致時以
+    最嚴重的為準。有 FATAL 或 NONFATAL-UNCORRECTED 的記錄，或 corrected 超過 `maxCorrectable` 乘以有 CPER ring 的 GPU 數
+    （export 不說記錄來自哪顆 GPU）是 `failed`。沒有這些時，判斷不出 severity 的記錄不猜，是 `error`
+    （`[cper_severity_unknown]`，列出記錄）。
   - 沒有 AMD GPU 的 Server 四個 check 都是 `skipped`；driver 沒有 CPER ring（debugfs 的 `dri/<n>/amdgpu_ring_cper`，
     MI300 之前的 GPU，例如 MI250X）時兩個 CPER check 是 `skipped`。debugfs 沒有掛載、沒有 `amd-smi`、AMD SMI 不能解碼
-    AFID（已有 fatal 或 uncorrected 記錄時仍是 `failed`）、export 失敗時，CPER check 是 `error`，summary 以 `[debugfs_unavailable]`、`[amd_smi_missing]`、
-    `[amd_smi_afid_unsupported]`、`[cper_export_failed]`（`cper-errors`；`cper-export` 本身是 `failed`）開頭。
+    AFID（已有判定 `failed` 的記錄時仍是 `failed`）、export 失敗時，CPER check 是 `error`，summary 以 `[debugfs_unavailable]`、`[amd_smi_missing]`、
+    `[amd_smi_afid_unsupported]`、`[cper_export_failed]`（`cper-errors`；`cper-export` 本身是 `failed`，summary 一樣以它開頭）開頭。
+  - evidence 以 UTF-8 bytes 計算上限（§4.2）。
   - export 寫在 helper 自己建立的私有暫存目錄，helper 回報之前刪除；它忽略 SIGHUP，所以 run 被取消時仍會在每個
     amd-smi 呼叫的 timeout 內結束並刪除目錄。不用 `--follow`，不啟動 `rdcd`。
 - `host-baseline` 的 `cpu-count` 與 `memory` 預設以硬體盤點（inventory 的 `cpu_cores`、`memory_mib` 的 90%）為期望，沒有時

@@ -47,7 +47,11 @@ run. `amd-gpu-ras` skips its two CPER checks on GPUs whose driver keeps no CPER
 error records (GPUs before MI300, such as MI250X). A host without debugfs mounted
 or without `amd-smi`, or whose AMD SMI cannot decode AFIDs, makes those checks
 **Error**, with a summary that starts with `[debugfs_unavailable]`,
-`[amd_smi_missing]`, or `[amd_smi_afid_unsupported]`.
+`[amd_smi_missing]`, or `[amd_smi_afid_unsupported]`. What the suite cannot read
+is an Error too, never a guess: a RAS feature mask (`[ras_features_unreadable]`),
+a GPU's error counts (`[ras_counts_unreadable]`), or the severity of a CPER record
+(`[cper_severity_unknown]`). A failed export is **Failed**, and its summary starts
+with `[cper_export_failed]`.
 
 ### Script suites
 
