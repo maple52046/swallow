@@ -5,7 +5,8 @@
   "version": "0.1.0",
   "playbooks": [
     "configure-amd-gpu-operator",
-    "validate-amd-gpu-basic"
+    "validate-amd-gpu-basic",
+    "validate-amd-gpu-ras"
   ],
   "workflowKinds": [
     "configure-gpu-operator",
@@ -63,6 +64,29 @@
           "timeoutSeconds": 900
         }
       ]
+    },
+    "amd-gpu-ras": {
+      "version": 1,
+      "jobs": [
+        {
+          "name": "validate-amd-gpus",
+          "label": "Validate AMD GPUs",
+          "retry": "job"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "amd-gpu-ras",
+          "name": "Check the AMD GPUs' RAS and error records",
+          "job": "validate-amd-gpus",
+          "content": {
+            "type": "host-automation",
+            "playbook": "validate-amd-gpu-ras"
+          },
+          "targets": "servers",
+          "timeoutSeconds": 540
+        }
+      ]
     }
   },
   "validations": [
@@ -99,6 +123,54 @@
           "id": "hip-probe",
           "title": "HIP probe",
           "description": "Every GPU the driver brings up allocates, fills, and frees memory through the HIP runtime, three times.",
+          "gating": true
+        }
+      ]
+    },
+    {
+      "id": "amd-gpu-ras",
+      "title": "AMD GPU RAS and error records",
+      "description": "Reads, without changing anything, what the amdgpu driver reports about each Server's AMD GPUs: that RAS is on, the uncorrectable and correctable error counts, and the CPER error records the driver keeps, exported and decoded through AMD SMI. A Server without an AMD GPU skips every check; GPUs whose driver keeps no CPER ring (before MI300, such as MI250X) skip the two CPER checks.",
+      "target": "servers",
+      "impact": "observe",
+      "budgetSeconds": 600,
+      "experimental": true,
+      "template": "amd-gpu-ras",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "maxCorrectable": {
+            "type": "integer",
+            "title": "Correctable errors allowed per GPU",
+            "description": "The correctable errors each GPU may have counted, and the corrected CPER records each GPU with a CPER ring may have written, before the check fails. Default: none; correctable errors are recorded, not judged.",
+            "minimum": 0
+          }
+        }
+      },
+      "checks": [
+        {
+          "id": "ras-enabled",
+          "title": "RAS is on",
+          "description": "Every AMD GPU the amdgpu driver drives has a RAS interface whose feature mask is not zero.",
+          "gating": true
+        },
+        {
+          "id": "ecc-counts",
+          "title": "Error counts",
+          "description": "No GPU has counted an uncorrectable error; with maxCorrectable, no GPU has counted more correctable errors than that.",
+          "gating": true
+        },
+        {
+          "id": "cper-export",
+          "title": "CPER export",
+          "description": "AMD SMI exports the CPER records of the driver's CPER ring; no record is a pass.",
+          "gating": true
+        },
+        {
+          "id": "cper-errors",
+          "title": "CPER records",
+          "description": "No exported CPER record is fatal or uncorrected; with maxCorrectable, the corrected records stay within it per GPU. Each record's AFID is decoded and classified.",
           "gating": true
         }
       ]

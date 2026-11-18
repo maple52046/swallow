@@ -292,11 +292,12 @@ Validation Schedule 是 desired state（[desired-state-model.md](desired-state-m
 | `slurm-acceptance` | Platform `slurm` | `platform` | `workload` | 否 | `srun-all-nodes`（不是 gating）、`shared-node`、`oci-container`、`mpi-pmix`、`gpu-gres`、`gpu-container`（每台 GPU node） |
 | `kubernetes-smoke` | Platform `kubernetes` | `platform` | `observe` | 是 | `nodes-ready`、`pod-scheduling`（每台 workload node）、`cluster-dns`、`service-routing` |
 | `amd-gpu-basic` | Accelerator `amd` | `servers` | `workload` | 是 | `kfd-gpus`、`hip-probe` |
+| `amd-gpu-ras` | Accelerator `amd` | `servers` | `observe` | 是 | `ras-enabled`、`ecc-counts`、`cper-export`、`cper-errors` |
 | `host-baseline` | Validation `host` | `servers` | `observe` | 是 | `time-sync`、`cpu-count`、`memory`、`root-filesystem` |
 | `network-mesh` | Validation `network` | `servers` | `observe` | 是 | `ping-mesh`、`mtu`、`ssh-port` |
 | user suite | Validation `script` | `servers` | 依 suite | 否 | `script` |
 
-- `slurm-acceptance` 是部署原有的驗證，部署以 gate 組入它（§5）。其他四個模組 suite 是部署之外新加的檢查，標為實驗性，
+- `slurm-acceptance` 是部署原有的驗證，部署以 gate 組入它（§5）。其他五個模組 suite 是部署之外新加的檢查，標為實驗性，
   之後重新設計：被 Platform claim 的 Server 仍不接受 `workload` 的 servers suite，重新設計時改由 Platform 的 suite 提供
   成員上的網路與 GPU 檢查。
 
@@ -320,6 +321,23 @@ Validation Schedule 是 desired state（[desired-state-model.md](desired-state-m
 - `amd-gpu-basic` 比對 PCI 上的 AMD GPU（不含綁定 `vfio-pci`、交給 VM 的）與 KFD topology 的 GPU，再以 Slurm 部署共用的
   HIP probe（共用 role `gpu_probe` 的 `run.yml`，只在執行時複製）驗證；沒有 AMD GPU 的 Server 兩個 check 都是 `skipped`，
   主機沒有 HIP runtime（GPU container 自帶的 Kubernetes node）時 `hip-probe` 是 `skipped`。
+- `amd-gpu-ras` 只讀取 amdgpu driver 對每顆 GPU 的回報（role `amd_gpu_ras` 的 helper，以 root 執行），每個 check 在每台
+  Server 一個 verdict，GPU 的細節放在 evidence 與 measurements：
+  - `ras-enabled`：每顆 amdgpu 驅動的 GPU 都有 `ras/`，`ras/features` 的 feature mask 不是 0；evidence 附上 kernel log 的
+    `ras initialized` 行。
+  - `ecc-counts`：`ras/<block>_err_count` 的 `ue` 大於 0 是 `failed`；`ce` 是 measurement，超過參數 `maxCorrectable`（每顆
+    GPU）才 `failed`，沒有給時只記錄。MI300 的 `ras/aca_umc` 格式沒有文件，原樣放在 evidence。
+  - `cper-export`：`amd-smi ras --cper --severity all --gpu all --folder <私有暫存目錄>` 成功，0 筆是 `passed`。
+  - `cper-errors`：以 `amd-smi ras --afid --cper-file` 逐筆解碼 AFID，依 AFID 15–34 的分類（category、error type、
+    severity；不含 AMD 不公開的 service-action 建議）寫進 evidence，表外的 AFID 只列數字。severity 取自記錄的 JSON、
+    檔名（`fatal-3.cper`），最後是 AFID；有 FATAL、NONFATAL-UNCORRECTED 或判斷不出 severity 的記錄是 `failed`，corrected
+    超過 `maxCorrectable` 乘以有 CPER ring 的 GPU 數是 `failed`（export 不說記錄來自哪顆 GPU）。
+  - 沒有 AMD GPU 的 Server 四個 check 都是 `skipped`；driver 沒有 CPER ring（debugfs 的 `dri/<n>/amdgpu_ring_cper`，
+    MI300 之前的 GPU，例如 MI250X）時兩個 CPER check 是 `skipped`。debugfs 沒有掛載、沒有 `amd-smi`、AMD SMI 不能解碼
+    AFID（已有 fatal 或 uncorrected 記錄時仍是 `failed`）、export 失敗時，CPER check 是 `error`，summary 以 `[debugfs_unavailable]`、`[amd_smi_missing]`、
+    `[amd_smi_afid_unsupported]`、`[cper_export_failed]`（`cper-errors`；`cper-export` 本身是 `failed`）開頭。
+  - export 寫在 helper 自己建立的私有暫存目錄，helper 回報之前刪除；它忽略 SIGHUP，所以 run 被取消時仍會在每個
+    amd-smi 呼叫的 timeout 內結束並刪除目錄。不用 `--follow`，不啟動 `rdcd`。
 - `host-baseline` 的 `cpu-count` 與 `memory` 預設以硬體盤點（inventory 的 `cpu_cores`、`memory_mib` 的 90%）為期望，沒有時
   是 `skipped`；`time-sync` 以部署的 `time_sync_check` 量測與 NTP server 的差距。
 - `network-mesh` 從每台目標以 inventory 連線的位址探測其他目標（ICMP、不分段的 MTU 大小封包、SSH port），所以結果描述
@@ -358,7 +376,7 @@ Validation Schedule 是 desired state（[desired-state-model.md](desired-state-m
 | launcher（report run 的 Workflow 組成）、完成行為的接線 | `internal/app/validation_launcher.go`、`internal/app/validation_completions.go`、`internal/app/workflow_completions.go` |
 | gate 組入部署（Slurm 的 `slurm-acceptance`） | `internal/app/validation_gate.go`、`internal/app/platform_deployment_adapter.go` 的 `prepareSlurm` |
 | schedule controller 與它讀的部署 | `internal/core/validation/application/schedule_controller.go`、`internal/app/validation_deployments.go`（worker 在 `internal/app/worker.go` 登錄） |
-| 驗證內容 | `modules/validation/{host,network,script}/`、各模組的 `playbooks/validate-*.yml` 與它們的 role（`slurm_acceptance`、`k0s_smoke`、`amd_gpu_census`）、共用 role `modules/shared/roles/validation_report/` 與 `gpu_probe` |
+| 驗證內容 | `modules/validation/{host,network,script}/`、各模組的 `playbooks/validate-*.yml` 與它們的 role（`slurm_acceptance`、`k0s_smoke`、`amd_gpu_census`、`amd_gpu_ras`）、共用 role `modules/shared/roles/validation_report/` 與 `gpu_probe` |
 
 ## 10. 設計理由與相關文件
 

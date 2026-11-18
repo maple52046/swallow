@@ -4,7 +4,7 @@
 
 Validation checks that deployed Servers and Platforms work, not merely that they
 were deployed: clocks, CPUs, memory, and disks of a Server; the network between
-Servers; AMD GPUs through the HIP runtime; whether a Kubernetes cluster runs pods
+Servers; AMD GPUs through the HIP runtime and their RAS error reports; whether a Kubernetes cluster runs pods
 and routes Services; whether a Slurm cluster hands out working GPUs, runs
 containers, and launches MPI. You pick a **Validation Suite**, its targets, and its
 parameters; swallow runs it as a Workflow and records every check's verdict on
@@ -28,6 +28,7 @@ swallow's modules provide suites:
 | `host-baseline` (experimental) | Servers | Observe | Time synchronization with the installation's NTP server, CPU count, memory, root filesystem free and writable |
 | `network-mesh` (experimental) | Servers | Observe | Every target reaches every other one, carries a full-sized unfragmented packet, and accepts SSH connections |
 | `amd-gpu-basic` (experimental) | Servers | Workload | The amdgpu driver brings up every AMD GPU on PCI, and the HIP probe works on each |
+| `amd-gpu-ras` (experimental) | Servers | Observe | RAS is on for every AMD GPU, no uncorrectable error is counted, and the driver's CPER error records export through AMD SMI with none fatal or uncorrected; `maxCorrectable` also limits correctable errors per GPU |
 | `kubernetes-smoke` (experimental) | A Kubernetes Platform | Observe | Nodes Ready, a pod runs on every node that takes workloads, cluster DNS, Service routing |
 
 In the Dashboard, **Validation → Suites** is a capability catalog grouped into Platform, Server, and custom script suites. Open a card for its checks, parameters, impact, budget, recent Runs, and Schedules. Deep links to an experimental suite remain readable.
@@ -42,7 +43,11 @@ other users wrote; it never hides module suites or your own.
 
 A Server without an AMD GPU, a cluster without containers or MPI turned on, and
 similar cases skip the checks that do not apply; a skipped check does not fail a
-run.
+run. `amd-gpu-ras` skips its two CPER checks on GPUs whose driver keeps no CPER
+error records (GPUs before MI300, such as MI250X). A host without debugfs mounted
+or without `amd-smi`, or whose AMD SMI cannot decode AFIDs, makes those checks
+**Error**, with a summary that starts with `[debugfs_unavailable]`,
+`[amd_smi_missing]`, or `[amd_smi_afid_unsupported]`.
 
 ### Script suites
 

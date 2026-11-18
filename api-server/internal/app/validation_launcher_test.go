@@ -53,7 +53,7 @@ func TestModuleSuitesCarryTheirExperimentalFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]bool{
-		"host-baseline": true, "network-mesh": true, "amd-gpu-basic": true, "kubernetes-smoke": true,
+		"host-baseline": true, "network-mesh": true, "amd-gpu-basic": true, "amd-gpu-ras": true, "kubernetes-smoke": true,
 		slurmAcceptanceSuite: false,
 	}
 	for _, suite := range suites {

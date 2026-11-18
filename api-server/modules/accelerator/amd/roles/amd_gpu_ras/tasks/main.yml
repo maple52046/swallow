@@ -1,0 +1,25 @@
+---
+# Read the RAS state of this host's AMD GPUs (files/amd_gpu_ras.py) and leave it in amd_gpu_ras for
+# the playbook to judge: the RAS feature masks, the error counts, and the driver's CPER records,
+# exported by AMD SMI into a private temporary directory the helper removes before it reports. The
+# helper runs as root, because debugfs and the CPER export need it; it only reads. A helper that
+# cannot run leaves amd_gpu_ras.error. Nothing on the host changes.
+
+- name: Read the AMD GPUs' RAS state
+  ansible.builtin.script:
+    cmd: >-
+      amd_gpu_ras.py --root={{ amd_gpu_ras_root | quote }} --amd-smi={{ amd_gpu_ras_amd_smi | quote }}
+      --dmesg={{ amd_gpu_ras_dmesg | quote }} --max-correctable={{ amd_gpu_ras_max_correctable | int }}
+      {% for gpu in amd_gpu_ras_gpus %} --gpu={{ gpu | quote }}{% endfor %}
+    executable: python3
+  become: true
+  register: amd_gpu_ras_run
+  changed_when: false
+  failed_when: false
+
+- name: Read the RAS report
+  ansible.builtin.set_fact:
+    amd_gpu_ras: >-
+      {{ (amd_gpu_ras_run.stdout | from_json)
+         if amd_gpu_ras_run.rc | default(1) == 0 and (amd_gpu_ras_run.stdout | default('') | trim).startswith('{')
+         else {'error': (amd_gpu_ras_run.stderr | default('', true) or amd_gpu_ras_run.msg | default('the RAS helper did not run', true)) | trim} }}

@@ -3,7 +3,7 @@
 [English](../../en/guides/validation.md) · [文件首頁](../README.md)
 
 Validation 檢查已部署的 Server 與 Platform 是否真的能用，而不只是已經部署：Server 的時鐘、CPU、記憶體與磁碟；
-Server 之間的網路；以 HIP runtime 驗證 AMD GPU；Kubernetes 叢集能不能執行 pod、轉送 Service；Slurm 叢集能不能
+Server 之間的網路；以 HIP runtime 驗證 AMD GPU，並讀取它們的 RAS 錯誤回報；Kubernetes 叢集能不能執行 pod、轉送 Service；Slurm 叢集能不能
 交出可用的 GPU、執行 container、啟動 MPI。你選擇一個 **Validation Suite**、它的目標與參數；swallow 以 Workflow
 執行，並在 **Validation Run** 記錄每個 check 在每個目標上的 verdict。
 
@@ -25,6 +25,7 @@ swallow 的模組提供這些 suite：
 | `host-baseline`（實驗性） | Server | Observe | 與安裝設定的 NTP server 時間同步、CPU 數、記憶體、root filesystem 有空間且可寫入 |
 | `network-mesh`（實驗性） | Server | Observe | 每台目標都能連到其他目標、能傳送不分段的完整大小封包，並接受 SSH 連線 |
 | `amd-gpu-basic`（實驗性） | Server | Workload | amdgpu driver 帶起 PCI 上的每張 AMD GPU，且每張都通過 HIP probe |
+| `amd-gpu-ras`（實驗性） | Server | Observe | 每張 AMD GPU 都開啟 RAS、沒有計到 uncorrectable error，driver 的 CPER 錯誤紀錄能經 AMD SMI 匯出且沒有 fatal 或 uncorrected；`maxCorrectable` 另外限制每張 GPU 的 correctable error |
 | `kubernetes-smoke`（實驗性） | Kubernetes Platform | Observe | 節點 Ready、每台收工作的節點都能執行 pod、cluster DNS、Service 轉送 |
 
 Dashboard 的 **Validation → Suites** 是能力 catalog，依 Platform、Server 與自訂 script 分組。開啟 card 可查看 checks、parameters、impact、budget、最近 Runs 與引用它的 Schedules；直接連到實驗性 suite 仍可閱讀。
@@ -35,6 +36,9 @@ schedule 一律顯示。同樣地，**Hide other users' suites**（預設關閉�
 它從不隱藏 module suite 或你自己的 suite。
 
 沒有 AMD GPU 的 Server、沒有開啟 container 或 MPI 的叢集等情況，不適用的 check 會是 skipped；skipped 不會讓 run 失敗。
+driver 沒有保留 CPER 錯誤紀錄的 GPU（MI300 之前的 GPU，例如 MI250X），`amd-gpu-ras` 的兩個 CPER check 是 skipped。主機沒有
+掛載 debugfs、沒有 `amd-smi`，或 AMD SMI 不能解碼 AFID 時，這兩個 check 是 **Error**，summary 以 `[debugfs_unavailable]`、
+`[amd_smi_missing]` 或 `[amd_smi_afid_unsupported]` 開頭。
 
 ### Script suite
 

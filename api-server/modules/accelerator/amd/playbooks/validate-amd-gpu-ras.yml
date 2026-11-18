@@ -1,0 +1,176 @@
+---
+# Validation Suite amd-gpu-ras (docs/development/validation.md §7): what the amdgpu driver reports
+# about each Server's AMD GPUs. ras-enabled: every GPU it drives has RAS on; ecc-counts: no
+# uncorrectable error, and with maxCorrectable no more correctable errors per GPU; cper-export: AMD
+# SMI exports the driver's CPER records; cper-errors: none of them is fatal or uncorrected, and with
+# maxCorrectable the corrected ones stay within it per GPU with a CPER ring. Records are decoded to
+# their AFID and classified (role amd_gpu_ras). One verdict per check and Server; the GPUs' detail is
+# in the evidence and measurements.
+#
+# A Server without an AMD GPU skips every check; GPUs whose driver keeps no CPER ring (before MI300,
+# such as MI250X) skip the two CPER checks. A host without debugfs or amd-smi, or with an AMD SMI that
+# cannot decode AFIDs, makes them errors whose summary starts with its code (validation.md §4.3). The
+# role only reads, as root; the export goes to a private directory removed before the role reports.
+# Every verdict reaches the run through the shared validation_report role.
+
+- name: Check the AMD GPUs' RAS and error records
+  hosts: all
+  gather_facts: false
+  vars:
+    amd_gpu_ras_parameters: "{{ swallow_validation_parameters | default({}) }}"
+    # -1: no maxCorrectable; correctable errors are recorded, not judged.
+    amd_gpu_ras_max: "{{ amd_gpu_ras_parameters.maxCorrectable | default(-1) | int }}"
+    amd_gpu_ras_report: "{{ amd_gpu_ras | default({}) }}"
+    amd_gpu_ras_cper: "{{ amd_gpu_ras_report.cper | default({}) }}"
+    amd_gpu_ras_rings: "{{ amd_gpu_ras_cper.ringGpus | default([]) | length }}"
+    # What keeps every check from judging: no census, no AMD GPU, or a helper that did not run.
+    amd_gpu_ras_unjudged: >-
+      {{ 'error' if amd_gpu_census.pci | int < 0
+         else ('skipped' if amd_gpu_census.pci | int == 0
+               else ('error' if amd_gpu_ras_report.error is defined else '')) }}
+    amd_gpu_ras_unjudged_summary: >-
+      {{ ('the GPU census did not run: ' ~ amd_gpu_census.error | default('')) if amd_gpu_census.pci | int < 0
+         else ('no AMD GPU on PCI' if amd_gpu_census.pci | int == 0
+               else 'the RAS helper did not run: ' ~ amd_gpu_ras_report.error | default('')) }}
+    # What keeps the two CPER checks from judging, by the helper's CPER state.
+    amd_gpu_ras_cper_unjudged:
+      debugfs_unavailable: error
+      no_ring: skipped
+      amd_smi_missing: error
+    amd_gpu_ras_cper_unjudged_summary:
+      debugfs_unavailable: >-
+        [debugfs_unavailable] debugfs is not mounted at /sys/kernel/debug, so the amdgpu driver's CPER ring cannot be read
+      no_ring: the amdgpu driver keeps no CPER ring for these GPUs (GPUs before MI300, such as MI250X, have none)
+      amd_smi_missing: "[amd_smi_missing] amd-smi is not installed or not on the PATH; it exports the CPER records"
+  tasks:
+    - name: Count the AMD GPUs
+      ansible.builtin.include_role:
+        name: amd_gpu_census
+
+    - name: Read the AMD GPUs' RAS state
+      ansible.builtin.include_role:
+        name: amd_gpu_ras
+      vars:
+        amd_gpu_ras_gpus: "{{ amd_gpu_census.pciDevices | default([]) }}"
+        amd_gpu_ras_max_correctable: "{{ amd_gpu_ras_max }}"
+      when: amd_gpu_census.pci | int > 0
+
+    - name: Judge whether RAS is on
+      ansible.builtin.include_role:
+        name: validation_report
+        tasks_from: record
+      vars:
+        amd_gpu_ras_off: "{{ amd_gpu_ras_report.rasMissing | default([]) + amd_gpu_ras_report.rasOff | default([]) }}"
+        validation_report_check: ras-enabled
+        validation_report_verdict: >-
+          {{ amd_gpu_ras_unjudged or ('failed' if amd_gpu_ras_off | length > 0 else 'passed') }}
+        validation_report_summary: >-
+          {{ amd_gpu_ras_unjudged_summary if amd_gpu_ras_unjudged
+             else (('RAS is not on for ' ~ amd_gpu_ras_off | length ~ ' of ' ~ amd_gpu_ras_report.gpus ~ ' GPUs: '
+                    ~ ([('no RAS interface on ' ~ amd_gpu_ras_report.rasMissing | join(' '))
+                          if amd_gpu_ras_report.rasMissing | length > 0 else '',
+                        ('feature mask 0 on ' ~ amd_gpu_ras_report.rasOff | join(' '))
+                          if amd_gpu_ras_report.rasOff | length > 0 else ''] | select | join('; ')))
+                   if amd_gpu_ras_off | length > 0
+                   else 'RAS is on for every one of the ' ~ amd_gpu_ras_report.gpus ~ ' GPUs') }}
+        validation_report_evidence: "{{ amd_gpu_ras_report.rasEvidence | default('') }}"
+
+    - name: Judge the error counts
+      ansible.builtin.include_role:
+        name: validation_report
+        tasks_from: record
+      vars:
+        amd_gpu_ras_ue: "{{ amd_gpu_ras_report.ueGpus | default([]) | length > 0 }}"
+        amd_gpu_ras_ce_over: "{{ amd_gpu_ras_max | int >= 0 and amd_gpu_ras_report.ceMax | default(0) | int > amd_gpu_ras_max | int }}"
+        validation_report_check: ecc-counts
+        validation_report_verdict: >-
+          {{ amd_gpu_ras_unjudged
+             or ('skipped' if amd_gpu_ras_report.eccGpus | int == 0
+                 else ('failed' if amd_gpu_ras_ue | bool or amd_gpu_ras_ce_over | bool else 'passed')) }}
+        validation_report_summary: >-
+          {{ amd_gpu_ras_unjudged_summary if amd_gpu_ras_unjudged
+             else ('no GPU the amdgpu driver drives exposes RAS error counts' if amd_gpu_ras_report.eccGpus | int == 0
+                   else ([('uncorrectable errors on ' ~ amd_gpu_ras_report.ueGpus | join(' ')
+                           ~ ' (' ~ amd_gpu_ras_report.ueTotal ~ ' in all)') if amd_gpu_ras_ue | bool else '',
+                         (amd_gpu_ras_report.ceMaxGpu ~ ' counted ' ~ amd_gpu_ras_report.ceMax
+                           ~ ' correctable errors, more than the ' ~ amd_gpu_ras_max ~ ' allowed') if amd_gpu_ras_ce_over | bool else ''] | select | join('; '))
+                        if amd_gpu_ras_ue | bool or amd_gpu_ras_ce_over | bool
+                        else ('no uncorrectable error on ' ~ amd_gpu_ras_report.eccGpus ~ ' GPUs; at most '
+                              ~ amd_gpu_ras_report.ceMax ~ ' correctable errors on one GPU'
+                              ~ (' (' ~ amd_gpu_ras_max ~ ' allowed)' if amd_gpu_ras_max | int >= 0 else ''))) }}
+        validation_report_evidence: "{{ amd_gpu_ras_report.eccEvidence | default('') }}"
+        validation_report_measurements: "{{ amd_gpu_ras_report.eccMeasurements | default([]) if not amd_gpu_ras_unjudged else [] }}"
+
+    - name: Judge the CPER export
+      ansible.builtin.include_role:
+        name: validation_report
+        tasks_from: record
+      vars:
+        amd_gpu_ras_state: "{{ amd_gpu_ras_cper.state | default('') }}"
+        validation_report_check: cper-export
+        validation_report_verdict: >-
+          {{ amd_gpu_ras_unjudged
+             or amd_gpu_ras_cper_unjudged[amd_gpu_ras_state] | default('passed' if amd_gpu_ras_state == 'exported' else 'failed') }}
+        validation_report_summary: >-
+          {{ amd_gpu_ras_unjudged_summary if amd_gpu_ras_unjudged
+             else amd_gpu_ras_cper_unjudged_summary[amd_gpu_ras_state]
+                  | default(('exported ' ~ amd_gpu_ras_cper.records ~ ' CPER records from the CPER rings of ' ~ amd_gpu_ras_rings ~ ' GPUs')
+                            if amd_gpu_ras_state == 'exported'
+                            else 'amd-smi could not export the CPER records: ' ~ amd_gpu_ras_cper.exportError | default('')) }}
+        validation_report_evidence: >-
+          {{ ('GPUs with a CPER ring: ' ~ amd_gpu_ras_cper.ringGpus | default([]) | join(' ')
+              ~ ('\n' ~ amd_gpu_ras_cper.exportCommand ~ ': exit ' ~ amd_gpu_ras_cper.exportExit
+                 ~ ((', ' ~ amd_gpu_ras_cper.exportError) if amd_gpu_ras_cper.exportError is defined else '')
+                 if amd_gpu_ras_cper.exportCommand is defined else ''))
+             if not amd_gpu_ras_unjudged and amd_gpu_ras_cper.ringGpus | default([]) | length > 0 else '' }}
+        validation_report_measurements: >-
+          {{ [{'name': 'cper_records', 'value': amd_gpu_ras_cper.records | int, 'unit': 'count', 'expected': ''}]
+             if not amd_gpu_ras_unjudged and amd_gpu_ras_state == 'exported' else [] }}
+
+    - name: Judge the CPER records
+      ansible.builtin.include_role:
+        name: validation_report
+        tasks_from: record
+      vars:
+        amd_gpu_ras_state: "{{ amd_gpu_ras_cper.state | default('') }}"
+        amd_gpu_ras_severe: "{{ amd_gpu_ras_cper.fatal | default(0) | int + amd_gpu_ras_cper.uncorrected | default(0) | int }}"
+        # maxCorrectable is per GPU; the export does not say which GPU wrote a record, so the Server's
+        # corrected records are held to it times the GPUs with a CPER ring.
+        amd_gpu_ras_allowed: "{{ amd_gpu_ras_max | int * amd_gpu_ras_rings | int }}"
+        amd_gpu_ras_corrected_over: "{{ amd_gpu_ras_max | int >= 0 and amd_gpu_ras_cper.corrected | default(0) | int > amd_gpu_ras_allowed | int }}"
+        amd_gpu_ras_judgement: >-
+          {{ ('failed' if amd_gpu_ras_severe | int > 0
+              else ('error' if amd_gpu_ras_cper.afidUnsupported | default(false)
+                    else ('failed' if amd_gpu_ras_cper.unknown | default(0) | int > 0 or amd_gpu_ras_corrected_over | bool
+                          else 'passed')))
+             if amd_gpu_ras_state == 'exported' else 'error' }}
+        validation_report_check: cper-errors
+        validation_report_verdict: >-
+          {{ amd_gpu_ras_unjudged or amd_gpu_ras_cper_unjudged[amd_gpu_ras_state] | default(amd_gpu_ras_judgement) }}
+        validation_report_summary: >-
+          {{ amd_gpu_ras_unjudged_summary if amd_gpu_ras_unjudged
+             else amd_gpu_ras_cper_unjudged_summary[amd_gpu_ras_state]
+                  | default(('[cper_export_failed] the CPER records could not be exported (see cper-export), so none was judged'
+                             if amd_gpu_ras_state != 'exported'
+                             else ('[amd_smi_afid_unsupported] this AMD SMI cannot decode AFIDs: '
+                                   ~ (amd_gpu_ras_cper.afidError | default('')).split() | join(' '))
+                                  if amd_gpu_ras_judgement == 'error'
+                             else ('the CPER rings hold no record' if amd_gpu_ras_cper.records | int == 0
+                                   else ([(amd_gpu_ras_cper.fatal ~ ' fatal') if amd_gpu_ras_cper.fatal | int > 0 else '',
+                                          (amd_gpu_ras_cper.uncorrected ~ ' uncorrected') if amd_gpu_ras_cper.uncorrected | int > 0 else '',
+                                          (amd_gpu_ras_cper.unknown ~ ' of unknown severity') if amd_gpu_ras_cper.unknown | int > 0 else '',
+                                          (amd_gpu_ras_cper.corrected ~ ' corrected') if amd_gpu_ras_cper.corrected | int > 0 else '']
+                                         | select | join(', ')) ~ ' of ' ~ amd_gpu_ras_cper.records ~ ' CPER records'
+                                         ~ (('; the corrected ones are more than the ' ~ amd_gpu_ras_allowed ~ ' allowed ('
+                                             ~ amd_gpu_ras_max ~ ' per GPU with a CPER ring)') if amd_gpu_ras_corrected_over | bool else '')))) }}
+        validation_report_evidence: "{{ amd_gpu_ras_cper.evidence | default('') if not amd_gpu_ras_unjudged else '' }}"
+        validation_report_measurements: >-
+          {{ [{'name': 'cper_fatal', 'value': amd_gpu_ras_cper.fatal | int, 'unit': 'count', 'expected': '= 0'},
+              {'name': 'cper_uncorrected', 'value': amd_gpu_ras_cper.uncorrected | int, 'unit': 'count', 'expected': '= 0'},
+              {'name': 'cper_corrected', 'value': amd_gpu_ras_cper.corrected | int, 'unit': 'count',
+               'expected': ('<= ' ~ amd_gpu_ras_allowed) if amd_gpu_ras_max | int >= 0 else ''}]
+             if not amd_gpu_ras_unjudged and amd_gpu_ras_state == 'exported' else [] }}
+
+    - name: Write the results for Swallow
+      ansible.builtin.include_role:
+        name: validation_report

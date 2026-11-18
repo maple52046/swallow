@@ -1,0 +1,11 @@
+---
+# amd_gpu_ras role defaults. The include sets amd_gpu_ras_gpus (the PCI addresses of the AMD GPUs,
+# from amd_gpu_census) and may set amd_gpu_ras_max_correctable (for the measurements' expected
+# values; -1 is none). amd_gpu_ras_root prefixes the sysfs and debugfs paths, and amd_gpu_ras_amd_smi
+# and amd_gpu_ras_dmesg name the tools; they are for the content tests, and playbooks do not set
+# them (an empty amd_gpu_ras_amd_smi finds amd-smi on the PATH or under /opt/rocm/bin).
+amd_gpu_ras_gpus: []
+amd_gpu_ras_max_correctable: -1
+amd_gpu_ras_root: ""
+amd_gpu_ras_amd_smi: ""
+amd_gpu_ras_dmesg: dmesg

@@ -523,6 +523,251 @@ func TestAMDGPUBasicCountsTheGPUsTheDriverBroughtUp(t *testing.T) {
 	}
 }
 
+// fakeAMDRAS adds the amdgpu driver's RAS interface to a GPU of fakeAMDSysfs: its feature mask and
+// each block's error counts, as ras/<block>_err_count prints them ("ue: N\nce: M\n").
+func fakeAMDRAS(t *testing.T, root, bdf, mask string, counts map[string]string) {
+	t.Helper()
+	ras := filepath.Join("sys", "bus", "pci", "devices", bdf, "ras")
+	writeScratch(t, root, filepath.Join(ras, "features"), "feature mask: "+mask+"\n")
+	for block, text := range counts {
+		writeScratch(t, root, filepath.Join(ras, block+"_err_count"), text)
+	}
+}
+
+// fakeDRIDebugfs writes the debugfs directory of DRI minor for the GPU at bdf, with the driver's
+// CPER ring when ring is set.
+func fakeDRIDebugfs(t *testing.T, root, minor, bdf string, ring bool) {
+	t.Helper()
+	dir := filepath.Join("sys", "kernel", "debug", "dri", minor)
+	writeScratch(t, root, filepath.Join(dir, "name"), "amdgpu dev="+bdf+" unique="+bdf+"\n")
+	if ring {
+		writeScratch(t, root, filepath.Join(dir, "amdgpu_ring_cper"), "")
+	}
+}
+
+// fakeAMDSMI stands in for amd-smi. `ras --cper` writes the records of fake-amd-smi.json into the
+// folder it is given, each with a JSON companion naming its severity when the record has one, or
+// fails with exportFails; `ras --afid --cper-file` prints the record's AFID, or refuses like an AMD
+// SMI without AFID decoding when afidUnsupported is set. Every call is appended to calls.log.
+const fakeAMDSMI = `#!/usr/bin/env python3
+import json, os, sys
+here = os.path.dirname(os.path.abspath(__file__))
+config = json.load(open(os.path.join(here, "fake-amd-smi.json")))
+args = sys.argv[1:]
+with open(os.path.join(here, "calls.log"), "a") as log:
+    log.write(" ".join(args) + "\n")
+if args[:2] == ["ras", "--cper"]:
+    if config.get("exportFails"):
+        sys.exit("Unable to read the CPER ring")
+    folder = args[args.index("--folder") + 1]
+    for name, record in config["records"].items():
+        with open(os.path.join(folder, name), "wb") as cper:
+            cper.write(b"CPER")
+        if record.get("severity"):
+            with open(os.path.join(folder, name[:-len(".cper")] + ".json"), "w") as companion:
+                json.dump({"header": {"error_severity": record["severity"]}}, companion)
+elif args[:2] == ["ras", "--afid"]:
+    if config.get("afidUnsupported"):
+        sys.exit("amd-smi: error: unrecognized arguments: --afid")
+    print(config["records"][os.path.basename(args[args.index("--cper-file") + 1])]["afid"])
+else:
+    sys.exit("unexpected: " + " ".join(args))
+`
+
+// fakeDmesg prints the kernel log line amdgpu writes when it initializes RAS.
+const fakeDmesg = `#!/bin/sh
+echo "[    5.120000] amdgpu 0000:0a:00.0: amdgpu: RAS INFO: ras initialized successfully, hardware ability[7fff] ras_mask[7fff]"
+`
+
+// amd-gpu-ras judges RAS, the error counts, and the CPER records of every GPU the amdgpu driver
+// drives, one verdict per check: an uncorrectable error, a fatal record, or more correctable errors
+// than maxCorrectable fail; a Server without an AMD GPU skips every check, and GPUs without a CPER
+// ring skip the CPER checks; a host without debugfs or amd-smi, or an AMD SMI that cannot decode
+// AFIDs, is an error with its code. The export's private directory does not stay on the host.
+func TestAMDGPURASJudgesTheDriversReport(t *testing.T) {
+	raw, err := os.ReadFile(shippedFile(t, "validate-amd-gpu-ras.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := newPlayRun(t, "amd_gpu_ras", string(raw))
+	amdSMI, dmesg := filepath.Join(run.dir, "amd-smi"), filepath.Join(run.dir, "dmesg")
+	for path, script := range map[string]string{amdSMI: fakeAMDSMI, dmesg: fakeDmesg} {
+		if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resultPath := filepath.Join(run.dir, "result.json")
+	// record is one CPER record fakeAMDSMI exports: the severity its JSON companion names (empty
+	// writes no companion, so the file name or the AFID decides) and the AFID it decodes to.
+	type record struct {
+		Severity string `json:"severity,omitempty"`
+		AFID     int    `json:"afid"`
+	}
+	corrected := map[string]record{"corrected-1.cper": {Severity: "AMDSMI_CPER_SEV_NON_FATAL_CORRECTED", AFID: 24}}
+	for _, tc := range []struct {
+		name            string
+		gpus            int
+		secondMask      string // the second GPU's feature mask; default 0x7fff
+		ue              string // the first GPU's umc uncorrectable count; default 0
+		noRing          bool
+		noDebugfs       bool
+		noAMDSMI        bool
+		exportFails     bool
+		afidUnsupported bool
+		records         map[string]record
+		parameters      map[string]any
+		want            map[string]string // verdict by check
+		summaries       map[string]string // a phrase each check's summary holds
+		evidence        map[string]string // a phrase each check's evidence holds
+	}{
+		{
+			name: "healthy", gpus: 2, records: corrected,
+			want: map[string]string{"ras-enabled": "passed", "ecc-counts": "passed", "cper-export": "passed", "cper-errors": "passed"},
+			summaries: map[string]string{"ras-enabled": "every one of the 2 GPUs", "ecc-counts": "at most 3 correctable",
+				"cper-export": "exported 1 CPER records from the CPER rings of 2 GPUs", "cper-errors": "1 corrected of 1 CPER records"},
+			evidence: map[string]string{"ras-enabled": "ras initialized successfully", "ecc-counts": "0000:0a:00.0: ue 0, ce 3",
+				"cper-errors": "corrected-1.cper: NONFATAL-CORRECTED, AFID 24 (HBM / All / Corrected)"},
+		},
+		{
+			name: "more correctable errors than allowed", gpus: 2, records: corrected, parameters: map[string]any{"maxCorrectable": 0},
+			want:      map[string]string{"ras-enabled": "passed", "ecc-counts": "failed", "cper-export": "passed", "cper-errors": "failed"},
+			summaries: map[string]string{"ecc-counts": "0000:0a:00.0 counted 3 correctable errors, more than the 0 allowed", "cper-errors": "more than the 0 allowed"},
+		},
+		{
+			name: "correctable errors within the allowance", gpus: 2, records: corrected, parameters: map[string]any{"maxCorrectable": 3},
+			want:      map[string]string{"ras-enabled": "passed", "ecc-counts": "passed", "cper-export": "passed", "cper-errors": "passed"},
+			summaries: map[string]string{"ecc-counts": "(3 allowed)"},
+		},
+		{
+			name: "uncorrectable error and RAS off", gpus: 2, secondMask: "0x0", ue: "2", records: map[string]record{},
+			want: map[string]string{"ras-enabled": "failed", "ecc-counts": "failed", "cper-export": "passed", "cper-errors": "passed"},
+			summaries: map[string]string{"ras-enabled": "feature mask 0 on 0000:0b:00.0", "ecc-counts": "uncorrectable errors on 0000:0a:00.0",
+				"cper-errors": "the CPER rings hold no record"},
+		},
+		{
+			name: "fatal record", gpus: 2,
+			records:   map[string]record{"fatal-3.cper": {AFID: 30}, "corrected-2.cper": {AFID: 99}},
+			want:      map[string]string{"ras-enabled": "passed", "ecc-counts": "passed", "cper-export": "passed", "cper-errors": "failed"},
+			summaries: map[string]string{"cper-errors": "1 fatal, 1 corrected of 2 CPER records"},
+			evidence:  map[string]string{"cper-errors": "fatal-3.cper: FATAL, AFID 30 (Device Internal / All Other / Fatal)"},
+		},
+		{
+			name: "unknown AFID reported raw", gpus: 2, records: map[string]record{"corrected-2.cper": {AFID: 99}},
+			want:     map[string]string{"cper-errors": "passed"},
+			evidence: map[string]string{"cper-errors": "AFID 99 (not in the AFID 15-34 table)"},
+		},
+		{
+			name:      "no AMD GPU",
+			want:      map[string]string{"ras-enabled": "skipped", "ecc-counts": "skipped", "cper-export": "skipped", "cper-errors": "skipped"},
+			summaries: map[string]string{"ras-enabled": "no AMD GPU", "cper-errors": "no AMD GPU"},
+		},
+		{
+			name: "no CPER ring", gpus: 2, noRing: true,
+			want:      map[string]string{"ras-enabled": "passed", "ecc-counts": "passed", "cper-export": "skipped", "cper-errors": "skipped"},
+			summaries: map[string]string{"cper-export": "keeps no CPER ring", "cper-errors": "such as MI250X"},
+		},
+		{
+			name: "no amd-smi", gpus: 2, noAMDSMI: true,
+			want:      map[string]string{"ras-enabled": "passed", "ecc-counts": "passed", "cper-export": "error", "cper-errors": "error"},
+			summaries: map[string]string{"cper-export": "[amd_smi_missing]", "cper-errors": "[amd_smi_missing]"},
+		},
+		{
+			name: "AFID decoding unsupported", gpus: 2, records: corrected, afidUnsupported: true,
+			want:      map[string]string{"cper-export": "passed", "cper-errors": "error"},
+			summaries: map[string]string{"cper-errors": "[amd_smi_afid_unsupported]"},
+		},
+		{
+			name: "debugfs missing", gpus: 2, noDebugfs: true,
+			want:      map[string]string{"ras-enabled": "passed", "ecc-counts": "passed", "cper-export": "error", "cper-errors": "error"},
+			summaries: map[string]string{"cper-export": "[debugfs_unavailable]", "cper-errors": "[debugfs_unavailable]"},
+		},
+		{
+			name: "export fails", gpus: 2, exportFails: true,
+			want:      map[string]string{"cper-export": "failed", "cper-errors": "error"},
+			summaries: map[string]string{"cper-export": "Unable to read the CPER ring", "cper-errors": "[cper_export_failed]"},
+		},
+	} {
+		root := filepath.Join(run.dir, strings.ReplaceAll(tc.name, " ", "-"))
+		fakeAMDSysfs(t, root, tc.gpus, 0, 0)
+		for i, bdf := range []string{"0000:0a:00.0", "0000:0b:00.0"}[:tc.gpus] {
+			mask, ue, ce := "0x7fff", "0", "0"
+			if i == 0 {
+				ce = "3"
+				if tc.ue != "" {
+					ue = tc.ue
+				}
+			} else if tc.secondMask != "" {
+				mask = tc.secondMask
+			}
+			fakeAMDRAS(t, root, bdf, mask, map[string]string{"umc": "ue: " + ue + "\nce: " + ce + "\n", "gfx": "ue: 0\nce: 0\n"})
+			if !tc.noDebugfs {
+				fakeDRIDebugfs(t, root, strconv.Itoa(i), bdf, !tc.noRing)
+				fakeDRIDebugfs(t, root, strconv.Itoa(128+i), bdf, false)
+			}
+		}
+		config, err := json.Marshal(map[string]any{"records": tc.records, "exportFails": tc.exportFails, "afidUnsupported": tc.afidUnsupported})
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeScratch(t, run.dir, "fake-amd-smi.json", string(config))
+		if err := os.Remove(filepath.Join(run.dir, "calls.log")); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		tool := amdSMI
+		if tc.noAMDSMI {
+			tool = filepath.Join(run.dir, "amd-smi-not-installed")
+		}
+		parameters := tc.parameters
+		if parameters == nil {
+			parameters = map[string]any{}
+		}
+		output, _, failed := run.run(map[string]any{
+			"swallow_result_path": resultPath, "swallow_validation_parameters": parameters,
+			"amd_gpu_census_root": root, "amd_gpu_ras_root": root, "amd_gpu_ras_amd_smi": tool, "amd_gpu_ras_dmesg": dmesg,
+		})
+		if failed != 0 {
+			t.Errorf("%s: the play failed:\n%s", tc.name, output)
+			continue
+		}
+		results := validationResults(t, resultPath)
+		if got := verdicts(results); len(got) != 4 {
+			t.Errorf("%s: verdicts = %v, want one for each of the four checks", tc.name, got)
+		}
+		for _, result := range results {
+			check, _ := result["check"].(string)
+			summary, _ := result["summary"].(string)
+			evidence, _ := result["evidence"].(string)
+			if want, ok := tc.want[check]; ok && result["verdict"] != want {
+				t.Errorf("%s: %s = %v (%s), want %s", tc.name, check, result["verdict"], summary, want)
+			}
+			if want := tc.summaries[check]; !strings.Contains(summary, want) {
+				t.Errorf("%s: %s summary %q does not say %q", tc.name, check, summary, want)
+			}
+			if want := tc.evidence[check]; !strings.Contains(evidence, want) {
+				t.Errorf("%s: %s evidence %q does not hold %q", tc.name, check, evidence, want)
+			}
+		}
+
+		calls, err := os.ReadFile(filepath.Join(run.dir, "calls.log"))
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		for _, call := range strings.Split(strings.TrimSpace(string(calls)), "\n") {
+			folder, ok := strings.CutPrefix(call, "ras --cper --severity all --gpu all --folder ")
+			if !ok {
+				continue
+			}
+			if _, err := os.Stat(folder); !os.IsNotExist(err) {
+				t.Errorf("%s: the export's directory %s stayed on the host (stat: %v)", tc.name, folder, err)
+			}
+		}
+		wantExport := tc.gpus > 0 && !tc.noRing && !tc.noDebugfs && !tc.noAMDSMI
+		if exported := strings.Contains(string(calls), "ras --cper --severity all --gpu all --folder "); exported != wantExport {
+			t.Errorf("%s: amd-smi exported the CPER records: %v, want %v (calls %q)", tc.name, exported, wantExport, calls)
+		}
+	}
+}
+
 // fakeKubectl answers kube_smoke.py like a cluster of three nodes: alpha takes workloads, beta is
 // tainted NoSchedule, gamma is not Ready. Pods it is given succeed (the server pod runs and is
 // ready); with fail set the pod pinned to alpha cannot pull its image. It records every delete.
