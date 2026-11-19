@@ -293,13 +293,13 @@ Validation Schedule 是 desired state（[desired-state-model.md](desired-state-m
 | `kubernetes-smoke` | Platform `kubernetes` | `platform` | `observe` | 是 | `nodes-ready`、`pod-scheduling`（每台 workload node）、`cluster-dns`、`service-routing` |
 | `amd-gpu-basic` | Accelerator `amd` | `servers` | `workload` | 是 | `kfd-gpus`、`hip-probe` |
 | `amd-gpu-ras` | Accelerator `amd` | `servers` | `observe` | 是 | `ras-enabled`、`ecc-counts`、`cper-export`、`cper-errors` |
-| `amd-gpu-stress` | Accelerator `amd` | `servers` | `workload` | 是 | `gemm`、`hbm-integrity`、`hbm-bandwidth`、`pcie-bandwidth`、`xgmi-bandwidth`、`xgmi-links`、`power`、`collectives`、`thermal-throttle`、`ras-after-stress` |
+| `amd-gpu-stress` | Accelerator `amd` | `servers` | `workload` | 否 | `gemm`、`hbm-integrity`、`hbm-bandwidth`、`pcie-bandwidth`、`xgmi-bandwidth`、`xgmi-links`、`power`、`collectives`、`thermal-throttle`、`ras-after-stress` |
 | `host-baseline` | Validation `host` | `servers` | `observe` | 是 | `time-sync`、`cpu-count`、`memory`、`root-filesystem` |
 | `network-mesh` | Validation `network` | `servers` | `observe` | 是 | `ping-mesh`、`mtu`、`ssh-port` |
 | user suite | Validation `script` | `servers` | 依 suite | 否 | `script` |
 
-- `slurm-acceptance` 是部署原有的驗證，部署以 gate 組入它（§5）。其他六個模組 suite 是部署之外新加的檢查，標為實驗性，
-  之後重新設計：被 Platform claim 的 Server 仍不接受 `workload` 的 servers suite，重新設計時改由 Platform 的 suite 提供
+- `slurm-acceptance` 是部署原有的驗證，部署以 gate 組入它（§5）。`amd-gpu-stress` 是正式的 suite（2026-11-19 由 Bill 決定）。其他五個模組 suite 是部署之外新加的檢查，
+  標為實驗性，之後重新設計：被 Platform claim 的 Server 仍不接受 `workload` 的 servers suite，重新設計時改由 Platform 的 suite 提供
   成員上的網路與 GPU 檢查。
 
 - 每個 suite 的 playbook 在目標上只讀取或執行短暫的工作，check 沒有通過是 verdict，不是 Task 失敗；結果經共用 role

@@ -223,7 +223,6 @@
       "target": "servers",
       "impact": "workload",
       "budgetSeconds": 7800,
-      "experimental": true,
       "template": "amd-gpu-stress",
       "parameters": {
         "type": "object",
