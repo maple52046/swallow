@@ -13,7 +13,7 @@
 | `/` | Site-scoped overview 與 attention items |
 | `/servers`、`/servers/:id/*` | Inventory、action、activity、monitoring、containers、network、storage、PCI |
 | `/provisioning/images` | OS Images：OS image、upload、delete、verification |
-| `/provisioning/templates` | OS Images：Deployment Template |
+| `/provisioning/templates` | 依 Pool 分組的 Deployment Template recipe catalog 與兩步驟 editor |
 | `/platforms`、`/platforms/:id` | Kubernetes／Slurm Platform inventory 與 detail |
 | `/platforms/deploy`、`/platforms/settings` | Platform deployment 與 Slurm requirement |
 | `/software`、`/software/:kind` | Managed Software catalog、deployment 與多 Server 安裝 |
@@ -32,8 +32,8 @@
 `/clusters`、`/operations`、已退役的 `/provisioning/deploy` 頁面，以及
 `/provisioning/boot-isos`（現為 `/infrastructure/boot-isos`）是 compatibility redirect。
 
-Alert（Monitoring 的 alert 列表與 acknowledge、Overview 的 Alerts card）、OS image upload、
-Deployment Template 與 libvirt virtual machine 納管仍在開發中。Release build（`npm run build`）會隱藏它們：route 顯示 Not Found
+Alert（Monitoring 的 alert 列表與 acknowledge、Overview 的 Alerts card）、OS image upload
+與 libvirt virtual machine 納管仍在開發中。Release build（`npm run build`）會隱藏它們：route 顯示 Not Found
 或 redirect，共用頁面上的值（例如 Overview 的 Alerts card）顯示「Not available in this release」。基礎監控（health、
 current metrics 與用量圖表）在每個 build 都會顯示。Dev server 顯示全部功能；可在
 **Account menu → Experimental features** 逐項關閉以預覽 release 畫面，選擇保存在各瀏覽器。

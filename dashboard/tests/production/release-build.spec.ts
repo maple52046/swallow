@@ -53,7 +53,8 @@ test('Release builds hide in-development features and offer no switch', async ({
   await expect(page.getByRole('heading', { name: 'OS Images', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Upload image' })).toHaveCount(0)
   // Deployment Templates are released (decision 083): their entry and page are in every build.
-  await expect(page.getByRole('link', { name: 'Deployment Templates' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Collapse Servers navigation' })).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByRole('link', { name: 'Template', exact: true })).toBeVisible()
 
   await page.goto('/provisioning/templates?site=site-a')
   await expect(page).toHaveURL('/provisioning/templates?site=site-a')

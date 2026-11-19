@@ -35,8 +35,17 @@ A Deployment Template records reusable user choices, not executable
 automation. It can preselect an image and settings while the deployment request
 still validates each current target. Templates never bypass current eligibility.
 
-Templates live on the **Deployment Templates** page, next to OS Images in the sidebar. Each
-template belongs to a Pool, chosen when it is created, and records who created it. The Pool's
+Templates live on the **Deployment Templates** page, labelled **Template** beneath the collapsed
+**Servers** navigation group. The page is a two-column recipe catalog grouped by Pool (one column
+on mobile), not a deployment entry point. Search matches the recipe, effective image, Pool,
+Integration, and Platforms that use it. Expand **Technical details** for source ids, complete
+network and hardware facts, image architectures, and links to those Platforms.
+
+Creating or editing uses two steps: **Template & image**, followed by **Deployment settings**.
+Cloud-init is write-only: it can be supplied during create, while an existing value is shown only
+as Configured or Not configured and must be replaced or removed in a separate confirmation flow.
+Saving ordinary metadata never reads the secret back. Each template belongs to a Pool, chosen when
+it is created, and records who created it. The Pool's
 members see it and deploy with it, its owners create, edit, and delete its templates, and only an
 admin moves a template to another Pool; an admin sees every template. The template stays with the
 Pool when its creator leaves. A template a Platform generates for a node group belongs to the

@@ -362,6 +362,17 @@ test.describe('dashboard visual review', () => {
         await capture(page, testInfo, `${visualCase.name}-1280`)
         await page.setViewportSize({ width: 1440, height: 900 })
       }
+      if (visualCase.name === 'deployment-templates') {
+        if (testInfo.project.name.startsWith('desktop-')) {
+          await page.setViewportSize({ width: 1280, height: 800 })
+          await expectNoHorizontalOverflow(page)
+          await capture(page, testInfo, `${visualCase.name}-1280`)
+          await page.setViewportSize({ width: 1440, height: 900 })
+        }
+        await page.getByRole('button', { name: 'Create template' }).first().click()
+        await expect(page.getByRole('dialog', { name: 'Create deployment template' })).toBeVisible()
+        await capture(page, testInfo, `${visualCase.name}-create-dialog`, false)
+      }
       // The first plan card at its real scale (names, ids, copy buttons), then the approval
       // confirmation, opened on Cancel, with its singular-or-plural destructive count.
       if (visualCase.name === 'change-plans') {

@@ -1,8 +1,9 @@
-import { Box, Flex, Link as ChakraLink, Separator, Stack, Text } from '@chakra-ui/react'
+import { Box, Button, Flex, Link as ChakraLink, Menu, Portal, Separator, Stack, Text } from '@chakra-ui/react'
 import {
   Activity,
   Boxes,
   ChartLine,
+  ChevronDown,
   Disc3,
   FileStack,
   LayoutDashboard,
@@ -14,7 +15,7 @@ import {
   UsersRound,
   type LucideIcon,
 } from 'lucide-react'
-import { Fragment } from 'react'
+import { Fragment, useState } from 'react'
 import { Link as RouterLink, useLocation } from 'react-router-dom'
 import { SwallowLogo } from '@/presentation/components/SwallowLogo'
 import { Tooltip } from '@/presentation/components/ui/tooltip'
@@ -42,19 +43,29 @@ interface NavEntry {
    * §4); listed only for admins, and its route is guarded with `AdminRoute`.
    */
   adminOnly?: boolean
+  /** Child resources disclosed beneath a parent workspace in expanded navigation. */
+  children?: readonly NavEntry[]
 }
 
 /**
  * Primary destinations in workflow order, in sections the sidebar separates with an unlabelled
  * rule: the Overview; the fleet and what runs on it; what happens to it; what the Site is set up
- * with, the OS images it deploys and the Deployment Templates built on them, its wiring, and who may
- * use it. OS Images is every user's (images are reference data), and so is Deployment Templates,
- * whose list holds only the templates of the user's Pools.
+ * with, its wiring, and who may use it. OS Images and Deployment Templates are Server preparation
+ * resources, so they are disclosed beneath Servers rather than competing with top-level workspaces.
  */
 const NAVIGATION: ReadonlyArray<readonly NavEntry[]> = [
   [{ label: 'Overview', path: '/', icon: LayoutDashboard, activeFor: ['/'], adminOnly: true }],
   [
-    { label: 'Servers', path: '/servers', icon: Server, activeFor: ['/servers'] },
+    {
+      label: 'Servers',
+      path: '/servers',
+      icon: Server,
+      activeFor: ['/servers'],
+      children: [
+        { label: 'OS Images', path: '/provisioning/images', icon: Disc3, activeFor: ['/provisioning/images'] },
+        { label: 'Template', path: '/provisioning/templates', icon: FileStack, activeFor: ['/provisioning/templates'] },
+      ],
+    },
     { label: 'Platforms', path: '/platforms', icon: Boxes, activeFor: ['/platforms'] },
     { label: 'Software', path: '/software', icon: Package, activeFor: ['/software'] },
   ],
@@ -64,13 +75,6 @@ const NAVIGATION: ReadonlyArray<readonly NavEntry[]> = [
     { label: 'Validation', path: '/validation/runs', icon: ShieldCheck, activeFor: ['/validation'] },
   ],
   [
-    { label: 'OS Images', path: '/provisioning/images', icon: Disc3, activeFor: ['/provisioning/images'] },
-    {
-      label: 'Deployment Templates',
-      path: '/provisioning/templates',
-      icon: FileStack,
-      activeFor: ['/provisioning/templates'],
-    },
     { label: 'Infrastructure', path: '/infrastructure/sites', icon: Network, activeFor: ['/infrastructure'], adminOnly: true },
     { label: 'Pools', path: '/pools', icon: UsersRound, activeFor: ['/pools'] },
     { label: 'Users', path: '/users', icon: UserCog, activeFor: ['/users'], adminOnly: true },
@@ -94,9 +98,12 @@ function isEntryActive(entry: NavEntry, pathname: string): boolean {
 interface NavLinkProps {
   entry: NavEntry
   active: boolean
+  /** Applies group-active styling without incorrectly announcing the parent as the current page. */
+  highlighted?: boolean
   collapsed: boolean
   href: string
   onNavigate?: () => void
+  nested?: boolean
 }
 
 /**
@@ -105,7 +112,7 @@ interface NavLinkProps {
  * The active marker combines `aria-current`, colour, fill, and a leading rule.
  * Collapsed labels move into a tooltip while the anchor keeps its accessible name.
  */
-function NavLink({ entry, active, collapsed, href, onNavigate }: NavLinkProps) {
+function NavLink({ entry, active, highlighted = active, collapsed, href, onNavigate, nested = false }: NavLinkProps) {
   const Icon = entry.icon
   const link = (
     <ChakraLink
@@ -113,17 +120,18 @@ function NavLink({ entry, active, collapsed, href, onNavigate }: NavLinkProps) {
       aria-current={active ? 'page' : undefined}
       aria-label={collapsed ? entry.label : undefined}
       display="flex"
+      width="full"
       alignItems="center"
       justifyContent={collapsed ? 'center' : 'flex-start'}
       gap="2"
-      minH="10"
+      minH={nested ? '9' : '10'}
       position="relative"
       rounded="lg"
-      px={collapsed ? '0' : '2'}
-      fontSize="sm"
+      px={collapsed ? '0' : nested ? '2.5' : '2'}
+      fontSize={nested ? 'xs' : 'sm'}
       fontWeight="medium"
-      color={active ? 'brand.fg' : 'fg.muted'}
-      bg={active ? 'brand.subtle' : 'transparent'}
+      color={highlighted ? 'brand.fg' : 'fg.muted'}
+      bg={highlighted ? 'brand.subtle' : 'transparent'}
       _before={active ? {
         content: '""',
         position: 'absolute',
@@ -135,8 +143,8 @@ function NavLink({ entry, active, collapsed, href, onNavigate }: NavLinkProps) {
         bg: 'brand.solid',
       } : undefined}
       _hover={{
-        bg: active ? 'brand.subtle' : 'bg.muted',
-        color: active ? 'brand.fg' : 'fg',
+        bg: highlighted ? 'brand.subtle' : 'bg.muted',
+        color: highlighted ? 'brand.fg' : 'fg',
         textDecoration: 'none',
         transform: 'translateX(1px)',
       }}
@@ -152,10 +160,10 @@ function NavLink({ entry, active, collapsed, href, onNavigate }: NavLinkProps) {
           w="7"
           h="7"
           rounded="md"
-          bg={active ? 'brand.muted' : 'transparent'}
+          bg={highlighted ? 'brand.muted' : 'transparent'}
           flexShrink="0"
         >
-          <Icon size={17} aria-hidden />
+          <Icon size={nested ? 15 : 17} aria-hidden />
         </Box>
         {!collapsed && <span>{entry.label}</span>}
       </RouterLink>
@@ -169,6 +177,65 @@ function NavLink({ entry, active, collapsed, href, onNavigate }: NavLinkProps) {
   ) : link
 }
 
+interface CollapsedNavGroupProps {
+  entry: NavEntry
+  pathname: string
+  scopedHref: (path: string) => string
+  onNavigate?: () => void
+}
+
+/** Icon-rail flyout that keeps the parent destination and its disclosed resources reachable. */
+function CollapsedNavGroup({ entry, pathname, scopedHref, onNavigate }: CollapsedNavGroupProps) {
+  const Icon = entry.icon
+  const destinations = [entry, ...(entry.children ?? [])]
+  const groupActive = destinations.some((destination) => isEntryActive(destination, pathname))
+
+  return (
+    <Menu.Root positioning={{ placement: 'right-start', gutter: 8 }}>
+      <Tooltip content={entry.label} positioning={{ placement: 'right' }} showArrow>
+        <Menu.Trigger asChild>
+          <Button
+            variant="ghost"
+            width="full"
+            minW="0"
+            minH="10"
+            px="0"
+            rounded="lg"
+            color={groupActive ? 'brand.fg' : 'fg.muted'}
+            bg={groupActive ? 'brand.subtle' : 'transparent'}
+            aria-label={`${entry.label} navigation`}
+            _hover={{ bg: groupActive ? 'brand.subtle' : 'bg.muted', color: groupActive ? 'brand.fg' : 'fg' }}
+          >
+            <Icon size={17} aria-hidden />
+          </Button>
+        </Menu.Trigger>
+      </Tooltip>
+      <Portal>
+        <Menu.Positioner>
+          <Menu.Content minW="11rem" boxShadow="floating">
+            {destinations.map((destination) => {
+              const DestinationIcon = destination.icon
+              const active = isEntryActive(destination, pathname)
+              return (
+                <Menu.Item key={destination.path} value={destination.path} asChild>
+                  <RouterLink
+                    to={scopedHref(destination.path)}
+                    aria-current={active ? 'page' : undefined}
+                    onClick={() => onNavigate?.()}
+                  >
+                    <DestinationIcon size={15} aria-hidden />
+                    {destination.label}
+                  </RouterLink>
+                </Menu.Item>
+              )
+            })}
+          </Menu.Content>
+        </Menu.Positioner>
+      </Portal>
+    </Menu.Root>
+  )
+}
+
 /**
  * Scope-preserving primary navigation shared by the desktop rail and mobile drawer.
  *
@@ -178,8 +245,8 @@ function NavLink({ entry, active, collapsed, href, onNavigate }: NavLinkProps) {
  * destinations for every other user; their routes are guarded separately (and the API refuses
  * what the user may not read), so this only keeps navigation honest.
  *
- * Assistive technology gets one `nav` holding one flat list: the rules between sections
- * are hidden list items, so they neither count as entries nor split the list.
+ * Assistive technology gets one `nav`; Server preparation resources form a nested list whose
+ * parent link and disclosure control stay independent, so opening the group never navigates.
  */
 export function ConsoleSideNav({ collapsed, onNavigate }: ConsoleSideNavProps) {
   const location = useLocation()
@@ -191,6 +258,7 @@ export function ConsoleSideNav({ collapsed, onNavigate }: ConsoleSideNavProps) {
   const sections = NAVIGATION
     .map((section) => section.filter(shown))
     .filter((section) => section.length > 0)
+  const [groupOverrides, setGroupOverrides] = useState<Record<string, boolean>>({})
 
   return (
     <Flex direction="column" h="100%" w="full" bg="bg.panel" px="2" py="3">
@@ -221,17 +289,89 @@ export function ConsoleSideNav({ collapsed, onNavigate }: ConsoleSideNavProps) {
                   <Separator />
                 </Box>
               )}
-              {section.map((entry) => (
-                <Box as="li" key={entry.path}>
-                  <NavLink
-                    entry={entry}
-                    active={isEntryActive(entry, location.pathname)}
-                    collapsed={collapsed}
-                    href={scopedHref(entry.path)}
-                    onNavigate={onNavigate}
-                  />
-                </Box>
-              ))}
+              {section.map((entry) => {
+                const children = entry.children?.filter(shown) ?? []
+                if (children.length === 0) {
+                  return (
+                    <Box as="li" key={entry.path}>
+                      <NavLink
+                        entry={entry}
+                        active={isEntryActive(entry, location.pathname)}
+                        collapsed={collapsed}
+                        href={scopedHref(entry.path)}
+                        onNavigate={onNavigate}
+                      />
+                    </Box>
+                  )
+                }
+                if (collapsed) {
+                  return (
+                    <Box as="li" key={entry.path}>
+                      <CollapsedNavGroup
+                        entry={{ ...entry, children }}
+                        pathname={location.pathname}
+                        scopedHref={scopedHref}
+                        onNavigate={onNavigate}
+                      />
+                    </Box>
+                  )
+                }
+
+                const childActive = children.some((child) => isEntryActive(child, location.pathname))
+                const parentActive = isEntryActive(entry, location.pathname)
+                const overrideKey = `${entry.path}:${location.pathname}`
+                const expanded = groupOverrides[overrideKey] ?? childActive
+                const disclosureId = `${entry.path.slice(1).replaceAll('/', '-')}-resources`
+                return (
+                  <Box as="li" key={entry.path}>
+                    <Flex align="center" gap="1">
+                      <NavLink
+                        entry={entry}
+                        active={parentActive}
+                        highlighted={parentActive || childActive}
+                        collapsed={false}
+                        href={scopedHref(entry.path)}
+                        onNavigate={onNavigate}
+                      />
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        minW="8"
+                        width="8"
+                        height="8"
+                        px="0"
+                        flexShrink="0"
+                        aria-label={`${expanded ? 'Collapse' : 'Expand'} ${entry.label} navigation`}
+                        aria-expanded={expanded}
+                        aria-controls={disclosureId}
+                        onClick={() => setGroupOverrides((current) => ({ ...current, [overrideKey]: !expanded }))}
+                      >
+                        <ChevronDown
+                          size={15}
+                          aria-hidden
+                          style={{ transform: expanded ? 'rotate(180deg)' : undefined, transition: 'transform 170ms ease' }}
+                        />
+                      </Button>
+                    </Flex>
+                    {expanded && (
+                      <Stack as="ul" id={disclosureId} gap="1" ps="7" pt="1">
+                        {children.map((child) => (
+                          <Box as="li" key={child.path}>
+                            <NavLink
+                              entry={child}
+                              active={isEntryActive(child, location.pathname)}
+                              collapsed={false}
+                              href={scopedHref(child.path)}
+                              onNavigate={onNavigate}
+                              nested
+                            />
+                          </Box>
+                        ))}
+                      </Stack>
+                    )}
+                  </Box>
+                )
+              })}
             </Fragment>
           ))}
         </Stack>

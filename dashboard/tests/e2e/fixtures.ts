@@ -590,6 +590,8 @@ export interface FixtureOptions {
   onSlurmRescanRequest?: (platformId: string, serverId: string) => void
   /** Receives each Deployment Template create and update body. */
   onTemplateRequest?: (method: 'POST' | 'PATCH', body: Record<string, unknown>) => void
+  /** Adjusts the Deployment Template catalog for card resolution and empty-state journeys. */
+  templateCatalogScenario?: 'empty' | 'missing-image' | 'multi-architecture'
   /**
    * Makes the first Slurm spec write answer `409 conflict` as if another write had changed the spec
    * since it was read; the stored generation moves on, so a retry that reads again succeeds.
@@ -1455,6 +1457,16 @@ export async function approvePlatformInstall(page: Page, platformId = 'platform-
 export async function installApiFixtures(page: Page, options: FixtureOptions = {}) {
   const imageCatalog = [
     ...osImages,
+    ...(options.templateCatalogScenario === 'multi-architecture'
+      ? [catalogImage({
+          id: 'ubuntu/jammy',
+          name: 'Ubuntu Jammy ARM variant',
+          osSystem: 'ubuntu',
+          release: 'jammy',
+          architecture: 'arm64',
+          builtinDefaultUser: 'ubuntu',
+        })]
+      : []),
     ...(options.untestedCustomImage
       ? [catalogImage({ id: 'golden-custom', name: 'Golden Custom', osSystem: 'custom', release: 'golden', spec: { tags: ['golden'] } })]
       : []),
@@ -1907,7 +1919,12 @@ export async function installApiFixtures(page: Page, options: FixtureOptions = {
     fleet[1].status.source.integrationId = options.secondReadyServerIntegrationId
     fleet[1].status.provisioning.integrationId = options.secondReadyServerIntegrationId
   }
-  let deploymentTemplates = baseDeploymentTemplates.map((template) => ({ ...template }))
+  let deploymentTemplates = options.templateCatalogScenario === 'empty'
+    ? []
+    : baseDeploymentTemplates.map((template, index) => ({
+        ...template,
+        ...(options.templateCatalogScenario === 'missing-image' && index === 0 ? { imageId: 'missing/image' } : {}),
+      }))
   // Recorded OS image upload intents by upload id; a content request consumes its upload, as the
   // contract's single-use uploads do.
   const imageUploads = new Map<string, Record<string, unknown>>()

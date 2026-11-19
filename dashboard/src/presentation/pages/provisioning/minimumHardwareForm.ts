@@ -1,4 +1,4 @@
-import type { DeploymentTemplateUse, MinimumHardware } from '@/domain/provisioning/types'
+import type { MinimumHardware } from '@/domain/provisioning/types'
 
 /**
  * The template editor's minimum hardware inputs as typed text (provisioning.md "Deployment
@@ -66,7 +66,7 @@ export function minimumHardwareIsEmpty(minimum: MinimumHardware): boolean {
   return Object.values(minimum).every((value) => value === null)
 }
 
-/** A floor in words for the table and cards, for example "32 cores · 256 GiB · 8× MI300X"; "None" without one. */
+/** A floor in words for recipe cards, for example "32 cores · 256 GiB · 8× MI300X"; "None" without one. */
 export function formatMinimumHardware(minimum: MinimumHardware | null): string {
   if (!minimum || minimumHardwareIsEmpty(minimum)) return 'None'
   const parts: string[] = []
@@ -77,10 +77,4 @@ export function formatMinimumHardware(minimum: MinimumHardware | null): string {
     parts.push(`${minimum.gpuCount ?? 'any number of'} ${minimum.gpuModel ?? ''} GPUs`.replace(/\s+/g, ' ').trim())
   }
   return parts.join(' · ')
-}
-
-/** Who installs from a template, for example "lab-slurm (mi308x)"; "Not used" when nobody does. */
-export function formatTemplateUses(uses: readonly DeploymentTemplateUse[]): string {
-  if (uses.length === 0) return 'Not used'
-  return uses.map((use) => `${use.platformName} (${use.group})`).join(', ')
 }

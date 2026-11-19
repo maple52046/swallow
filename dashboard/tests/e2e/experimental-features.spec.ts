@@ -30,7 +30,7 @@ test('Experimental features are on in development and switch live from the accou
   for (const label of ['Alerts', 'OS image upload', 'Virtual machines']) {
     await expect(dialog.getByLabel(label, { exact: true })).toBeChecked()
   }
-  for (const released of ['Monitoring', 'Validation', 'Deployment Templates']) {
+  for (const released of ['Monitoring', 'Validation']) {
     await expect(dialog.getByLabel(released, { exact: true })).toHaveCount(0)
   }
 
@@ -134,7 +134,9 @@ test.describe('with every in-development feature hidden (the release view)', () 
     await expect(page.getByRole('menuitem', { name: 'Test deployment' })).toBeVisible()
     await expect(page.getByRole('menuitem', { name: 'Create deployment template' })).toBeVisible()
     await page.keyboard.press('Escape')
-    await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Deployment Templates' })).toBeVisible()
+    const navigation = page.getByRole('navigation', { name: 'Primary navigation' })
+    await expect(navigation.getByRole('button', { name: 'Collapse Servers navigation' })).toHaveAttribute('aria-expanded', 'true')
+    await expect(navigation.getByRole('link', { name: 'Template', exact: true })).toBeVisible()
 
     await page.goto('/provisioning/templates?site=site-a')
     await expect(page).toHaveURL('/provisioning/templates?site=site-a')

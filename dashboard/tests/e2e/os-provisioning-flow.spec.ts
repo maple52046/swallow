@@ -48,7 +48,7 @@ test('Provisioning opens OS Images, a page without tabs', async ({ page }) => {
 test('Deployment Templates is its own page without tabs, reached from the sidebar', async ({ page }) => {
   await installApiFixtures(page, { singleSite: true })
   await page.goto('/provisioning/images?site=site-a')
-  await page.getByTestId('desktop-navigation').getByRole('link', { name: 'Deployment Templates' }).click()
+  await page.getByTestId('desktop-navigation').getByRole('link', { name: 'Template', exact: true }).click()
 
   await expect(page).toHaveURL('/provisioning/templates?site=site-a')
   await expect(page.getByRole('heading', { name: 'Deployment Templates', level: 1 })).toBeVisible()

@@ -13,7 +13,7 @@ consumer of the provider-owned HTTP contract and binds only real API adapters.
 | `/` | Site-scoped overview and attention items |
 | `/servers`, `/servers/:id/*` | Inventory, actions, activity, monitoring, containers, network, storage, PCI |
 | `/provisioning/images` | OS Images: OS images, upload, delete, and verification |
-| `/provisioning/templates` | OS Images: Deployment Templates |
+| `/provisioning/templates` | Pool-grouped Deployment Template recipe catalog and two-step editor |
 | `/platforms`, `/platforms/:id` | Kubernetes/Slurm Platform inventory and detail |
 | `/platforms/deploy` | Platform runtime catalog |
 | `/platforms/deploy/kubernetes`, `/platforms/deploy/slurm`, `/platforms/settings` | Runtime-specific Platform deployment and Slurm requirements |
@@ -35,7 +35,7 @@ consumer of the provider-owned HTTP contract and binds only real API adapters.
 redirects.
 
 Alerts (the alert list and acknowledging on Monitoring, the Overview Alerts card), OS
-image upload, Deployment Templates, and libvirt virtual machine enrollment are still
+image upload, and libvirt virtual machine enrollment are still
 in development. Release builds
 (`npm run build`) hide them: their routes show Not Found or redirect, and values kept
 on shared pages (such as the Overview Alerts card) read "Not available in this

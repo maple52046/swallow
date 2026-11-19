@@ -32,7 +32,14 @@ Deployment Template 保存可重用的 user choice，不是 executable automatio
 它可以預選 image 與 settings，但 deployment request 仍會驗證每個 current target。
 Template 絕不繞過目前 eligibility。
 
-template 在側邊欄 OS Images 旁的 **Deployment Templates** 頁面。每個 template 屬於建立時選定的 Pool，並記下建立者。
+template 位於側邊欄 **Servers** 收合群組下、標示為 **Template** 的 **Deployment Templates** 頁面。
+頁面不是 deployment 入口，而是依 Pool 分組的兩欄 recipe card catalog（mobile 為單欄）。Search 會比對
+recipe、effective image、Pool、Integration 與使用它的 Platform；展開 **Technical details** 可查看 source id、
+完整 network／hardware facts、image architecture，以及相關 Platform 的連結。
+
+建立或編輯分成 **Template & image** 與 **Deployment settings** 兩步。Cloud-init 是 write-only：建立時可加入，
+既有值只會顯示 Configured 或 Not configured，且必須透過獨立確認流程 Replace 或 Remove；一般 metadata save
+不會讀回 secret。每個 template 屬於建立時選定的 Pool，並記下建立者。
 Pool 的 member 看得到並能用它部署，owner 能建立、修改與刪除 Pool 的 template，只有 admin 能把 template 移到別的
 Pool；admin 看得到全部 template。建立者離開 Pool 時 template 仍屬於該 Pool。Platform 為節點群組產生的 template 屬於
 Platform 的 Pool，在 Pool 裡的 Platform 只使用該 Pool 的 template。template 可以設定最低硬體：CPU 核心數、

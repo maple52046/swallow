@@ -9,12 +9,16 @@ current session in the browser.
 ## Navigation
 
 The sidebar groups its areas into four sections separated by lines: Overview;
-Servers, Platforms, and Software; Monitoring and Activity; and OS Images,
-Deployment Templates, Infrastructure, Pools, and Users. It lists only the areas you
-can use: an admin sees all of them, and other users see Servers, Platforms, Software,
-Activity, Validation, OS Images, Deployment Templates, and Pools (see [Sessions and permissions](#sessions-and-permissions)). Collapse the sidebar to icons with the button at the top of the
-page (this browser remembers the choice); hovering or focusing an icon names it.
-On a phone, the menu button opens the same sidebar as a drawer.
+Servers, Platforms, and Software; Monitoring and Activity; and Infrastructure, Pools,
+and Users. **Servers** is both a link to the inventory and a collapsed navigation group:
+use its separate chevron to reveal **OS Images** and **Template**. Opening either child
+route reveals the group automatically. In the icon rail, the Servers icon opens the same
+three links as a flyout. It lists only the areas you can use: an admin sees all of them,
+and other users see Servers and its preparation resources, Platforms, Software, Activity,
+Validation, and Pools (see [Sessions and permissions](#sessions-and-permissions)). Collapse
+the sidebar to icons with the button at the top of the page (this browser remembers the
+choice); hovering or focusing an icon names it. On a phone, the menu button opens the same
+sidebar as a drawer.
 
 | Area | What it is for |
 | --- | --- |
@@ -25,7 +29,7 @@ On a phone, the menu button opens the same sidebar as a drawer.
 | Monitoring | Fleet health, usage charts for selected Servers, Pools, Zones, and Platforms, current metrics, optional Grafana links, and (in development) alerts and silences |
 | Activity | Two tabs. **Workflows**: durable execution state, Jobs, Tasks, events, logs, cancel, rerun, and retry. **Change Plans**: plans for destructive Platform changes, the ones waiting for approval or rejection, the record of approved ones, and the safety switch |
 | OS Images | The OS images Servers are deployed with: the catalog, which modes each image supports, and Deploy. An admin also uploads, edits, tests, and deletes images; other users see every image, refresh the catalog, and deploy an image to the Servers of the Pools they own |
-| Deployment Templates | Reusable deployment settings for an OS image: Disk or RAM, network, and optional cloud-init. Each belongs to a Pool: its members see and use it, its owners create and change it, and an admin sees every template and moves one to another Pool |
+| Deployment Templates (**Template** in the sidebar) | A Pool-grouped catalog of reusable deployment recipes for an OS image: Disk or RAM, network, minimum hardware, and optional write-only cloud-init. Members see and use their Pool's templates, owners create and change them, and an admin sees every template and moves one to another Pool |
 | Infrastructure | Sites, Integrations, Zones, credentials, automation settings, the Site's local repository (where deployments fetch artifacts, its sources, sync state, and content; see [Initial setup](initial-setup.md#4-register-the-local-repository)), and [Boot ISOs](#boot-isos-and-server-boot-media) |
 | Pools | The Pools you belong to (an admin sees every Pool of the installation and creates, renames, and deletes them); each Pool's members, their Pool Role, and who has sudo on its Servers |
 | Users (admins) | Accounts, the access settings, the Directory's status, and recent access changes |

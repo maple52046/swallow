@@ -17,27 +17,28 @@ function desktopNavigation(page: Page) {
   return page.getByTestId('desktop-navigation').getByRole('navigation', { name: 'Primary navigation' })
 }
 
-test('the sidebar lists its sections in one flat list with OS Images above Infrastructure', async ({ page }) => {
+test('the sidebar groups Server preparation links and auto-expands on a child route', async ({ page }) => {
   await page.goto('/provisioning/images?site=site-a')
   const nav = desktopNavigation(page)
 
-  await expect(nav.getByRole('link')).toHaveText(['Overview', 'Servers', 'Platforms', 'Software', 'Monitoring', 'Activity', 'Validation', 'OS Images', 'Deployment Templates', 'Infrastructure', 'Pools', 'Users'])
-  // The rules between the four sections are drawn but hidden from assistive technology, so the
-  // list counts only destinations; there is no section label.
+  await expect(nav.getByRole('link')).toHaveText(['Overview', 'Servers', 'OS Images', 'Template', 'Platforms', 'Software', 'Monitoring', 'Activity', 'Validation', 'Infrastructure', 'Pools', 'Users'])
   await expect(nav.locator('[role="separator"]')).toHaveCount(3)
   await expect(nav.getByRole('separator')).toHaveCount(0)
-  await expect(nav.getByRole('listitem')).toHaveCount(12)
   await expect(page.getByTestId('desktop-navigation').getByText('Workspace', { exact: true })).toHaveCount(0)
   for (const retired of ['Provisioning', 'Workflows', 'Change Plans']) {
     await expect(nav.getByRole('link', { name: retired })).toHaveCount(0)
   }
 
-  // OS Images is an entry of the flat list, not nested in another item, and the only current entry.
-  await expect(nav.getByRole('list')).toHaveCount(1)
+  await expect(nav.getByRole('list')).toHaveCount(2)
+  await expect(nav.getByRole('button', { name: 'Collapse Servers navigation' })).toHaveAttribute('aria-expanded', 'true')
   const osImages = nav.getByRole('link', { name: 'OS Images', exact: true })
   await expect(osImages).toHaveAttribute('aria-current', 'page')
   await expect(osImages).toHaveAttribute('href', '/provisioning/images?site=site-a')
   await expect(nav.getByRole('link', { name: 'Servers', exact: true })).not.toHaveAttribute('aria-current', 'page')
+
+  await nav.getByRole('button', { name: 'Collapse Servers navigation' }).click()
+  await expect(nav.getByRole('link', { name: 'OS Images', exact: true })).toHaveCount(0)
+  await expect(nav.getByRole('link', { name: 'Servers', exact: true })).toBeVisible()
 })
 
 test('each sidebar entry is current on its own routes only', async ({ page }) => {
@@ -47,7 +48,7 @@ test('each sidebar entry is current on its own routes only', async ({ page }) =>
     { path: '/servers?site=site-a', current: 'Servers' },
     { path: '/servers/srv-1/summary?site=site-a', current: 'Servers' },
     { path: '/provisioning/images?site=site-a', current: 'OS Images' },
-    { path: '/provisioning/templates?site=site-a', current: 'Deployment Templates' },
+    { path: '/provisioning/templates?site=site-a', current: 'Template' },
     { path: '/workflows?site=site-a', current: 'Activity' },
     { path: '/change-plans?site=site-a', current: 'Activity' },
     { path: '/validation/runs/run-failed?site=site-a', current: 'Validation' },
@@ -60,25 +61,23 @@ test('each sidebar entry is current on its own routes only', async ({ page }) =>
   }
 })
 
-test('the collapsed rail shows every entry as an icon whose tooltip names it', async ({ page }) => {
+test('the collapsed rail exposes Server resources through an accessible flyout', async ({ page }) => {
   await page.goto('/servers?site=site-a')
   const rail = page.getByTestId('desktop-navigation')
   await page.getByRole('button', { name: 'Toggle navigation' }).click()
   await expect.poll(() => rail.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBe(64)
 
   const nav = desktopNavigation(page)
-  await expect(nav.getByRole('link')).toHaveText(['', '', '', '', '', '', '', '', '', '', '', ''])
-  const osImages = nav.getByRole('link', { name: 'OS Images', exact: true })
-  await osImages.hover()
-  await expect(page.getByRole('tooltip', { name: 'OS Images', exact: true })).toBeVisible()
-
-  // Keyboard users reach it in list order and it navigates like any entry.
-  await nav.getByRole('link', { name: 'Validation', exact: true }).focus()
-  await page.keyboard.press('Tab')
-  await expect(osImages).toBeFocused()
+  const serverResources = nav.getByRole('button', { name: 'Servers navigation' })
+  await serverResources.hover()
+  await expect(page.getByRole('tooltip', { name: 'Servers', exact: true })).toBeVisible()
+  await serverResources.focus()
+  await page.keyboard.press('Enter')
+  const menu = page.getByRole('menu')
+  await expect(menu.getByRole('menuitem')).toHaveText(['Servers', 'OS Images', 'Template'])
+  await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL('/provisioning/images?site=site-a')
-  await expect(osImages).toHaveAttribute('aria-current', 'page')
 })
 
 test('the mobile drawer shows the same sections and closes after choosing an entry', async ({ page }) => {
@@ -86,9 +85,11 @@ test('the mobile drawer shows the same sections and closes after choosing an ent
   await page.goto('/?site=site-a')
   await page.getByRole('button', { name: 'Open navigation' }).click()
   const nav = page.getByRole('dialog').getByRole('navigation', { name: 'Primary navigation' })
-  await expect(nav.getByRole('link')).toHaveText(['Overview', 'Servers', 'Platforms', 'Software', 'Monitoring', 'Activity', 'Validation', 'OS Images', 'Deployment Templates', 'Infrastructure', 'Pools', 'Users'])
+  await expect(nav.getByRole('link')).toHaveText(['Overview', 'Servers', 'Platforms', 'Software', 'Monitoring', 'Activity', 'Validation', 'Infrastructure', 'Pools', 'Users'])
   await expect(nav.locator('[role="separator"]')).toHaveCount(3)
 
+  await nav.getByRole('button', { name: 'Expand Servers navigation' }).click()
+  await expect(nav.getByRole('link', { name: 'Template', exact: true })).toBeVisible()
   await nav.getByRole('link', { name: 'OS Images' }).click()
   await expect(page).toHaveURL('/provisioning/images?site=site-a')
   await expect(nav).toBeHidden()
